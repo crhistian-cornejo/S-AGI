@@ -1,4 +1,16 @@
+<p align="center">
+  <img src="build/logo.svg" width="128" alt="S-AGI Logo" />
+</p>
+
 # S-AGI - AI Spreadsheet Agent
+
+<p align="center">
+  <img src="https://img.shields.io/badge/version-0.1.0-blue.svg" alt="Version" />
+  <img src="https://img.shields.io/badge/license-Apache--2.0-green.svg" alt="License" />
+  <img src="https://img.shields.io/badge/electron-33.4.5-informational.svg" alt="Electron" />
+  <img src="https://img.shields.io/badge/runtime-Bun-black.svg" alt="Bun" />
+</p>
+
 
 AI-powered chat assistant for creating spreadsheets, tables, and formulas using Univer.
 

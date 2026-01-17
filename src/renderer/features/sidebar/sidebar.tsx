@@ -1,35 +1,49 @@
+import { useState } from 'react'
 import { useAtom, useAtomValue, useSetAtom } from 'jotai'
 import {
     IconPlus,
     IconMessage,
     IconSettings,
-    IconMoon,
-    IconSun,
     IconBrandOpenai,
     IconBrain,
     IconDots,
     IconTrash,
     IconPencil,
-    IconArchive
+    IconArchive,
+    IconUser,
+    IconLogout,
+    IconLayoutSidebarLeftCollapse,
+    IconSearch
 } from '@tabler/icons-react'
-import { useTheme } from 'next-themes'
+import { trpc } from '@/lib/trpc'
 import {
     selectedChatIdAtom,
     currentProviderAtom,
-    settingsModalOpenAtom
+    settingsModalOpenAtom,
+    sidebarOpenAtom,
+    selectedArtifactAtom,
+    artifactPanelOpenAtom
 } from '@/lib/atoms'
-import { trpc } from '@/lib/trpc'
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { Input } from '@/components/ui/input'
+
 import {
     DropdownMenu,
     DropdownMenuContent,
     DropdownMenuItem,
     DropdownMenuSeparator,
-    DropdownMenuTrigger
+    DropdownMenuTrigger,
+    DropdownMenuLabel
 } from '@/components/ui/dropdown-menu'
+import {
+    Avatar,
+    AvatarImage,
+    AvatarFallback
+} from '@/components/ui/avatar'
 import { cn, formatRelativeTime } from '@/lib/utils'
+import { useHotkeys } from 'react-hotkeys-hook'
 
 interface Chat {
     id: string
@@ -42,7 +56,10 @@ export function Sidebar() {
     const [selectedChatId, setSelectedChatId] = useAtom(selectedChatIdAtom)
     const provider = useAtomValue(currentProviderAtom)
     const setSettingsOpen = useSetAtom(settingsModalOpenAtom)
-    const { resolvedTheme, setTheme } = useTheme()
+    const [, setSidebarOpen] = useAtom(sidebarOpenAtom)
+    const setSelectedArtifact = useSetAtom(selectedArtifactAtom)
+    const setArtifactPanelOpen = useSetAtom(artifactPanelOpenAtom)
+    const [searchQuery, setSearchQuery] = useState('')
 
     // Get API key status from main process
     const { data: keyStatus } = trpc.settings.getApiKeyStatus.useQuery()
@@ -50,35 +67,63 @@ export function Sidebar() {
     // Connection status from tRPC
     const isConnected = provider === 'openai' ? keyStatus?.hasOpenAI : keyStatus?.hasAnthropic
 
+    // Fetch session
+    const { data: session } = trpc.auth.getSession.useQuery()
+    const user = session?.user
+
     // Fetch chats
     const { data: chats, isLoading, refetch } = trpc.chats.list.useQuery({})
-    
+
+    // Filter chats based on search query
+    const filteredChats = chats?.filter(chat =>
+        (chat.title || 'Untitled').toLowerCase().includes(searchQuery.toLowerCase())
+    )
+
     const createChat = trpc.chats.create.useMutation({
         onSuccess: (chat: Chat) => {
             console.log('[Sidebar] Chat created:', chat.id)
             setSelectedChatId(chat.id)
+            setSelectedArtifact(null)
+            setArtifactPanelOpen(false)
             refetch()
         },
         onError: (error) => {
             console.error('[Sidebar] Failed to create chat:', error)
         }
     })
-    
+
     const deleteChat = trpc.chats.delete.useMutation({
         onSuccess: () => {
             refetch()
         }
     })
-    
+
     const archiveChat = trpc.chats.archive.useMutation({
         onSuccess: () => {
             refetch()
         }
     })
 
+    const utils = trpc.useUtils()
+
+    const signOut = trpc.auth.signOut.useMutation({
+        onSuccess: () => {
+            window.desktopApi?.setSession(null)
+            utils.auth.getSession.invalidate()
+        }
+    })
+
     const handleNewChat = () => {
         createChat.mutate({ title: 'New Chat' })
     }
+
+    const handleChatSelect = (chatId: string) => {
+        setSelectedChatId(chatId)
+        setSelectedArtifact(null)
+        setArtifactPanelOpen(false)
+    }
+
+
 
     const handleDeleteChat = (chatId: string) => {
         deleteChat.mutate({ id: chatId })
@@ -94,22 +139,52 @@ export function Sidebar() {
         }
     }
 
-    const toggleTheme = () => {
-        setTheme(resolvedTheme === 'dark' ? 'light' : 'dark')
-    }
+
 
     return (
         <div className="flex flex-col h-full">
-            {/* Header */}
-            <div className="p-3">
-                <Button
-                    className="w-full justify-start gap-2"
-                    onClick={handleNewChat}
-                    disabled={createChat.isPending}
-                >
-                    <IconPlus size={16} />
-                    New Chat
-                </Button>
+            {/* Header / New Chat */}
+            <div className="p-3 flex items-center gap-2">
+                <Tooltip>
+                    <TooltipTrigger asChild>
+                        <Button
+                            className="flex-1 justify-start gap-2 h-9 rounded-xl"
+                            onClick={handleNewChat}
+                            disabled={createChat.isPending}
+                        >
+                            <IconPlus size={16} />
+                            <span>New Chat</span>
+                        </Button>
+                    </TooltipTrigger>
+                    <TooltipContent side="bottom">New Conversation</TooltipContent>
+                </Tooltip>
+
+                <Tooltip>
+                    <TooltipTrigger asChild>
+                        <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-9 w-9 text-muted-foreground hover:text-foreground rounded-xl shrink-0"
+                            onClick={() => setSidebarOpen(false)}
+                        >
+                            <IconLayoutSidebarLeftCollapse size={18} />
+                        </Button>
+                    </TooltipTrigger>
+                    <TooltipContent side="bottom">Collapse Sidebar</TooltipContent>
+                </Tooltip>
+            </div>
+
+            {/* Search Bar */}
+            <div className="px-3 pb-2">
+                <div className="relative group">
+                    <IconSearch size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground group-focus-within:text-primary transition-colors" />
+                    <Input
+                        placeholder="Search conversations..."
+                        className="pl-9 h-9 bg-accent/30 border-none rounded-xl text-xs placeholder:text-muted-foreground/50 focus-visible:ring-1 focus-visible:ring-primary/20 transition-all"
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                    />
+                </div>
             </div>
 
             {/* Chat list */}
@@ -119,14 +194,13 @@ export function Sidebar() {
                         <div className="flex items-center justify-center py-8">
                             <div className="h-5 w-5 animate-spin rounded-full border-2 border-primary border-t-transparent" />
                         </div>
-                    ) : !chats?.length ? (
+                    ) : !filteredChats?.length ? (
                         <div className="text-sm text-muted-foreground text-center py-8 px-4">
                             <IconMessage size={32} className="mx-auto mb-2 opacity-30" />
-                            <p>No chats yet</p>
-                            <p className="text-xs mt-1">Create a new chat to get started</p>
+                            <p>{searchQuery ? 'No results found' : 'No conversations yet'}</p>
                         </div>
                     ) : (
-                        chats.map((chat: Chat) => (
+                        filteredChats.map((chat: Chat) => (
                             <div
                                 key={chat.id}
                                 className={cn(
@@ -135,7 +209,7 @@ export function Sidebar() {
                                         ? 'bg-accent text-accent-foreground'
                                         : 'text-foreground/80 hover:bg-accent/50'
                                 )}
-                                onClick={() => setSelectedChatId(chat.id)}
+                                onClick={() => handleChatSelect(chat.id)}
                             >
                                 <IconMessage size={16} className="shrink-0 opacity-60" />
                                 <div className="flex-1 min-w-0">
@@ -168,7 +242,7 @@ export function Sidebar() {
                                         </DropdownMenuItem>
                                         <DropdownMenuSeparator />
                                         <DropdownMenuItem
-                                            className="text-destructive focus:text-destructive"
+                                            variant="destructive"
                                             onClick={() => handleDeleteChat(chat.id)}
                                         >
                                             <IconTrash size={14} className="mr-2" />
@@ -197,7 +271,7 @@ export function Sidebar() {
                     ) : (
                         <IconBrain size={18} className="shrink-0" />
                     )}
-                    <div className="flex-1 min-w-0">
+                    <div className="flex-1 min-w-0 text-left">
                         <p className="font-medium truncate">
                             {provider === 'openai' ? 'OpenAI' : 'Anthropic'}
                         </p>
@@ -213,39 +287,42 @@ export function Sidebar() {
                     />
                 </button>
 
-                {/* Actions */}
-                <div className="flex items-center justify-between">
-                    <Tooltip>
-                        <TooltipTrigger asChild>
-                            <Button
-                                variant="ghost"
-                                size="icon"
-                                className="h-8 w-8"
-                                onClick={toggleTheme}
-                            >
-                                {resolvedTheme === 'dark' ? (
-                                    <IconSun size={16} />
-                                ) : (
-                                    <IconMoon size={16} />
-                                )}
-                            </Button>
-                        </TooltipTrigger>
-                        <TooltipContent side="top">Toggle theme</TooltipContent>
-                    </Tooltip>
 
-                    <Tooltip>
-                        <TooltipTrigger asChild>
+                <div className="flex items-center justify-center">
+                    <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
                             <Button
                                 variant="ghost"
-                                size="icon"
-                                className="h-8 w-8"
-                                onClick={() => setSettingsOpen(true)}
+                                className="h-9 w-full justify-start gap-2 px-2 hover:bg-accent/50"
                             >
-                                <IconSettings size={16} />
+                                <Avatar className="h-6 w-6">
+                                    <AvatarImage src={user?.user_metadata?.avatar_url || user?.user_metadata?.picture} />
+                                    <AvatarFallback className="bg-primary/10">
+                                        {user?.email?.charAt(0).toUpperCase() || <IconUser size={14} />}
+                                    </AvatarFallback>
+                                </Avatar>
+                                <span className="flex-1 text-left truncate text-xs font-medium">
+                                    {user?.email || 'Not logged in'}
+                                </span>
+                                <IconDots size={14} className="opacity-40" />
                             </Button>
-                        </TooltipTrigger>
-                        <TooltipContent side="top">Settings</TooltipContent>
-                    </Tooltip>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="start" side="top" className="w-56">
+                            <DropdownMenuLabel>My Account</DropdownMenuLabel>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem onClick={() => setSettingsOpen(true)}>
+                                <IconSettings size={14} className="mr-2" />
+                                Settings
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                                variant="destructive"
+                                onClick={() => signOut.mutate()}
+                            >
+                                <IconLogout size={14} className="mr-2" />
+                                Sign out
+                            </DropdownMenuItem>
+                        </DropdownMenuContent>
+                    </DropdownMenu>
                 </div>
             </div>
         </div>

@@ -38,6 +38,15 @@ const desktopApi = {
         return () => {
             ipcRenderer.removeAllListeners('auth:oauth-tokens')
         }
+    },
+
+    // AI Stream listener
+    onAIStreamEvent: (callback: (event: any) => void) => {
+        const handler = (_: any, event: any) => callback(event)
+        ipcRenderer.on('ai:stream', handler)
+        return () => {
+            ipcRenderer.removeListener('ai:stream', handler)
+        }
     }
 }
 

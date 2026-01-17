@@ -8,6 +8,7 @@ import { TooltipProvider } from './components/ui/tooltip'
 import { MainLayout } from './features/layout/main-layout'
 import { SettingsDialog } from './features/settings/settings-dialog'
 import { AuthDialog, AuthGuard, OAuthCallbackHandler } from './features/auth'
+import { VSCodeThemeProvider } from './lib/themes'
 import { appStore } from './lib/stores/jotai-store'
 
 // Create React Query client
@@ -54,24 +55,26 @@ export function App() {
     return (
         <JotaiProvider store={appStore}>
             <QueryClientProvider client={queryClient}>
-                <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
-                    <TRPCProvider>
-                        <TooltipProvider delayDuration={100}>
-                            <OAuthCallbackHandler />
-                            <div
-                                data-sagi-app
-                                className="h-screen w-screen bg-background text-foreground overflow-hidden"
-                            >
-                                <AuthGuard>
-                                    <MainLayout />
-                                </AuthGuard>
-                            </div>
-                            <AuthDialog />
-                            <SettingsDialog />
-                            <ThemedToaster />
-                        </TooltipProvider>
-                    </TRPCProvider>
-                </ThemeProvider>
+                <VSCodeThemeProvider>
+                    <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
+                        <TRPCProvider>
+                            <TooltipProvider delayDuration={100}>
+                                <OAuthCallbackHandler />
+                                <div
+                                    data-sagi-app
+                                    className="h-screen w-screen bg-background text-foreground overflow-hidden"
+                                >
+                                    <AuthGuard>
+                                        <MainLayout />
+                                    </AuthGuard>
+                                </div>
+                                <AuthDialog />
+                                <SettingsDialog />
+                                <ThemedToaster />
+                            </TooltipProvider>
+                        </TRPCProvider>
+                    </ThemeProvider>
+                </VSCodeThemeProvider>
             </QueryClientProvider>
         </JotaiProvider>
     )

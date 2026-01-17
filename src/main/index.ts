@@ -7,55 +7,19 @@ import { createContext } from './lib/trpc/trpc'
 import { supabase } from './lib/supabase/client'
 import log from 'electron-log'
 
-// Configure logging
-log.transports.file.level = 'info'
-log.transports.console.level = 'debug'
 
-let mainWindow: BrowserWindow | null = null
-
-function createWindow(): void {
-    // Create the browser window
-    mainWindow = new BrowserWindow({
-        width: 1400,
-        height: 900,
-        minWidth: 800,
-        minHeight: 600,
-        show: false,
-        autoHideMenuBar: true,
-        frame: false, // Custom titlebar on all platforms
-        titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default',
-        trafficLightPosition: { x: 15, y: 10 },
-        backgroundColor: nativeTheme.shouldUseDarkColors ? '#0a0a0a' : '#ffffff',
-        icon: join(__dirname, '../../build/logo.ico'),
-        webPreferences: {
-            preload: join(__dirname, '../preload/index.js'),
-            sandbox: false,
-            contextIsolation: true,
-            nodeIntegration: false
-        }
-    })
-
-    mainWindow.on('ready-to-show', () => {
-        mainWindow?.show()
-    })
-
-    mainWindow.webContents.setWindowOpenHandler((details) => {
-        shell.openExternal(details.url)
-        return { action: 'deny' }
-    })
-
-    // Load the renderer
-    if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
-        mainWindow.loadURL(process.env['ELECTRON_RENDERER_URL'])
-    } else {
-        mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
-    }
-
-    // Open devtools in development
-    if (is.dev) {
-        mainWindow.webContents.openDevTools({ mode: 'detach' })
-    }
+// Load the renderer
+if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
+    mainWindow.loadURL(process.env['ELECTRON_RENDERER_URL'])
+} else {
+    mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
 }
+
+// Open devtools in development
+if (is.dev) {
+    mainWindow.webContents.openDevTools({ mode: 'detach' })
+}
+
 
 // Initialize tRPC IPC handler
 function setupTRPC(): void {
@@ -199,7 +163,7 @@ ipcMain.handle('auth:set-session', async (_, session: any) => {
             })
             if (error) throw error
             log.info('[Auth] Session synchronized successfully, user:', data.user?.id?.substring(0, 8) + '...')
-            
+
             // Verify it persisted
             const { data: { session: verifySession } } = await supabase.auth.getSession()
             log.info('[Auth] Verification - session exists:', !!verifySession, 'user:', verifySession?.user?.id?.substring(0, 8) + '...')

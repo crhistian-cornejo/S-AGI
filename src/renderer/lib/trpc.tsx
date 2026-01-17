@@ -14,12 +14,14 @@ import type { AppRouter } from "@shared/trpc-types"
  */
 export const trpc = createTRPCReact<AppRouter>()
 
-/**
- * Vanilla client for use outside React components (stores, utilities)
- */
-export const trpcClient = createTRPCProxyClient<AppRouter>({
-    links: [ipcLink({ transformer: superjson })],
-})
+// Global variable type for singleton preservation during HMR
+const globalForTRPC = window as unknown as {
+    __trpc_client__?: ReturnType<typeof trpc.createClient>
+    __query_client__?: QueryClient
+}
+
+// Global tRPC client instance for vanilla usage
+export let trpcClient: ReturnType<typeof trpc.createClient>
 
 // Global query client instance
 let globalQueryClient: QueryClient | null = null
@@ -33,6 +35,12 @@ export function getQueryClient(): QueryClient | null {
  */
 export function TRPCProvider({ children }: { children: ReactNode }) {
     const [queryClient] = useState(() => {
+        // Reuse existing client if available (HMR)
+        if (globalForTRPC.__query_client__) {
+            globalQueryClient = globalForTRPC.__query_client__
+            return globalForTRPC.__query_client__
+        }
+
         const client = new QueryClient({
             defaultOptions: {
                 queries: {
@@ -45,15 +53,27 @@ export function TRPCProvider({ children }: { children: ReactNode }) {
                 }
             }
         })
+
+        globalForTRPC.__query_client__ = client
         globalQueryClient = client
         return client
     })
 
-    const [trpcReactClient] = useState(() =>
-        trpc.createClient({
+    const [trpcReactClient] = useState(() => {
+        // Reuse existing client if available (HMR)
+        if (globalForTRPC.__trpc_client__) {
+            trpcClient = globalForTRPC.__trpc_client__
+            return globalForTRPC.__trpc_client__
+        }
+
+        const client = trpc.createClient({
             links: [ipcLink({ transformer: superjson })]
         })
-    )
+
+        globalForTRPC.__trpc_client__ = client
+        trpcClient = client // Store it for external use
+        return client
+    })
 
     return (
         <trpc.Provider client={trpcReactClient} queryClient={queryClient}>

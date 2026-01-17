@@ -13,6 +13,7 @@ import {
     overlayLabel,
     overlayShortcut,
     overlayChevron,
+    overlayItemDestructive,
 } from "@/lib/overlay-styles"
 
 const DropdownMenu = DropdownMenuPrimitive.Root
@@ -51,7 +52,7 @@ const DropdownMenuSubContent = React.forwardRef<
 >(({ className, ...props }, ref) => (
     <DropdownMenuPrimitive.SubContent
         ref={ref}
-        className={cn(overlayContent, "min-w-[8rem] py-1 dark", className)}
+        className={cn(overlayContent, "min-w-[8rem] py-1", className)}
         {...props}
     />
 ))
@@ -66,7 +67,7 @@ const DropdownMenuContent = React.forwardRef<
         <DropdownMenuPrimitive.Content
             ref={ref}
             sideOffset={sideOffset}
-            className={cn(overlayContent, "min-w-[8rem] py-1 dark", className)}
+            className={cn(overlayContent, "min-w-[8rem] py-1", className)}
             data-dropdown="true"
             {...props}
         />
@@ -78,11 +79,17 @@ const DropdownMenuItem = React.forwardRef<
     React.ElementRef<typeof DropdownMenuPrimitive.Item>,
     React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.Item> & {
         inset?: boolean
+        variant?: "default" | "destructive"
     }
->(({ className, inset, ...props }, ref) => (
+>(({ className, inset, variant = "default", ...props }, ref) => (
     <DropdownMenuPrimitive.Item
         ref={ref}
-        className={cn(overlayItemWithIcon, inset && "pl-8", className)}
+        className={cn(
+            overlayItemWithIcon,
+            variant === "destructive" && overlayItemDestructive,
+            inset && "pl-8",
+            className
+        )}
         {...props}
     />
 ))

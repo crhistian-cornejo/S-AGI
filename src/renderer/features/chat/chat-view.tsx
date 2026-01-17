@@ -8,6 +8,7 @@ import {
     currentProviderAtom,
     settingsModalOpenAtom,
     chatModeAtom,
+    selectedModelAtom,
     streamingTextAtom,
     streamingToolCallsAtom,
     streamingErrorAtom,
@@ -21,24 +22,28 @@ import { MessageList } from './message-list'
 import { ChatInput } from './chat-input'
 
 export function ChatView() {
+    // Force rebuild
     const selectedChatId = useAtomValue(selectedChatIdAtom)
     const [input, setInput] = useAtom(chatInputAtom)
     const [isStreaming, setIsStreaming] = useAtom(isStreamingAtom)
     const provider = useAtomValue(currentProviderAtom)
     const mode = useAtomValue(chatModeAtom)
     const setSettingsOpen = useSetAtom(settingsModalOpenAtom)
-    
+    const selectedModel = useAtomValue(selectedModelAtom)
+
     // Streaming state
     const [streamingText, setStreamingText] = useAtom(streamingTextAtom)
     const [streamingToolCalls, setStreamingToolCalls] = useAtom(streamingToolCallsAtom)
     const setStreamingError = useSetAtom(streamingErrorAtom)
-    
+
     // Artifact state
     const setSelectedArtifact = useSetAtom(selectedArtifactAtom)
     const setArtifactPanelOpen = useSetAtom(artifactPanelOpenAtom)
-    
-    // Abort controller ref
+
+    // Abort controller and scroll refs
     const abortRef = useRef<(() => void) | null>(null)
+    const messagesEndRef = useRef<HTMLDivElement>(null)
+    const scrollContainerRef = useRef<HTMLDivElement>(null)
 
     // Get key status from main process (persisted in safeStorage)
     const { data: keyStatus } = trpc.settings.getApiKeyStatus.useQuery()
@@ -56,81 +61,16 @@ export function ChatView() {
 
     // Mutations
     const addMessage = trpc.messages.add.useMutation()
-    const createArtifact = trpc.artifacts.create.useMutation()
+    const chatMutation = trpc.ai.chat.useMutation() // Added mutation
     const utils = trpc.useUtils()
-
-    // Build cell data for Univer
-    const buildCellData = useCallback((columns: string[], rows: unknown[][]) => {
-        const cellData: Record<number, Record<number, { v: unknown }>> = {}
-        
-        // Header row
-        cellData[0] = {}
-        columns.forEach((col, idx) => {
-            cellData[0][idx] = { v: col }
-        })
-        
-        // Data rows
-        rows.forEach((row, rowIdx) => {
-            cellData[rowIdx + 1] = {}
-            row.forEach((cell, colIdx) => {
-                cellData[rowIdx + 1][colIdx] = { v: cell }
-            })
-        })
-        
-        return cellData
-    }, [])
-
-    // Execute tool calls (create spreadsheet, etc.)
-    const executeToolCall = useCallback(async (toolName: string, args: unknown) => {
-        if (!selectedChatId) return null
-        
-        if (toolName === 'create_spreadsheet') {
-            const typedArgs = args as { name: string; columns: string[]; rows?: unknown[][] }
-            
-            // Build Univer data structure
-            const univerData = {
-                id: crypto.randomUUID(),
-                name: typedArgs.name,
-                sheetOrder: ['sheet1'],
-                sheets: {
-                    sheet1: {
-                        id: 'sheet1',
-                        name: typedArgs.name,
-                        rowCount: Math.max(100, (typedArgs.rows?.length || 0) + 10),
-                        columnCount: Math.max(26, typedArgs.columns.length + 5),
-                        cellData: buildCellData(typedArgs.columns, typedArgs.rows || [])
-                    }
-                }
-            }
-            
-            try {
-                const artifact = await createArtifact.mutateAsync({
-                    chatId: selectedChatId,
-                    type: 'spreadsheet',
-                    name: typedArgs.name,
-                    content: { columns: typedArgs.columns, rows: typedArgs.rows },
-                    univerData
-                })
-                
-                // Show the artifact panel
-                setSelectedArtifact(artifact as any)
-                setArtifactPanelOpen(true)
-                
-                return { success: true, artifactId: artifact.id, message: `Created spreadsheet "${typedArgs.name}"` }
-            } catch (error) {
-                return { success: false, error: String(error) }
-            }
-        }
-        
-        // TODO: Handle other tools (update_cells, insert_formula)
-        return { success: false, error: `Unknown tool: ${toolName}` }
-    }, [selectedChatId, createArtifact, setSelectedArtifact, setArtifactPanelOpen, buildCellData])
 
     // Handle send message
     const handleSend = async () => {
         if (!input.trim() || !selectedChatId || isStreaming) return
 
         const userMessage = input.trim()
+        const isFirstMessage = messages?.length === 0
+
         setInput('')
         setIsStreaming(true)
         setStreamingText('')
@@ -147,14 +87,18 @@ export function ChatView() {
             await refetchMessages()
 
             // Get API key from main process
-            const apiKeyResult = provider === 'openai' 
+            const apiKeyResult = provider === 'openai'
                 ? await trpcClient.settings.getOpenAIKey.query()
                 : await trpcClient.settings.getAnthropicKey.query()
-            
+
             if (!apiKeyResult.key) {
                 setStreamingError('API key not configured')
                 setIsStreaming(false)
                 return
+            }
+
+            if (isFirstMessage) {
+                generateAutoTitle(selectedChatId, userMessage, apiKeyResult.key, provider, selectedModel)
             }
 
             // Get conversation history for context
@@ -167,117 +111,123 @@ export function ChatView() {
 
             // Variables to track streaming response
             let fullText = ''
-            const toolCalls: Map<string, { id: string; name: string; args: string }> = new Map()
+            const toolCalls: Map<string, { id: string; name: string; args: string; result?: unknown }> = new Map()
 
-            // Subscribe to streaming
-            const subscription = trpcClient.claude.chat.subscribe({
+            // Setup IPC listener for streaming events
+            // @ts-ignore - desktopApi type extended in preload
+            const cleanupListener = window.desktopApi.onAIStreamEvent(async (event: any) => {
+                switch (event.type) {
+                    case 'text-delta':
+                        fullText += event.delta
+                        setStreamingText(fullText)
+                        break
+
+                    case 'tool-call-start':
+                        toolCalls.set(event.toolCallId, {
+                            id: event.toolCallId,
+                            name: event.toolName,
+                            args: ''
+                        })
+                        setStreamingToolCalls(Array.from(toolCalls.values()).map(tc => ({
+                            ...tc,
+                            status: 'streaming' as const
+                        })))
+                        break
+
+                    case 'tool-call-delta':
+                        const tc = toolCalls.get(event.toolCallId)
+                        if (tc) {
+                            tc.args += event.argsDelta
+                            setStreamingToolCalls(Array.from(toolCalls.values()).map(t => ({
+                                ...t,
+                                status: 'streaming' as const
+                            })))
+                        }
+                        break
+
+                    case 'tool-call-done':
+                        // Execute the tool
+                        setStreamingToolCalls(prev => prev.map(t =>
+                            t.id === event.toolCallId
+                                ? { ...t, status: 'executing' as const, args: JSON.stringify(event.args) }
+                                : t
+                        ))
+
+                        const result = executeToolCall(event.toolName, event.args)
+
+                        // Update local map with result for persistence
+                        const existingTc = toolCalls.get(event.toolCallId)
+                        if (existingTc) {
+                            toolCalls.set(event.toolCallId, { ...existingTc, result })
+                        }
+
+                        setStreamingToolCalls(prev => prev.map(t =>
+                            t.id === event.toolCallId
+                                ? { ...t, status: 'complete' as const, result }
+                                : t
+                        ))
+                        break
+
+                    case 'error':
+                        setStreamingError(event.error)
+                        break
+
+                    case 'finish':
+                        // Save assistant message to database
+                        if (fullText || toolCalls.size > 0) {
+                            const toolCallsArray = Array.from(toolCalls.values()).map(tc => {
+                                try {
+                                    return {
+                                        id: tc.id,
+                                        name: tc.name,
+                                        args: tc.args ? JSON.parse(tc.args) : null,
+                                        result: tc.result
+                                    }
+                                } catch {
+                                    return {
+                                        id: tc.id,
+                                        name: tc.name,
+                                        args: null
+                                    }
+                                }
+                            })
+
+                            await addMessage.mutateAsync({
+                                chatId: selectedChatId,
+                                role: 'assistant',
+                                content: { type: 'text', text: fullText },
+                                toolCalls: toolCallsArray.length > 0 ? toolCallsArray : undefined
+                            })
+
+                            await refetchMessages()
+                        }
+
+                        setIsStreaming(false)
+                        setStreamingText('')
+                        setStreamingToolCalls([])
+                        cleanupListener() // Clean up listener when done
+                        abortRef.current = null
+                        break
+                }
+            })
+
+            // Store abort function to remove listener and cancel stream
+            abortRef.current = () => {
+                cleanupListener()
+                // Also call cancel mutation
+                trpcClient.ai.cancel.mutate({ chatId: selectedChatId })
+            }
+
+            // Start the stream via mutation
+            await chatMutation.mutateAsync({
                 chatId: selectedChatId,
                 prompt: userMessage,
                 mode,
                 provider,
                 apiKey: apiKeyResult.key,
+                model: selectedModel,
                 messages: messageHistory
-            }, {
-                onData: async (event) => {
-                    switch (event.type) {
-                        case 'text-delta':
-                            fullText += event.delta
-                            setStreamingText(fullText)
-                            break
-                            
-                        case 'tool-call-start':
-                            toolCalls.set(event.toolCallId, {
-                                id: event.toolCallId,
-                                name: event.toolName,
-                                args: ''
-                            })
-                            setStreamingToolCalls(Array.from(toolCalls.values()).map(tc => ({
-                                ...tc,
-                                status: 'streaming' as const
-                            })))
-                            break
-                            
-                        case 'tool-call-delta':
-                            const tc = toolCalls.get(event.toolCallId)
-                            if (tc) {
-                                tc.args += event.argsDelta
-                                setStreamingToolCalls(Array.from(toolCalls.values()).map(t => ({
-                                    ...t,
-                                    status: 'streaming' as const
-                                })))
-                            }
-                            break
-                            
-                        case 'tool-call-done':
-                            // Execute the tool
-                            setStreamingToolCalls(prev => prev.map(t => 
-                                t.id === event.toolCallId 
-                                    ? { ...t, status: 'executing' as const, args: JSON.stringify(event.args) }
-                                    : t
-                            ))
-                            
-                            const result = await executeToolCall(event.toolName, event.args)
-                            
-                            setStreamingToolCalls(prev => prev.map(t => 
-                                t.id === event.toolCallId 
-                                    ? { ...t, status: 'complete' as const, result }
-                                    : t
-                            ))
-                            break
-                            
-                        case 'error':
-                            setStreamingError(event.error)
-                            break
-                            
-                        case 'finish':
-                            // Save assistant message to database
-                            if (fullText || toolCalls.size > 0) {
-                                const toolCallsArray = Array.from(toolCalls.values()).map(tc => {
-                                    try {
-                                        return {
-                                            id: tc.id,
-                                            name: tc.name,
-                                            args: tc.args ? JSON.parse(tc.args) : null
-                                        }
-                                    } catch {
-                                        return {
-                                            id: tc.id,
-                                            name: tc.name,
-                                            args: null
-                                        }
-                                    }
-                                })
-                                
-                                await addMessage.mutateAsync({
-                                    chatId: selectedChatId,
-                                    role: 'assistant',
-                                    content: { type: 'text', text: fullText },
-                                    toolCalls: toolCallsArray.length > 0 ? toolCallsArray : undefined
-                                })
-                                
-                                await refetchMessages()
-                            }
-                            
-                            setIsStreaming(false)
-                            setStreamingText('')
-                            setStreamingToolCalls([])
-                            break
-                    }
-                },
-                onError: (error) => {
-                    console.error('Streaming error:', error)
-                    setStreamingError(error.message)
-                    setIsStreaming(false)
-                },
-                onComplete: () => {
-                    setIsStreaming(false)
-                }
             })
-
-            // Store abort function
-            abortRef.current = () => {
-                subscription.unsubscribe()
-            }
 
         } catch (error) {
             console.error('Failed to send message:', error)
@@ -301,6 +251,25 @@ export function ChatView() {
             utils.messages.list.invalidate({ chatId: selectedChatId })
         }
     }, [selectedChatId, utils])
+
+    // Auto-scroll to bottom
+    const scrollToBottom = useCallback((behavior: ScrollBehavior = 'smooth') => {
+        messagesEndRef.current?.scrollIntoView({ behavior, block: 'end' })
+    }, [])
+
+    useEffect(() => {
+        // Scroll on new messages or streaming updates
+        if (messages?.length || streamingText || streamingToolCalls.length) {
+            scrollToBottom('smooth')
+        }
+    }, [messages?.length, streamingText, streamingToolCalls.length, scrollToBottom])
+
+    // Scroll immediately on send
+    useEffect(() => {
+        if (isStreaming) {
+            scrollToBottom('auto')
+        }
+    }, [isStreaming, scrollToBottom])
 
     // Empty state - no chat selected
     if (!selectedChatId) {
@@ -350,30 +319,55 @@ export function ChatView() {
     }
 
     return (
-        <div className="flex-1 flex flex-col overflow-hidden">
+        <div className="flex-1 flex flex-col overflow-hidden relative">
             {/* Messages area */}
-            <ScrollArea className="flex-1">
-                <div className="max-w-3xl mx-auto py-4">
-                    <MessageList 
-                        messages={messages || []} 
-                        isLoading={isStreaming}
-                        streamingText={streamingText}
-                        streamingToolCalls={streamingToolCalls}
-                    />
-                </div>
-            </ScrollArea>
+            <div className="flex-1 relative overflow-hidden">
+                {/* Top Fade Overlay */}
+                <div className="absolute top-0 left-0 right-0 h-10 bg-gradient-to-b from-background to-transparent pointer-events-none z-10" />
+
+                <ScrollArea className="h-full" ref={scrollContainerRef}>
+                    <div className="pt-10 pb-16"> {/* Subtle padding for fades */}
+                        <MessageList
+                            messages={messages || []}
+                            isLoading={isStreaming}
+                            streamingText={streamingText}
+                            streamingToolCalls={streamingToolCalls}
+                            onViewArtifact={async (artifactId) => {
+                                try {
+                                    // Try to fetch artifact details
+                                    const artifact = await trpcClient.artifacts.get.query({ id: artifactId })
+                                    if (artifact) {
+                                        setSelectedArtifact(artifact as any)
+                                        setArtifactPanelOpen(true)
+                                    }
+                                } catch (error) {
+                                    console.error('Failed to open artifact:', error)
+                                    // Fallback if get query fails or doesn't exist, try to find in current messages? 
+                                    // Unlikely to help if it's not loaded.
+                                }
+                            }}
+                        />
+                        <div ref={messagesEndRef} className="h-px" />
+                    </div>
+                </ScrollArea>
+
+                {/* Bottom Fade Overlay */}
+                <div className="absolute bottom-0 left-0 right-0 h-16 bg-gradient-to-t from-background to-transparent pointer-events-none z-10" />
+            </div>
 
             {/* Input area */}
-            <div className="border-t border-border">
-                <div className="max-w-3xl mx-auto p-4">
+            <div className="relative z-20">
+                <div className="max-w-3xl mx-auto">
                     {!isConfigured ? (
-                        <Button
-                            className="w-full"
-                            variant="outline"
-                            onClick={() => setSettingsOpen(true)}
-                        >
-                            Configure API Key to start chatting
-                        </Button>
+                        <div className="px-4 pb-4">
+                            <Button
+                                className="w-full"
+                                variant="outline"
+                                onClick={() => setSettingsOpen(true)}
+                            >
+                                Configure API Key to start chatting
+                            </Button>
+                        </div>
                     ) : (
                         <ChatInput
                             value={input}
@@ -388,3 +382,11 @@ export function ChatView() {
         </div>
     )
 }
+function executeToolCall(_toolName: any, _args: any) {
+    throw new Error('Function not implemented.')
+}
+
+function generateAutoTitle(_selectedChatId: string, _userMessage: string, _key: string, _provider: string, _selectedModel: string) {
+    throw new Error('Function not implemented.')
+}
+

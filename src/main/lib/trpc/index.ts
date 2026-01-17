@@ -6,7 +6,7 @@ import { router } from './trpc'
 import { chatsRouter } from './routers/chats'
 import { messagesRouter } from './routers/messages'
 import { artifactsRouter } from './routers/artifacts'
-import { claudeRouter } from './routers/claude'
+import { aiRouter } from './routers/ai'
 import { authRouter } from './routers/auth'
 import { settingsRouter } from './routers/settings'
 
@@ -15,7 +15,7 @@ export const appRouter = router({
     chats: chatsRouter,
     messages: messagesRouter,
     artifacts: artifactsRouter,
-    claude: claudeRouter,
+    ai: aiRouter,
     auth: authRouter,
     settings: settingsRouter
 })

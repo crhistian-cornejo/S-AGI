@@ -1,16 +1,26 @@
-import { useAtom } from 'jotai'
-import { IconX, IconDownload, IconEdit, IconMaximize } from '@tabler/icons-react'
-import { selectedArtifactAtom, artifactPanelOpenAtom } from '@/lib/atoms'
+import { useRef } from 'react'
+import { useAtom, useSetAtom } from 'jotai'
+import { IconX, IconDownload, IconExternalLink } from '@tabler/icons-react'
+import { selectedArtifactAtom, artifactPanelOpenAtom, appViewModeAtom } from '@/lib/atoms'
 import { Button } from '@/components/ui/button'
-import { UniverSpreadsheet } from '@/features/univer/univer-spreadsheet'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { UniverSpreadsheet, type UniverSpreadsheetRef } from '@/features/univer/univer-spreadsheet'
 
 export function ArtifactPanel() {
     const [artifact, setArtifact] = useAtom(selectedArtifactAtom)
     const [, setPanelOpen] = useAtom(artifactPanelOpenAtom)
+    const setAppMode = useSetAtom(appViewModeAtom)
+    const spreadsheetRef = useRef<UniverSpreadsheetRef>(null)
 
     const handleClose = () => {
         setArtifact(null)
         setPanelOpen(false)
+    }
+
+    const handleSave = async () => {
+        if (spreadsheetRef.current) {
+            await spreadsheetRef.current.save()
+        }
     }
 
     if (!artifact) return null
@@ -25,18 +35,42 @@ export function ArtifactPanel() {
                 </div>
 
                 <div className="flex items-center gap-1">
-                    <Button variant="ghost" size="icon" className="h-8 w-8">
-                        <IconEdit size={16} />
-                    </Button>
-                    <Button variant="ghost" size="icon" className="h-8 w-8">
-                        <IconDownload size={16} />
-                    </Button>
-                    <Button variant="ghost" size="icon" className="h-8 w-8">
-                        <IconMaximize size={16} />
-                    </Button>
-                    <Button variant="ghost" size="icon" className="h-8 w-8" onClick={handleClose}>
-                        <IconX size={16} />
-                    </Button>
+                    <Tooltip>
+                        <TooltipTrigger asChild>
+                            <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8"
+                                onClick={() => setAppMode('native')}
+                            >
+                                <IconExternalLink size={16} />
+                            </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>Open in Native Tab</TooltipContent>
+                    </Tooltip>
+
+                    <Tooltip>
+                        <TooltipTrigger asChild>
+                            <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8"
+                                onClick={handleSave}
+                            >
+                                <IconDownload size={16} />
+                            </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>Save & Download</TooltipContent>
+                    </Tooltip>
+
+                    <Tooltip>
+                        <TooltipTrigger asChild>
+                            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={handleClose}>
+                                <IconX size={16} />
+                            </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>Close Panel</TooltipContent>
+                    </Tooltip>
                 </div>
             </div>
 
@@ -44,6 +78,7 @@ export function ArtifactPanel() {
             <div className="flex-1 overflow-hidden">
                 {artifact.type === 'spreadsheet' ? (
                     <UniverSpreadsheet
+                        ref={spreadsheetRef}
                         artifactId={artifact.id}
                         data={artifact.univer_data}
                     />

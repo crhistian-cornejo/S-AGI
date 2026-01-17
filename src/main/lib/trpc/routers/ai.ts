@@ -1,7 +1,7 @@
 import { z } from 'zod'
-import { observable } from '@trpc/server/observable'
 import { router, publicProcedure } from '../trpc'
 import log from 'electron-log'
+import { sendToRenderer } from '../../window-manager'
 
 // Types for AI streaming
 export type AIStreamEvent =
@@ -13,6 +13,9 @@ export type AIStreamEvent =
     | { type: 'tool-result'; toolCallId: string; result: unknown }
     | { type: 'finish'; usage?: { promptTokens: number; completionTokens: number } }
     | { type: 'error'; error: string }
+
+// Store active streams for cancellation
+const activeStreams = new Map<string, AbortController>()
 
 // Tool definitions for spreadsheet operations
 const SPREADSHEET_TOOLS = [
@@ -89,7 +92,7 @@ When the user asks you to modify cells or add formulas, use the appropriate tool
 
 Be concise but helpful. Format your responses nicely with Markdown when appropriate.`
 
-export const claudeRouter = router({
+export const aiRouter = router({
     // Get AI status
     getStatus: publicProcedure.query(() => {
         return {
@@ -99,6 +102,7 @@ export const claudeRouter = router({
     }),
 
     // Stream chat with AI using API keys passed from renderer
+    // Converted to mutation + IPC events due to tRPC subscription issues in Electron
     chat: publicProcedure
         .input(z.object({
             chatId: z.string().uuid(),
@@ -112,69 +116,140 @@ export const claudeRouter = router({
                 content: z.string()
             })).optional()
         }))
-        .subscription(({ input }) => {
-            return observable<AIStreamEvent>((emit) => {
-                const abortController = new AbortController()
+        .mutation(async ({ input }) => {
+            // Cancel existing stream for this chat if any
+            if (activeStreams.has(input.chatId)) {
+                activeStreams.get(input.chatId)?.abort()
+                activeStreams.delete(input.chatId)
+            }
 
-                const runChat = async () => {
-                    try {
-                        log.info(`[AI] Starting chat with ${input.provider}`)
+            const abortController = new AbortController()
+            activeStreams.set(input.chatId, abortController)
 
-                        const messages = [
-                            { role: 'system' as const, content: SYSTEM_PROMPT },
-                            ...(input.messages || []),
-                            { role: 'user' as const, content: input.prompt }
-                        ]
+            const emit = (event: AIStreamEvent) => {
+                sendToRenderer('ai:stream', event)
+            }
 
-                        if (input.provider === 'openai') {
-                            await streamOpenAI({
-                                apiKey: input.apiKey,
-                                model: input.model || 'gpt-4o',
-                                messages,
-                                tools: SPREADSHEET_TOOLS,
-                                mode: input.mode,
-                                signal: abortController.signal,
-                                onEvent: (event) => emit.next(event)
-                            })
-                        } else {
-                            await streamAnthropic({
-                                apiKey: input.apiKey,
-                                model: input.model || 'claude-sonnet-4-20250514',
-                                messages,
-                                tools: SPREADSHEET_TOOLS,
-                                mode: input.mode,
-                                signal: abortController.signal,
-                                onEvent: (event) => emit.next(event)
-                            })
-                        }
-                    } catch (error) {
-                        if (error instanceof Error && error.name === 'AbortError') {
-                            log.info('[AI] Chat aborted')
-                            return
-                        }
-                        log.error('[AI] Chat error:', error)
-                        emit.next({
-                            type: 'error',
-                            error: error instanceof Error ? error.message : 'Unknown error'
+            const runChat = async () => {
+                try {
+                    log.info(`[AI] Starting chat with ${input.provider}`)
+                    // log.info(`[AI] Chat Request: ${JSON.stringify(input)}`)
+
+                    const messages = [
+                        { role: 'system' as const, content: SYSTEM_PROMPT },
+                        ...(input.messages || []),
+                        { role: 'user' as const, content: input.prompt }
+                    ]
+
+                    if (input.provider === 'openai') {
+                        await streamOpenAI({
+                            apiKey: input.apiKey,
+                            model: input.model || 'gpt-4o',
+                            messages,
+                            tools: SPREADSHEET_TOOLS,
+                            mode: input.mode,
+                            signal: abortController.signal,
+                            onEvent: emit
+                        })
+                    } else {
+                        await streamAnthropic({
+                            apiKey: input.apiKey,
+                            model: input.model || 'claude-3-sonnet-20240229', // Fixed default model name
+                            messages,
+                            tools: SPREADSHEET_TOOLS,
+                            mode: input.mode,
+                            signal: abortController.signal,
+                            onEvent: emit
                         })
                     }
+                } catch (error) {
+                    if (error instanceof Error && error.name === 'AbortError') {
+                        log.info('[AI] Chat aborted')
+                        return
+                    }
+                    log.error('[AI] Chat error:', error)
+                    emit({
+                        type: 'error',
+                        error: error instanceof Error ? error.message : 'Unknown error'
+                    })
+                } finally {
+                    activeStreams.delete(input.chatId)
                 }
+            }
 
-                runChat()
+            // Start processing in background (don't await)
+            runChat()
 
-                return () => {
-                    log.info('[AI] Subscription closed, aborting')
-                    abortController.abort()
-                }
-            })
+            return { success: true, message: 'Stream started' }
         }),
 
     // Cancel ongoing chat
     cancel: publicProcedure
         .input(z.object({ chatId: z.string() }))
-        .mutation(() => {
-            // Cancellation is handled by the abort controller in the subscription
-            return { success: true }
+        .mutation(({ input }) => {
+            if (activeStreams.has(input.chatId)) {
+                log.info(`[AI] Cancelling chat ${input.chatId}`)
+                activeStreams.get(input.chatId)?.abort()
+                activeStreams.delete(input.chatId)
+                return { success: true }
+            }
+            return { success: false, message: 'No active stream found' }
+        }),
+
+    // Generate chat title
+    // Force rebuild timestamp: 123456789
+    generateTitle: publicProcedure
+        .input(z.object({
+            prompt: z.string(),
+            provider: z.enum(['openai', 'anthropic']),
+            apiKey: z.string(),
+            model: z.string().optional()
+        }))
+        .mutation(async ({ input }) => {
+            const systemPrompt = "You are a helpful assistant. Generate a short, concise title (max 5 words) for the user's message. Do not use quotes."
+            const userMessage = input.prompt
+
+            try {
+                if (input.provider === 'openai') {
+                    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${input.apiKey}`
+                        },
+                        body: JSON.stringify({
+                            model: input.model || 'gpt-4o',
+                            messages: [
+                                { role: 'system', content: systemPrompt },
+                                { role: 'user', content: userMessage }
+                            ],
+                            max_tokens: 50
+                        })
+                    })
+                    const data = await response.json()
+                    return { title: data.choices?.[0]?.message?.content?.trim() || 'New Chat' }
+                } else {
+                    const response = await fetch('https://api.anthropic.com/v1/messages', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'x-api-key': input.apiKey,
+                            'anthropic-version': '2023-06-01'
+                        },
+                        body: JSON.stringify({
+                            model: input.model || 'claude-3-sonnet-20240229',
+                            max_tokens: 50,
+                            system: systemPrompt,
+                            messages: [{ role: 'user', content: userMessage }]
+                        })
+                    })
+                    const data = await response.json()
+                    return { title: data.content?.[0]?.text?.trim() || 'New Chat' }
+                }
+            } catch (error) {
+                log.error('[AI] Generate title error:', error)
+                return { title: 'New Chat' }
+            }
         })
 })
 

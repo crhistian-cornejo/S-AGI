@@ -30,7 +30,12 @@ export const messagesRouter = router({
                 .limit(input.limit)
 
             if (error) throw new Error(error.message)
-            return data
+
+            // Map metadata.tool_calls to top-level tool_calls consistency
+            return data.map((msg: any) => ({
+                ...msg,
+                tool_calls: msg.metadata?.tool_calls || msg.tool_calls || []
+            }))
         }),
 
     // Add a message to a chat

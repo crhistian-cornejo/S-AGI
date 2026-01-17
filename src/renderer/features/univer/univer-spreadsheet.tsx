@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState } from 'react'
+import * as React from 'react'
 import { trpc } from '@/lib/trpc'
+import { useTheme } from 'next-themes'
 import { Button } from '@/components/ui/button'
 import { IconDeviceFloppy } from '@tabler/icons-react'
 
@@ -8,20 +9,35 @@ interface UniverSpreadsheetProps {
     data?: any
 }
 
-export function UniverSpreadsheet({
+export interface UniverSpreadsheetRef {
+    save: () => Promise<void>
+}
+
+export const UniverSpreadsheet = React.forwardRef<UniverSpreadsheetRef, UniverSpreadsheetProps>(({
     artifactId,
     data
-}: UniverSpreadsheetProps) {
-    const containerRef = useRef<HTMLDivElement>(null)
-    const univerRef = useRef<any>(null)
-    const [isLoading, setIsLoading] = useState(true)
-    const [error, setError] = useState<string | null>(null)
-    const [isSaving, setIsSaving] = useState(false)
+}, ref) => {
+    const containerRef = React.useRef<HTMLDivElement>(null)
+    const univerRef = React.useRef<any>(null)
+    const [isLoading, setIsLoading] = React.useState(true)
+    const [error, setError] = React.useState<string | null>(null)
+    const [isSaving, setIsSaving] = React.useState(false)
+    const { resolvedTheme } = useTheme()
+
+    // Refs to preserve state during theme switches
+    const savedDataRef = React.useRef<any>(null)
+    const lastArtifactIdRef = React.useRef(artifactId)
 
     // Save mutation
     const saveSnapshot = trpc.artifacts.saveUniverSnapshot.useMutation()
 
-    useEffect(() => {
+    React.useImperativeHandle(ref, () => ({
+        save: async () => {
+            await handleSave()
+        }
+    }))
+
+    React.useEffect(() => {
         const initUniver = async () => {
             try {
                 setIsLoading(true)
@@ -32,14 +48,31 @@ export function UniverSpreadsheet({
                 // Dynamic import of Univer presets
                 const { createUniver, defaultTheme, LocaleType } = await import('@univerjs/presets')
                 const { UniverSheetsCorePreset } = await import('@univerjs/presets/preset-sheets-core')
+                const { default: enUS } = await import('@univerjs/presets/preset-sheets-core/locales/en-US')
 
                 // Import styles
                 await import('@univerjs/presets/lib/styles/preset-sheets-core.css')
 
+                // Determine data to load
+                let initData = data
+                // If we are on the same artifact and have saved data (from a theme switch), use it
+                if (artifactId === lastArtifactIdRef.current && savedDataRef.current) {
+                    initData = savedDataRef.current
+                }
+
+                // Update tracker
+                lastArtifactIdRef.current = artifactId
+
                 // Create Univer instance using presets
                 const { univer: univerInstance, univerAPI } = createUniver({
                     locale: LocaleType.EN_US,
-                    theme: document.documentElement.classList.contains('dark') ? defaultTheme : defaultTheme,
+                    locales: {
+                        [LocaleType.EN_US]: enUS
+                    },
+                    theme: defaultTheme,
+                    // Enable dark mode based on current theme
+                    // @ts-ignore - darkMode property exists in recent versions but might not be in types yet
+                    darkMode: resolvedTheme === 'dark',
                     presets: [
                         UniverSheetsCorePreset({
                             container: containerRef.current
@@ -48,8 +81,8 @@ export function UniverSpreadsheet({
                 })
 
                 // Create or load workbook
-                if (data) {
-                    univerAPI.createWorkbook(data)
+                if (initData) {
+                    univerAPI.createWorkbook(initData)
                 } else {
                     // Create blank workbook
                     univerAPI.createWorkbook({
@@ -80,11 +113,19 @@ export function UniverSpreadsheet({
         initUniver()
 
         return () => {
+            // Save state before disposal to preserve across theme switches
+            if (univerRef.current?.api) {
+                const currentWorkbook = univerRef.current.api.getActiveWorkbook()
+                if (currentWorkbook) {
+                    savedDataRef.current = currentWorkbook.save()
+                }
+            }
+
             if (univerRef.current?.univer) {
                 univerRef.current.univer.dispose()
             }
         }
-    }, [artifactId, data])
+    }, [artifactId, data, resolvedTheme])
 
     // Save current state
     const handleSave = async () => {
@@ -93,7 +134,7 @@ export function UniverSpreadsheet({
         try {
             setIsSaving(true)
             const workbook = univerRef.current.api.getActiveWorkbook()
-            const snapshot = workbook?.getSnapshot()
+            const snapshot = workbook?.save()
 
             if (snapshot) {
                 await saveSnapshot.mutateAsync({
@@ -118,20 +159,6 @@ export function UniverSpreadsheet({
 
     return (
         <div className="relative w-full h-full">
-            {/* Save button */}
-            <div className="absolute top-2 right-2 z-20">
-                <Button
-                    size="sm"
-                    variant="secondary"
-                    onClick={handleSave}
-                    disabled={isSaving || isLoading}
-                    className="shadow-md"
-                >
-                    <IconDeviceFloppy size={16} className="mr-1" />
-                    {isSaving ? 'Saving...' : 'Save'}
-                </Button>
-            </div>
-            
             {isLoading && (
                 <div className="absolute inset-0 flex items-center justify-center bg-background/80 z-10">
                     <div className="flex items-center gap-2">
@@ -143,4 +170,6 @@ export function UniverSpreadsheet({
             <div ref={containerRef} className="w-full h-full" />
         </div>
     )
-}
+})
+
+UniverSpreadsheet.displayName = 'UniverSpreadsheet'
