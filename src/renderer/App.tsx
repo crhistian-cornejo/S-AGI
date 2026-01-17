@@ -2,7 +2,6 @@ import { useEffect } from 'react'
 import { Provider as JotaiProvider } from 'jotai'
 import { ThemeProvider, useTheme } from 'next-themes'
 import { Toaster } from 'sonner'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { TRPCProvider } from './lib/trpc'
 import { TooltipProvider } from './components/ui/tooltip'
 import { MainLayout } from './features/layout/main-layout'
@@ -10,16 +9,6 @@ import { SettingsDialog } from './features/settings/settings-dialog'
 import { AuthDialog, AuthGuard, OAuthCallbackHandler } from './features/auth'
 import { VSCodeThemeProvider } from './lib/themes'
 import { appStore } from './lib/stores/jotai-store'
-
-// Create React Query client
-const queryClient = new QueryClient({
-    defaultOptions: {
-        queries: {
-            staleTime: 1000 * 60, // 1 minute
-            refetchOnWindowFocus: false
-        }
-    }
-})
 
 /**
  * Themed Toaster component
@@ -54,28 +43,26 @@ export function App() {
 
     return (
         <JotaiProvider store={appStore}>
-            <QueryClientProvider client={queryClient}>
-                <VSCodeThemeProvider>
-                    <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
-                        <TRPCProvider>
-                            <TooltipProvider delayDuration={100}>
-                                <OAuthCallbackHandler />
-                                <div
-                                    data-sagi-app
-                                    className="h-screen w-screen bg-background text-foreground overflow-hidden"
-                                >
-                                    <AuthGuard>
-                                        <MainLayout />
-                                    </AuthGuard>
-                                </div>
-                                <AuthDialog />
-                                <SettingsDialog />
-                                <ThemedToaster />
-                            </TooltipProvider>
-                        </TRPCProvider>
-                    </ThemeProvider>
-                </VSCodeThemeProvider>
-            </QueryClientProvider>
+            <VSCodeThemeProvider>
+                <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
+                    <TRPCProvider>
+                        <TooltipProvider delayDuration={100}>
+                            <OAuthCallbackHandler />
+                            <div
+                                data-sagi-app
+                                className="h-screen w-screen bg-background text-foreground overflow-hidden"
+                            >
+                                <AuthGuard>
+                                    <MainLayout />
+                                </AuthGuard>
+                            </div>
+                            <AuthDialog />
+                            <SettingsDialog />
+                            <ThemedToaster />
+                        </TooltipProvider>
+                    </TRPCProvider>
+                </ThemeProvider>
+            </VSCodeThemeProvider>
         </JotaiProvider>
     )
 }

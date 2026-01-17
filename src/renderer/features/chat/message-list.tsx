@@ -1,14 +1,74 @@
-import { IconUser, IconTable, IconLoader2, IconCheck, IconTool, IconExternalLink } from '@tabler/icons-react'
+import { memo } from 'react'
+import { IconTable, IconLoader2, IconCheck, IconTool, IconFileText } from '@tabler/icons-react'
 import { cn } from '@/lib/utils'
 import { ChatMarkdownRenderer } from '@/components/chat-markdown-renderer'
+import { MessageAttachments } from '@/components/message-attachments'
 import { Button } from '@/components/ui/button'
 import { Logo } from '@/components/ui/logo'
+import { AgentReasoning } from '@/features/agent'
+
+// ============================================================================
+// Constants - Tool name sets for O(1) lookups
+// ============================================================================
+const SPREADSHEET_TOOLS = new Set([
+    'create_spreadsheet', 'update_cells', 'insert_formula',
+    'format_cells', 'merge_cells', 'set_column_width', 'set_row_height',
+    'add_row', 'delete_row', 'get_spreadsheet_summary'
+])
+
+const DOCUMENT_TOOLS = new Set([
+    'create_document', 'update_document', 'get_document_content'
+])
+
+// ============================================================================
+// Helper Functions - Extracted for performance (no recreation on re-render)
+// ============================================================================
+
+/** Parse message content to extract text safely */
+function parseContent(c: unknown): string {
+    if (typeof c === 'string') {
+        // Check if it's the specific JSON object we want to parse
+        if (c.trim().startsWith('{') && c.includes('"type":"text"')) {
+            try {
+                const parsed = JSON.parse(c)
+                return parsed.text || ''
+            } catch {
+                return c
+            }
+        }
+        return c
+    }
+    if (Array.isArray(c)) {
+        return c.map((item: unknown) => (item as { text?: string }).text || '').join('')
+    }
+    if (typeof c === 'object' && c !== null) {
+        return ('text' in c) ? (c as { text: string }).text : JSON.stringify(c)
+    }
+    return String(c)
+}
+
+// ============================================================================
+// Types
+// ============================================================================
 
 interface Message {
     id: string
     role: 'user' | 'assistant' | 'system' | 'tool'
-    content: any
-    tool_calls?: any
+    content: unknown
+    tool_calls?: Array<{
+        id: string
+        name: string
+        args: unknown
+        result?: unknown
+    }>
+    attachments?: Array<{
+        id: string
+        name: string
+        size: number
+        type: string
+        url?: string
+        preview?: string
+    }>
     created_at: string
 }
 
@@ -16,7 +76,7 @@ interface ToolCall {
     id: string
     name: string
     args: string
-    status: 'streaming' | 'done' | 'executing' | 'complete'
+    status: 'streaming' | 'done' | 'executing' | 'complete' | 'error'
     result?: unknown
 }
 
@@ -25,10 +85,34 @@ interface MessageListProps {
     isLoading: boolean
     streamingText?: string
     streamingToolCalls?: ToolCall[]
+    streamingReasoning?: string
+    isReasoning?: boolean
     onViewArtifact?: (artifactId: string) => void
 }
 
-export function MessageList({ messages, isLoading, streamingText, streamingToolCalls, onViewArtifact }: MessageListProps) {
+// ============================================================================
+// Components
+// ============================================================================
+
+/** Memoized assistant avatar to prevent unnecessary re-renders */
+const AssistantAvatar = memo(function AssistantAvatar() {
+    return (
+        <div className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0">
+            <Logo size={32} />
+        </div>
+    )
+})
+
+/** Main message list component - memoized for performance */
+export const MessageList = memo(function MessageList({ 
+    messages, 
+    isLoading, 
+    streamingText, 
+    streamingToolCalls,
+    streamingReasoning,
+    isReasoning,
+    onViewArtifact 
+}: MessageListProps) {
     if (messages.length === 0 && !isLoading) {
         return (
             <div className="flex flex-col items-center justify-center h-full text-muted-foreground py-20 animate-in fade-in duration-700">
@@ -52,14 +136,23 @@ export function MessageList({ messages, isLoading, streamingText, streamingToolC
             ))}
 
             {/* Streaming response */}
-            {isLoading && (streamingText || (streamingToolCalls && streamingToolCalls.length > 0)) && (
+            {isLoading && (streamingText || streamingReasoning || (streamingToolCalls && streamingToolCalls.length > 0)) && (
                 <div className="space-y-4 animate-in fade-in duration-300">
                     <div className="flex items-start gap-4">
                         <AssistantAvatar />
                         <div className="flex-1 min-w-0 space-y-4 pt-0.5">
+                            {/* Reasoning section - shows AI thinking process */}
+                            {(isReasoning || streamingReasoning) && (
+                                <AgentReasoning
+                                    content={streamingReasoning || ''}
+                                    isStreaming={isReasoning}
+                                    className="mb-3"
+                                />
+                            )}
+
                             {streamingText && (
                                 <div className="prose-container relative">
-                                    <ChatMarkdownRenderer content={streamingText} size="md" />
+                                    <ChatMarkdownRenderer content={streamingText} size="md" isAnimating />
                                     <span className="inline-block w-1.5 h-4 bg-primary/40 animate-pulse ml-1 align-middle rounded-sm" />
                                 </div>
                             )}
@@ -77,7 +170,7 @@ export function MessageList({ messages, isLoading, streamingText, streamingToolC
             )}
 
             {/* Initial Loading / Thinking State */}
-            {isLoading && !streamingText && (!streamingToolCalls || streamingToolCalls.length === 0) && (
+            {isLoading && !streamingText && !streamingReasoning && (!streamingToolCalls || streamingToolCalls.length === 0) && (
                 <div className="flex gap-4 animate-in fade-in duration-500">
                     <AssistantAvatar />
                     <div className="flex-1 space-y-3 pt-2">
@@ -88,46 +181,18 @@ export function MessageList({ messages, isLoading, streamingText, streamingToolC
             )}
         </div>
     )
-}
+})
 
-
-
-function AssistantAvatar() {
-    return (
-        <div className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0">
-            <Logo size={32} />
-        </div>
-    )
-}
-
-function MessageItem({ message, onViewArtifact }: { message: Message; onViewArtifact?: (id: string) => void }) {
+/** Individual message item - memoized */
+const MessageItem = memo(function MessageItem({ 
+    message, 
+    onViewArtifact 
+}: { 
+    message: Message
+    onViewArtifact?: (id: string) => void 
+}) {
     const isUser = message.role === 'user'
-    let content = ''
-
-    // Helper to safely parse JSON content
-    const parseContent = (c: any): string => {
-        if (typeof c === 'string') {
-            // Check if it's the specific JSON object we want to hide or parse
-            if (c.trim().startsWith('{') && c.includes('"type":"text"')) {
-                try {
-                    const parsed = JSON.parse(c)
-                    return parsed.text || ''
-                } catch {
-                    return c
-                }
-            }
-            return c
-        }
-        if (Array.isArray(c)) {
-            return c.map((item: any) => item.text || '').join('')
-        }
-        if (typeof c === 'object' && c !== null) {
-            return ('text' in c) ? c.text : JSON.stringify(c)
-        }
-        return String(c)
-    }
-
-    content = parseContent(message.content)
+    const content = parseContent(message.content)
 
     if (isUser) {
         return (
@@ -135,6 +200,14 @@ function MessageItem({ message, onViewArtifact }: { message: Message; onViewArti
                 <div className="max-w-[100%] bg-primary text-primary-foreground rounded-[24px] px-5 py-3 transition-all hover:bg-primary/90 shadow-sm">
                     <p className="text-[15px] whitespace-pre-wrap leading-relaxed">{content}</p>
                 </div>
+                
+                {/* Show attachments for user messages */}
+                {message.attachments && message.attachments.length > 0 && (
+                    <MessageAttachments 
+                        attachments={message.attachments} 
+                        className="max-w-[100%]"
+                    />
+                )}
             </div>
         )
     }
@@ -149,12 +222,19 @@ function MessageItem({ message, onViewArtifact }: { message: Message; onViewArti
                     </div>
                 )}
 
+                {/* Show attachments for assistant messages */}
+                {message.attachments && message.attachments.length > 0 && (
+                    <MessageAttachments 
+                        attachments={message.attachments} 
+                    />
+                )}
+
                 {message.tool_calls && message.tool_calls.length > 0 && (
                     <div className="space-y-3">
-                        {message.tool_calls.map((tc: any) => (
+                        {message.tool_calls.map((tc) => (
                             <ToolCallCard
                                 key={tc.id}
-                                toolCall={{ ...tc, status: 'complete' }}
+                                toolCall={{ ...tc, args: JSON.stringify(tc.args), status: 'complete' }}
                                 onViewArtifact={onViewArtifact}
                             />
                         ))}
@@ -163,37 +243,54 @@ function MessageItem({ message, onViewArtifact }: { message: Message; onViewArti
             </div>
         </div>
     )
-}
+})
 
-function ToolCallCard({ toolCall, onViewArtifact }: { toolCall: ToolCall; onViewArtifact?: (id: string) => void }) {
+/** Tool call card - memoized */
+const ToolCallCard = memo(function ToolCallCard({ 
+    toolCall, 
+    onViewArtifact 
+}: { 
+    toolCall: ToolCall
+    onViewArtifact?: (id: string) => void 
+}) {
     const isComplete = toolCall.status === 'complete'
     const isExecuting = toolCall.status === 'executing'
 
     // Check if we have an artifact ID in the result
-    const artifactId = isComplete && toolCall.result && typeof toolCall.result === 'object' && 'artifactId' in toolCall.result
-        ? (toolCall.result as any).artifactId
+    const artifactId = toolCall.result && typeof toolCall.result === 'object' && 'artifactId' in toolCall.result
+        ? (toolCall.result as { artifactId: string }).artifactId
         : null
 
+    // Determine tool type using Set lookups (O(1))
+    const isSpreadsheetTool = SPREADSHEET_TOOLS.has(toolCall.name)
+    const isDocumentTool = DOCUMENT_TOOLS.has(toolCall.name)
+    const hasArtifact = artifactId && (isSpreadsheetTool || isDocumentTool)
+
     const getToolIcon = () => {
-        switch (toolCall.name) {
-            case 'create_spreadsheet':
-                return <IconTable size={18} />
-            default:
-                return <IconTool size={18} />
-        }
+        if (isSpreadsheetTool) return <IconTable size={18} />
+        if (isDocumentTool) return <IconFileText size={18} />
+        return <IconTool size={18} />
     }
 
     const getToolDisplayName = () => {
-        switch (toolCall.name) {
-            case 'create_spreadsheet':
-                return 'Creating Spreadsheet'
-            case 'update_cells':
-                return 'Updating Cells'
-            case 'insert_formula':
-                return 'Inserting Formula'
-            default:
-                return toolCall.name
+        const displayNames: Record<string, string> = {
+            // Spreadsheet tools
+            'create_spreadsheet': 'Creating Spreadsheet',
+            'update_cells': 'Updating Cells',
+            'insert_formula': 'Inserting Formula',
+            'format_cells': 'Formatting Cells',
+            'merge_cells': 'Merging Cells',
+            'set_column_width': 'Setting Column Width',
+            'set_row_height': 'Setting Row Height',
+            'add_row': 'Adding Row',
+            'delete_row': 'Deleting Row',
+            'get_spreadsheet_summary': 'Reading Spreadsheet',
+            // Document tools
+            'create_document': 'Creating Document',
+            'update_document': 'Updating Document',
+            'get_document_content': 'Reading Document',
         }
+        return displayNames[toolCall.name] || toolCall.name
     }
 
     const getStatusText = () => {
@@ -227,7 +324,23 @@ function ToolCallCard({ toolCall, onViewArtifact }: { toolCall: ToolCall; onView
                     <p className="text-sm font-semibold text-foreground leading-tight">{getToolDisplayName()}</p>
                     <p className="text-[13px] text-muted-foreground mt-0.5 truncate font-medium">{getStatusText()}</p>
                 </div>
-                <div className="shrink-0 pr-1">
+                <div className="shrink-0 flex items-center gap-2">
+                    {/* View Artifact Button - show for completed tools with artifactId */}
+                    {isComplete && hasArtifact && (
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-7 text-xs bg-background/50 hover:bg-background border-emerald-500/20 hover:border-emerald-500/40 text-emerald-700 dark:text-emerald-400"
+                            onClick={() => onViewArtifact?.(artifactId)}
+                        >
+                            {isSpreadsheetTool ? (
+                                <IconTable size={14} className="mr-1.5" />
+                            ) : (
+                                <IconFileText size={14} className="mr-1.5" />
+                            )}
+                            View Artifact
+                        </Button>
+                    )}
                     {isComplete ? (
                         <div className="w-5 h-5 rounded-full bg-emerald-500/10 flex items-center justify-center">
                             <IconCheck size={12} className="text-emerald-600" strokeWidth={3} />
@@ -240,21 +353,6 @@ function ToolCallCard({ toolCall, onViewArtifact }: { toolCall: ToolCall; onView
                     )}
                 </div>
             </div>
-
-            {/* Action Buttons for Artifacts */}
-            {artifactId && (
-                <div className="pl-[3.5rem] animate-in slide-in-from-top-2 fade-in duration-300">
-                    <Button
-                        variant="outline"
-                        size="sm"
-                        className="h-8 text-xs bg-background/50 hover:bg-background border-emerald-500/20 hover:border-emerald-500/40 text-emerald-700 dark:text-emerald-400"
-                        onClick={() => onViewArtifact?.(artifactId)}
-                    >
-                        <IconTable size={14} className="mr-2" />
-                        View Spreadsheet
-                    </Button>
-                </div>
-            )}
         </div>
     )
-}
+})

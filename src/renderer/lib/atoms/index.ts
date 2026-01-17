@@ -1,6 +1,8 @@
 import { atom } from 'jotai'
 import { atomWithStorage } from 'jotai/utils'
 import type { Chat, Artifact } from '@shared/types'
+import { AI_MODELS, DEFAULT_MODELS, getModelsByProvider } from '@shared/ai-types'
+import type { AIProvider, ModelDefinition } from '@shared/ai-types'
 
 // === SIDEBAR STATE ===
 export const sidebarOpenAtom = atomWithStorage('sidebar-open', true)
@@ -18,24 +20,27 @@ export const artifactPanelWidthAtom = atomWithStorage('artifact-panel-width', 50
 
 // === AI STATE ===
 export const isStreamingAtom = atom(false)
-export const currentProviderAtom = atomWithStorage<'anthropic' | 'openai'>('ai-provider', 'anthropic')
-export const selectedModelAtom = atomWithStorage<string>('ai-selected-model', 'claude-3-5-sonnet-20240620')
+export const currentProviderAtom = atomWithStorage<AIProvider>('ai-provider', 'openai')
+export const selectedModelAtom = atomWithStorage<string>('ai-selected-model', DEFAULT_MODELS.openai)
+export const tavilyApiKeyAtom = atomWithStorage<string | null>('tavily-api-key', null)
 
-// Computed atom for models
+// Computed atom for models based on provider
 export const availableModelsAtom = atom((get) => {
     const provider = get(currentProviderAtom)
-    if (provider === 'openai') {
-        return [
-            { id: 'gpt-4o', name: 'GPT-4o' },
-            { id: 'gpt-4o-mini', name: 'GPT-4o Mini' },
-            { id: 'o1-preview', name: 'o1 Preview' }
-        ]
+    return getModelsByProvider(provider)
+})
+
+// Atom to get all models grouped by provider
+export const allModelsGroupedAtom = atom(() => {
+    return {
+        openai: getModelsByProvider('openai')
     }
-    return [
-        { id: 'claude-3-5-sonnet-20240620', name: 'Claude 3.5 Sonnet' },
-        { id: 'claude-3-opus-20240229', name: 'Claude 3 Opus' },
-        { id: 'claude-3-5-haiku-20241022', name: 'Claude 3.5 Haiku' }
-    ]
+})
+
+// Get current model definition
+export const currentModelAtom = atom((get): ModelDefinition | undefined => {
+    const modelId = get(selectedModelAtom)
+    return AI_MODELS[modelId]
 })
 
 // === API KEY STATUS (actual keys stored securely in main process) ===
@@ -96,25 +101,36 @@ export const systemDarkThemeIdAtom = atomWithStorage<string>(
  */
 export const fullThemeDataAtom = atom<VSCodeFullTheme | null>(null)
 
+// === TAB SYSTEM ===
+export type AppTab = 'chat' | 'excel' | 'doc'
+export const activeTabAtom = atomWithStorage<AppTab>('active-tab', 'chat')
+
 // === INPUT STATE ===
 export const chatInputAtom = atom('')
 export const chatModeAtom = atomWithStorage<'plan' | 'agent'>('chat-mode', 'agent')
-export const appViewModeAtom = atomWithStorage<'chat' | 'native'>('app-view-mode', 'chat')
+
+// Note: File attachments are now managed via useFileUpload hook (local state, not global atom)
 
 // === STREAMING STATE ===
-export const streamingTextAtom = atom('')
+// Note: Streaming text is now managed via useSmoothStream hook (local state, not global atom)
 export const streamingToolCallsAtom = atom<Array<{
     id: string
     name: string
     args: string
-    status: 'streaming' | 'done' | 'executing' | 'complete'
+    status: 'streaming' | 'done' | 'executing' | 'complete' | 'error'
     result?: unknown
 }>>([])
 export const streamingErrorAtom = atom<string | null>(null)
 
+// === REASONING STATE (for GPT-5 with reasoning enabled) ===
+export const streamingReasoningAtom = atom('')
+export const isReasoningAtom = atom(false)
+export type ReasoningEffort = 'none' | 'low' | 'medium' | 'high'
+export const reasoningEffortAtom = atomWithStorage<ReasoningEffort>('reasoning-effort', 'medium')
+
 // === SETTINGS MODAL ===
 export const settingsModalOpenAtom = atom(false)
-export type SettingsTab = 'account' | 'appearance' | 'debug'
+export type SettingsTab = 'account' | 'appearance' | 'api-keys' | 'debug'
 export const settingsActiveTabAtom = atom<SettingsTab>('account')
 
 // === HELP & SHORTCUTS ===
@@ -127,7 +143,6 @@ export const authDialogModeAtom = atom<'signin' | 'signup'>('signin')
 // Legacy atoms for backward compatibility
 export const isLoadingAtom = isStreamingAtom
 export const claudeCodeConnectedAtom = atom((get) => {
-    const provider = get(currentProviderAtom)
-    const hasKey = get(hasAnthropicKeyAtom)
-    return provider === 'anthropic' && hasKey
+    const hasKey = get(hasOpenaiKeyAtom)
+    return hasKey
 })

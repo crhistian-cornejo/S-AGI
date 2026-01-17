@@ -8,22 +8,21 @@ import {
     IconTable
 } from '@tabler/icons-react'
 import {
-    sidebarOpenAtom,
     artifactPanelOpenAtom,
     selectedArtifactAtom,
-    appViewModeAtom
+    activeTabAtom
 } from '@/lib/atoms'
 import { Button } from '@/components/ui/button'
 import { Logo } from '@/components/ui/logo'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
-import { useTheme } from 'next-themes'
 import { cn, isMacOS, isElectron } from '@/lib/utils'
 
 export function TitleBar() {
     const [artifactPanelOpen, setArtifactPanelOpen] = useAtom(artifactPanelOpenAtom)
-    const [appMode, setAppMode] = useAtom(appViewModeAtom)
+    const [activeTab, setActiveTab] = useAtom(activeTabAtom)
     const selectedArtifact = useAtomValue(selectedArtifactAtom)
-    const showTrafficLights = isMacOS() && isElectron()
+    const isDesktop = isElectron()
+    const showTrafficLights = isMacOS() && isDesktop
 
     const handleMinimize = () => window.desktopApi?.minimize()
     const handleMaximize = () => window.desktopApi?.maximize()
@@ -33,23 +32,32 @@ export function TitleBar() {
         <div
             className={cn(
                 'h-10 flex items-center border-b border-border bg-sidebar drag-region shrink-0 px-2',
-                showTrafficLights && 'pl-20' // Space for macOS traffic lights
+                showTrafficLights && 'pl-16' // Reduced space for macOS traffic lights with hiddenInset
             )}
         >
-            <div className="flex items-center gap-2 no-drag ml-2">
-                <Logo size={20} />
-                <span className="text-sm font-semibold text-foreground tracking-tight hidden sm:block">S-AGI</span>
-            </div>
+            {/* Left content - only on non-macOS */}
+            {!showTrafficLights && (
+                <div className="flex items-center gap-2 no-drag ml-2">
+                    <Logo size={20} />
+                    <span className="text-sm font-semibold text-foreground tracking-tight hidden sm:block">S-AGI</span>
+                </div>
+            )}
 
-            <div className="flex-1 h-full" />
+            {isDesktop && <div className="flex-1 h-full" />}
 
-            <div className="flex justify-center no-drag">
-                <div className="flex items-center bg-background/40 backdrop-blur-md border border-border/50 rounded-lg p-0.5 h-8 mx-4">
+            <div className={cn('flex no-drag', isDesktop ? 'justify-center' : 'justify-start ml-2')}>
+                <div
+                    className={cn(
+                        'flex items-center bg-background/40 backdrop-blur-md border border-border/50 rounded-lg p-0.5 h-8',
+                        isDesktop ? 'mx-4' : ''
+                    )}
+                >
                     <button
-                        onClick={() => setAppMode('chat')}
+                        type="button"
+                        onClick={() => setActiveTab('chat')}
                         className={cn(
                             "flex items-center gap-1.5 px-3 h-full rounded-md text-[11px] font-bold uppercase tracking-wider transition-all duration-300",
-                            appMode === 'chat'
+                            activeTab === 'chat'
                                 ? "bg-accent text-primary shadow-sm"
                                 : "text-muted-foreground hover:text-foreground hover:bg-accent/30"
                         )}
@@ -58,24 +66,33 @@ export function TitleBar() {
                         Chat
                     </button>
                     <button
-                        onClick={() => setAppMode('native')}
+                        type="button"
+                        onClick={() => setActiveTab('excel')}
                         className={cn(
                             "flex items-center gap-1.5 px-3 h-full rounded-md text-[11px] font-bold uppercase tracking-wider transition-all duration-300",
-                            appMode === 'native'
+                            activeTab === 'excel'
                                 ? "bg-accent text-primary shadow-sm"
                                 : "text-muted-foreground hover:text-foreground hover:bg-accent/30"
                         )}
                     >
                         <IconTable size={14} />
-                        Native
+                        Excel
                     </button>
                 </div>
             </div>
 
-            <div className="flex-1 h-full" />
+            {isDesktop && <div className="flex-1 h-full" />}
 
-            {/* Right section */}
+            {/* Right content - Logo and text on macOS, controls on others */}
             <div className="flex items-center no-drag pr-1">
+                {/* Logo and text - only on macOS */}
+                {showTrafficLights && (
+                    <div className="flex items-center gap-2 mr-4">
+                        <Logo size={20} />
+                        <span className="text-sm font-semibold text-foreground tracking-tight hidden sm:block">S-AGI</span>
+                    </div>
+                )}
+
                 {selectedArtifact && (
                     <Tooltip>
                         <TooltipTrigger asChild>

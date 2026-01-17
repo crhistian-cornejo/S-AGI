@@ -11,7 +11,8 @@ export const settingsRouter = router({
         const store = getSecureApiKeyStore()
         return {
             hasOpenAI: store.hasOpenAIKey(),
-            hasAnthropic: store.hasAnthropicKey()
+            hasAnthropic: store.hasAnthropicKey(),
+            hasTavily: store.hasTavilyKey()
         }
     }),
 
@@ -43,6 +44,21 @@ export const settingsRouter = router({
     getAnthropicKey: publicProcedure.query(() => {
         const store = getSecureApiKeyStore()
         return { key: store.getAnthropicKey() }
+    }),
+
+    // Set Tavily API key (for web search)
+    setTavilyKey: publicProcedure
+        .input(z.object({ key: z.string().nullable() }))
+        .mutation(({ input }) => {
+            const store = getSecureApiKeyStore()
+            store.setTavilyKey(input.key)
+            return { success: true }
+        }),
+
+    // Get Tavily key (for web search in main process)
+    getTavilyKey: publicProcedure.query(() => {
+        const store = getSecureApiKeyStore()
+        return { key: store.getTavilyKey() }
     }),
 
     // Clear all API keys

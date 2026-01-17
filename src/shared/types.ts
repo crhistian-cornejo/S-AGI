@@ -22,6 +22,14 @@ export const MessageSchema = z.object({
     role: MessageRoleSchema,
     content: z.any(), // JSONB content
     tool_calls: z.any().optional(),
+    attachments: z.array(z.object({
+        id: z.string(),
+        name: z.string(),
+        size: z.number(),
+        type: z.string(),
+        url: z.string().optional(),
+        preview: z.string().optional()
+    })).optional(),
     created_at: z.string().datetime()
 })
 export type Message = z.infer<typeof MessageSchema>

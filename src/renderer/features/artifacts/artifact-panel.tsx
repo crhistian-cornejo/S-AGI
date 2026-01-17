@@ -1,7 +1,7 @@
 import { useRef } from 'react'
 import { useAtom, useSetAtom } from 'jotai'
-import { IconX, IconDownload, IconExternalLink } from '@tabler/icons-react'
-import { selectedArtifactAtom, artifactPanelOpenAtom, appViewModeAtom } from '@/lib/atoms'
+import { IconX, IconDownload, IconMaximize } from '@tabler/icons-react'
+import { selectedArtifactAtom, artifactPanelOpenAtom, activeTabAtom } from '@/lib/atoms'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { UniverSpreadsheet, type UniverSpreadsheetRef } from '@/features/univer/univer-spreadsheet'
@@ -9,11 +9,17 @@ import { UniverSpreadsheet, type UniverSpreadsheetRef } from '@/features/univer/
 export function ArtifactPanel() {
     const [artifact, setArtifact] = useAtom(selectedArtifactAtom)
     const [, setPanelOpen] = useAtom(artifactPanelOpenAtom)
-    const setAppMode = useSetAtom(appViewModeAtom)
+    const setActiveTab = useSetAtom(activeTabAtom)
     const spreadsheetRef = useRef<UniverSpreadsheetRef>(null)
 
     const handleClose = () => {
         setArtifact(null)
+        setPanelOpen(false)
+    }
+
+    const handleOpenInTab = () => {
+        // Switch to Excel tab - artifact is already selected
+        setActiveTab('excel')
         setPanelOpen(false)
     }
 
@@ -35,19 +41,21 @@ export function ArtifactPanel() {
                 </div>
 
                 <div className="flex items-center gap-1">
-                    <Tooltip>
-                        <TooltipTrigger asChild>
-                            <Button
-                                variant="ghost"
-                                size="icon"
-                                className="h-8 w-8"
-                                onClick={() => setAppMode('native')}
-                            >
-                                <IconExternalLink size={16} />
-                            </Button>
-                        </TooltipTrigger>
-                        <TooltipContent>Open in Native Tab</TooltipContent>
-                    </Tooltip>
+                    {artifact.type === 'spreadsheet' && (
+                        <Tooltip>
+                            <TooltipTrigger asChild>
+                                <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-8 w-8"
+                                    onClick={handleOpenInTab}
+                                >
+                                    <IconMaximize size={16} />
+                                </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>Open in Full Screen</TooltipContent>
+                        </Tooltip>
+                    )}
 
                     <Tooltip>
                         <TooltipTrigger asChild>

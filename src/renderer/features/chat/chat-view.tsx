@@ -9,17 +9,20 @@ import {
     settingsModalOpenAtom,
     chatModeAtom,
     selectedModelAtom,
-    streamingTextAtom,
     streamingToolCallsAtom,
     streamingErrorAtom,
     selectedArtifactAtom,
-    artifactPanelOpenAtom
+    artifactPanelOpenAtom,
+    streamingReasoningAtom,
+    isReasoningAtom,
+    reasoningEffortAtom,
 } from '@/lib/atoms'
 import { trpc, trpcClient } from '@/lib/trpc'
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { MessageList } from './message-list'
 import { ChatInput } from './chat-input'
+import { useSmoothStream } from '@/hooks/use-smooth-stream'
 
 export function ChatView() {
     // Force rebuild
@@ -31,10 +34,18 @@ export function ChatView() {
     const setSettingsOpen = useSetAtom(settingsModalOpenAtom)
     const selectedModel = useAtomValue(selectedModelAtom)
 
+    // Smooth streaming for text (buffers and releases gradually)
+    const smoothStream = useSmoothStream({ delayMs: 12, chunking: 'word' })
+    const streamingText = smoothStream.displayText
+
     // Streaming state
-    const [streamingText, setStreamingText] = useAtom(streamingTextAtom)
     const [streamingToolCalls, setStreamingToolCalls] = useAtom(streamingToolCallsAtom)
     const setStreamingError = useSetAtom(streamingErrorAtom)
+
+    // Reasoning state (for GPT-5 with reasoning enabled)
+    const [streamingReasoning, setStreamingReasoning] = useAtom(streamingReasoningAtom)
+    const [isReasoning, setIsReasoning] = useAtom(isReasoningAtom)
+    const reasoningEffort = useAtomValue(reasoningEffortAtom)
 
     // Artifact state
     const setSelectedArtifact = useSetAtom(selectedArtifactAtom)
@@ -54,35 +65,93 @@ export function ChatView() {
         : keyStatus?.hasAnthropic
 
     // Fetch messages for selected chat
-    const { data: messages, refetch: refetchMessages } = trpc.messages.list.useQuery(
+    const { data: messages, refetch: refetchMessages, error: messagesError } = trpc.messages.list.useQuery(
         { chatId: selectedChatId! },
-        { enabled: !!selectedChatId }
+        { enabled: !!selectedChatId, retry: false }
     )
 
     // Mutations
     const addMessage = trpc.messages.add.useMutation()
-    const chatMutation = trpc.ai.chat.useMutation() // Added mutation
+    const chatMutation = trpc.ai.chat.useMutation()
+
     const utils = trpc.useUtils()
+    const setSelectedChatId = useSetAtom(selectedChatIdAtom)
+
+    // Clear invalid chat selection (e.g., from stale localStorage)
+    useEffect(() => {
+        if (messagesError && selectedChatId) {
+            const errorMsg = messagesError.message || ''
+            if (errorMsg.includes('not found') || errorMsg.includes('access denied')) {
+                console.warn('[ChatView] Chat not found or access denied, clearing stale selection:', selectedChatId)
+                setSelectedChatId(null)
+            }
+        }
+    }, [messagesError, selectedChatId, setSelectedChatId])
 
     // Handle send message
-    const handleSend = async () => {
-        if (!input.trim() || !selectedChatId || isStreaming) return
+    const handleSend = async (images?: Array<{ base64Data: string; mediaType: string; filename: string }>) => {
+        if ((!input.trim() && !images?.length) || !selectedChatId || isStreaming) return
 
         const userMessage = input.trim()
         const isFirstMessage = messages?.length === 0
 
         setInput('')
         setIsStreaming(true)
-        setStreamingText('')
+        smoothStream.startStream()
         setStreamingToolCalls([])
+        setStreamingReasoning('')
+        setIsReasoning(false)
         setStreamingError(null)
 
         try {
-            // Add user message to database
+            // Upload images to Supabase Storage and prepare attachments
+            let attachments: Array<{
+                id: string
+                name: string
+                size: number
+                type: string
+                url?: string
+                preview?: string
+            }> = []
+
+            if (images && images.length > 0) {
+                console.log('[ChatView] Uploading', images.length, 'images to storage...')
+                
+                for (const img of images) {
+                    try {
+                        // Calculate approximate size from base64
+                        const sizeInBytes = Math.round((img.base64Data.length * 3) / 4)
+                        
+                        // Upload to Supabase Storage via tRPC
+                        const uploaded = await trpcClient.messages.uploadFile.mutate({
+                            fileName: img.filename,
+                            fileSize: sizeInBytes,
+                            fileType: img.mediaType,
+                            fileData: img.base64Data
+                        })
+                        
+                        attachments.push({
+                            id: uploaded.id,
+                            name: uploaded.name,
+                            size: uploaded.size,
+                            type: uploaded.type,
+                            url: uploaded.url
+                        })
+                        
+                        console.log('[ChatView] Uploaded image:', uploaded.name, '→', uploaded.url)
+                    } catch (uploadError) {
+                        console.error('[ChatView] Failed to upload image:', img.filename, uploadError)
+                        // Continue with other images even if one fails
+                    }
+                }
+            }
+
+            // Add user message to database with attachments
             await addMessage.mutateAsync({
                 chatId: selectedChatId,
                 role: 'user',
-                content: { type: 'text', text: userMessage }
+                content: { type: 'text', text: userMessage },
+                attachments: attachments.length > 0 ? attachments : undefined
             })
             await refetchMessages()
 
@@ -96,6 +165,9 @@ export function ChatView() {
                 setIsStreaming(false)
                 return
             }
+
+            // Get Tavily key for web search (optional)
+            const tavilyKeyResult = await trpcClient.settings.getTavilyKey.query()
 
             if (isFirstMessage) {
                 generateAutoTitle(selectedChatId, userMessage, apiKeyResult.key, provider, selectedModel)
@@ -114,15 +186,28 @@ export function ChatView() {
             const toolCalls: Map<string, { id: string; name: string; args: string; result?: unknown }> = new Map()
 
             // Setup IPC listener for streaming events
+            // Tools are executed in main process - we just display results here
             // @ts-ignore - desktopApi type extended in preload
             const cleanupListener = window.desktopApi.onAIStreamEvent(async (event: any) => {
                 switch (event.type) {
-                    case 'text-delta':
+                    case 'text-delta': {
                         fullText += event.delta
-                        setStreamingText(fullText)
+                        smoothStream.appendToBuffer(event.delta)
                         break
+                    }
 
-                    case 'tool-call-start':
+                    case 'reasoning-delta': {
+                        setStreamingReasoning(prev => prev + event.delta)
+                        setIsReasoning(true)
+                        break
+                    }
+
+                    case 'reasoning-done': {
+                        setIsReasoning(false)
+                        break
+                    }
+
+                    case 'tool-call-start': {
                         toolCalls.set(event.toolCallId, {
                             id: event.toolCallId,
                             name: event.toolName,
@@ -133,8 +218,9 @@ export function ChatView() {
                             status: 'streaming' as const
                         })))
                         break
+                    }
 
-                    case 'tool-call-delta':
+                    case 'tool-call-delta': {
                         const tc = toolCalls.get(event.toolCallId)
                         if (tc) {
                             tc.args += event.argsDelta
@@ -144,35 +230,72 @@ export function ChatView() {
                             })))
                         }
                         break
+                    }
 
-                    case 'tool-call-done':
-                        // Execute the tool
+                    case 'tool-call-done': {
+                        // Tool is being executed in main process
+                        // Just update status to "executing"
+                        const existingTc = toolCalls.get(event.toolCallId)
+                        if (existingTc) {
+                            toolCalls.set(event.toolCallId, { 
+                                ...existingTc, 
+                                args: JSON.stringify(event.args) 
+                            })
+                        }
                         setStreamingToolCalls(prev => prev.map(t =>
                             t.id === event.toolCallId
                                 ? { ...t, status: 'executing' as const, args: JSON.stringify(event.args) }
                                 : t
                         ))
+                        break
+                    }
 
-                        const result = executeToolCall(event.toolName, event.args)
-
-                        // Update local map with result for persistence
+                    case 'tool-result': {
+                        // Tool was executed in main process, update with result
                         const existingTc = toolCalls.get(event.toolCallId)
                         if (existingTc) {
-                            toolCalls.set(event.toolCallId, { ...existingTc, result })
+                            toolCalls.set(event.toolCallId, { 
+                                ...existingTc, 
+                                result: event.result 
+                            })
                         }
-
+                        
                         setStreamingToolCalls(prev => prev.map(t =>
                             t.id === event.toolCallId
-                                ? { ...t, status: 'complete' as const, result }
+                                ? { 
+                                    ...t, 
+                                    status: event.success ? 'complete' as const : 'error' as const, 
+                                    result: event.result 
+                                }
                                 : t
                         ))
-                        break
 
-                    case 'error':
+                        // Auto-open artifact panel when spreadsheet/document is created
+                        const isArtifactCreation = event.toolName === 'create_spreadsheet' || event.toolName === 'create_document'
+                        if (isArtifactCreation && event.success && event.result?.artifactId) {
+                            // Invalidate artifacts query to show new artifact
+                            utils.artifacts.list.invalidate({ chatId: selectedChatId })
+                            
+                            // Auto-open the newly created artifact
+                            try {
+                                const artifact = await trpcClient.artifacts.get.query({ id: event.result.artifactId })
+                                if (artifact) {
+                                    setSelectedArtifact(artifact as any)
+                                    setArtifactPanelOpen(true)
+                                }
+                            } catch (err) {
+                                console.warn('[ChatView] Failed to auto-open artifact:', err)
+                            }
+                        }
+                        break
+                    }
+
+                    case 'error': {
                         setStreamingError(event.error)
                         break
+                    }
 
-                    case 'finish':
+                    case 'finish': {
                         // Save assistant message to database
                         if (fullText || toolCalls.size > 0) {
                             const toolCallsArray = Array.from(toolCalls.values()).map(tc => {
@@ -192,6 +315,8 @@ export function ChatView() {
                                 }
                             })
 
+                            console.log('[ChatView] Saving message with tool calls:', JSON.stringify(toolCallsArray, null, 2))
+
                             await addMessage.mutateAsync({
                                 chatId: selectedChatId,
                                 role: 'assistant',
@@ -200,14 +325,20 @@ export function ChatView() {
                             })
 
                             await refetchMessages()
+                            
+                            // Refresh artifacts list after message is saved
+                            utils.artifacts.list.invalidate({ chatId: selectedChatId })
                         }
 
                         setIsStreaming(false)
-                        setStreamingText('')
+                        smoothStream.stopStream()
                         setStreamingToolCalls([])
+                        setStreamingReasoning('')
+                        setIsReasoning(false)
                         cleanupListener() // Clean up listener when done
                         abortRef.current = null
                         break
+                    }
                 }
             })
 
@@ -219,19 +350,42 @@ export function ChatView() {
             }
 
             // Start the stream via mutation
+            // Build images array for Claude vision API
+            const imageContent = images?.map(img => ({
+                type: 'image' as const,
+                data: img.base64Data,
+                mediaType: img.mediaType,
+            }))
+
             await chatMutation.mutateAsync({
                 chatId: selectedChatId,
                 prompt: userMessage,
                 mode,
                 provider,
                 apiKey: apiKeyResult.key,
+                tavilyApiKey: tavilyKeyResult.key || undefined,
                 model: selectedModel,
-                messages: messageHistory
+                messages: messageHistory,
+                images: imageContent && imageContent.length > 0 ? imageContent : undefined,
+                // Pass reasoning configuration if not 'none'
+                reasoning: reasoningEffort !== 'none' ? {
+                    effort: reasoningEffort,
+                    streamReasoning: true
+                } : undefined
             })
 
         } catch (error) {
             console.error('Failed to send message:', error)
-            setStreamingError(error instanceof Error ? error.message : 'Unknown error')
+            const errorMessage = error instanceof Error ? error.message : 'Unknown error'
+
+            // If chat not found or access denied, clear selection
+            if (errorMessage.includes('not found') || errorMessage.includes('access denied')) {
+                console.warn('[ChatView] Chat not found, clearing selection')
+                setSelectedChatId(null)
+                setStreamingError('Chat not found. Please create a new chat.')
+            } else {
+                setStreamingError(errorMessage)
+            }
             setIsStreaming(false)
         }
     }
@@ -245,17 +399,34 @@ export function ChatView() {
         setIsStreaming(false)
     }
 
-    // Invalidate queries when chat changes
+    // Invalidate queries when chat changes and clear artifact selection
     useEffect(() => {
         if (selectedChatId) {
             utils.messages.list.invalidate({ chatId: selectedChatId })
         }
-    }, [selectedChatId, utils])
+        // Clear artifact selection when chat changes
+        // The new chat may have different artifacts
+        setSelectedArtifact(null)
+        setArtifactPanelOpen(false)
+    }, [selectedChatId, utils, setSelectedArtifact, setArtifactPanelOpen])
 
     // Auto-scroll to bottom
     const scrollToBottom = useCallback((behavior: ScrollBehavior = 'smooth') => {
         messagesEndRef.current?.scrollIntoView({ behavior, block: 'end' })
     }, [])
+
+    // Memoized handler for viewing artifacts
+    const handleViewArtifact = useCallback(async (artifactId: string) => {
+        try {
+            const artifact = await trpcClient.artifacts.get.query({ id: artifactId })
+            if (artifact) {
+                setSelectedArtifact(artifact as any)
+                setArtifactPanelOpen(true)
+            }
+        } catch (error) {
+            console.error('Failed to open artifact:', error)
+        }
+    }, [setSelectedArtifact, setArtifactPanelOpen])
 
     useEffect(() => {
         // Scroll on new messages or streaming updates
@@ -270,6 +441,31 @@ export function ChatView() {
             scrollToBottom('auto')
         }
     }, [isStreaming, scrollToBottom])
+
+    // Error state - chat not found (stale localStorage)
+    if (messagesError && selectedChatId) {
+        const isNotFound = messagesError.message?.includes('not found') || messagesError.message?.includes('access denied')
+        if (isNotFound) {
+            return (
+                <div className="flex-1 flex flex-col items-center justify-center p-8">
+                    <div className="max-w-md text-center space-y-4">
+                        <div className="w-16 h-16 rounded-2xl bg-red-500/10 flex items-center justify-center mx-auto">
+                            <IconSparkles size={32} className="text-red-500" />
+                        </div>
+                        <div>
+                            <h2 className="text-xl font-semibold">Chat Not Found</h2>
+                            <p className="text-muted-foreground mt-1">
+                                This chat no longer exists or you don't have access to it.
+                            </p>
+                        </div>
+                        <Button onClick={() => setSelectedChatId(null)}>
+                            Create New Chat
+                        </Button>
+                    </div>
+                </div>
+            )
+        }
+    }
 
     // Empty state - no chat selected
     if (!selectedChatId) {
@@ -332,20 +528,9 @@ export function ChatView() {
                             isLoading={isStreaming}
                             streamingText={streamingText}
                             streamingToolCalls={streamingToolCalls}
-                            onViewArtifact={async (artifactId) => {
-                                try {
-                                    // Try to fetch artifact details
-                                    const artifact = await trpcClient.artifacts.get.query({ id: artifactId })
-                                    if (artifact) {
-                                        setSelectedArtifact(artifact as any)
-                                        setArtifactPanelOpen(true)
-                                    }
-                                } catch (error) {
-                                    console.error('Failed to open artifact:', error)
-                                    // Fallback if get query fails or doesn't exist, try to find in current messages? 
-                                    // Unlikely to help if it's not loaded.
-                                }
-                            }}
+                            streamingReasoning={streamingReasoning}
+                            isReasoning={isReasoning}
+                            onViewArtifact={handleViewArtifact}
                         />
                         <div ref={messagesEndRef} className="h-px" />
                     </div>
@@ -382,11 +567,31 @@ export function ChatView() {
         </div>
     )
 }
-function executeToolCall(_toolName: any, _args: any) {
-    throw new Error('Function not implemented.')
-}
 
-function generateAutoTitle(_selectedChatId: string, _userMessage: string, _key: string, _provider: string, _selectedModel: string) {
-    throw new Error('Function not implemented.')
+// Generate auto title for new chats
+async function generateAutoTitle(
+    chatId: string,
+    userMessage: string,
+    apiKey: string,
+    provider: string,
+    model: string
+) {
+    try {
+        const result = await trpcClient.ai.generateTitle.mutate({
+            prompt: userMessage,
+            provider: provider as 'openai',
+            apiKey,
+            model
+        })
+
+        if (result.title && result.title !== 'New Chat') {
+            await trpcClient.chats.update.mutate({
+                id: chatId,
+                title: result.title
+            })
+        }
+    } catch (error) {
+        console.error('[ChatView] Failed to generate auto title:', error)
+    }
 }
 

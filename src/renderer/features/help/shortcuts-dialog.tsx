@@ -2,9 +2,9 @@ import { useEffect, useMemo, useState } from 'react'
 import { AnimatePresence, motion } from 'motion/react'
 import { createPortal } from 'react-dom'
 import { useAtom } from 'jotai'
-import { IconCommand, IconKeyboard, IconCpu } from '@tabler/icons-react'
+import { IconKeyboard } from '@tabler/icons-react'
 import { shortcutsDialogOpenAtom } from '@/lib/atoms'
-import { cn, isMacOS } from '@/lib/utils'
+import { isMacOS } from '@/lib/utils'
 import { Kbd } from '@/components/ui/kbd'
 
 const EASING_CURVE = [0.55, 0.055, 0.675, 0.19] as const

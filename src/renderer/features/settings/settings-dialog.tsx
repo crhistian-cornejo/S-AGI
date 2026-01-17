@@ -2,10 +2,10 @@ import { useAtom } from 'jotai'
 import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { AnimatePresence, motion } from 'motion/react'
-import { IconX, IconUser, IconPalette, IconBug } from '@tabler/icons-react'
+import { IconX, IconUser, IconPalette, IconKey, IconBug } from '@tabler/icons-react'
 import { cn } from '@/lib/utils'
 import { settingsModalOpenAtom, settingsActiveTabAtom, type SettingsTab } from '@/lib/atoms'
-import { AccountTab, AppearanceTab, DebugTab } from './tabs'
+import { AccountTab, AppearanceTab, ApiKeysTab, DebugTab } from './tabs'
 
 // Check if we're in development mode
 const isDevelopment = import.meta.env.MODE === 'development'
@@ -23,6 +23,12 @@ const ALL_TABS: TabConfig[] = [
         label: 'Account',
         icon: IconUser,
         description: 'Manage your account settings'
+    },
+    {
+        id: 'api-keys',
+        label: 'API Keys',
+        icon: IconKey,
+        description: 'Configure AI provider API keys'
     },
     {
         id: 'appearance',
@@ -106,6 +112,8 @@ export function SettingsDialog() {
         switch (activeTab) {
             case 'account':
                 return <AccountTab />
+            case 'api-keys':
+                return <ApiKeysTab />
             case 'appearance':
                 return <AppearanceTab />
             case 'debug':

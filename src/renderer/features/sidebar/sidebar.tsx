@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { useAtom, useAtomValue, useSetAtom } from 'jotai'
 import {
     IconPlus,
@@ -43,7 +43,6 @@ import {
     AvatarFallback
 } from '@/components/ui/avatar'
 import { cn, formatRelativeTime } from '@/lib/utils'
-import { useHotkeys } from 'react-hotkeys-hook'
 
 interface Chat {
     id: string
@@ -74,14 +73,19 @@ export function Sidebar() {
     // Fetch chats
     const { data: chats, isLoading, refetch } = trpc.chats.list.useQuery({})
 
-    // Filter chats based on search query
-    const filteredChats = chats?.filter(chat =>
-        (chat.title || 'Untitled').toLowerCase().includes(searchQuery.toLowerCase())
+    // Filter chats based on search query - memoized to avoid recalculation on every render
+    const filteredChats = useMemo(() => 
+        chats?.filter(chat =>
+            (chat.title || 'Untitled').toLowerCase().includes(searchQuery.toLowerCase())
+        ),
+        [chats, searchQuery]
     )
 
     const createChat = trpc.chats.create.useMutation({
         onSuccess: (chat: Chat) => {
             console.log('[Sidebar] Chat created:', chat.id)
+            // Invalidate chats.get cache to ensure ChatView can verify the new chat exists
+            utils.chats.get.invalidate({ id: chat.id })
             setSelectedChatId(chat.id)
             setSelectedArtifact(null)
             setArtifactPanelOpen(false)

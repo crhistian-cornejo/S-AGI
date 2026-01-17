@@ -1,8 +1,6 @@
 import * as React from 'react'
 import { trpc } from '@/lib/trpc'
 import { useTheme } from 'next-themes'
-import { Button } from '@/components/ui/button'
-import { IconDeviceFloppy } from '@tabler/icons-react'
 
 interface UniverSpreadsheetProps {
     artifactId: string
@@ -95,6 +93,8 @@ export const UniverSpreadsheet = React.forwardRef<UniverSpreadsheetRef, UniverSp
                                 rowCount: 100,
                                 columnCount: 26,
                                 cellData: {},
+                                defaultColumnWidth: 100,
+                                defaultRowHeight: 24,
                             },
                         },
                     })

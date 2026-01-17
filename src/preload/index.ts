@@ -24,6 +24,10 @@ const desktopApi = {
     // Platform detection
     platform: process.platform,
 
+    // Haptic feedback (macOS only)
+    haptic: (type: 'light' | 'medium' | 'heavy' | 'selection' | 'success' | 'warning' | 'error') => 
+        ipcRenderer.invoke('haptic:perform', type),
+
     // Auth callback listener (for deep link code flow)
     onAuthCallback: (callback: (data: { code: string }) => void) => {
         ipcRenderer.on('auth:callback', (_, data) => callback(data))

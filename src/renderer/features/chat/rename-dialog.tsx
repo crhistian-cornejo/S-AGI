@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react'
-import { useAtom } from 'jotai'
 import { trpc } from '@/lib/trpc'
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'

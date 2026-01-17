@@ -54,6 +54,17 @@ bun run build
 # Package for distribution
 bun run package:win   # Windows
 bun run package:mac   # macOS
+bun run package:linux # Linux
+
+# Production builds with code signing (macOS)
+# 1. Set up Apple Developer account and create App ID
+# 2. Generate App-Specific Password in Apple ID settings
+# 3. Add to .env:
+#    APPLE_IDENTITY="Developer ID Application: Your Name (TEAM_ID)"
+#    APPLE_TEAM_ID=your_team_id
+#    APPLE_ID=your_apple_id
+#    APPLE_ID_PASSWORD=your_app_specific_password
+# 4. Build: bun run dist
 ```
 
 ## Project Structure

@@ -9,6 +9,7 @@ import { artifactsRouter } from './routers/artifacts'
 import { aiRouter } from './routers/ai'
 import { authRouter } from './routers/auth'
 import { settingsRouter } from './routers/settings'
+import { toolsRouter } from './routers/tools'
 
 // Main app router
 export const appRouter = router({
@@ -17,7 +18,8 @@ export const appRouter = router({
     artifacts: artifactsRouter,
     ai: aiRouter,
     auth: authRouter,
-    settings: settingsRouter
+    settings: settingsRouter,
+    tools: toolsRouter
 })
 
 // Export type for client

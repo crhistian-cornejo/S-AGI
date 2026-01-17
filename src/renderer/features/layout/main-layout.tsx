@@ -1,9 +1,10 @@
-import { useState } from 'react'
+import { useState, lazy, Suspense } from 'react'
 import {
     IconPlus,
     IconLayoutSidebarLeftExpand,
+    IconHistory,
     IconTable,
-    IconHistory
+    IconSparkles
 } from '@tabler/icons-react'
 import { trpc } from '@/lib/trpc'
 import {
@@ -11,29 +12,41 @@ import {
     artifactPanelOpenAtom,
     selectedArtifactAtom,
     selectedChatIdAtom,
-    appViewModeAtom,
+    activeTabAtom,
     shortcutsDialogOpenAtom
 } from '@/lib/atoms'
 import { Sidebar } from '@/features/sidebar/sidebar'
 import { ChatView } from '@/features/chat/chat-view'
-import { ArtifactPanel } from '@/features/artifacts/artifact-panel'
+import { DocViewer } from '@/features/docs/doc-viewer'
 import { TitleBar } from './title-bar'
 import { cn } from '@/lib/utils'
 import { useAtom, useSetAtom, useAtomValue } from 'jotai'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { Button } from '@/components/ui/button'
-import { UniverSpreadsheet } from '@/features/univer/univer-spreadsheet'
 import { Dialog, DialogTrigger } from '@/components/ui/dialog'
-import { HistoryDialogContent } from '@/features/chat/history-dialog'
 import { ShortcutsDialog } from '@/features/help/shortcuts-dialog'
 import { useHotkeys } from 'react-hotkeys-hook'
+
+// Lazy load less frequently used components
+const ArtifactPanel = lazy(() => import('@/features/artifacts/artifact-panel').then(m => ({ default: m.ArtifactPanel })))
+const UniverSpreadsheet = lazy(() => import('@/features/univer/univer-spreadsheet').then(m => ({ default: m.UniverSpreadsheet })))
+const HistoryDialogContent = lazy(() => import('@/features/chat/history-dialog').then(m => ({ default: m.HistoryDialogContent })))
+
+// Loading fallback for lazy components
+function PanelLoadingFallback() {
+    return (
+        <div className="flex items-center justify-center h-full">
+            <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+        </div>
+    )
+}
 
 export function MainLayout() {
     const [sidebarOpen, setSidebarOpen] = useAtom(sidebarOpenAtom)
     const [artifactPanelOpen] = useAtom(artifactPanelOpenAtom)
     const selectedArtifact = useAtomValue(selectedArtifactAtom)
     const setSelectedChatId = useSetAtom(selectedChatIdAtom)
-    const [appMode, setAppMode] = useAtom(appViewModeAtom)
+    const [activeTab, setActiveTab] = useAtom(activeTabAtom)
     const [, setShortcutsOpen] = useAtom(shortcutsDialogOpenAtom)
     const utils = trpc.useUtils()
     const [historyOpen, setHistoryOpen] = useState(false)
@@ -67,7 +80,7 @@ export function MainLayout() {
             <ShortcutsDialog />
 
             <div className="flex flex-1 overflow-hidden relative">
-                {appMode === 'chat' ? (
+                {activeTab === 'chat' && (
                     <>
                         {/* Sidebar */}
                         <div
@@ -118,7 +131,9 @@ export function MainLayout() {
                                                     </Tooltip>
                                                 </div>
                                             </DialogTrigger>
-                                            <HistoryDialogContent onSelect={() => setHistoryOpen(false)} />
+                                            <Suspense fallback={null}>
+                                                <HistoryDialogContent onSelect={() => setHistoryOpen(false)} />
+                                            </Suspense>
                                         </Dialog>
 
                                         <div className="h-px bg-border/50 mx-2 my-0.5" />
@@ -150,38 +165,51 @@ export function MainLayout() {
                             )}
                         >
                             <div className="w-[600px] h-full">
-                                <ArtifactPanel />
+                                <Suspense fallback={<PanelLoadingFallback />}>
+                                    <ArtifactPanel />
+                                </Suspense>
                             </div>
                         </div>
                     </>
-                ) : (
-                    /* Native Mode - Global Spreadsheet View */
+                )}
+
+                {activeTab === 'excel' && (
                     <div className="flex-1 flex flex-col animate-in fade-in zoom-in-95 duration-500">
-                        {selectedArtifact?.type === 'spreadsheet' ? (
-                            <UniverSpreadsheet
-                                artifactId={selectedArtifact.id}
-                                data={selectedArtifact.univer_data}
-                            />
+                        {selectedArtifact && selectedArtifact.type === 'spreadsheet' ? (
+                            <Suspense fallback={<PanelLoadingFallback />}>
+                                <UniverSpreadsheet
+                                    artifactId={selectedArtifact.id}
+                                    data={selectedArtifact.univer_data}
+                                />
+                            </Suspense>
                         ) : (
-                            <div className="flex-1 flex flex-col items-center justify-center p-12 text-center space-y-4">
-                                <div className="w-16 h-16 rounded-3xl bg-accent flex items-center justify-center shadow-lg">
-                                    <IconTable size={32} className="text-primary" />
-                                </div>
-                                <div className="max-w-xs">
-                                    <h3 className="text-lg font-bold">No Active Spreadsheet</h3>
-                                    <p className="text-sm text-muted-foreground mt-2 text-balance">
-                                        Go back to Chat Mode and ask S-AGI to create a spreadsheet for you to see it here.
-                                    </p>
-                                    <Button
-                                        variant="default"
-                                        className="mt-6 rounded-xl"
-                                        onClick={() => setAppMode('chat')}
+                            <div className="flex-1 flex flex-col items-center justify-center p-8">
+                                <div className="max-w-md text-center space-y-4">
+                                    <div className="w-16 h-16 rounded-2xl bg-emerald-500/10 flex items-center justify-center mx-auto">
+                                        <IconTable size={32} className="text-emerald-600" />
+                                    </div>
+                                    <div>
+                                        <h2 className="text-xl font-semibold">No Spreadsheet Selected</h2>
+                                        <p className="text-muted-foreground mt-1">
+                                            Create a spreadsheet in the chat or select one from your conversation history.
+                                        </p>
+                                    </div>
+                                    <Button 
+                                        variant="outline"
+                                        onClick={() => setActiveTab('chat')}
                                     >
-                                        Back to Chat
+                                        <IconSparkles size={16} className="mr-2" />
+                                        Go to Chat
                                     </Button>
                                 </div>
                             </div>
                         )}
+                    </div>
+                )}
+
+                {activeTab === 'doc' && (
+                    <div className="flex-1 flex flex-col animate-in fade-in zoom-in-95 duration-500">
+                        <DocViewer />
                     </div>
                 )}
             </div>

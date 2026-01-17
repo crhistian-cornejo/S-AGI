@@ -7,6 +7,7 @@ import log from 'electron-log'
 interface ApiKeyStore {
     openai?: string
     anthropic?: string
+    tavily?: string
 }
 
 const STORE_FILE = 'api-keys.encrypted'
@@ -68,26 +69,34 @@ export class SecureApiKeyStore {
     setOpenAIKey(key: string | null): void {
         if (key) {
             this.cache.openai = key
+            log.info('[SecureApiKeyStore] OpenAI key updated (length:', key.length, ')')
         } else {
             delete this.cache.openai
+            log.info('[SecureApiKeyStore] OpenAI key cleared')
         }
         this.save()
     }
 
     getOpenAIKey(): string | null {
+        // Always reload from disk to ensure we have the latest
+        this.load()
         return this.cache.openai || null
     }
 
     setAnthropicKey(key: string | null): void {
         if (key) {
             this.cache.anthropic = key
+            log.info('[SecureApiKeyStore] Anthropic key updated (length:', key.length, ')')
         } else {
             delete this.cache.anthropic
+            log.info('[SecureApiKeyStore] Anthropic key cleared')
         }
         this.save()
     }
 
     getAnthropicKey(): string | null {
+        // Always reload from disk to ensure we have the latest
+        this.load()
         return this.cache.anthropic || null
     }
 
@@ -97,6 +106,27 @@ export class SecureApiKeyStore {
 
     hasAnthropicKey(): boolean {
         return !!this.cache.anthropic
+    }
+
+    setTavilyKey(key: string | null): void {
+        if (key) {
+            this.cache.tavily = key
+            log.info('[SecureApiKeyStore] Tavily key updated (length:', key.length, ')')
+        } else {
+            delete this.cache.tavily
+            log.info('[SecureApiKeyStore] Tavily key cleared')
+        }
+        this.save()
+    }
+
+    getTavilyKey(): string | null {
+        // Always reload from disk to ensure we have the latest
+        this.load()
+        return this.cache.tavily || null
+    }
+
+    hasTavilyKey(): boolean {
+        return !!this.cache.tavily
     }
 
     clear(): void {

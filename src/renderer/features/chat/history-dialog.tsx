@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { useAtom } from 'jotai'
 import {
     IconMessage,
@@ -58,9 +58,12 @@ export function HistoryDialogContent({ onSelect }: HistoryDialogContentProps) {
         onSuccess: () => refetch()
     })
 
-    // Filter chats based on search query
-    const filteredChats = chats?.filter(chat =>
-        (chat.title || 'Untitled').toLowerCase().includes(searchQuery.toLowerCase())
+    // Filter chats based on search query - memoized to avoid recalculation on every render
+    const filteredChats = useMemo(() =>
+        chats?.filter(chat =>
+            (chat.title || 'Untitled').toLowerCase().includes(searchQuery.toLowerCase())
+        ),
+        [chats, searchQuery]
     )
 
     const handleSelectChat = (chatId: string) => {

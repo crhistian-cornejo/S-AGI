@@ -43,7 +43,7 @@ export const chatsRouter = router({
                 .select('*')
                 .eq('id', input.id)
                 .eq('user_id', ctx.userId)
-                .single()
+                .maybeSingle()
 
             if (error) throw new Error(error.message)
             return data

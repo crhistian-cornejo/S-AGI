@@ -1,5 +1,4 @@
 import { createTRPCReact } from "@trpc/react-query"
-import { createTRPCProxyClient } from "@trpc/client"
 import { ipcLink } from "trpc-electron/renderer"
 import superjson from "superjson"
 import { useState, ReactNode } from "react"
