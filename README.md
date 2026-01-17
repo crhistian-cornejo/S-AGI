@@ -1,0 +1,74 @@
+# S-AGI - AI Spreadsheet Agent
+
+AI-powered chat assistant for creating spreadsheets, tables, and formulas using Univer.
+
+> **Attribution**: This project is based on [21st-dev/1code](https://github.com/21st-dev/1code) (Apache-2.0 License). See [THIRD-PARTY-NOTICES](./THIRD-PARTY-NOTICES) for full license details.
+
+## Features
+
+- 🤖 **AI Chat** - Natural language interface for spreadsheet creation
+- 📊 **Univer Spreadsheets** - Full-featured spreadsheet with formulas
+- 🔄 **Artifacts** - Persistent spreadsheet artifacts in chat history
+- 🌓 **Themes** - Light/Dark/System mode support
+- 💾 **Supabase Backend** - Cloud persistence for all data
+- 🖥️ **Cross-platform** - Windows, macOS, and Web support
+
+## Tech Stack
+
+- **Frontend**: React 19, TypeScript, Tailwind CSS
+- **Desktop**: Electron + Vite
+- **State**: Jotai, Zustand, React Query
+- **Backend**: tRPC, Supabase
+- **AI**: AI SDK v6 (Claude Code / OpenAI fallback)
+- **Spreadsheets**: Univer
+- **Icons**: Tabler Icons
+
+## Getting Started
+
+```bash
+# Install dependencies
+bun install
+
+# Setup environment
+cp .env.example .env
+# Edit .env with your Supabase and API keys
+
+# Development
+bun run dev
+
+# Build
+bun run build
+
+# Package for distribution
+bun run package:win   # Windows
+bun run package:mac   # macOS
+```
+
+## Project Structure
+
+```
+src/
+├── main/           # Electron main process
+│   ├── lib/
+│   │   ├── auth/   # Claude Code OAuth
+│   │   ├── supabase/
+│   │   └── trpc/   # tRPC routers
+│   └── index.ts
+├── preload/        # IPC bridge
+├── renderer/       # React UI
+│   ├── components/ui/
+│   ├── features/
+│   │   ├── chat/
+│   │   ├── artifacts/
+│   │   ├── sidebar/
+│   │   ├── layout/
+│   │   └── univer/
+│   └── lib/
+└── shared/         # Shared types
+```
+
+## License
+
+Apache-2.0
+
+See [THIRD-PARTY-NOTICES](./THIRD-PARTY-NOTICES) for third-party license attributions.
