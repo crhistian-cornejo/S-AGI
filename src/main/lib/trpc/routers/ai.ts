@@ -701,7 +701,13 @@ export const aiRouter = router({
                     let nativeToolsConfig = input.nativeTools
 
                     // Automatically inject Vector Store ID from Supabase if none provided
-                    if (modelDef?.supportsFileSearch && (!nativeToolsConfig?.fileSearch || (typeof nativeToolsConfig.fileSearch === 'object' && !nativeToolsConfig.fileSearch.vectorStoreIds?.length))) {
+                    // This handles both { fileSearch: true } and { fileSearch: { vectorStoreIds: [] } }
+                    const needsVectorStoreId = modelDef?.supportsFileSearch && nativeToolsConfig?.fileSearch && (
+                        nativeToolsConfig.fileSearch === true ||
+                        (typeof nativeToolsConfig.fileSearch === 'object' && !nativeToolsConfig.fileSearch.vectorStoreIds?.length)
+                    )
+                    
+                    if (needsVectorStoreId) {
                         const { data: chatData } = await supabase
                             .from('chats')
                             .select('openai_vector_store_id')
@@ -717,6 +723,8 @@ export const aiRouter = router({
                                     vectorStoreIds: [chatData.openai_vector_store_id]
                                 }
                             }
+                        } else {
+                            log.warn(`[AI] fileSearch requested but no vector store found for chat ${input.chatId}`)
                         }
                     }
 

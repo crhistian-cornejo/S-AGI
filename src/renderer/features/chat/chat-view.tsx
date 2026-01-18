@@ -160,7 +160,7 @@ export function ChatView() {
     }
 
     // Handle send message
-    const handleSend = async (images?: Array<{ base64Data: string; mediaType: string; filename: string }>, _documents?: File[], messageOverride?: string) => {
+    const handleSend = async (images?: Array<{ base64Data: string; mediaType: string; filename: string }>, documents?: File[], messageOverride?: string) => {
         const messageToSend = messageOverride ?? input.trim()
         if ((!messageToSend && !images?.length) || !selectedChatId || isStreaming) return
 
@@ -177,6 +177,18 @@ export function ChatView() {
         setStreamingError(null)
         setStreamingWebSearches([]) // Clear previous web searches
         setStreamingAnnotations([]) // Clear previous annotations
+
+        // Upload documents to OpenAI Vector Store for file search
+        if (documents && documents.length > 0) {
+            console.log('[ChatView] Uploading', documents.length, 'documents to OpenAI Vector Store...')
+            try {
+                await documentUpload.uploadDocuments(documents)
+                console.log('[ChatView] Documents uploaded successfully')
+            } catch (docError) {
+                console.error('[ChatView] Failed to upload documents:', docError)
+                // Continue anyway - documents may still be processing
+            }
+        }
 
         // Upload images to Supabase Storage and prepare attachments
         let attachments: Array<{
@@ -265,8 +277,10 @@ export function ChatView() {
                 }))
 
             // Check if there are files in vector store or uploading for file search
+            // Also check if we just uploaded documents in this send action
             const hasFilesInVectorStore = (documentUpload.files && documentUpload.files.length > 0) ||
-                (documentUpload.uploadingDocuments && documentUpload.uploadingDocuments.length > 0)
+                (documentUpload.uploadingDocuments && documentUpload.uploadingDocuments.length > 0) ||
+                (documents && documents.length > 0)
 
             // Variables to track streaming response
             let fullText = ''
@@ -819,10 +833,10 @@ export function ChatView() {
             {/* Messages area */}
             <div className="flex-1 relative overflow-hidden">
                 {/* Top Fade Overlay */}
-                <div className="absolute top-0 left-0 right-0 h-10 bg-gradient-to-b from-background to-transparent pointer-events-none z-10" />
+                <div className="absolute top-0 left-0 right-0 h-12 bg-gradient-to-b from-background via-background/80 to-transparent pointer-events-none z-10" />
 
                 <ScrollArea className="h-full" ref={scrollContainerRef}>
-                    <div className="pt-10 pb-16"> {/* Subtle padding for fades */}
+                    <div className="pt-2 pb-16"> {/* Safe area is now handled by MainLayout, keeping small padding for air */}
                         <MessageList
                             messages={messages || []}
                             isLoading={isStreaming}
@@ -892,7 +906,7 @@ export function ChatView() {
                                         onClick={handleApprovePlan}
                                         className="w-full flex items-center justify-center gap-3 h-12 px-6 rounded-xl bg-[hsl(var(--plan-mode))] text-[hsl(var(--plan-mode-foreground))] text-base font-medium hover:bg-[hsl(var(--plan-mode))]/90 transition-all shadow-lg shadow-[hsl(var(--plan-mode))]/20"
                                     >
-                                        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" stroke="none">
+                                        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" stroke="none" aria-hidden="true">
                                             <polygon points="5 3 19 12 5 21 5 3" />
                                         </svg>
                                         Implement Plan

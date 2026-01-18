@@ -18,7 +18,11 @@ import { Logo } from '@/components/ui/logo'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn, isMacOS, isElectron } from '@/lib/utils'
 
-export function TitleBar() {
+export interface TitleBarProps {
+    className?: string
+}
+
+export function TitleBar({ className }: TitleBarProps) {
     const [artifactPanelOpen, setArtifactPanelOpen] = useAtom(artifactPanelOpenAtom)
     const [activeTab, setActiveTab] = useAtom(activeTabAtom)
     const selectedArtifact = useAtomValue(selectedArtifactAtom)
@@ -32,8 +36,9 @@ export function TitleBar() {
     return (
         <div
             className={cn(
-                'h-10 flex items-center border-b border-border bg-sidebar drag-region shrink-0 px-2',
-                showTrafficLights && 'pl-16' // Reduced space for macOS traffic lights with hiddenInset
+                'h-10 flex items-center bg-transparent drag-region shrink-0 px-2',
+                showTrafficLights && 'pl-20', // Space for traffic lights
+                className
             )}
         >
             {/* Left content - only on non-macOS */}

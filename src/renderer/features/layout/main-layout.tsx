@@ -18,7 +18,7 @@ import { Sidebar } from '@/features/sidebar/sidebar'
 import { ChatView } from '@/features/chat/chat-view'
 import { DocViewer } from '@/features/docs/doc-viewer'
 import { TitleBar } from './title-bar'
-import { cn } from '@/lib/utils'
+import { cn, isMacOS } from '@/lib/utils'
 import { useAtom, useSetAtom, useAtomValue } from 'jotai'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { Button } from '@/components/ui/button'
@@ -95,11 +95,11 @@ export function MainLayout() {
     })
 
     return (
-        <div className="h-screen w-screen bg-background flex flex-col overflow-hidden">
-            <TitleBar />
+        <div className="h-screen w-screen bg-background relative overflow-hidden">
+            <TitleBar className="absolute top-0 left-0 right-0 z-50 h-10" />
             <ShortcutsDialog />
 
-            <div className="flex flex-1 overflow-hidden relative">
+            <div className="flex h-full w-full overflow-hidden relative">
                 {/* Chat Tab - conditionally rendered because it doesn't have Univer conflicts */}
                 {activeTab === 'chat' && (
                     <>
@@ -110,15 +110,18 @@ export function MainLayout() {
                                 sidebarOpen ? 'w-72' : 'w-0 border-r-0'
                             )}
                         >
-                            <div className="w-72 h-full">
+                            <div className="w-72 h-full pt-10">
                                 <Sidebar />
                             </div>
                         </div>
 
                         {/* Chat area */}
-                        <div className="flex-1 flex flex-col min-w-0 overflow-hidden relative">
+                        <div className="flex-1 flex flex-col min-w-0 overflow-hidden relative pt-10">
                             {!sidebarOpen && (
-                                <div className="absolute top-4 left-4 z-40 flex flex-col gap-2 animate-in fade-in slide-in-from-left-4 duration-500">
+                                <div className={cn(
+                                    "absolute left-4 z-40 flex flex-col gap-2 animate-in fade-in slide-in-from-left-4 duration-500",
+                                    isMacOS() ? "top-12" : "top-4"
+                                )}>
                                     <Tooltip>
                                         <TooltipTrigger asChild>
                                             <Button
@@ -209,7 +212,7 @@ export function MainLayout() {
                  * Only one Univer instance exists at a time.
                  */}
                 {activeTab === 'excel' && (
-                    <div className="flex-1 flex flex-col animate-in fade-in zoom-in-95 duration-300">
+                    <div className="flex-1 flex flex-col pt-10 animate-in fade-in zoom-in-95 duration-300">
                         <Suspense fallback={<PanelLoadingFallback />}>
                             <UniverSpreadsheet
                                 artifactId={selectedArtifact?.type === 'spreadsheet' ? selectedArtifact.id : undefined}
@@ -224,7 +227,7 @@ export function MainLayout() {
                  * Only one Univer instance exists at a time.
                  */}
                 {activeTab === 'doc' && (
-                    <div className="flex-1 flex flex-col animate-in fade-in zoom-in-95 duration-300">
+                    <div className="flex-1 flex flex-col pt-10 animate-in fade-in zoom-in-95 duration-300">
                         <DocViewer />
                     </div>
                 )}

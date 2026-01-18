@@ -1,5 +1,6 @@
 import { app, BrowserWindow, ipcMain, nativeTheme, Tray, Menu, nativeImage } from 'electron'
 import { join } from 'path'
+import { existsSync } from 'fs'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { createIPCHandler } from 'trpc-electron/main'
 import { appRouter } from './lib/trpc'
@@ -15,16 +16,47 @@ let mainWindow: BrowserWindow | null = null
 let tray: Tray | null = null
 
 function createTray(): void {
-    // macOS: Using 'Template' suffix allows Electron to automatically invert colors for dark/light mode
-    const iconPath = is.dev 
-        ? join(__dirname, '../../src/main/trayTemplate.svg')
-        : join(__dirname, 'trayTemplate.svg')
-        
-    const icon = nativeImage.createFromPath(iconPath).resize({ width: 18, height: 18 })
-    icon.setTemplateImage(true) // Ensure it behaves as a template on macOS
+    // macOS: Template images should be PNG for best compatibility
+    // Electron auto-selects @2x on Retina if both exist
+    const basePath = is.dev 
+        ? join(__dirname, '../../src/main')
+        : __dirname
+    
+    const pngPath = join(basePath, 'trayTemplate.png')
+    const png2xPath = join(basePath, 'trayTemplate@2x.png')
+    const svgPath = join(basePath, 'trayTemplate.svg')
+    
+    let icon: Electron.NativeImage | null = null
+    
+    // Best: Load both 1x and 2x PNGs for proper Retina support
+    if (existsSync(pngPath) && existsSync(png2xPath)) {
+        log.info('[Tray] Loading PNG with @2x variant')
+        icon = nativeImage.createFromPath(pngPath)
+        // Electron automatically picks up @2x when main file exists
+    } else if (existsSync(pngPath)) {
+        log.info('[Tray] Loading PNG (no @2x)')
+        icon = nativeImage.createFromPath(pngPath)
+    } else if (existsSync(svgPath)) {
+        log.info('[Tray] Falling back to SVG')
+        icon = nativeImage.createFromPath(svgPath)
+        // SVG needs resize
+        icon = icon.resize({ width: 18, height: 18 })
+    }
+    
+    if (!icon || icon.isEmpty()) {
+        log.error('[Tray] No tray icon found at:', basePath)
+        icon = nativeImage.createEmpty()
+        log.warn('[Tray] Using empty fallback icon')
+    }
+    
+    // macOS: Mark as template so it adapts to dark/light menu bar
+    if (process.platform === 'darwin') {
+        icon.setTemplateImage(true)
+    }
     
     tray = new Tray(icon)
-    log.info('[Tray] Tray instance created at:', iconPath)
+    
+    log.info('[Tray] Tray instance created')
     
     const contextMenu = Menu.buildFromTemplate([
         { 
@@ -37,6 +69,7 @@ function createTray(): void {
         { type: 'separator' },
         { 
             label: 'Quit', 
+            accelerator: process.platform === 'darwin' ? 'Cmd+Q' : 'Ctrl+Q',
             click: () => {
                 app.quit()
             } 
@@ -46,7 +79,7 @@ function createTray(): void {
     tray.setToolTip('S-AGI Agent')
     tray.setContextMenu(contextMenu)
 
-    // Standard macOS behavior for tray icons
+    // Click behavior differs by platform
     tray.on('click', () => {
         if (mainWindow) {
             if (mainWindow.isVisible()) {
@@ -69,7 +102,10 @@ function createWindow(): void {
         show: false,
         autoHideMenuBar: true,
         frame: false,
-        titleBarStyle: 'hiddenInset',
+        titleBarStyle: 'hidden',
+        trafficLightPosition: { x: 12, y: 12 },
+        vibrancy: 'under-window',
+        visualEffectState: 'active',
         icon: process.platform === 'linux' ? join(__dirname, '../../public/logo.svg') : join(__dirname, '../../public/icon.ico'),
         webPreferences: {
             preload: join(__dirname, '../preload/index.js'),
