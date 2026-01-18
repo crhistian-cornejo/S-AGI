@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="build/logo.svg" width="120" alt="S-AGI Logo" />
+  <img src="public/logo.svg" width="120" alt="S-AGI Logo" />
 </p>
 
 # S-AGI
