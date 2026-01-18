@@ -221,7 +221,7 @@ function ChatItem({
                         content={
                             <div className="space-y-2">
                                 <div className="space-y-0.5">
-                                    <p className="font-medium text-foreground text-sm">{chat.title || 'Untitled'}</p>
+                                    <p className="font-medium text-foreground text-sm leading-tight">{chat.title || 'Untitled'}</p>
                                     <p className="text-[11px] font-mono text-muted-foreground/60">ID: {getShortId(chat.id)}</p>
                                 </div>
 

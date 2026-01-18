@@ -1,12 +1,15 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "motion/react";
+import { cn } from "@/lib/utils";
 
 export const CursorTooltip = ({
   content,
   children,
+  containerClassName,
 }: {
   content: string | React.ReactNode;
   children: React.ReactNode;
+  containerClassName?: string;
 }) => {
   const [isVisible, setIsVisible] = useState(false);
   const [mouse, setMouse] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
@@ -123,7 +126,7 @@ export const CursorTooltip = ({
   return (
     <div
       ref={containerRef}
-      className="relative inline-block w-full"
+      className={cn("relative inline-block", containerClassName)}
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
       onMouseMove={handleMouseMove}
