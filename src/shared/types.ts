@@ -11,7 +11,8 @@ export const ChatSchema = z.object({
     title: z.string(),
     created_at: z.string().datetime(),
     updated_at: z.string().datetime(),
-    archived: z.boolean().optional()
+    archived: z.boolean().optional(),
+    pinned: z.boolean().optional()
 })
 export type Chat = z.infer<typeof ChatSchema>
 

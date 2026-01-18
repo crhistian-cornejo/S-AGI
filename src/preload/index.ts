@@ -51,6 +51,28 @@ const desktopApi = {
         return () => {
             ipcRenderer.removeListener('ai:stream', handler)
         }
+    },
+
+    // Tray Popover API
+    tray: {
+        getRecentItems: () => ipcRenderer.invoke('tray:get-recent-items'),
+        action: (data: { action: string; [key: string]: unknown }) => 
+            ipcRenderer.invoke('tray:action', data),
+        onRefresh: (callback: () => void) => {
+            ipcRenderer.on('tray:refresh', callback)
+            return () => {
+                ipcRenderer.removeListener('tray:refresh', callback)
+            }
+        },
+        // Callbacks for tray actions aimed at the main window
+        onAction: (action: string, callback: (data?: any) => void) => {
+            const channel = `tray:${action}`
+            const listener = (_: any, data: any) => callback(data)
+            ipcRenderer.on(channel, listener)
+            return () => {
+                ipcRenderer.removeListener(channel, listener)
+            }
+        }
     }
 }
 

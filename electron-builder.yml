@@ -13,6 +13,12 @@ protocols:
   - name: S-AGI
     schemes:
       - s-agi
+linux:
+  icon: build/icon.png
+  target:
+    - AppImage
+    - deb
+  category: Office
 mac:
   icon: build/icon.icns
   category: public.app-category.productivity
@@ -46,6 +52,7 @@ dmg:
       path: /Applications
   iconSize: 80
 win:
+  icon: build/icon.ico
   target:
     - nsis
     - msi

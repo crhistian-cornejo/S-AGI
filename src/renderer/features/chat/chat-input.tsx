@@ -504,9 +504,9 @@ export function ChatInput({ value, onChange, onSend, onStop, isLoading, streamin
                                 <div className="text-[10px] font-bold uppercase text-muted-foreground/50 px-3 py-2">
                                     Reasoning Depth
                                 </div>
-                                <SelectItem value="low" className="rounded-lg">Low</SelectItem>
-                                <SelectItem value="medium" className="rounded-lg">Medium</SelectItem>
-                                <SelectItem value="high" className="rounded-lg">High</SelectItem>
+                                <SelectItem value="low" className="rounded-lg cursor-pointer">Low</SelectItem>
+                                <SelectItem value="medium" className="rounded-lg cursor-pointer">Medium</SelectItem>
+                                <SelectItem value="high" className="rounded-lg cursor-pointer">High</SelectItem>
                             </SelectContent>
                         </Select>
                     </div>

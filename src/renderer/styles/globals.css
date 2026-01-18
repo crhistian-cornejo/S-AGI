@@ -156,10 +156,160 @@
     -webkit-user-select: none;
 }
 
-/* Univer overrides - ensure text visibility and interaction */
+/* ==========================================================================
+   Univer Theme Integration
+   Maps Univer's CSS variables to our design system for seamless theme switching
+   ========================================================================== */
+
+/* Light mode - Univer CSS variable overrides */
+:root {
+    /* Primary colors */
+    --univer-color-primary: hsl(var(--primary));
+    --univer-color-primary-hover: hsl(var(--primary) / 0.9);
+    --univer-color-primary-active: hsl(var(--primary) / 0.8);
+    
+    /* Background colors */
+    --univer-bg-color: hsl(var(--background));
+    --univer-bg-color-secondary: hsl(var(--muted));
+    --univer-bg-color-hover: hsl(var(--accent));
+    
+    /* Text colors */
+    --univer-text-color: hsl(var(--foreground));
+    --univer-text-color-secondary: hsl(var(--muted-foreground));
+    
+    /* Border colors */
+    --univer-border-color: hsl(var(--border));
+    
+    /* Canvas/Sheet specific */
+    --univer-sheet-container-bg: hsl(var(--background));
+    --univer-sheet-tab-bar-bg: hsl(var(--muted));
+    --univer-formula-bar-bg: hsl(var(--background));
+    
+    /* Toolbar */
+    --univer-toolbar-bg: hsl(var(--background));
+    --univer-toolbar-btn-hover-bg: hsl(var(--accent));
+}
+
+/* Dark mode - Univer CSS variable overrides */
+.dark {
+    --univer-color-primary: hsl(var(--primary));
+    --univer-color-primary-hover: hsl(var(--primary) / 0.9);
+    --univer-color-primary-active: hsl(var(--primary) / 0.8);
+    
+    --univer-bg-color: hsl(var(--background));
+    --univer-bg-color-secondary: hsl(var(--muted));
+    --univer-bg-color-hover: hsl(var(--accent));
+    
+    --univer-text-color: hsl(var(--foreground));
+    --univer-text-color-secondary: hsl(var(--muted-foreground));
+    
+    --univer-border-color: hsl(var(--border));
+    
+    --univer-sheet-container-bg: hsl(var(--background));
+    --univer-sheet-tab-bar-bg: hsl(var(--muted));
+    --univer-formula-bar-bg: hsl(var(--background));
+    
+    --univer-toolbar-bg: hsl(var(--background));
+    --univer-toolbar-btn-hover-bg: hsl(var(--accent));
+}
+
+/* Direct style overrides for Univer components */
 .univer-app,
 .univer-container {
     color: inherit;
+    background-color: hsl(var(--background));
+}
+
+/* Workbench container */
+.univer-workbench,
+.univer-workbench-container {
+    background-color: hsl(var(--background)) !important;
+}
+
+/* Header/Toolbar area */
+.univer-header,
+.univer-toolbar,
+[class*="univer-toolbar"] {
+    background-color: hsl(var(--background)) !important;
+    border-color: hsl(var(--border)) !important;
+}
+
+/* Formula bar */
+.univer-formula-bar,
+[class*="univer-formula-bar"] {
+    background-color: hsl(var(--background)) !important;
+    border-color: hsl(var(--border)) !important;
+}
+
+/* Sheet tabs */
+.univer-sheet-bar,
+[class*="univer-sheet-bar"],
+[class*="univer-sheet-tab"] {
+    background-color: hsl(var(--muted)) !important;
+    border-color: hsl(var(--border)) !important;
+}
+
+/* Sidebar/panels */
+.univer-sidebar,
+[class*="univer-sidebar"],
+[class*="univer-panel"] {
+    background-color: hsl(var(--background)) !important;
+    border-color: hsl(var(--border)) !important;
+}
+
+/* Dropdowns and popovers */
+.univer-dropdown,
+.univer-popup,
+.univer-menu,
+[class*="univer-dropdown"],
+[class*="univer-popup"],
+[class*="univer-menu"] {
+    background-color: hsl(var(--popover)) !important;
+    border-color: hsl(var(--border)) !important;
+    color: hsl(var(--popover-foreground)) !important;
+}
+
+/* Buttons */
+.univer-button,
+[class*="univer-btn"] {
+    color: hsl(var(--foreground)) !important;
+}
+
+.univer-button:hover,
+[class*="univer-btn"]:hover {
+    background-color: hsl(var(--accent)) !important;
+}
+
+/* Input fields */
+.univer-input,
+[class*="univer-input"] {
+    background-color: hsl(var(--input-background)) !important;
+    border-color: hsl(var(--input)) !important;
+    color: hsl(var(--foreground)) !important;
+}
+
+/* Selection highlight */
+[class*="univer-selection"] {
+    border-color: hsl(var(--primary)) !important;
+}
+
+/* Context menu */
+.univer-context-menu,
+[class*="univer-context-menu"] {
+    background-color: hsl(var(--popover)) !important;
+    border-color: hsl(var(--border)) !important;
+    box-shadow: 0 4px 12px hsl(var(--foreground) / 0.1) !important;
+}
+
+/* Scrollbars within Univer */
+.univer-app ::-webkit-scrollbar-thumb,
+.univer-container ::-webkit-scrollbar-thumb {
+    background: hsl(var(--muted-foreground) / 0.3) !important;
+}
+
+.univer-app ::-webkit-scrollbar-thumb:hover,
+.univer-container ::-webkit-scrollbar-thumb:hover {
+    background: hsl(var(--muted-foreground) / 0.5) !important;
 }
 
 /* Ensure Univer receives all pointer and keyboard events */
@@ -174,7 +324,8 @@
 .univer-doc-editor,
 .univer-cell-editor,
 .univer-editor,
-[class*="univer-editor"] {
+[class*="univer-editor"],
+[class*="univer-cell-input"] {
     color: #000 !important;
     caret-color: #000 !important;
     pointer-events: auto !important;
@@ -185,9 +336,25 @@
 .dark .univer-doc-editor,
 .dark .univer-cell-editor,
 .dark .univer-editor,
-.dark [class*="univer-editor"] {
+.dark [class*="univer-editor"],
+.dark [class*="univer-cell-input"] {
     color: #fff !important;
     caret-color: #fff !important;
+}
+
+/* Critical: Ensure canvas and all Univer elements receive events */
+.univer-render-canvas,
+[class*="univer-canvas"],
+[class*="univer-render"] {
+    pointer-events: auto !important;
+}
+
+/* Ensure contenteditable elements work */
+[contenteditable="true"] {
+    -webkit-user-modify: read-write !important;
+    user-modify: read-write !important;
+    pointer-events: auto !important;
+    user-select: text !important;
 }
 
 /* Ensure the formula bar input is also editable */
@@ -197,4 +364,47 @@
     pointer-events: auto !important;
     user-select: text !important;
     -webkit-user-select: text !important;
+}
+
+/* ==========================================================================
+   Z-Index Hierarchy
+   Ensures app modals/dialogs are above Univer components
+   ========================================================================== */
+
+/* Univer floating elements - keep them below app modals */
+.univer-popup,
+.univer-dropdown,
+.univer-tooltip,
+.univer-sidebar,
+[class*="univer-popup"],
+[class*="univer-dropdown"],
+[class*="univer-sidebar"],
+[class*="univer-float"],
+[class*="univer-panel"] {
+    z-index: 40 !important;
+}
+
+/* Univer context menus */
+.univer-context-menu,
+[class*="univer-context-menu"] {
+    z-index: 45 !important;
+}
+
+/* App dialogs/modals - must be above Univer */
+[role="dialog"],
+[data-radix-dialog-content],
+[data-radix-alert-dialog-content],
+[data-radix-popper-content-wrapper] {
+    z-index: 50 !important;
+}
+
+/* Dialog overlay */
+[data-radix-dialog-overlay],
+[data-radix-alert-dialog-overlay] {
+    z-index: 49 !important;
+}
+
+/* Toasts/notifications - highest priority */
+[data-sonner-toaster] {
+    z-index: 100 !important;
 }

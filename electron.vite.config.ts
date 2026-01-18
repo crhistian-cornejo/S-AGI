@@ -5,27 +5,48 @@ import { copyFileSync, existsSync, mkdirSync } from 'fs'
 
 const __dirname = import.meta.dirname
 
-// Plugin to copy tray icons to output directory
+// Plugin to copy icons to output directory
 function copyTrayIcons() {
+    const copyIcons = () => {
+        const trayIcons = ['trayTemplate.png', 'trayTemplate@2x.png', 'trayTemplate.svg']
+        const appIcons = ['icon.icns', 'icon.ico']
+        
+        const srcMainDir = resolve(__dirname, 'src/main')
+        const srcBuildDir = resolve(__dirname, 'build')
+        const outDir = resolve(__dirname, 'out/main')
+        
+        if (!existsSync(outDir)) {
+            mkdirSync(outDir, { recursive: true })
+        }
+        
+        // Copy tray icons from src/main
+        for (const icon of trayIcons) {
+            const src = resolve(srcMainDir, icon)
+            const dest = resolve(outDir, icon)
+            if (existsSync(src)) {
+                copyFileSync(src, dest)
+                console.log(`Copied tray icon ${icon} to out/main/`)
+            }
+        }
+
+        // Copy app icons from build
+        for (const icon of appIcons) {
+            const src = resolve(srcBuildDir, icon)
+            const dest = resolve(outDir, icon)
+            if (existsSync(src)) {
+                copyFileSync(src, dest)
+                console.log(`Copied app icon ${icon} to out/main/`)
+            }
+        }
+    }
+
     return {
-        name: 'copy-tray-icons',
+        name: 'copy-icons',
+        buildStart() {
+            copyIcons()
+        },
         closeBundle() {
-            const icons = ['trayTemplate.png', 'trayTemplate@2x.png', 'trayTemplate.svg']
-            const srcDir = resolve(__dirname, 'src/main')
-            const outDir = resolve(__dirname, 'out/main')
-            
-            if (!existsSync(outDir)) {
-                mkdirSync(outDir, { recursive: true })
-            }
-            
-            for (const icon of icons) {
-                const src = resolve(srcDir, icon)
-                const dest = resolve(outDir, icon)
-                if (existsSync(src)) {
-                    copyFileSync(src, dest)
-                    console.log(`Copied ${icon} to out/main/`)
-                }
-            }
+            copyIcons()
         }
     }
 }
@@ -86,7 +107,8 @@ export default defineConfig({
         build: {
             rollupOptions: {
                 input: {
-                    index: resolve(__dirname, 'src/renderer/index.html')
+                    index: resolve(__dirname, 'src/renderer/index.html'),
+                    'tray-popover': resolve(__dirname, 'src/renderer/tray-popover.html')
                 }
             }
         }

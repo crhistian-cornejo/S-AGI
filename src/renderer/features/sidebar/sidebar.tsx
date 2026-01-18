@@ -13,7 +13,12 @@ import {
     IconUser,
     IconLogout,
     IconLayoutSidebarLeftCollapse,
-    IconSearch
+    IconSearch,
+    IconPin,
+    IconPinFilled,
+    IconArchiveOff,
+    IconChevronDown,
+    IconChevronRight
 } from '@tabler/icons-react'
 import { trpc } from '@/lib/trpc'
 import {
@@ -27,6 +32,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { Input } from '@/components/ui/input'
+import { toast } from 'sonner'
 
 import {
     DropdownMenu,
@@ -41,7 +47,7 @@ import {
     AvatarImage,
     AvatarFallback
 } from '@/components/ui/avatar'
-import { cn, formatRelativeTime } from '@/lib/utils'
+import { cn, formatRelativeTime, isMacOS } from '@/lib/utils'
 
 // ============================================================================
 // FadeScrollArea - Scroll area with fade effect at top/bottom when content overflows
@@ -118,8 +124,192 @@ interface Chat {
     title: string | null
     updated_at: string
     archived: boolean
+    pinned?: boolean
 }
 
+// ============================================================================
+// ChatItem - Individual chat item with context menu
+// ============================================================================
+interface ChatItemProps {
+    chat: Chat
+    isSelected: boolean
+    isEditing: boolean
+    editingTitle: string
+    onSelect: () => void
+    onStartRename: () => void
+    onSaveRename: (title: string) => void
+    onCancelRename: () => void
+    onSetEditingTitle: (title: string) => void
+    onArchive: () => void
+    onDelete: () => void
+    onTogglePin: () => void
+    onRestore?: () => void
+    isArchived?: boolean
+}
+
+function ChatItem({
+    chat,
+    isSelected,
+    isEditing,
+    editingTitle,
+    onSelect,
+    onStartRename,
+    onSaveRename,
+    onCancelRename,
+    onSetEditingTitle,
+    onArchive,
+    onDelete,
+    onTogglePin,
+    onRestore,
+    isArchived
+}: ChatItemProps) {
+    return (
+        // biome-ignore lint/a11y/useSemanticElements: <explanation>
+<div
+            className={cn(
+                'group flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors cursor-pointer',
+                isSelected
+                    ? 'bg-accent text-accent-foreground'
+                    : 'text-foreground/80 hover:bg-accent/50'
+            )}
+            onClick={() => !isEditing && onSelect()}
+            onKeyDown={(e) => {
+                if (e.key === 'Enter' && !isEditing) {
+                    onSelect()
+                }
+            }}
+            role="button"
+            tabIndex={0}
+        >
+            <IconMessage size={16} className="shrink-0 opacity-60" />
+            <div className="flex-1 min-w-0">
+                {isEditing ? (
+                    <input
+                        type="text"
+                        value={editingTitle}
+                        onChange={(e) => onSetEditingTitle(e.target.value)}
+                        onKeyDown={(e) => {
+                            e.stopPropagation()
+                            if (e.key === 'Enter') {
+                                onSaveRename(editingTitle)
+                            } else if (e.key === 'Escape') {
+                                onCancelRename()
+                            }
+                        }}
+                        onBlur={() => onSaveRename(editingTitle)}
+                        className="w-full bg-background border border-border rounded px-2 py-0.5 text-sm font-medium focus:outline-none focus:ring-1 focus:ring-primary"
+                        onClick={(e) => e.stopPropagation()}
+                    />
+                ) : (
+                    <>
+                        <p className="truncate font-medium">
+                            {chat.title || 'Untitled'}
+                        </p>
+                        <p className="text-xs text-muted-foreground truncate">
+                            {formatRelativeTime(chat.updated_at)}
+                        </p>
+                    </>
+                )}
+            </div>
+
+            {/* Pin/Archived icons + Actions menu - hidden when editing */}
+            {!isEditing && (
+                <div className="flex items-center gap-1 shrink-0">
+                    {chat.pinned && (
+                        <IconPinFilled size={14} className="text-primary" />
+                    )}
+                    {isArchived && (
+                        <IconArchive size={14} className="text-muted-foreground/60" />
+                    )}
+                    <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                            <button
+                                type="button"
+                                className="opacity-0 group-hover:opacity-100 p-1 hover:bg-accent/50 rounded-md transition-all active:scale-95"
+                                onClick={(e) => e.stopPropagation()}
+                            >
+                                <IconDots size={14} />
+                            </button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" className="w-44">
+                            {/* Pin/Unpin - only for non-archived */}
+                            {!isArchived && (
+                                <DropdownMenuItem onClick={onTogglePin}>
+                                    {chat.pinned ? (
+                                        <>
+                                            <IconPin size={14} className="mr-2" />
+                                            Unpin
+                                        </>
+                                    ) : (
+                                        <>
+                                            <IconPinFilled size={14} className="mr-2" />
+                                            Pin to top
+                                        </>
+                                    )}
+                                </DropdownMenuItem>
+                            )}
+                            <DropdownMenuItem onClick={onStartRename}>
+                                <IconPencil size={14} className="mr-2" />
+                                Rename
+                            </DropdownMenuItem>
+                            {isArchived ? (
+                                <DropdownMenuItem onClick={onRestore}>
+                                    <IconArchiveOff size={14} className="mr-2" />
+                                    Restore
+                                </DropdownMenuItem>
+                            ) : (
+                                <DropdownMenuItem onClick={onArchive}>
+                                    <IconArchive size={14} className="mr-2" />
+                                    Archive
+                                </DropdownMenuItem>
+                            )}
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem
+                                variant="destructive"
+                                onClick={onDelete}
+                            >
+                                <IconTrash size={14} className="mr-2" />
+                                Delete
+                            </DropdownMenuItem>
+                        </DropdownMenuContent>
+                    </DropdownMenu>
+                </div>
+            )}
+        </div>
+    )
+}
+
+// ============================================================================
+// Section Header - Collapsible section header
+// ============================================================================
+interface SectionHeaderProps {
+    title: string
+    count: number
+    isOpen: boolean
+    onToggle: () => void
+    icon?: React.ReactNode
+}
+
+function SectionHeader({ title, count, isOpen, onToggle, icon }: SectionHeaderProps) {
+    return (
+        <button
+            type="button"
+            className="flex items-center gap-2 px-3 py-1.5 w-full text-xs font-medium text-muted-foreground hover:text-foreground transition-colors"
+            onClick={onToggle}
+        >
+            {isOpen ? <IconChevronDown size={12} /> : <IconChevronRight size={12} />}
+            {icon}
+            <span>{title}</span>
+            <span className="ml-auto text-[10px] bg-muted/50 px-1.5 py-0.5 rounded-full">
+                {count}
+            </span>
+        </button>
+    )
+}
+
+// ============================================================================
+// Main Sidebar Component
+// ============================================================================
 export function Sidebar() {
     const [selectedChatId, setSelectedChatId] = useAtom(selectedChatIdAtom)
     const provider = useAtomValue(currentProviderAtom)
@@ -130,32 +320,58 @@ export function Sidebar() {
     const [searchQuery, setSearchQuery] = useState('')
     const [editingChatId, setEditingChatId] = useState<string | null>(null)
     const [editingTitle, setEditingTitle] = useState('')
+    
+    // Section collapse state
+    const [showPinned, setShowPinned] = useState(true)
+    const [showRecent, setShowRecent] = useState(true)
+    const [showArchived, setShowArchived] = useState(false)
 
     // Get API key status from main process
     const { data: keyStatus } = trpc.settings.getApiKeyStatus.useQuery()
-
-    // Connection status from tRPC
     const isConnected = provider === 'openai' ? keyStatus?.hasOpenAI : keyStatus?.hasAnthropic
 
     // Fetch session
     const { data: session } = trpc.auth.getSession.useQuery()
     const user = session?.user
 
-    // Fetch chats
+    // Fetch chats (includes pinned, ordered correctly)
     const { data: chats, isLoading, refetch } = trpc.chats.list.useQuery({})
+    
+    // Fetch archived chats
+    const { data: archivedChats, refetch: refetchArchived } = trpc.chats.listArchived.useQuery()
 
-    // Filter chats based on search query - memoized to avoid recalculation on every render
-    const filteredChats = useMemo(() => 
-        chats?.filter(chat =>
+    // Separate pinned and unpinned chats
+    const { pinnedChats, recentChats } = useMemo(() => {
+        const pinned: Chat[] = []
+        const recent: Chat[] = []
+        
+        for (const chat of (chats || [])) {
+            if (chat.pinned) {
+                pinned.push(chat)
+            } else {
+                recent.push(chat)
+            }
+        }
+        
+        return { pinnedChats: pinned, recentChats: recent }
+    }, [chats])
+
+    // Filter chats based on search query
+    const filterChats = useCallback((chatList: Chat[]) => 
+        chatList.filter(chat =>
             (chat.title || 'Untitled').toLowerCase().includes(searchQuery.toLowerCase())
         ),
-        [chats, searchQuery]
+        [searchQuery]
     )
+
+    const filteredPinned = useMemo(() => filterChats(pinnedChats), [filterChats, pinnedChats])
+    const filteredRecent = useMemo(() => filterChats(recentChats), [filterChats, recentChats])
+    const filteredArchived = useMemo(() => filterChats(archivedChats || []), [filterChats, archivedChats])
+
+    const utils = trpc.useUtils()
 
     const createChat = trpc.chats.create.useMutation({
         onSuccess: (chat: Chat) => {
-            console.log('[Sidebar] Chat created:', chat.id)
-            // Invalidate chats.get cache to ensure ChatView can verify the new chat exists
             utils.chats.get.invalidate({ id: chat.id })
             setSelectedChatId(chat.id)
             setSelectedArtifact(null)
@@ -170,12 +386,49 @@ export function Sidebar() {
     const deleteChat = trpc.chats.delete.useMutation({
         onSuccess: () => {
             refetch()
+            refetchArchived()
+            // Show undo toast
+            toast.success('Chat deleted', {
+                action: {
+                    label: 'Undo',
+                    onClick: () => {
+                        // We can't truly undo a delete, but we can show a message
+                        toast.info('Chat permanently deleted')
+                    }
+                }
+            })
         }
     })
 
     const archiveChat = trpc.chats.archive.useMutation({
+        onSuccess: (_data, variables) => {
+            refetch()
+            refetchArchived()
+            if (selectedChatId === variables.id) {
+                setSelectedChatId(null)
+            }
+            // Show undo toast
+            toast.success('Chat archived', {
+                action: {
+                    label: 'Undo',
+                    onClick: () => restoreChat.mutate({ id: variables.id })
+                }
+            })
+        }
+    })
+
+    const restoreChat = trpc.chats.restore.useMutation({
         onSuccess: () => {
             refetch()
+            refetchArchived()
+            toast.success('Chat restored')
+        }
+    })
+
+    const togglePin = trpc.chats.togglePin.useMutation({
+        onSuccess: (data) => {
+            refetch()
+            toast.success(data.pinned ? 'Chat pinned' : 'Chat unpinned')
         }
     })
 
@@ -186,8 +439,6 @@ export function Sidebar() {
             refetch()
         }
     })
-
-    const utils = trpc.useUtils()
 
     const signOut = trpc.auth.signOut.useMutation({
         onSuccess: () => {
@@ -206,8 +457,6 @@ export function Sidebar() {
         setArtifactPanelOpen(false)
     }
 
-
-
     const handleDeleteChat = (chatId: string) => {
         deleteChat.mutate({ id: chatId })
         if (selectedChatId === chatId) {
@@ -217,9 +466,14 @@ export function Sidebar() {
 
     const handleArchiveChat = (chatId: string) => {
         archiveChat.mutate({ id: chatId })
-        if (selectedChatId === chatId) {
-            setSelectedChatId(null)
-        }
+    }
+
+    const handleRestoreChat = (chatId: string) => {
+        restoreChat.mutate({ id: chatId })
+    }
+
+    const handleTogglePin = (chatId: string) => {
+        togglePin.mutate({ id: chatId })
     }
 
     const handleStartRename = (chatId: string, currentTitle: string) => {
@@ -227,9 +481,9 @@ export function Sidebar() {
         setEditingTitle(currentTitle || 'Untitled')
     }
 
-    const handleSaveRename = () => {
-        if (editingChatId && editingTitle.trim()) {
-            updateChat.mutate({ id: editingChatId, title: editingTitle.trim() })
+    const handleSaveRename = (title: string) => {
+        if (editingChatId && title.trim()) {
+            updateChat.mutate({ id: editingChatId, title: title.trim() })
         } else {
             setEditingChatId(null)
             setEditingTitle('')
@@ -241,21 +495,53 @@ export function Sidebar() {
         setEditingTitle('')
     }
 
+    const renderChatList = (chatList: Chat[], isArchived = false) => {
+        if (chatList.length === 0) {
+            return (
+                <div className="text-xs text-muted-foreground text-center py-4 px-4">
+                    {searchQuery ? 'No results found' : isArchived ? 'No archived chats' : 'No conversations'}
+                </div>
+            )
+        }
 
+        return chatList.map((chat) => (
+            <ChatItem
+                key={chat.id}
+                chat={chat}
+                isSelected={selectedChatId === chat.id}
+                isEditing={editingChatId === chat.id}
+                editingTitle={editingTitle}
+                onSelect={() => handleChatSelect(chat.id)}
+                onStartRename={() => handleStartRename(chat.id, chat.title || '')}
+                onSaveRename={handleSaveRename}
+                onCancelRename={handleCancelRename}
+                onSetEditingTitle={setEditingTitle}
+                onArchive={() => handleArchiveChat(chat.id)}
+                onDelete={() => handleDeleteChat(chat.id)}
+                onTogglePin={() => handleTogglePin(chat.id)}
+                onRestore={() => handleRestoreChat(chat.id)}
+                isArchived={isArchived}
+            />
+        ))
+    }
 
     return (
         <div className="flex flex-col h-full">
             {/* Header / New Chat */}
-            <div className="p-3 flex items-center gap-2">
+            <div className={cn(
+                "flex items-center gap-2 px-3",
+                isMacOS() ? "h-11 pt-1 pl-20" : "h-10 pt-0",
+                "drag-region"
+            )}>
                 <Tooltip>
                     <TooltipTrigger asChild>
                         <Button
-                            className="flex-1 justify-start gap-2 h-9 rounded-xl"
+                            className="flex-1 justify-start gap-2 h-8 rounded-xl no-drag"
                             onClick={handleNewChat}
                             disabled={createChat.isPending}
                         >
                             <IconPlus size={16} />
-                            <span>New Chat</span>
+                            <span className="truncate">New Chat</span>
                         </Button>
                     </TooltipTrigger>
                     <TooltipContent side="bottom" className="flex items-center gap-2 font-semibold">
@@ -271,7 +557,7 @@ export function Sidebar() {
                         <Button
                             variant="ghost"
                             size="icon"
-                            className="h-9 w-9 text-muted-foreground hover:text-foreground rounded-xl shrink-0"
+                            className="h-8 w-8 text-muted-foreground hover:text-foreground rounded-xl shrink-0 no-drag"
                             onClick={() => setSidebarOpen(false)}
                         >
                             <IconLayoutSidebarLeftCollapse size={18} />
@@ -301,101 +587,72 @@ export function Sidebar() {
 
             {/* Chat list with fade scroll effect */}
             <FadeScrollArea className="flex-1 px-2">
-                <div className="space-y-1 pb-4">
+                <div className="pb-4">
                     {isLoading ? (
                         <div className="flex items-center justify-center py-8">
                             <div className="h-5 w-5 animate-spin rounded-full border-2 border-primary border-t-transparent" />
                         </div>
-                    ) : !filteredChats?.length ? (
-                        <div className="text-sm text-muted-foreground text-center py-8 px-4">
-                            <IconMessage size={32} className="mx-auto mb-2 opacity-30" />
-                            <p>{searchQuery ? 'No results found' : 'No conversations yet'}</p>
-                        </div>
                     ) : (
-                        filteredChats.map((chat: Chat) => (
-                            <div
-                                key={chat.id}
-                                className={cn(
-                                    'group flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors cursor-pointer',
-                                    selectedChatId === chat.id
-                                        ? 'bg-accent text-accent-foreground'
-                                        : 'text-foreground/80 hover:bg-accent/50'
-                                )}
-                                onClick={() => editingChatId !== chat.id && handleChatSelect(chat.id)}
-                                onKeyDown={(e) => {
-                                    if (e.key === 'Enter' && editingChatId !== chat.id) {
-                                        handleChatSelect(chat.id)
-                                    }
-                                }}
-                                role="button"
-                                tabIndex={0}
-                            >
-                                <IconMessage size={16} className="shrink-0 opacity-60" />
-                                <div className="flex-1 min-w-0">
-                                    {editingChatId === chat.id ? (
-                                        <input
-                                            type="text"
-                                            value={editingTitle}
-                                            onChange={(e) => setEditingTitle(e.target.value)}
-                                            onKeyDown={(e) => {
-                                                e.stopPropagation()
-                                                if (e.key === 'Enter') {
-                                                    handleSaveRename()
-                                                } else if (e.key === 'Escape') {
-                                                    handleCancelRename()
-                                                }
-                                            }}
-                                            onBlur={handleSaveRename}
-                                            className="w-full bg-background border border-border rounded px-2 py-0.5 text-sm font-medium focus:outline-none focus:ring-1 focus:ring-primary"
-                                            autoFocus
-                                            onClick={(e) => e.stopPropagation()}
-                                        />
-                                    ) : (
-                                        <>
-                                            <p className="truncate font-medium">
-                                                {chat.title || 'Untitled'}
-                                            </p>
-                                            <p className="text-xs text-muted-foreground truncate">
-                                                {formatRelativeTime(chat.updated_at)}
-                                            </p>
-                                        </>
+                        <>
+                            {/* Pinned Section */}
+                            {filteredPinned.length > 0 && (
+                                <div className="mb-2">
+                                    <SectionHeader
+                                        title="Pinned"
+                                        count={filteredPinned.length}
+                                        isOpen={showPinned}
+                                        onToggle={() => setShowPinned(!showPinned)}
+                                        icon={<IconPinFilled size={12} />}
+                                    />
+                                    {showPinned && (
+                                        <div className="space-y-1">
+                                            {renderChatList(filteredPinned)}
+                                        </div>
                                     )}
                                 </div>
+                            )}
 
-                                {/* Actions menu - hidden when editing */}
-                                {editingChatId !== chat.id && (
-                                    <DropdownMenu>
-                                        <DropdownMenuTrigger asChild>
-                                            <button
-                                                type="button"
-                                                className="opacity-0 group-hover:opacity-100 p-1 hover:bg-accent/50 rounded-md transition-all active:scale-95"
-                                                onClick={(e) => e.stopPropagation()}
-                                            >
-                                                <IconDots size={14} />
-                                            </button>
-                                        </DropdownMenuTrigger>
-                                        <DropdownMenuContent align="end" className="w-40">
-                                            <DropdownMenuItem onClick={() => handleStartRename(chat.id, chat.title || '')}>
-                                                <IconPencil size={14} className="mr-2" />
-                                                Rename
-                                            </DropdownMenuItem>
-                                            <DropdownMenuItem onClick={() => handleArchiveChat(chat.id)}>
-                                                <IconArchive size={14} className="mr-2" />
-                                                Archive
-                                            </DropdownMenuItem>
-                                            <DropdownMenuSeparator />
-                                            <DropdownMenuItem
-                                                variant="destructive"
-                                                onClick={() => handleDeleteChat(chat.id)}
-                                            >
-                                                <IconTrash size={14} className="mr-2" />
-                                                Delete
-                                            </DropdownMenuItem>
-                                        </DropdownMenuContent>
-                                    </DropdownMenu>
+                            {/* Recent Section */}
+                            <div className="mb-2">
+                                <SectionHeader
+                                    title="Recent"
+                                    count={filteredRecent.length}
+                                    isOpen={showRecent}
+                                    onToggle={() => setShowRecent(!showRecent)}
+                                    icon={<IconMessage size={12} />}
+                                />
+                                {showRecent && (
+                                    <div className="space-y-1">
+                                        {filteredRecent.length === 0 && filteredPinned.length === 0 ? (
+                                            <div className="text-sm text-muted-foreground text-center py-8 px-4">
+                                                <IconMessage size={32} className="mx-auto mb-2 opacity-30" />
+                                                <p>{searchQuery ? 'No results found' : 'No conversations yet'}</p>
+                                            </div>
+                                        ) : (
+                                            renderChatList(filteredRecent)
+                                        )}
+                                    </div>
                                 )}
                             </div>
-                        ))
+
+                            {/* Archived Section */}
+                            {(archivedChats?.length ?? 0) > 0 && (
+                                <div className="mb-2 border-t border-border/50 pt-2 mt-4">
+                                    <SectionHeader
+                                        title="Archived"
+                                        count={filteredArchived.length}
+                                        isOpen={showArchived}
+                                        onToggle={() => setShowArchived(!showArchived)}
+                                        icon={<IconArchive size={12} />}
+                                    />
+                                    {showArchived && (
+                                        <div className="space-y-1">
+                                            {renderChatList(filteredArchived, true)}
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+                        </>
                     )}
                 </div>
             </FadeScrollArea>
@@ -404,6 +661,7 @@ export function Sidebar() {
             <div className="p-3 border-t border-border space-y-3">
                 {/* AI Provider Status */}
                 <button
+                    type="button"
                     onClick={() => setSettingsOpen(true)}
                     className={cn(
                         'w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors',

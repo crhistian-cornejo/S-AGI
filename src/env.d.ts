@@ -1,4 +1,5 @@
 // Environment variable declaration for TypeScript
+/** biome-ignore-all lint/correctness/noUnusedVariables: <explanation> */
 /// <reference types="vite/client" />
 
 interface ImportMetaEnv {
@@ -30,6 +31,29 @@ interface DesktopApi {
     onAuthCallback: (callback: (data: { type?: string; code?: string; access_token?: string; refresh_token?: string }) => void) => () => void
     onOAuthTokens: (callback: (data: { access_token: string; refresh_token: string }) => void) => () => void
     setSession: (session: { access_token: string; refresh_token: string } | null) => Promise<{ success: boolean; error?: string }>
+    haptic: (type: 'light' | 'medium' | 'heavy' | 'selection' | 'success' | 'warning' | 'error') => Promise<boolean>
+    onAIStreamEvent: (callback: (event: AIStreamEvent) => void) => () => void
+    tray: {
+        getRecentItems: () => Promise<TrayRecentItem[]>
+        action: (data: { action: string; [key: string]: unknown }) => Promise<void>
+        onRefresh: (callback: () => void) => () => void
+        onAction: (action: string, callback: (data?: any) => void) => () => void
+    }
+}
+
+// Types for tray popover
+interface TrayRecentItem {
+    id: string
+    type: 'spreadsheet' | 'document' | 'chat'
+    name: string
+    updatedAt: string
+    chatId?: string
+}
+
+// AI Stream event type
+interface AIStreamEvent {
+    type: string
+    [key: string]: unknown
 }
 
 declare global {

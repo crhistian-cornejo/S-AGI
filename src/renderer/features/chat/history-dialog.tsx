@@ -6,7 +6,8 @@ import {
     IconDots,
     IconPencil,
     IconArchive,
-    IconTrash
+    IconTrash,
+    IconPinFilled
 } from '@tabler/icons-react'
 import { trpc } from '@/lib/trpc'
 import { selectedChatIdAtom } from '@/lib/atoms'
@@ -33,6 +34,7 @@ interface Chat {
     title: string | null
     updated_at: string
     archived: boolean
+    pinned?: boolean
 }
 
 interface HistoryDialogContentProps {
@@ -47,8 +49,8 @@ export function HistoryDialogContent({ onSelect }: HistoryDialogContentProps) {
     const [renameDialogOpen, setRenameDialogOpen] = useState(false)
     const [chatToRename, setChatToRename] = useState<{ id: string, title: string } | null>(null)
 
-    // Fetch chats
-    const { data: chats, isLoading, refetch } = trpc.chats.list.useQuery({})
+    // Fetch chats - include archived chats in history
+    const { data: chats, isLoading, refetch } = trpc.chats.list.useQuery({ includeArchived: true })
 
     const deleteChat = trpc.chats.delete.useMutation({
         onSuccess: () => refetch()
@@ -122,16 +124,32 @@ export function HistoryDialogContent({ onSelect }: HistoryDialogContentProps) {
                             </div>
                         ) : (
                             filteredChats.map((chat: Chat) => (
-                                <div
+                                // biome-ignore lint/a11y/useSemanticElements: <explanation>
+<div
+                                    role="button"
+                                    tabIndex={0}
                                     key={chat.id}
                                     className={cn(
-                                        'group flex items-center gap-3 px-3 py-3 rounded-lg text-sm transition-all cursor-pointer border border-transparent',
+                                        'group flex items-center gap-3 px-3 py-3 rounded-lg text-sm transition-all cursor-pointer border border-transparent w-full text-left',
                                         selectedChatId === chat.id
                                             ? 'bg-accent/80 border-border/50 shadow-sm'
                                             : 'hover:bg-accent/40 hover:border-border/30'
                                     )}
                                     onClick={() => handleSelectChat(chat.id)}
+                                    onKeyDown={(e) => {
+                                        if (e.key === 'Enter' || e.key === ' ') {
+                                            e.preventDefault()
+                                            handleSelectChat(chat.id)
+                                        }
+                                    }}
                                 >
+                                    {/* Pin/Archived icons - same position as message icon */}
+                                    {chat.pinned && (
+                                        <IconPinFilled size={16} className="shrink-0 text-primary" title="Pinned" />
+                                    )}
+                                    {chat.archived && (
+                                        <IconArchive size={16} className="shrink-0 text-muted-foreground/60" title="Archived" />
+                                    )}
                                     <div className={cn(
                                         "w-8 h-8 rounded-full flex items-center justify-center shrink-0 transition-colors",
                                         selectedChatId === chat.id ? "bg-background text-primary" : "bg-accent/50 text-muted-foreground"
@@ -139,9 +157,14 @@ export function HistoryDialogContent({ onSelect }: HistoryDialogContentProps) {
                                         <IconMessage size={16} />
                                     </div>
                                     <div className="flex-1 min-w-0">
-                                        <p className="truncate font-medium text-foreground/90">
-                                            {chat.title || 'Untitled'}
-                                        </p>
+                                        <div className="flex items-center gap-2">
+                                            <p className="truncate font-medium text-foreground/90 flex-1">
+                                                {chat.title || 'Untitled'}
+                                            </p>
+                                            {chat.archived && (
+                                                <IconArchive size={12} className="shrink-0 text-muted-foreground/60" title="Archived" />
+                                            )}
+                                        </div>
                                         <p className="text-xs text-muted-foreground truncate">
                                             {formatRelativeTime(chat.updated_at)}
                                         </p>
@@ -151,6 +174,7 @@ export function HistoryDialogContent({ onSelect }: HistoryDialogContentProps) {
                                     <DropdownMenu>
                                         <DropdownMenuTrigger asChild>
                                             <button
+                                                type="button"
                                                 className="opacity-0 group-hover:opacity-100 p-1.5 hover:bg-background rounded-md transition-opacity"
                                                 onClick={(e) => e.stopPropagation()}
                                             >

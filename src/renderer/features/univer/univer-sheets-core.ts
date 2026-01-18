@@ -7,8 +7,8 @@
 
 import { Univer, LocaleType, LogLevel, merge, UniverInstanceType } from '@univerjs/core'
 import { FUniver } from '@univerjs/core/facade'
-import { defaultTheme } from '@univerjs/design'
 import { UniverDocsPlugin } from '@univerjs/docs'
+import { createCustomTheme, createDarkTheme, isDarkModeActive } from './univer-theme'
 import { UniverDocsUIPlugin } from '@univerjs/docs-ui'
 import { UniverRenderEnginePlugin } from '@univerjs/engine-render'
 import { UniverFormulaEnginePlugin } from '@univerjs/engine-formula'
@@ -18,6 +18,20 @@ import { UniverSheetsFormulaPlugin } from '@univerjs/sheets-formula'
 import { UniverSheetsNumfmtPlugin } from '@univerjs/sheets-numfmt'
 import { UniverUIPlugin } from '@univerjs/ui'
 
+// Drawing plugins for image support
+import { UniverDrawingPlugin } from '@univerjs/drawing'
+import { UniverDrawingUIPlugin } from '@univerjs/drawing-ui'
+import { UniverSheetsDrawingPlugin } from '@univerjs/sheets-drawing'
+import { UniverSheetsDrawingUIPlugin } from '@univerjs/sheets-drawing-ui'
+
+// Hyperlink plugins
+import { UniverSheetsHyperLinkPlugin } from '@univerjs/sheets-hyper-link'
+import { UniverSheetsHyperLinkUIPlugin } from '@univerjs/sheets-hyper-link-ui'
+
+// Find & Replace plugins
+import { UniverFindReplacePlugin } from '@univerjs/find-replace'
+import { UniverSheetsFindReplacePlugin } from '@univerjs/sheets-find-replace'
+
 // Import facade extensions - ORDER MATTERS!
 // These extend the FUniver API with methods for each plugin
 import '@univerjs/ui/facade'
@@ -26,12 +40,18 @@ import '@univerjs/sheets/facade'
 import '@univerjs/sheets-ui/facade'
 import '@univerjs/sheets-formula/facade'
 import '@univerjs/docs-ui/facade'
+import '@univerjs/sheets-hyper-link-ui/facade'
+import '@univerjs/sheets-find-replace/facade'
 
 // Import styles
 import '@univerjs/design/lib/index.css'
 import '@univerjs/ui/lib/index.css'
 import '@univerjs/docs-ui/lib/index.css'
 import '@univerjs/sheets-ui/lib/index.css'
+import '@univerjs/drawing-ui/lib/index.css'
+import '@univerjs/sheets-drawing-ui/lib/index.css'
+import '@univerjs/sheets-hyper-link-ui/lib/index.css'
+import '@univerjs/find-replace/lib/index.css'
 
 // Import locales
 import DesignEnUS from '@univerjs/design/locale/en-US'
@@ -39,6 +59,10 @@ import UIEnUS from '@univerjs/ui/locale/en-US'
 import DocsUIEnUS from '@univerjs/docs-ui/locale/en-US'
 import SheetsEnUS from '@univerjs/sheets/locale/en-US'
 import SheetsUIEnUS from '@univerjs/sheets-ui/locale/en-US'
+import SheetsDrawingUIEnUS from '@univerjs/sheets-drawing-ui/locale/en-US'
+import SheetsHyperLinkUIEnUS from '@univerjs/sheets-hyper-link-ui/locale/en-US'
+import FindReplaceEnUS from '@univerjs/find-replace/locale/en-US'
+import SheetsFindReplaceEnUS from '@univerjs/sheets-find-replace/locale/en-US'
 
 export interface UniverSheetsInstance {
     univer: Univer
@@ -81,10 +105,19 @@ export async function initSheetsUniver(container: HTMLElement): Promise<UniverSh
         DocsUIEnUS,
         SheetsEnUS,
         SheetsUIEnUS,
+        SheetsDrawingUIEnUS,
+        SheetsHyperLinkUIEnUS,
+        FindReplaceEnUS,
+        SheetsFindReplaceEnUS,
     )
     
+    // Create theme based on current CSS variables and dark mode
+    const isDark = isDarkModeActive()
+    const customTheme = isDark ? createDarkTheme() : createCustomTheme()
+    
     const univer = new Univer({
-        theme: defaultTheme,
+        theme: customTheme,
+        darkMode: isDark,
         locale: LocaleType.EN_US,
         locales: {
             [LocaleType.EN_US]: mergedLocale
@@ -120,15 +153,29 @@ export async function initSheetsUniver(container: HTMLElement): Promise<UniverSh
     // 6. Additional plugins
     univer.registerPlugin(UniverSheetsNumfmtPlugin)
     
+    // 7. Drawing plugins for image support
+    univer.registerPlugin(UniverDrawingPlugin)
+    univer.registerPlugin(UniverDrawingUIPlugin)
+    univer.registerPlugin(UniverSheetsDrawingPlugin)
+    univer.registerPlugin(UniverSheetsDrawingUIPlugin)
+    
+    // 8. Hyperlink plugins
+    univer.registerPlugin(UniverSheetsHyperLinkPlugin)
+    univer.registerPlugin(UniverSheetsHyperLinkUIPlugin)
+    
+    // 9. Find & Replace plugins
+    univer.registerPlugin(UniverFindReplacePlugin)
+    univer.registerPlugin(UniverSheetsFindReplacePlugin)
+    
     const api = FUniver.newAPI(univer)
     
-    // Apply initial dark mode based on document class
-    const isDark = document.documentElement.classList.contains('dark')
+    // Dark mode is already set via darkMode option in constructor
+    // But we also toggle via API for UI components
     if (isDark) {
         try {
             (api as any).toggleDarkMode(true)
         } catch (e) {
-            // Ignore
+            // Ignore - API may not support this method
         }
     }
     

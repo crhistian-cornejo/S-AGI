@@ -1,4 +1,25 @@
-import { useAtom, useAtomValue } from 'jotai'
+import { useAtom, useAtomValue, useSetAtom } from 'jotai'
+import {
+    artifactPanelOpenAtom,
+    selectedArtifactAtom,
+    activeTabAtom,
+    sidebarOpenAtom,
+    settingsModalOpenAtom
+} from '@/lib/atoms'
+import { trpc } from '@/lib/trpc'
+import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuSeparator,
+    DropdownMenuTrigger,
+    DropdownMenuLabel
+} from '@/components/ui/dropdown-menu'
+import {
+    Avatar,
+    AvatarImage,
+    AvatarFallback
+} from '@/components/ui/avatar'
 import {
     IconMinus,
     IconSquare,
@@ -6,13 +27,12 @@ import {
     IconLayoutSidebarRightCollapse,
     IconMessageChatbot,
     IconTable,
-    IconFileText
+    IconFileText,
+    IconUser,
+    IconSettings,
+    IconLogout,
+    IconChevronDown
 } from '@tabler/icons-react'
-import {
-    artifactPanelOpenAtom,
-    selectedArtifactAtom,
-    activeTabAtom
-} from '@/lib/atoms'
 import { Button } from '@/components/ui/button'
 import { Logo } from '@/components/ui/logo'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
@@ -20,24 +40,41 @@ import { cn, isMacOS, isElectron } from '@/lib/utils'
 
 export interface TitleBarProps {
     className?: string
+    noTrafficLightSpace?: boolean
 }
 
-export function TitleBar({ className }: TitleBarProps) {
+export function TitleBar({ className, noTrafficLightSpace }: TitleBarProps) {
     const [artifactPanelOpen, setArtifactPanelOpen] = useAtom(artifactPanelOpenAtom)
     const [activeTab, setActiveTab] = useAtom(activeTabAtom)
+    const sidebarOpen = useAtomValue(sidebarOpenAtom)
+    const setSettingsOpen = useSetAtom(settingsModalOpenAtom)
     const selectedArtifact = useAtomValue(selectedArtifactAtom)
     const isDesktop = isElectron()
     const showTrafficLights = isMacOS() && isDesktop
+
+    const utils = trpc.useUtils()
+    const { data: session } = trpc.auth.getSession.useQuery()
+    const user = session?.user
+
+    const signOut = trpc.auth.signOut.useMutation({
+        onSuccess: () => {
+            window.desktopApi?.setSession(null)
+            utils.auth.getSession.invalidate()
+        }
+    })
 
     const handleMinimize = () => window.desktopApi?.minimize()
     const handleMaximize = () => window.desktopApi?.maximize()
     const handleClose = () => window.desktopApi?.close()
 
+    // Move UserProfile out of the render loop to avoid focus/highlight issues with Radix
+    const userDisplayName = user?.user_metadata?.full_name || user?.email || 'Not logged in'
+
     return (
         <div
             className={cn(
                 'h-10 flex items-center bg-transparent drag-region shrink-0 px-2',
-                showTrafficLights && 'pl-20', // Space for traffic lights
+                showTrafficLights && !noTrafficLightSpace && 'pl-20', // Space for traffic lights if needed
                 className
             )}
         >
@@ -106,7 +143,7 @@ export function TitleBar({ className }: TitleBarProps) {
             <div className="flex items-center no-drag pr-1">
                 {/* Logo and text - only on macOS */}
                 {showTrafficLights && (
-                    <div className="flex items-center gap-2 mr-4">
+                    <div className="flex items-center gap-2 mr-2">
                         <Logo size={20} />
                         <span className="text-sm font-semibold text-foreground tracking-tight hidden sm:block">S-AGI</span>
                     </div>
@@ -159,6 +196,58 @@ export function TitleBar({ className }: TitleBarProps) {
                             <IconX size={16} />
                         </Button>
                     </div>
+                )}
+
+                {/* MacOS Profile Trigger - Pegado al borde derecho */}
+                {showTrafficLights && !sidebarOpen && (
+                    <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                            <Button
+                                variant="ghost"
+                                className="h-8 flex items-center gap-1.5 p-1 hover:bg-accent rounded-lg transition-colors no-drag ml-1"
+                            >
+                                <Avatar className="h-6 w-6 border border-border/50">
+                                    <AvatarImage src={user?.user_metadata?.avatar_url || user?.user_metadata?.picture} />
+                                    <AvatarFallback className="bg-primary/10 text-[10px]">
+                                        {user?.email?.charAt(0).toUpperCase() || <IconUser size={12} />}
+                                    </AvatarFallback>
+                                </Avatar>
+                                <IconChevronDown size={12} className="text-muted-foreground opacity-50" />
+                            </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" className="w-56 mt-1">
+                            <DropdownMenuLabel className="flex flex-col">
+                                <span className="text-sm font-semibold truncate">
+                                    {userDisplayName}
+                                </span>
+                                <span className="text-[10px] text-muted-foreground truncate font-normal">
+                                    {user?.email}
+                                </span>
+                            </DropdownMenuLabel>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem 
+                                onClick={() => setSettingsOpen(true)} 
+                                className="justify-between cursor-pointer"
+                            >
+                                <span className="flex items-center">
+                                    <IconSettings size={14} className="mr-2" />
+                                    Settings
+                                </span>
+                                <kbd className="ml-auto text-[10px] font-medium text-muted-foreground bg-muted/50 px-1.5 py-0.5 rounded border border-border/50">
+                                    {navigator.platform.toLowerCase().includes('mac') ? '⌘,' : 'Ctrl+,'}
+                                </kbd>
+                            </DropdownMenuItem>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem
+                                variant="destructive"
+                                onClick={() => signOut.mutate()}
+                                className="cursor-pointer"
+                            >
+                                <IconLogout size={14} className="mr-2" />
+                                Sign out
+                            </DropdownMenuItem>
+                        </DropdownMenuContent>
+                    </DropdownMenu>
                 )}
             </div>
         </div>

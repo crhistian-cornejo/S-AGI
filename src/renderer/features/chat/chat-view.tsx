@@ -27,6 +27,7 @@ import {
 import { trpc, trpcClient } from '@/lib/trpc'
 import { Button } from '@/components/ui/button'
 import { Kbd } from '@/components/ui/kbd'
+import { Logo } from '@/components/ui/logo'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { MessageList } from './message-list'
@@ -823,6 +824,56 @@ export function ChatView() {
                     <p className="text-xs text-muted-foreground">
                         Select a chat from the sidebar or create a new one to get started
                     </p>
+                </div>
+            </div>
+        )
+    }
+
+    // Check if this is an empty chat (no messages and not streaming)
+    const isEmptyChat = (!messages || messages.length === 0) && !isStreaming && !lastReasoning
+
+    // Empty chat state - centered welcome + input
+    if (isEmptyChat) {
+        return (
+            <div className="flex-1 flex flex-col items-center justify-center overflow-hidden relative px-4">
+                <div className="w-full max-w-3xl flex flex-col items-center">
+                    {/* Welcome message */}
+                    <div className="flex flex-col items-center text-muted-foreground mb-8 animate-in fade-in duration-700">
+                        <div className="mb-6">
+                            <Logo size={64} />
+                        </div>
+                        <h1 className="text-2xl font-semibold text-foreground tracking-tight">How can I help you today?</h1>
+                        <p className="text-sm text-muted-foreground mt-2 max-w-[280px] text-center leading-relaxed">
+                            Describe a spreadsheet or ask a question to get started.
+                        </p>
+                    </div>
+
+                    {/* Centered input */}
+                    <div className="w-full">
+                        {!isConfigured ? (
+                            <Button
+                                className="w-full"
+                                variant="outline"
+                                onClick={() => setSettingsOpen(true)}
+                            >
+                                Configure API Key to start chatting
+                            </Button>
+                        ) : (
+                            <>
+                                {documentUpload.files.length > 0 && (
+                                    <ChatFilesPanel className="pb-2" />
+                                )}
+                                <ChatInput
+                                    value={input}
+                                    onChange={setInput}
+                                    onSend={handleSend}
+                                    onStop={handleStop}
+                                    isLoading={isStreaming}
+                                    streamingText={streamingText}
+                                />
+                            </>
+                        )}
+                    </div>
                 </div>
             </div>
         )

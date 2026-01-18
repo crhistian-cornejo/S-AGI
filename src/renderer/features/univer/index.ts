@@ -12,3 +12,6 @@ export { UniverDocument } from './univer-document'
 
 // Hooks
 export { useUniverTheme, useIsDarkMode } from './use-univer-theme'
+
+// Theme utilities
+export { createCustomTheme, createDarkTheme, isDarkModeActive } from './univer-theme'

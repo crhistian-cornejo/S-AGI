@@ -14,17 +14,173 @@ app.commandLine.appendSwitch('disable-features', 'AutofillServerCommunication')
 
 let mainWindow: BrowserWindow | null = null
 let tray: Tray | null = null
+let trayPopover: BrowserWindow | null = null
+
+// Get recent items from database (artifacts and chats)
+async function getRecentItems(): Promise<Array<{
+    id: string
+    type: 'spreadsheet' | 'document' | 'chat'
+    name: string
+    updatedAt: string
+    chatId?: string
+}>> {
+    try {
+        // Get current user session
+        const { data: { session } } = await supabase.auth.getSession()
+        if (!session?.user) {
+            return []
+        }
+
+        const recentItems: Array<{
+            id: string
+            type: 'spreadsheet' | 'document' | 'chat'
+            name: string
+            updatedAt: string
+            chatId?: string
+        }> = []
+
+        // Get recent artifacts (spreadsheets and documents)
+        const { data: artifacts } = await supabase
+            .from('artifacts')
+            .select('id, type, name, updated_at, chat_id, chats!inner(user_id)')
+            .eq('chats.user_id', session.user.id)
+            .order('updated_at', { ascending: false })
+            .limit(10)
+
+        if (artifacts) {
+            for (const artifact of artifacts) {
+                recentItems.push({
+                    id: artifact.id,
+                    type: artifact.type as 'spreadsheet' | 'document',
+                    name: artifact.name,
+                    updatedAt: artifact.updated_at,
+                    chatId: artifact.chat_id
+                })
+            }
+        }
+
+        // Get recent chats
+        const { data: chats } = await supabase
+            .from('chats')
+            .select('id, title, updated_at')
+            .eq('user_id', session.user.id)
+            .eq('archived', false)
+            .order('updated_at', { ascending: false })
+            .limit(10)
+
+        if (chats) {
+            for (const chat of chats) {
+                recentItems.push({
+                    id: chat.id,
+                    type: 'chat',
+                    name: chat.title || 'Untitled Chat',
+                    updatedAt: chat.updated_at
+                })
+            }
+        }
+
+        // Sort all items by updated_at and return top 10
+        recentItems.sort((a, b) => 
+            new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
+        )
+
+        return recentItems.slice(0, 10)
+    } catch (error) {
+        log.error('[Tray] Failed to get recent items:', error)
+        return []
+    }
+}
+
+// Create the tray popover window
+function createTrayPopover(): BrowserWindow {
+    const popover = new BrowserWindow({
+        width: 350,
+        height: 550,
+        show: false,
+        frame: false,
+        resizable: false,
+        movable: false,
+        minimizable: false,
+        maximizable: false,
+        closable: false,
+        alwaysOnTop: true,
+        skipTaskbar: true,
+        transparent: true,
+        hasShadow: true,
+        vibrancy: process.platform === 'darwin' ? 'popover' : undefined,
+        visualEffectState: 'active',
+        webPreferences: {
+            preload: join(__dirname, '../preload/index.js'),
+            sandbox: false,
+            contextIsolation: true,
+            nodeIntegration: false
+        }
+    })
+
+    // Load the tray popover page
+    if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
+        popover.loadURL(`${process.env['ELECTRON_RENDERER_URL']}/tray-popover.html`)
+    } else {
+        popover.loadFile(join(__dirname, '../renderer/tray-popover.html'))
+    }
+
+    // Hide on blur
+    popover.on('blur', () => {
+        popover.hide()
+    })
+
+    log.info('[Tray] Popover window created')
+    return popover
+}
+
+// Position and show popover near tray icon
+function showTrayPopover(): void {
+    if (!tray || !trayPopover) return
+
+    const trayBounds = tray.getBounds()
+    const popoverBounds = trayPopover.getBounds()
+
+    // Calculate position (center below tray icon on macOS)
+    let x = Math.round(trayBounds.x + (trayBounds.width / 2) - (popoverBounds.width / 2))
+    let y: number
+
+    if (process.platform === 'darwin') {
+        // macOS: Below the menu bar
+        y = Math.round(trayBounds.y + trayBounds.height + 4)
+    } else {
+        // Windows/Linux: Above the taskbar (tray is at bottom)
+        y = Math.round(trayBounds.y - popoverBounds.height - 4)
+    }
+
+    // Ensure popover stays on screen
+    const { screen } = require('electron')
+    const display = screen.getDisplayNearestPoint({ x: trayBounds.x, y: trayBounds.y })
+    const displayBounds = display.workArea
+
+    // Horizontal bounds check
+    if (x < displayBounds.x) {
+        x = displayBounds.x + 8
+    } else if (x + popoverBounds.width > displayBounds.x + displayBounds.width) {
+        x = displayBounds.x + displayBounds.width - popoverBounds.width - 8
+    }
+
+    trayPopover.setPosition(x, y)
+    trayPopover.show()
+    trayPopover.focus()
+}
 
 function createTray(): void {
     // macOS: Template images should be PNG for best compatibility
     // Electron auto-selects @2x on Retina if both exist
-    const basePath = is.dev 
-        ? join(__dirname, '../../src/main')
-        : __dirname
+    // Simplified: always use __dirname since we copy icons to out/main
+    const basePath = __dirname
+    log.info('[Tray] Creating tray with base path:', basePath)
     
     const pngPath = join(basePath, 'trayTemplate.png')
     const png2xPath = join(basePath, 'trayTemplate@2x.png')
     const svgPath = join(basePath, 'trayTemplate.svg')
+    
+    log.info('[Tray] Checking paths:', { pngPath, png2xPath, svgPath })
     
     let icon: Electron.NativeImage | null = null
     
@@ -45,8 +201,11 @@ function createTray(): void {
     
     if (!icon || icon.isEmpty()) {
         log.error('[Tray] No tray icon found at:', basePath)
+        log.error('[Tray] Checked paths:', { pngPath, png2xPath, svgPath })
         icon = nativeImage.createEmpty()
         log.warn('[Tray] Using empty fallback icon')
+    } else {
+        log.info('[Tray] Icon loaded successfully, size:', icon.getSize())
     }
     
     // macOS: Mark as template so it adapts to dark/light menu bar
@@ -58,6 +217,10 @@ function createTray(): void {
     
     log.info('[Tray] Tray instance created')
     
+    // Create popover window
+    trayPopover = createTrayPopover()
+    
+    // Build context menu (right-click)
     const contextMenu = Menu.buildFromTemplate([
         { 
             label: 'Open S-AGI', 
@@ -77,19 +240,31 @@ function createTray(): void {
     ])
 
     tray.setToolTip('S-AGI Agent')
-    tray.setContextMenu(contextMenu)
-
-    // Click behavior differs by platform
-    tray.on('click', () => {
-        if (mainWindow) {
-            if (mainWindow.isVisible()) {
-                mainWindow.focus()
+    
+    // On macOS, left-click shows popover, right-click shows context menu
+    if (process.platform === 'darwin') {
+        // Don't set context menu for left click
+        tray.on('click', () => {
+            if (trayPopover?.isVisible()) {
+                trayPopover.hide()
             } else {
-                mainWindow.show()
-                mainWindow.focus()
+                showTrayPopover()
             }
-        }
-    })
+        })
+        tray.on('right-click', () => {
+            tray?.popUpContextMenu(contextMenu)
+        })
+    } else {
+        // Windows/Linux: Use context menu for all clicks
+        tray.setContextMenu(contextMenu)
+        tray.on('click', () => {
+            if (trayPopover?.isVisible()) {
+                trayPopover.hide()
+            } else {
+                showTrayPopover()
+            }
+        })
+    }
 }
 
 function createWindow(): void {
@@ -106,7 +281,11 @@ function createWindow(): void {
         trafficLightPosition: { x: 12, y: 12 },
         vibrancy: 'under-window',
         visualEffectState: 'active',
-        icon: process.platform === 'linux' ? join(__dirname, '../../public/logo.svg') : join(__dirname, '../../public/icon.ico'),
+        icon: process.platform === 'darwin' 
+            ? join(__dirname, 'icon.icns')
+            : process.platform === 'win32'
+                ? join(__dirname, 'icon.ico')
+                : join(__dirname, '../../public/logo.svg'),
         webPreferences: {
             preload: join(__dirname, '../preload/index.js'),
             sandbox: false,
@@ -119,8 +298,8 @@ function createWindow(): void {
     setMainWindow(mainWindow)
 
     // Load the renderer
-    if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
-        mainWindow.loadURL(process.env['ELECTRON_RENDERER_URL'])
+    if (is.dev && process.env.ELECTRON_RENDERER_URL) {
+        mainWindow.loadURL(process.env.ELECTRON_RENDERER_URL)
     } else {
         mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
     }
@@ -223,6 +402,26 @@ if (process.defaultApp) {
 
 // App lifecycle
 app.whenReady().then(() => {
+    // Set app name to avoid "Electron" in dock/menu bar
+    app.setName('S-AGI')
+
+    // Set app icon for macOS dock in development
+    if (process.platform === 'darwin') {
+        const iconPath = join(__dirname, 'icon.icns')
+        log.info('[App] Setting dock icon from:', iconPath)
+        if (existsSync(iconPath)) {
+            const image = nativeImage.createFromPath(iconPath)
+            if (!image.isEmpty()) {
+                app.dock.setIcon(image)
+                log.info('[App] Dock icon set successfully')
+            } else {
+                log.error('[App] Dock icon image is empty')
+            }
+        } else {
+            log.error('[App] Dock icon file not found at:', iconPath)
+        }
+    }
+
     // Set app user model id for Windows
     electronApp.setAppUserModelId('com.sagi')
 
@@ -240,8 +439,18 @@ app.whenReady().then(() => {
     // Create Tray
     createTray()
 
-    app.on('activate', function () {
-        if (BrowserWindow.getAllWindows().length === 0) createWindow()
+    app.on('activate', () => {
+        // macOS: Re-create or restore window when dock icon is clicked
+        if (BrowserWindow.getAllWindows().length === 0) {
+            createWindow()
+        } else if (mainWindow) {
+            // Restore minimized window and bring to focus
+            if (mainWindow.isMinimized()) {
+                mainWindow.restore()
+            }
+            mainWindow.show()
+            mainWindow.focus()
+        }
     })
 })
 
@@ -250,6 +459,57 @@ app.on('window-all-closed', () => {
         app.quit()
     }
 })
+
+// Graceful shutdown - Clean up resources before quitting
+app.on('before-quit', () => {
+    log.info('[App] Before quit - cleaning up resources...')
+    
+    // Destroy tray popover (check if not already destroyed)
+    if (trayPopover && !trayPopover.isDestroyed()) {
+        trayPopover.destroy()
+        trayPopover = null
+    }
+    
+    // Destroy tray
+    if (tray && !tray.isDestroyed()) {
+        tray.destroy()
+        tray = null
+    }
+    
+    log.info('[App] Cleanup completed')
+})
+
+// Handle dev server shutdown signals (SIGINT = Ctrl+C, SIGTERM = kill, SIGHUP = terminal close)
+// This ensures the Electron app quits cleanly when the dev server is killed
+const gracefulShutdown = (signal: string) => {
+    log.info(`[App] Received ${signal}, initiating graceful shutdown...`)
+    
+    // Close main window first (check if not already destroyed)
+    if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.close()
+        mainWindow = null
+    }
+    
+    // Destroy tray popover (check if not already destroyed)
+    if (trayPopover && !trayPopover.isDestroyed()) {
+        trayPopover.destroy()
+        trayPopover = null
+    }
+    
+    // Destroy tray (check if not already destroyed)
+    if (tray && !tray.isDestroyed()) {
+        tray.destroy()
+        tray = null
+    }
+    
+    // Quit the app
+    app.quit()
+}
+
+// Register signal handlers for graceful shutdown
+process.on('SIGINT', () => gracefulShutdown('SIGINT'))
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'))
+process.on('SIGHUP', () => gracefulShutdown('SIGHUP'))
 
 // IPC handlers for window controls
 ipcMain.handle('window:minimize', () => {
@@ -272,10 +532,10 @@ ipcMain.handle('app:getVersion', () => {
     return app.getVersion()
 })
 
-ipcMain.handle('auth:set-session', async (_, session: any) => {
+ipcMain.handle('auth:set-session', async (_, session: { access_token?: string; refresh_token?: string } | null) => {
     log.info('[Auth] Synchronizing session from renderer, has tokens:', !!session?.access_token)
     try {
-        if (session && session.access_token && session.refresh_token) {
+        if (session?.access_token && session?.refresh_token) {
             const { data, error } = await supabase.auth.setSession({
                 access_token: session.access_token,
                 refresh_token: session.refresh_token
@@ -334,3 +594,72 @@ ipcMain.handle('haptic:perform', (_, type: string) => {
     }
 })
 
+// Tray Popover IPC handlers
+ipcMain.handle('tray:get-recent-items', async () => {
+    return await getRecentItems()
+})
+
+ipcMain.handle('tray:action', async (_, data: { action: string; [key: string]: unknown }) => {
+    const { action } = data
+    log.info('[Tray] Action received:', action)
+
+    switch (action) {
+        case 'open-main':
+            // Hide popover and show main window
+            trayPopover?.hide()
+            mainWindow?.show()
+            mainWindow?.focus()
+            break
+
+        case 'new-chat':
+            // Hide popover, show main window, and trigger new chat via IPC
+            trayPopover?.hide()
+            mainWindow?.show()
+            mainWindow?.focus()
+            mainWindow?.webContents.send('tray:new-chat')
+            break
+
+        case 'new-spreadsheet':
+            // Hide popover, show main window, and trigger new spreadsheet
+            trayPopover?.hide()
+            mainWindow?.show()
+            mainWindow?.focus()
+            mainWindow?.webContents.send('tray:new-spreadsheet')
+            break
+
+        case 'new-document':
+            // Hide popover, show main window, and trigger new document
+            trayPopover?.hide()
+            mainWindow?.show()
+            mainWindow?.focus()
+            mainWindow?.webContents.send('tray:new-document')
+            break
+
+        case 'open-item':
+            // Open a specific item (artifact or chat)
+            trayPopover?.hide()
+            mainWindow?.show()
+            mainWindow?.focus()
+            mainWindow?.webContents.send('tray:open-item', {
+                itemId: data.itemId,
+                type: data.type,
+                chatId: data.chatId
+            })
+            break
+
+        case 'settings':
+            // Open settings
+            trayPopover?.hide()
+            mainWindow?.show()
+            mainWindow?.focus()
+            mainWindow?.webContents.send('tray:open-settings')
+            break
+
+        case 'quit':
+            app.quit()
+            break
+
+        default:
+            log.warn('[Tray] Unknown action:', action)
+    }
+})
