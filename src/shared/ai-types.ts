@@ -82,7 +82,7 @@ export const AI_MODELS: Record<string, ModelDefinition> = {
         supportsTools: true,
         supportsNativeWebSearch: true,
         supportsCodeInterpreter: true,
-        supportsFileSearch: false,
+        supportsFileSearch: true,
         supportsReasoning: true,
         defaultReasoningEffort: 'low'
     },
@@ -121,6 +121,24 @@ export function getReasoningModels(): ModelDefinition[] {
 // AI Streaming Event Types
 // ============================================================================
 
+// Annotation types for web search and file search results
+export interface UrlCitationAnnotation {
+    type: 'url_citation'
+    url: string
+    title?: string
+    startIndex: number
+    endIndex: number
+}
+
+export interface FileCitationAnnotation {
+    type: 'file_citation'
+    fileId: string
+    filename: string
+    index: number
+}
+
+export type Annotation = UrlCitationAnnotation | FileCitationAnnotation
+
 /**
  * Events emitted during AI streaming to the renderer
  * Extended for Responses API with reasoning and native tools
@@ -146,7 +164,7 @@ export type AIStreamEvent =
     | { type: 'web-search-start'; searchId: string; action?: 'search' | 'open_page' | 'find_in_page'; query?: string; domains?: string[]; url?: string }
     | { type: 'web-search-searching'; searchId: string; action?: 'search' | 'open_page' | 'find_in_page'; query?: string; domains?: string[]; url?: string }
     | { type: 'web-search-done'; searchId: string; action?: 'search' | 'open_page' | 'find_in_page'; query?: string; domains?: string[]; url?: string }
-    | { type: 'annotations'; annotations: Array<{ type: 'url_citation'; url: string; title?: string; startIndex: number; endIndex: number }> }
+    | { type: 'annotations'; annotations: Annotation[] }
     | { type: 'code-interpreter-start'; executionId: string }
     | { type: 'code-interpreter-interpreting'; executionId: string }
     | { type: 'code-interpreter-code-delta'; executionId: string; delta: string }

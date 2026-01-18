@@ -23,6 +23,8 @@ import {
     streamingAnnotationsAtom,
     type WebSearchInfo,
     type UrlCitation,
+    type FileCitation,
+    type Annotation,
 } from '@/lib/atoms'
 import { trpc, trpcClient } from '@/lib/trpc'
 import { Button } from '@/components/ui/button'
@@ -186,8 +188,17 @@ export function ChatView() {
                 await documentUpload.uploadDocuments(documents)
                 console.log('[ChatView] Documents uploaded successfully')
             } catch (docError) {
+                const errorMessage = docError instanceof Error ? docError.message : 'Failed to upload documents'
                 console.error('[ChatView] Failed to upload documents:', docError)
-                // Continue anyway - documents may still be processing
+                
+                // If it's a configuration error, notify user and stop
+                if (errorMessage.includes('API key') || errorMessage.includes('not configured')) {
+                    toast.error(errorMessage)
+                    setIsStreaming(false)
+                    return
+                }
+                // For other errors, continue anyway - documents may still be processing
+                toast.warning('Some documents failed to upload. Continuing without them.')
             }
         }
 
@@ -295,7 +306,7 @@ export function ChatView() {
                 attachments: images?.length || 0
             }
             // Collect annotations in local variable to persist them
-            let collectedAnnotations: UrlCitation[] = []
+            let collectedAnnotations: Annotation[] = []
 
             try {
                 const streamStartedAt = Date.now()
@@ -373,8 +384,9 @@ export function ChatView() {
                         }
 
                         case 'annotations': {
-                            // Collect URL citations from the response
+                            // Collect URL and file citations from the response
                             console.log('[ChatView] Received annotations event:', event)
+                            
                             const urlCitations = (event.annotations || [])
                                 .filter((a: any) => a.type === 'url_citation')
                                 .map((a: any): UrlCitation => ({
@@ -384,12 +396,24 @@ export function ChatView() {
                                     startIndex: a.startIndex,
                                     endIndex: a.endIndex
                                 }))
-                            console.log('[ChatView] Parsed URL citations:', urlCitations)
-                            if (urlCitations.length > 0) {
+                            
+                            const fileCitations = (event.annotations || [])
+                                .filter((a: any) => a.type === 'file_citation')
+                                .map((a: any): FileCitation => ({
+                                    type: 'file_citation',
+                                    fileId: a.fileId,
+                                    filename: a.filename,
+                                    index: a.index
+                                }))
+                            
+                            const allCitations: Annotation[] = [...urlCitations, ...fileCitations]
+                            console.log('[ChatView] Parsed citations:', { urlCitations: urlCitations.length, fileCitations: fileCitations.length })
+                            
+                            if (allCitations.length > 0) {
                                 // Accumulate in local variable for persistence
-                                collectedAnnotations = [...collectedAnnotations, ...urlCitations]
+                                collectedAnnotations = [...collectedAnnotations, ...allCitations]
                                 // Also update streaming state for live display
-                                setStreamingAnnotations(prev => [...prev, ...urlCitations])
+                                setStreamingAnnotations(prev => [...prev, ...allCitations])
                             }
                             break
                         }
@@ -898,7 +922,7 @@ export function ChatView() {
                             isReasoning={isReasoning}
                             onViewArtifact={handleViewArtifact}
                             streamingWebSearches={streamingWebSearches}
-                            streamingAnnotations={streamingAnnotations.filter((a): a is UrlCitation => a.type === 'url_citation')}
+                            streamingAnnotations={streamingAnnotations}
                         />
                         <div ref={messagesEndRef} className="h-px" />
                     </div>

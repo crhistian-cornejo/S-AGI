@@ -27,6 +27,16 @@ export interface UrlCitationData {
   endIndex: number
 }
 
+/** File citation from file_search */
+export interface FileCitationData {
+  type: 'file_citation'
+  fileId: string
+  filename: string
+  index: number
+}
+
+export type CitationData = UrlCitationData | FileCitationData
+
 export interface AgentReasoningProps {
   /** The reasoning content (thinking process) */
   content: string
@@ -44,8 +54,8 @@ export interface AgentReasoningProps {
   actions?: AgentReasoningAction[]
   /** Web searches with detailed info (query, sources) */
   webSearches?: WebSearchData[]
-  /** URL citations collected from the response */
-  annotations?: UrlCitationData[]
+  /** Citations collected from the response (URL and file citations) */
+  annotations?: CitationData[]
 }
 
 /**
@@ -140,8 +150,9 @@ export function AgentReasoning({
     ? 'Thinking...'
     : `Thought for ${formatThinkingDuration(durationMs)}`
 
-  // Deduplicate annotations by URL
-  const uniqueAnnotations = annotations.reduce((acc, annotation) => {
+  // Filter to URL citations and deduplicate by URL
+  const urlAnnotations = annotations.filter((a): a is UrlCitationData => a.type === 'url_citation')
+  const uniqueAnnotations = urlAnnotations.reduce((acc, annotation) => {
     if (!acc.some(a => a.url === annotation.url)) {
       acc.push(annotation)
     }
@@ -285,11 +296,16 @@ function WebSearchItem({ webSearch }: { webSearch: WebSearchData }) {
 }
 
 /** Stacked favicons with source count - like ChatGPT's "29 sources" */
-function StackedSources({ annotations }: { annotations: UrlCitationData[] }) {
+function StackedSources({ annotations }: { annotations: CitationData[] }) {
   const [isExpanded, setIsExpanded] = useState(false)
   
+  // Filter to URL citations only (file citations handled separately in message-list)
+  const urlAnnotations = annotations.filter((a): a is UrlCitationData => a.type === 'url_citation')
+  
+  if (urlAnnotations.length === 0) return null
+  
   // Get unique domains for stacking (max 4 visible)
-  const uniqueDomains = annotations.reduce((acc, annotation) => {
+  const uniqueDomains = urlAnnotations.reduce((acc, annotation) => {
     const domain = getDomain(annotation.url)
     if (!acc.some(a => getDomain(a.url) === domain)) {
       acc.push(annotation)
@@ -350,7 +366,7 @@ function StackedSources({ annotations }: { annotations: UrlCitationData[] }) {
         
         {/* Source count */}
         <span className="font-medium">
-          {annotations.length} source{annotations.length !== 1 ? 's' : ''}
+          {urlAnnotations.length} source{urlAnnotations.length !== 1 ? 's' : ''}
         </span>
         
         {/* Expand indicator */}
@@ -364,7 +380,7 @@ function StackedSources({ annotations }: { annotations: UrlCitationData[] }) {
       {/* Expanded list */}
       {isExpanded && (
         <div className="pl-2 space-y-1 max-h-48 overflow-y-auto">
-          {annotations.map((annotation, index) => (
+          {urlAnnotations.map((annotation, index) => (
             <a
               key={`${annotation.url}-${index}`}
               href={annotation.url}

@@ -4,7 +4,7 @@ import { toast } from 'sonner'
 import { IconTrash, IconRefresh, IconBug } from '@tabler/icons-react'
 import { trpc } from '@/lib/trpc'
 import { useSetAtom } from 'jotai'
-import { selectedChatIdAtom } from '@/lib/atoms'
+import { selectedChatIdAtom, onboardingCompletedAtom } from "../../../lib/atoms/index"
 
 export function DebugTab() {
     const [isClearing, setIsClearing] = useState(false)
@@ -15,17 +15,18 @@ export function DebugTab() {
         try {
             localStorage.clear()
             toast.success('Local storage cleared')
-        } catch (error) {
+        } catch {
             toast.error('Failed to clear local storage')
         }
     }
 
+    const setOnboardingCompleted = useSetAtom(onboardingCompletedAtom)
+
     const handleResetOnboarding = () => {
         try {
-            localStorage.removeItem('onboarding-complete')
-            localStorage.removeItem('first-chat-created')
-            toast.success('Onboarding reset - refresh to see changes')
-        } catch (error) {
+            setOnboardingCompleted(false)
+            toast.success('Onboarding reset')
+        } catch {
             toast.error('Failed to reset onboarding')
         }
     }
@@ -38,7 +39,7 @@ export function DebugTab() {
             setSelectedChatId(null)
             await utils.chats.list.invalidate()
             toast.success('Chats cache cleared')
-        } catch (error) {
+        } catch {
             toast.error('Failed to clear chats')
         } finally {
             setIsClearing(false)
@@ -50,7 +51,7 @@ export function DebugTab() {
             await utils.auth.getSession.invalidate()
             await utils.auth.getUser.invalidate()
             toast.success('Session refreshed')
-        } catch (error) {
+        } catch {
             toast.error('Failed to refresh session')
         }
     }

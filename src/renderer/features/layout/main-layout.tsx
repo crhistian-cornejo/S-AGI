@@ -237,7 +237,7 @@ export function MainLayout() {
                         {/* Artifact panel */}
                         <div
                             className={cn(
-                                'h-full border-l border-border bg-background transition-all duration-300 ease-in-out overflow-hidden shrink-0',
+                                'h-full border-l border-border bg-background transition-all duration-300 ease-in-out overflow-hidden shrink-0 pt-10',
                                 (selectedArtifact && artifactPanelOpen) ? 'w-[600px]' : 'w-0 border-l-0'
                             )}
                         >

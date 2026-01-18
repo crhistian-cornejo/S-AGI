@@ -4,49 +4,76 @@ import { Streamdown } from 'streamdown'
 import { IconCopy, IconCheck } from '@tabler/icons-react'
 import { cn } from '@/lib/utils'
 
-/**
- * Code block with copy button
- */
-function CodeBlock({
-    language,
-    children,
-}: {
-    language?: string
-    children: string
-}) {
+// ============================================================================
+// Code Block Component with Premium Styling
+// Uses ref to extract code text for copy functionality
+// ============================================================================
+
+function CodeBlock({ children }: { children: React.ReactNode }) {
+    const preRef = useRef<HTMLPreElement>(null)
+    const [codeText, setCodeText] = useState('')
+    const [language, setLanguage] = useState<string | null>(null)
     const [copied, setCopied] = useState(false)
 
+    // Extract code text and language from the DOM after render
+    useEffect(() => {
+        if (preRef.current) {
+            const codeElement = preRef.current.querySelector('code')
+            if (codeElement) {
+                // Extract text content
+                const text = codeElement.textContent || ''
+                setCodeText(text.trim())
+                
+                // Extract language from className (language-xxx)
+                const className = codeElement.className || ''
+                const match = /language-(\w+)/.exec(className)
+                setLanguage(match ? match[1] : null)
+            }
+        }
+    }, [children])
+    
     const handleCopy = useCallback(() => {
-        navigator.clipboard.writeText(children)
+        if (!codeText) return
+        navigator.clipboard.writeText(codeText)
         setCopied(true)
         setTimeout(() => setCopied(false), 2000)
-    }, [children])
+    }, [codeText])
 
     return (
-        <div className="relative mt-2 mb-4 rounded-lg bg-muted/50 overflow-hidden group">
-            <button
-                type="button"
-                onClick={handleCopy}
-                className="absolute top-2 right-2 p-1.5 rounded-md bg-background/80 opacity-0 group-hover:opacity-100 transition-opacity"
-                title={copied ? 'Copied!' : 'Copy code'}
+        <div className="relative my-4 rounded-xl bg-[#1a1a1a] dark:bg-[#0d0d0d] border border-border/30 overflow-hidden shadow-sm group">
+            {/* Header with language label and copy button */}
+            <div className="flex items-center justify-between px-4 py-2 bg-[#232323] dark:bg-[#141414] border-b border-border/20">
+                <span className="text-[11px] font-medium text-muted-foreground/70 uppercase tracking-wider">
+                    {language || 'text'}
+                </span>
+                <button
+                    type="button"
+                    onClick={handleCopy}
+                    className="p-1.5 rounded-md hover:bg-white/5 transition-colors opacity-0 group-hover:opacity-100"
+                    title={copied ? 'Copied!' : 'Copy code'}
+                    disabled={!codeText}
+                >
+                    {copied ? (
+                        <IconCheck size={14} className="text-green-500" />
+                    ) : (
+                        <IconCopy size={14} className="text-muted-foreground/60" />
+                    )}
+                </button>
+            </div>
+            {/* Code content - Streamdown handles syntax highlighting via Shiki */}
+            <pre 
+                ref={preRef}
+                className="overflow-x-auto text-[13px] leading-relaxed font-mono p-4 [&_code]:bg-transparent [&_code]:p-0"
             >
-                {copied ? (
-                    <IconCheck size={14} className="text-green-500" />
-                ) : (
-                    <IconCopy size={14} className="text-muted-foreground" />
-                )}
-            </button>
-            {language && (
-                <div className="px-4 py-1.5 text-xs text-muted-foreground border-b border-border/50">
-                    {language}
-                </div>
-            )}
-            <pre className="p-4 overflow-x-auto text-sm">
-                <code className="font-mono">{children}</code>
+                {children}
             </pre>
         </div>
     )
 }
+
+// ============================================================================
+// Link Preview Component
+// ============================================================================
 
 const PREVIEW_WIDTH = 240
 const PREVIEW_HEIGHT = 150
@@ -143,7 +170,7 @@ function LinkWithPreview({ href, children, ...props }: React.AnchorHTMLAttribute
                 href={href}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="text-primary underline underline-offset-2 hover:text-primary/80"
+                className="text-primary underline underline-offset-2 hover:text-primary/80 transition-colors"
                 {...props}
             >
                 {children}
@@ -159,7 +186,7 @@ function LinkWithPreview({ href, children, ...props }: React.AnchorHTMLAttribute
                     href={href}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="text-primary underline underline-offset-2 hover:text-primary/80"
+                    className="text-primary underline underline-offset-2 hover:text-primary/80 transition-colors"
                     {...props}
                 >
                     {children}
@@ -170,7 +197,7 @@ function LinkWithPreview({ href, children, ...props }: React.AnchorHTMLAttribute
                     side="top"
                     align="center"
                     sideOffset={8}
-                    className="z-50 rounded-xl border border-border bg-background/95 p-2 shadow-xl backdrop-blur"
+                    className="z-50 rounded-xl border border-border bg-background/95 p-2 shadow-xl backdrop-blur animate-in fade-in-0 zoom-in-95"
                 >
                     <div className="rounded-lg overflow-hidden bg-muted/40">
                         {hasError ? (
@@ -208,18 +235,14 @@ function LinkWithPreview({ href, children, ...props }: React.AnchorHTMLAttribute
     )
 }
 
- type MarkdownSize = 'sm' | 'md' | 'lg'
+// ============================================================================
+// Size Configurations
+// ============================================================================
 
-
-interface ChatMarkdownRendererProps {
-    content: string
-    size?: MarkdownSize
-    className?: string
-    /** Whether the content is still streaming (enables Streamdown optimizations) */
-    isAnimating?: boolean
-}
+type MarkdownSize = 'sm' | 'md' | 'lg'
 
 const sizeStyles: Record<MarkdownSize, {
+    prose: string
     h1: string
     h2: string
     h3: string
@@ -231,38 +254,53 @@ const sizeStyles: Record<MarkdownSize, {
     blockquote: string
 }> = {
     sm: {
-        h1: 'text-base font-semibold mt-4 mb-1 first:mt-0',
-        h2: 'text-base font-semibold mt-4 mb-1 first:mt-0',
-        h3: 'text-sm font-semibold mt-3 mb-1 first:mt-0',
-        p: 'text-sm text-foreground/80 my-1 leading-relaxed',
-        ul: 'list-disc list-inside text-sm text-foreground/80 my-1 space-y-0.5',
-        ol: 'list-decimal list-inside text-sm text-foreground/80 my-1 space-y-0.5',
-        li: 'text-sm text-foreground/80',
-        inlineCode: 'bg-muted font-mono text-[0.85em] rounded px-1.5 py-0.5',
-        blockquote: 'border-l-2 border-primary/30 pl-3 text-foreground/70 my-2 text-sm italic',
+        prose: 'prose-sm',
+        h1: 'text-base font-semibold mt-4 mb-2 first:mt-0 text-foreground',
+        h2: 'text-base font-semibold mt-4 mb-2 first:mt-0 text-foreground',
+        h3: 'text-sm font-semibold mt-3 mb-1.5 first:mt-0 text-foreground',
+        p: 'text-sm text-foreground/85 my-2 leading-relaxed',
+        ul: 'list-disc pl-6 text-sm text-foreground/85 my-2 space-y-1',
+        ol: 'list-decimal pl-6 text-sm text-foreground/85 my-2 space-y-1',
+        li: 'text-sm text-foreground/85 leading-relaxed',
+        inlineCode: 'bg-muted/80 text-foreground font-mono text-[0.85em] rounded px-1.5 py-0.5 border border-border/30',
+        blockquote: 'border-l-3 border-primary/40 pl-4 py-1 text-foreground/70 my-3 text-sm italic bg-muted/20 rounded-r-lg',
     },
     md: {
-        h1: 'text-xl font-semibold mt-6 mb-2 first:mt-0',
-        h2: 'text-lg font-semibold mt-5 mb-2 first:mt-0',
-        h3: 'text-base font-semibold mt-4 mb-1 first:mt-0',
-        p: 'text-sm text-foreground/80 my-2 leading-relaxed',
-        ul: 'list-disc list-inside text-sm text-foreground/80 my-2 space-y-1',
-        ol: 'list-decimal list-inside text-sm text-foreground/80 my-2 space-y-1',
-        li: 'text-sm text-foreground/80',
-        inlineCode: 'bg-muted font-mono text-[0.85em] rounded px-1.5 py-0.5',
-        blockquote: 'border-l-2 border-primary/30 pl-4 text-foreground/70 my-3 italic',
+        prose: 'prose-base',
+        h1: 'text-xl font-semibold mt-6 mb-3 first:mt-0 text-foreground',
+        h2: 'text-lg font-semibold mt-5 mb-2 first:mt-0 text-foreground',
+        h3: 'text-base font-semibold mt-4 mb-2 first:mt-0 text-foreground',
+        p: 'text-sm text-foreground/85 my-2.5 leading-relaxed',
+        ul: 'list-disc pl-6 text-sm text-foreground/85 my-2.5 space-y-1.5',
+        ol: 'list-decimal pl-6 text-sm text-foreground/85 my-2.5 space-y-1.5',
+        li: 'text-sm text-foreground/85 leading-relaxed',
+        inlineCode: 'bg-muted/80 text-foreground font-mono text-[0.85em] rounded px-1.5 py-0.5 border border-border/30',
+        blockquote: 'border-l-3 border-primary/40 pl-4 py-2 text-foreground/70 my-4 italic bg-muted/20 rounded-r-lg',
     },
     lg: {
-        h1: 'text-2xl font-semibold mt-8 mb-3 first:mt-0',
-        h2: 'text-xl font-semibold mt-6 mb-2 first:mt-0',
-        h3: 'text-lg font-semibold mt-5 mb-2 first:mt-0',
-        p: 'text-base text-foreground/80 my-3 leading-relaxed',
-        ul: 'list-disc list-inside text-base text-foreground/80 my-3 space-y-1.5',
-        ol: 'list-decimal list-inside text-base text-foreground/80 my-3 space-y-1.5',
-        li: 'text-base text-foreground/80',
-        inlineCode: 'bg-muted font-mono text-[0.85em] rounded px-1.5 py-0.5',
-        blockquote: 'border-l-2 border-primary/30 pl-4 text-foreground/70 my-4 italic',
+        prose: 'prose-lg',
+        h1: 'text-2xl font-semibold mt-8 mb-4 first:mt-0 text-foreground',
+        h2: 'text-xl font-semibold mt-6 mb-3 first:mt-0 text-foreground',
+        h3: 'text-lg font-semibold mt-5 mb-2 first:mt-0 text-foreground',
+        p: 'text-base text-foreground/85 my-3 leading-relaxed',
+        ul: 'list-disc pl-6 text-base text-foreground/85 my-3 space-y-2',
+        ol: 'list-decimal pl-6 text-base text-foreground/85 my-3 space-y-2',
+        li: 'text-base text-foreground/85 leading-relaxed',
+        inlineCode: 'bg-muted/80 text-foreground font-mono text-[0.85em] rounded px-1.5 py-0.5 border border-border/30',
+        blockquote: 'border-l-3 border-primary/40 pl-4 py-2 text-foreground/70 my-5 italic bg-muted/20 rounded-r-lg',
     },
+}
+
+// ============================================================================
+// Main Markdown Renderer Component
+// ============================================================================
+
+interface ChatMarkdownRendererProps {
+    content: string
+    size?: MarkdownSize
+    className?: string
+    /** Whether the content is still streaming (enables Streamdown optimizations) */
+    isAnimating?: boolean
 }
 
 export const ChatMarkdownRenderer = memo(function ChatMarkdownRenderer({
@@ -274,11 +312,23 @@ export const ChatMarkdownRenderer = memo(function ChatMarkdownRenderer({
     const styles = sizeStyles[size]
 
     return (
-        <div className={cn('prose prose-sm max-w-none dark:prose-invert', className)}>
+        <div className={cn('max-w-none', className)}>
             <Streamdown
                 mode={isAnimating ? 'streaming' : 'static'}
                 isAnimating={isAnimating}
+                shikiTheme={['github-light', 'github-dark']}
+                controls={{
+                    code: true,
+                    table: true,
+                    mermaid: {
+                        download: true,
+                        copy: true,
+                        fullscreen: true,
+                    }
+                }}
+                caret={isAnimating ? 'block' : undefined}
                 components={{
+                    // Headings
                     h1: ({ children, ...props }) => (
                         <h1 className={styles.h1} {...props}>{children}</h1>
                     ),
@@ -297,9 +347,13 @@ export const ChatMarkdownRenderer = memo(function ChatMarkdownRenderer({
                     h6: ({ children, ...props }) => (
                         <h6 className={styles.h3} {...props}>{children}</h6>
                     ),
+                    
+                    // Paragraphs
                     p: ({ children, ...props }) => (
                         <p className={styles.p} {...props}>{children}</p>
                     ),
+                    
+                    // Lists
                     ul: ({ children, ...props }) => (
                         <ul className={styles.ul} {...props}>{children}</ul>
                     ),
@@ -309,53 +363,93 @@ export const ChatMarkdownRenderer = memo(function ChatMarkdownRenderer({
                     li: ({ children, ...props }) => (
                         <li className={styles.li} {...props}>{children}</li>
                     ),
+                    
+                    // Links
                     a: ({ href, children, ...props }) => (
                         <LinkWithPreview href={href} {...props}>
                             {children}
                         </LinkWithPreview>
                     ),
+                    
+                    // Text formatting
                     strong: ({ children, ...props }) => (
                         <strong className="font-semibold text-foreground" {...props}>{children}</strong>
                     ),
                     em: ({ children, ...props }) => (
                         <em className="italic" {...props}>{children}</em>
                     ),
+                    del: ({ children, ...props }) => (
+                        <del className="line-through text-muted-foreground" {...props}>{children}</del>
+                    ),
+                    
+                    // Blockquotes
                     blockquote: ({ children, ...props }) => (
                         <blockquote className={styles.blockquote} {...props}>{children}</blockquote>
                     ),
-                    hr: () => <hr className="my-4 border-border" />,
+                    
+                    // Horizontal rule
+                    hr: () => <hr className="my-6 border-border/50" />,
+                    
+                    // Tables
                     table: ({ children, ...props }) => (
-                        <div className="overflow-x-auto my-3 rounded-lg border border-border">
+                        <div className="overflow-x-auto my-4 rounded-xl border border-border/40 shadow-sm">
                             <table className="w-full text-sm" {...props}>{children}</table>
                         </div>
                     ),
                     thead: ({ children, ...props }) => (
-                        <thead className="bg-muted/50 border-b border-border" {...props}>{children}</thead>
+                        <thead className="bg-muted/50 border-b border-border/40" {...props}>{children}</thead>
+                    ),
+                    tbody: ({ children, ...props }) => (
+                        <tbody className="divide-y divide-border/30" {...props}>{children}</tbody>
+                    ),
+                    tr: ({ children, ...props }) => (
+                        <tr className="hover:bg-muted/30 transition-colors" {...props}>{children}</tr>
                     ),
                     th: ({ children, ...props }) => (
-                        <th className="text-left font-medium px-3 py-2" {...props}>{children}</th>
+                        <th className="text-left font-medium px-4 py-2.5 text-foreground" {...props}>{children}</th>
                     ),
                     td: ({ children, ...props }) => (
-                        <td className="px-3 py-2 border-t border-border" {...props}>{children}</td>
+                        <td className="px-4 py-2.5 text-foreground/80" {...props}>{children}</td>
                     ),
-                    pre: ({ children }) => <>{children}</>,
-                    code: ({ inline, className: codeClassName, children, ...props }: any) => {
-                        const match = /language-(\w+)/.exec(codeClassName || '')
-                        const language = match ? match[1] : undefined
-                        const codeContent = String(children)
-
-                        const shouldBeInline = inline || (!language && codeContent.length < 80 && !codeContent.includes('\n'))
-
-                        if (shouldBeInline) {
-                            return <code className={styles.inlineCode} {...props}>{children}</code>
+                    
+                    // Code blocks - Let Streamdown handle highlighting, we wrap with CodeBlock
+                    pre: ({ children }) => <CodeBlock>{children}</CodeBlock>,
+                    
+                    // Inline code - Streamdown passes className with language-xxx for block code
+                    code: ({ children, className, ...props }: any) => {
+                        // Block code has language-xxx class, let it render naturally inside pre
+                        const isBlockCode = className?.includes('language-')
+                        
+                        if (isBlockCode) {
+                            // Block code - keep Shiki highlighting, pass through with className
+                            return (
+                                <code 
+                                    className={cn(className, "text-[13px] font-mono leading-relaxed whitespace-pre")} 
+                                    {...props}
+                                >
+                                    {children}
+                                </code>
+                            )
                         }
-
+                        
+                        // Inline code - styled pill
                         return (
-                            <CodeBlock language={language}>
-                                {codeContent.replace(/\n$/, '')}
-                            </CodeBlock>
+                            <code className={styles.inlineCode} {...props}>
+                                {children}
+                            </code>
                         )
                     },
+                    
+                    // Images
+                    img: ({ src, alt, ...props }) => (
+                        <img 
+                            src={src} 
+                            alt={alt} 
+                            className="max-w-full h-auto rounded-lg my-4 border border-border/30"
+                            loading="lazy"
+                            {...props}
+                        />
+                    ),
                 }}
             >
                 {content}
@@ -363,6 +457,10 @@ export const ChatMarkdownRenderer = memo(function ChatMarkdownRenderer({
         </div>
     )
 })
+
+// ============================================================================
+// Compact Version for Smaller Contexts
+// ============================================================================
 
 export const CompactMarkdownRenderer = memo(function CompactMarkdownRenderer({
     content,

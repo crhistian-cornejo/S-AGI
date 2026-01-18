@@ -1,5 +1,17 @@
 import { useState } from 'react'
-import { IconFile, IconPhoto, IconFileText, IconDownload, IconX, IconZoomIn } from '@tabler/icons-react'
+import { 
+    IconFile, 
+    IconPhoto, 
+    IconDownload, 
+    IconX, 
+    IconZoomIn,
+    IconFileTypePdf,
+    IconFileTypeDoc,
+    IconFileTypeTxt,
+    IconFileCode,
+    IconTable,
+    IconFileZip
+} from '@tabler/icons-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import {
@@ -39,10 +51,39 @@ export function MessageAttachments({ attachments, className }: MessageAttachment
         return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i]
     }
 
-    const getFileIcon = (type: string) => {
-        if (type.startsWith('image/')) return IconPhoto
-        if (type === 'application/pdf') return IconFileText
-        return IconFile
+    const getFileIconConfig = (attachment: MessageAttachment) => {
+        const ext = attachment.name.split('.').pop()?.toLowerCase() || ''
+        const type = attachment.type
+
+        if (type.startsWith('image/') || ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg'].includes(ext)) {
+            return { Icon: IconPhoto, color: 'text-purple-500', bg: 'bg-purple-500/10' }
+        }
+
+        if (type === 'application/pdf' || ext === 'pdf') {
+            return { Icon: IconFileTypePdf, color: 'text-red-500', bg: 'bg-red-500/10' }
+        }
+
+        if (['doc', 'docx'].includes(ext) || type.includes('msword') || type.includes('wordprocessingml')) {
+            return { Icon: IconFileTypeDoc, color: 'text-blue-500', bg: 'bg-blue-500/10' }
+        }
+
+        if (['xls', 'xlsx', 'csv'].includes(ext) || type.includes('spreadsheet') || type.includes('excel')) {
+            return { Icon: IconTable, color: 'text-green-500', bg: 'bg-green-500/10' }
+        }
+
+        if (['txt', 'md', 'markdown'].includes(ext) || type.startsWith('text/')) {
+            return { Icon: IconFileTypeTxt, color: 'text-slate-500', bg: 'bg-slate-500/10' }
+        }
+        
+        if (['zip', 'rar', '7z', 'tar', 'gz'].includes(ext) || type.includes('compressed') || type.includes('archive') || type.includes('zip')) {
+            return { Icon: IconFileZip, color: 'text-yellow-500', bg: 'bg-yellow-500/10' }
+        }
+
+        if (['js', 'jsx', 'ts', 'tsx', 'html', 'css', 'json', 'py', 'go', 'java', 'c', 'cpp'].includes(ext)) {
+            return { Icon: IconFileCode, color: 'text-orange-500', bg: 'bg-orange-500/10' }
+        }
+
+        return { Icon: IconFile, color: 'text-muted-foreground', bg: 'bg-muted/50' }
     }
 
     const handleDownload = (attachment: MessageAttachment) => {
@@ -86,8 +127,8 @@ export function MessageAttachments({ attachments, className }: MessageAttachment
                             const imageUrl = attachment.preview || attachment.url
                             
                             return (
-                                // biome-ignore lint/a11y/useSemanticElements: <explanation>
-<div
+                                // biome-ignore lint/a11y/useSemanticElements: interactive div needed for complex layout
+                                <div
                                     key={attachment.id}
                                     className="relative group rounded-lg overflow-hidden border border-border/50 bg-muted/30 cursor-pointer hover:border-border transition-colors"
                                     onClick={() => imageUrl && openLightbox(imageUrl, attachment.name)}
@@ -161,7 +202,7 @@ export function MessageAttachments({ attachments, className }: MessageAttachment
                 {otherAttachments.length > 0 && (
                     <div className="space-y-2">
                         {otherAttachments.map((attachment) => {
-                            const Icon = getFileIcon(attachment.type)
+                            const { Icon, color, bg } = getFileIconConfig(attachment)
                             
                             return (
                                 <div
@@ -169,8 +210,8 @@ export function MessageAttachments({ attachments, className }: MessageAttachment
                                     className="flex items-center gap-3 p-3 bg-muted/50 rounded-lg border border-border/50 hover:border-border transition-colors group"
                                 >
                                     {/* Icon */}
-                                    <div className="w-10 h-10 rounded bg-background flex items-center justify-center flex-shrink-0">
-                                        <Icon size={18} className="text-muted-foreground" />
+                                    <div className={cn("w-10 h-10 rounded flex items-center justify-center flex-shrink-0 transition-colors", bg, color)}>
+                                        <Icon size={18} stroke={1.5} />
                                     </div>
 
                                     {/* File Info */}

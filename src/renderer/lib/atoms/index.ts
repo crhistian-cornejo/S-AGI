@@ -206,6 +206,8 @@ export const shortcutsDialogOpenAtom = atom(false)
 // === AUTH STATE ===
 export const authDialogOpenAtom = atom(false)
 export const authDialogModeAtom = atom<'signin' | 'signup'>('signin')
+// --- REFRESH ---
+export const onboardingCompletedAtom = atomWithStorage('onboarding-completed', false)
 
 // Legacy atoms for backward compatibility
 export const isLoadingAtom = isStreamingAtom

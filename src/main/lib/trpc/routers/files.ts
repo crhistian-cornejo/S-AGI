@@ -49,39 +49,99 @@ export const filesRouter = router({
         }))
         .mutation(async ({ ctx, input }) => {
             try {
+                log.info('[FilesRouter] uploadForChat called:', { 
+                    chatId: input.chatId, 
+                    fileName: input.fileName,
+                    apiKeyLength: input.apiKey?.length || 0,
+                    userId: ctx.userId 
+                })
+                
+                if (!input.apiKey) {
+                    throw new Error('OpenAI API key is required for file upload')
+                }
+                
                 const service = new OpenAIFileService({ apiKey: input.apiKey })
                 
                 // 1. Get or create vector store
+                log.info('[FilesRouter] Getting or creating vector store...')
                 const vectorStoreId = await service.getOrCreateVectorStore(input.chatId, ctx.userId)
+                log.info('[FilesRouter] Vector store ID:', vectorStoreId)
                 
                 // 2. Decode file
                 const buffer = Buffer.from(input.fileBase64, 'base64')
 
-                // 3. Upload to Supabase Storage (Persistence)
+                // 3. Determine content type from file extension
+                const ext = input.fileName.split('.').pop()?.toLowerCase() || ''
+                const mimeTypes: Record<string, string> = {
+                    'pdf': 'application/pdf',
+                    'doc': 'application/msword',
+                    'docx': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                    'pptx': 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+                    'txt': 'text/plain',
+                    'md': 'text/markdown',
+                    'csv': 'text/csv',
+                    'json': 'application/json',
+                    'html': 'text/html',
+                    'css': 'text/css',
+                    'js': 'text/javascript',
+                    'ts': 'text/typescript',
+                    'tsx': 'text/typescript',
+                    'jsx': 'text/javascript',
+                    'py': 'text/x-python',
+                    'java': 'text/x-java',
+                    'c': 'text/x-c',
+                    'cpp': 'text/x-c++',
+                    'cs': 'text/x-csharp',
+                    'go': 'text/x-go',
+                    'rb': 'text/x-ruby',
+                    'php': 'text/x-php',
+                    'sh': 'application/x-sh',
+                    'tex': 'text/x-tex'
+                }
+                const contentType = mimeTypes[ext] || 'application/octet-stream'
+                log.info('[FilesRouter] File content type:', { fileName: input.fileName, ext, contentType })
+
+                // 4. Upload to Supabase Storage (Persistence)
+                // Sanitize filename for storage path (remove special characters, spaces, etc.)
+                const sanitizeForPath = (name: string): string => {
+                    return name
+                        .normalize('NFD') // Decompose accented characters
+                        .replace(/[\u0300-\u036f]/g, '') // Remove diacritics
+                        .replace(/[°º]/g, '') // Remove degree symbols
+                        .replace(/[^a-zA-Z0-9._-]/g, '_') // Replace other special chars with underscore
+                        .replace(/_+/g, '_') // Collapse multiple underscores
+                        .replace(/^_|_$/g, '') // Trim underscores
+                }
+                
                 const timestamp = Date.now()
                 const randomId = Math.random().toString(36).substring(2, 15)
-                const storagePath = `${ctx.userId}/chat-files/${timestamp}-${randomId}-${input.fileName}`
+                const sanitizedFileName = sanitizeForPath(input.fileName)
+                const storagePath = `${ctx.userId}/chat-files/${timestamp}-${randomId}-${sanitizedFileName}`
+                
+                log.info('[FilesRouter] Storage path:', { original: input.fileName, sanitized: sanitizedFileName, path: storagePath })
 
                 const { error: uploadError } = await supabase.storage
                     .from('attachments')
                     .upload(storagePath, buffer, {
-                        contentType: 'application/octet-stream',
+                        contentType,
                         upsert: false
                     })
 
                 if (uploadError) {
                     log.error('[FilesRouter] Storage upload failed:', uploadError)
-                    throw new Error('Failed to persist file')
+                    throw new Error(`Failed to persist file: ${uploadError.message}`)
                 }
                 
-                // 4. Upload to OpenAI and attach
-                const fileId = await service.uploadAndAttachFile(vectorStoreId, buffer, input.fileName)
+                log.info('[FilesRouter] File persisted to storage:', storagePath)
                 
-                // 5. Determine file size and type
-                // (Approximation since we have the buffer)
+                // 5. Upload to OpenAI and attach
+                const fileId = await service.uploadAndAttachFile(vectorStoreId, buffer, input.fileName)
+                log.info('[FilesRouter] File uploaded to OpenAI:', fileId)
+                
+                // 6. Determine file size
                 const fileSize = buffer.length
                 
-                // 6. Save metadata to chat_files table
+                // 7. Save metadata to chat_files table
                 const { error: dbError } = await supabase
                     .from('chat_files')
                     .insert({
@@ -279,5 +339,79 @@ export const filesRouter = router({
         .query(() => ({
             extensions: SUPPORTED_FILE_TYPES,
             mimeTypes: SUPPORTED_MIME_TYPES
+        })),
+
+    /**
+     * Debug: Get full vector store status including file processing status from OpenAI
+     */
+    debugVectorStore: protectedProcedure
+        .input(z.object({
+            chatId: z.string().uuid(),
+            apiKey: z.string()
         }))
+        .query(async ({ ctx, input }) => {
+            log.info('[FilesRouter] debugVectorStore called for chat:', input.chatId)
+            
+            // Get chat data
+            const { data: chat, error: chatError } = await supabase
+                .from('chats')
+                .select('id, title, openai_vector_store_id')
+                .eq('id', input.chatId)
+                .eq('user_id', ctx.userId)
+                .single()
+            
+            if (chatError || !chat) {
+                return { error: 'Chat not found', chat: null, vectorStore: null, files: [] }
+            }
+
+            if (!chat.openai_vector_store_id) {
+                return { 
+                    error: 'No vector store associated with this chat',
+                    chat,
+                    vectorStore: null,
+                    files: []
+                }
+            }
+
+            try {
+                const service = new OpenAIFileService({ apiKey: input.apiKey })
+                
+                // Get files from OpenAI vector store with their actual status
+                const openaiFiles = await service.listVectorStoreFiles(chat.openai_vector_store_id)
+                
+                // Get file statuses individually for more detail
+                const filesWithStatus = await Promise.all(
+                    openaiFiles.map(async (file) => {
+                        const status = await service.getFileStatus(chat.openai_vector_store_id, file.id)
+                        return { ...file, openaiStatus: status }
+                    })
+                )
+                
+                // Get local DB files
+                const { data: dbFiles } = await supabase
+                    .from('chat_files')
+                    .select('*')
+                    .eq('chat_id', input.chatId)
+                
+                return {
+                    error: null,
+                    chat,
+                    vectorStore: {
+                        id: chat.openai_vector_store_id,
+                        fileCount: openaiFiles.length
+                    },
+                    openaiFiles: filesWithStatus,
+                    dbFiles: dbFiles || []
+                }
+            } catch (err) {
+                log.error('[FilesRouter] debugVectorStore error:', err)
+                return {
+                    error: err instanceof Error ? err.message : 'Unknown error',
+                    chat,
+                    vectorStore: { id: chat.openai_vector_store_id },
+                    openaiFiles: [],
+                    dbFiles: []
+                }
+            }
+        })
 })

@@ -1,5 +1,5 @@
 import { memo, useEffect, useRef, useState } from 'react'
-import { IconCheck, IconCopy, IconLoader2, IconPlayerPlay, IconPlayerStop, IconExternalLink, IconWorld } from '@tabler/icons-react'
+import { IconCheck, IconCopy, IconLoader2, IconPlayerPlay, IconPlayerStop, IconExternalLink, IconWorld, IconFile } from '@tabler/icons-react'
 import { cn } from '@/lib/utils'
 import { trpc } from '@/lib/trpc'
 import { ChatMarkdownRenderer } from '@/components/chat-markdown-renderer'
@@ -297,13 +297,10 @@ interface Message {
             count?: number
             label?: string
         }>
-        annotations?: Array<{
-            type: 'url_citation'
-            url: string
-            title?: string
-            startIndex: number
-            endIndex: number
-        }>
+        annotations?: Array<
+            | { type: 'url_citation'; url: string; title?: string; startIndex: number; endIndex: number }
+            | { type: 'file_citation'; fileId: string; filename: string; index: number }
+        >
     }
     attachments?: Array<{
         id: string
@@ -344,14 +341,11 @@ interface MessageListProps {
     onViewArtifact?: (artifactId: string) => void
     /** Active web searches during streaming */
     streamingWebSearches?: StreamingWebSearch[]
-    /** URL citations collected from the response */
-    streamingAnnotations?: Array<{
-        type: 'url_citation'
-        url: string
-        title?: string
-        startIndex: number
-        endIndex: number
-    }>
+    /** Citations collected from the response (URL and file citations) */
+    streamingAnnotations?: Array<
+        | { type: 'url_citation'; url: string; title?: string; startIndex: number; endIndex: number }
+        | { type: 'file_citation'; fileId: string; filename: string; index: number }
+    >
 }
 
 // ============================================================================
@@ -909,6 +903,15 @@ interface UrlCitationData {
     endIndex: number
 }
 
+interface FileCitationData {
+    type: 'file_citation'
+    fileId: string
+    filename: string
+    index: number
+}
+
+type CitationData = UrlCitationData | FileCitationData
+
 /** Get favicon URL from Google's favicon service */
 function getFaviconUrl(url: string): string {
     try {
@@ -928,26 +931,56 @@ function getDomain(url: string): string {
     }
 }
 
-/** Sources indicator with stacked favicons - shown in message action bar */
+/** Get file extension icon color */
+function getFileExtensionColor(filename: string): string {
+    const ext = filename.split('.').pop()?.toLowerCase() || ''
+    const colors: Record<string, string> = {
+        pdf: 'text-red-500',
+        doc: 'text-blue-500',
+        docx: 'text-blue-500',
+        txt: 'text-gray-500',
+        md: 'text-purple-500',
+        csv: 'text-green-500',
+        xlsx: 'text-green-600',
+        xls: 'text-green-600',
+    }
+    return colors[ext] || 'text-muted-foreground'
+}
+
+/** Sources indicator with stacked icons - shown in message action bar */
 const SourcesIndicator = memo(function SourcesIndicator({ 
     annotations 
 }: { 
-    annotations: UrlCitationData[] 
+    annotations: CitationData[] 
 }) {
     const [isExpanded, setIsExpanded] = useState(false)
     
-    // Deduplicate by URL
-    const uniqueAnnotations = annotations.reduce((acc, annotation) => {
+    // Separate URL and file citations
+    const urlCitations = annotations.filter((a): a is UrlCitationData => a.type === 'url_citation')
+    const fileCitations = annotations.filter((a): a is FileCitationData => a.type === 'file_citation')
+    
+    // Deduplicate URL citations by URL
+    const uniqueUrlCitations = urlCitations.reduce((acc, annotation) => {
         if (!acc.some(a => a.url === annotation.url)) {
             acc.push(annotation)
         }
         return acc
     }, [] as UrlCitationData[])
     
-    if (uniqueAnnotations.length === 0) return null
+    // Deduplicate file citations by fileId
+    const uniqueFileCitations = fileCitations.reduce((acc, annotation) => {
+        if (!acc.some(a => a.fileId === annotation.fileId)) {
+            acc.push(annotation)
+        }
+        return acc
+    }, [] as FileCitationData[])
     
-    // Get unique domains for stacking (max 3 visible)
-    const uniqueDomains = uniqueAnnotations.reduce((acc, annotation) => {
+    const totalSources = uniqueUrlCitations.length + uniqueFileCitations.length
+    
+    if (totalSources === 0) return null
+    
+    // Get unique domains for URL stacking (max 2 visible)
+    const uniqueDomains = uniqueUrlCitations.reduce((acc, annotation) => {
         const domain = getDomain(annotation.url)
         if (!acc.some(a => getDomain(a.url) === domain)) {
             acc.push(annotation)
@@ -955,8 +988,10 @@ const SourcesIndicator = memo(function SourcesIndicator({
         return acc
     }, [] as UrlCitationData[])
     
-    const visibleCount = Math.min(3, uniqueDomains.length)
-    const visibleSources = uniqueDomains.slice(0, visibleCount)
+    const visibleUrlCount = Math.min(2, uniqueDomains.length)
+    const visibleFilesCount = Math.min(2, uniqueFileCitations.length)
+    const visibleUrls = uniqueDomains.slice(0, visibleUrlCount)
+    const visibleFiles = uniqueFileCitations.slice(0, visibleFilesCount)
     
     return (
         <div className="relative">
@@ -967,17 +1002,33 @@ const SourcesIndicator = memo(function SourcesIndicator({
                         onClick={() => setIsExpanded(!isExpanded)}
                         className="h-6 px-2 flex items-center gap-1.5 text-xs text-muted-foreground/70 hover:text-muted-foreground hover:bg-muted/50 rounded-md transition-colors"
                     >
-                        {/* Stacked favicons */}
+                        {/* Stacked icons */}
                         <div className="flex items-center">
-                            {visibleSources.map((annotation, index) => {
+                            {/* File icons first */}
+                            {visibleFiles.map((file, index) => (
+                                <div
+                                    key={`file-${file.fileId}-${index}`}
+                                    className="relative rounded-full bg-background border border-border overflow-hidden flex items-center justify-center"
+                                    style={{ 
+                                        marginLeft: index > 0 ? '-4px' : 0,
+                                        zIndex: visibleFilesCount + visibleUrlCount - index,
+                                        width: 16,
+                                        height: 16
+                                    }}
+                                >
+                                    <IconFile size={10} className={getFileExtensionColor(file.filename)} />
+                                </div>
+                            ))}
+                            {/* URL favicons */}
+                            {visibleUrls.map((annotation, index) => {
                                 const faviconUrl = getFaviconUrl(annotation.url)
                                 return (
                                     <div
-                                        key={`${annotation.url}-${index}`}
+                                        key={`url-${annotation.url}-${index}`}
                                         className="relative rounded-full bg-background border border-border overflow-hidden"
                                         style={{ 
-                                            marginLeft: index > 0 ? '-4px' : 0,
-                                            zIndex: visibleCount - index,
+                                            marginLeft: (index > 0 || visibleFiles.length > 0) ? '-4px' : 0,
+                                            zIndex: visibleUrlCount - index,
                                             width: 16,
                                             height: 16
                                         }}
@@ -1008,7 +1059,7 @@ const SourcesIndicator = memo(function SourcesIndicator({
                         
                         {/* Source count */}
                         <span className="font-medium">
-                            {uniqueAnnotations.length} source{uniqueAnnotations.length !== 1 ? 's' : ''}
+                            {totalSources} source{totalSources !== 1 ? 's' : ''}
                         </span>
                     </button>
                 </TooltipTrigger>
@@ -1022,32 +1073,67 @@ const SourcesIndicator = memo(function SourcesIndicator({
                     <div 
                         className="fixed inset-0 z-40" 
                         onClick={() => setIsExpanded(false)}
+                        onKeyDown={(e) => e.key === 'Escape' && setIsExpanded(false)}
+                        role="button"
+                        tabIndex={-1}
+                        aria-label="Close sources panel"
                     />
-                    <div className="absolute bottom-full left-0 mb-1 z-50 w-72 max-h-64 overflow-y-auto rounded-lg border border-border bg-popover shadow-lg">
+                    <div className="absolute bottom-full left-0 mb-1 z-50 w-80 max-h-64 overflow-y-auto rounded-lg border border-border bg-popover shadow-lg">
                         <div className="p-2 space-y-0.5">
-                            {uniqueAnnotations.map((annotation, index) => (
-                                <a
-                                    key={`${annotation.url}-${index}`}
-                                    href={annotation.url}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="flex items-center gap-2 py-1.5 px-2 rounded-md hover:bg-muted/50 transition-colors group"
-                                    onClick={(e) => e.stopPropagation()}
-                                >
-                                    <img
-                                        src={getFaviconUrl(annotation.url)}
-                                        alt=""
-                                        className="w-4 h-4 rounded-sm shrink-0"
-                                        onError={(e) => {
-                                            e.currentTarget.style.display = 'none'
-                                        }}
-                                    />
-                                    <span className="text-xs text-muted-foreground group-hover:text-foreground truncate flex-1">
-                                        {annotation.title || getDomain(annotation.url)}
-                                    </span>
-                                    <IconExternalLink size={12} className="opacity-0 group-hover:opacity-60 transition-opacity shrink-0" />
-                                </a>
-                            ))}
+                            {/* File citations section */}
+                            {uniqueFileCitations.length > 0 && (
+                                <>
+                                    <div className="px-2 py-1 text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
+                                        Documents
+                                    </div>
+                                    {uniqueFileCitations.map((file, index) => (
+                                        <div
+                                            key={`file-${file.fileId}-${index}`}
+                                            className="flex items-center gap-2 py-1.5 px-2 rounded-md hover:bg-muted/50 transition-colors group"
+                                        >
+                                            <IconFile size={14} className={cn("shrink-0", getFileExtensionColor(file.filename))} />
+                                            <span className="text-xs text-muted-foreground group-hover:text-foreground truncate flex-1">
+                                                {file.filename}
+                                            </span>
+                                        </div>
+                                    ))}
+                                </>
+                            )}
+                            
+                            {/* URL citations section */}
+                            {uniqueUrlCitations.length > 0 && (
+                                <>
+                                    {uniqueFileCitations.length > 0 && (
+                                        <div className="my-1 border-t border-border/50" />
+                                    )}
+                                    <div className="px-2 py-1 text-[10px] font-medium text-muted-foreground uppercase tracking-wider">
+                                        Web Sources
+                                    </div>
+                                    {uniqueUrlCitations.map((annotation, index) => (
+                                        <a
+                                            key={`url-${annotation.url}-${index}`}
+                                            href={annotation.url}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="flex items-center gap-2 py-1.5 px-2 rounded-md hover:bg-muted/50 transition-colors group"
+                                            onClick={(e) => e.stopPropagation()}
+                                        >
+                                            <img
+                                                src={getFaviconUrl(annotation.url)}
+                                                alt=""
+                                                className="w-4 h-4 rounded-sm shrink-0"
+                                                onError={(e) => {
+                                                    e.currentTarget.style.display = 'none'
+                                                }}
+                                            />
+                                            <span className="text-xs text-muted-foreground group-hover:text-foreground truncate flex-1">
+                                                {annotation.title || getDomain(annotation.url)}
+                                            </span>
+                                            <IconExternalLink size={12} className="opacity-0 group-hover:opacity-60 transition-opacity shrink-0" />
+                                        </a>
+                                    ))}
+                                </>
+                            )}
                         </div>
                     </div>
                 </>

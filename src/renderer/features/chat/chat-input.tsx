@@ -9,14 +9,12 @@ import {
     IconPaperclip,
     IconBrain,
     IconFileUpload,
-    IconFile,
-    IconX,
-    IconLoader2,
     IconListCheck,
     IconSparkles,
 } from '@tabler/icons-react'
 import { Button } from '@/components/ui/button'
 import { ImageAttachmentItem } from '@/components/image-attachment-item'
+import { FileAttachmentItem } from '@/components/file-attachment-item'
 import {
     Select,
     SelectContent,
@@ -295,8 +293,8 @@ export function ChatInput({ value, onChange, onSend, onStop, isLoading, streamin
 
     return (
         /* biome-ignore lint/a11y/noNoninteractiveElementToInteractiveRole: drag events for file drop zone */
-        // biome-ignore lint/a11y/useSemanticElements: drag events for file drop zone
-        <div 
+        // biome-ignore lint/a11y/useSemanticElements: <explanation>
+<div 
             role="region"
             aria-label="Chat input with file drop zone"
             className="relative flex flex-col gap-2 w-full max-w-3xl mx-auto px-4 pb-4"
@@ -383,29 +381,14 @@ export function ChatInput({ value, onChange, onSend, onStop, isLoading, streamin
                 {files.length > 0 && (
                     <div className="flex flex-wrap gap-1.5 px-2 pb-2">
                         {files.map((file) => (
-                            <div
+                            <FileAttachmentItem
                                 key={file.id}
-                                className="group flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-accent/50 border border-border/50 hover:border-border transition-colors"
-                            >
-                                <IconFile size={14} className="text-muted-foreground shrink-0" />
-                                <span className="text-xs font-medium truncate max-w-[120px]">
-                                    {file.filename}
-                                </span>
-                                <span className="text-[10px] text-muted-foreground">
-                                    {(file.size ? (file.size / 1024).toFixed(0) : 0)} KB
-                                </span>
-                                {file.isLoading ? (
-                                    <IconLoader2 size={12} className="animate-spin text-muted-foreground" />
-                                ) : (
-                                    <button
-                                        type="button"
-                                        onClick={() => removeFile(file.id)}
-                                        className="opacity-0 group-hover:opacity-100 transition-opacity p-0.5 hover:bg-destructive/20 rounded"
-                                    >
-                                        <IconX size={12} className="text-muted-foreground hover:text-destructive" />
-                                    </button>
-                                )}
-                            </div>
+                                id={file.id}
+                                filename={file.filename}
+                                size={file.size}
+                                isLoading={file.isLoading}
+                                onRemove={() => removeFile(file.id)}
+                            />
                         ))}
                     </div>
                 )}

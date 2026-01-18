@@ -7,6 +7,7 @@ import { TooltipProvider } from './components/ui/tooltip'
 import { MainLayout } from './features/layout/main-layout'
 import { SettingsDialog } from './features/settings/settings-dialog'
 import { AuthDialog, AuthGuard, OAuthCallbackHandler } from './features/auth'
+import { OnboardingGuard } from './features/onboarding'
 import { VSCodeThemeProvider } from './lib/themes'
 import { appStore } from './lib/stores/jotai-store'
 
@@ -53,7 +54,9 @@ export function App() {
                                 className="h-screen w-screen bg-background text-foreground overflow-hidden"
                             >
                                 <AuthGuard>
-                                    <MainLayout />
+                                    <OnboardingGuard>
+                                        <MainLayout />
+                                    </OnboardingGuard>
                                 </AuthGuard>
                             </div>
                             <AuthDialog />

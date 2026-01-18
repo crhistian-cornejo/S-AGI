@@ -231,10 +231,12 @@ const GroupRow = memo(function GroupRow({
   // All groups are expandable (even single items)
   return (
     <div className={cn(showBorder && "border-b border-border/30")}>
-      <button
-        type="button"
+      <div
+        role="button"
+        tabIndex={0}
         onClick={() => setIsExpanded(!isExpanded)}
-        className="w-full flex items-center gap-2 py-1.5 px-3 hover:bg-muted/20 transition-colors"
+        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setIsExpanded(!isExpanded) } }}
+        className="w-full flex items-center gap-2 py-1.5 px-3 hover:bg-muted/20 transition-colors cursor-pointer select-none"
       >
         {/* Expand icon */}
         <div className="w-4 h-4 flex items-center justify-center shrink-0">
@@ -297,7 +299,7 @@ const GroupRow = memo(function GroupRow({
             ) : null}
           </div>
         )}
-      </button>
+      </div>
       
       {/* Expanded sub-items */}
       {isExpanded && (
@@ -350,10 +352,12 @@ export const AgentToolCallsGroup = memo(function AgentToolCallsGroup({
         : "border-border/40 bg-muted/5"
     )}>
       {/* Main header - always visible */}
-      <button
-        type="button"
+      <div
+        role="button"
+        tabIndex={0}
         onClick={() => setIsExpanded(!isExpanded)}
-        className="w-full flex items-center gap-2 py-2 px-3 hover:bg-muted/20 transition-colors"
+        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setIsExpanded(!isExpanded) } }}
+        className="w-full flex items-center gap-2 py-2 px-3 hover:bg-muted/20 transition-colors cursor-pointer select-none"
       >
         {/* Expand icon */}
         <div className="w-4 h-4 flex items-center justify-center shrink-0">
@@ -383,7 +387,7 @@ export const AgentToolCallsGroup = memo(function AgentToolCallsGroup({
             <IconCheck size={14} className="text-emerald-500" />
           )}
         </div>
-      </button>
+      </div>
       
       {/* Expanded content - list of groups */}
       {isExpanded && (

@@ -100,9 +100,14 @@ export function useDocumentUpload({ chatId }: UseDocumentUploadOptions) {
      * Upload multiple documents
      */
     const uploadDocuments = useCallback(async (files: File[]) => {
-        if (!chatId || !apiKey) {
-            console.error('[useDocumentUpload] Missing chatId or apiKey')
-            return
+        if (!chatId) {
+            console.error('[useDocumentUpload] Missing chatId')
+            throw new Error('No chat selected. Please select or create a chat first.')
+        }
+        
+        if (!apiKey) {
+            console.error('[useDocumentUpload] Missing OpenAI API key')
+            throw new Error('OpenAI API key not configured. Please add your API key in Settings to upload documents.')
         }
 
         setIsUploading(true)

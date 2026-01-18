@@ -464,11 +464,22 @@ function buildNativeTools(
     // File Search
     if (config?.fileSearch && model.supportsFileSearch) {
         const fileConfig = typeof config.fileSearch === 'object' ? config.fileSearch : {}
-        tools.push({
-            type: 'file_search',
-            vector_store_ids: fileConfig.vectorStoreIds || [],
-            max_num_results: fileConfig.maxResults
-        } as ToolParam)
+        const vectorStoreIds = fileConfig.vectorStoreIds || []
+        
+        // Only add file_search tool if we have vector store IDs
+        if (vectorStoreIds.length > 0) {
+            const fileSearchTool: Record<string, any> = {
+                type: 'file_search',
+                vector_store_ids: vectorStoreIds
+            }
+            // Only add max_num_results if specified (avoid undefined in JSON)
+            if (fileConfig.maxResults) {
+                fileSearchTool.max_num_results = fileConfig.maxResults
+            }
+            tools.push(fileSearchTool as ToolParam)
+        } else {
+            log.warn('[AI] file_search enabled but no vector_store_ids provided - skipping tool')
+        }
     }
 
     return tools
@@ -695,19 +706,36 @@ export const aiRouter = router({
                         : createFunctionTools(input.chatId, ctx.userId)
                     
                     // Select system prompt based on mode
-                    const systemPrompt = input.mode === 'plan' ? PLAN_MODE_SYSTEM_PROMPT : SYSTEM_PROMPT
+                    let systemPrompt = input.mode === 'plan' ? PLAN_MODE_SYSTEM_PROMPT : SYSTEM_PROMPT
                     
                     // Build native tools configuration
                     let nativeToolsConfig = input.nativeTools
-
-                    // Automatically inject Vector Store ID from Supabase if none provided
-                    // This handles both { fileSearch: true } and { fileSearch: { vectorStoreIds: [] } }
-                    const needsVectorStoreId = modelDef?.supportsFileSearch && nativeToolsConfig?.fileSearch && (
-                        nativeToolsConfig.fileSearch === true ||
-                        (typeof nativeToolsConfig.fileSearch === 'object' && !nativeToolsConfig.fileSearch.vectorStoreIds?.length)
-                    )
                     
-                    if (needsVectorStoreId) {
+                    log.info(`[AI] nativeTools input:`, JSON.stringify(nativeToolsConfig))
+                    log.info(`[AI] Model ${modelId} supportsFileSearch: ${modelDef?.supportsFileSearch}`)
+
+                    // Track if we should force file_search for document queries
+                    let shouldForceFileSearch = false
+                    
+                    // Helper function to detect if query is about uploaded documents
+                    const isDocumentQuery = (prompt: string): boolean => {
+                        const docPatterns = [
+                            // English patterns
+                            /\b(the\s+)?(pdf|document|file|attachment|uploaded)/i,
+                            /\b(summarize|summary|resume|resumen)/i,
+                            /\b(what\s+does\s+it\s+say|what\s+is\s+in|read\s+the|analyze)/i,
+                            /\b(extract|content|contents|information\s+from)/i,
+                            // Spanish patterns
+                            /\b(el\s+)?(pdf|documento|archivo|adjunto)/i,
+                            /\b(qué\s+dice|qué\s+contiene|lee\s+el|analiza)/i,
+                            /\b(extrae|contenido|información\s+del)/i,
+                        ]
+                        return docPatterns.some(pattern => pattern.test(prompt))
+                    }
+
+                    // Automatically enable file search if chat has a vector store (Knowledge Base)
+                    // This allows the AI to search uploaded documents without explicit frontend request
+                    if (modelDef?.supportsFileSearch) {
                         const { data: chatData } = await supabase
                             .from('chats')
                             .select('openai_vector_store_id')
@@ -715,16 +743,50 @@ export const aiRouter = router({
                             .single()
                         
                         if (chatData?.openai_vector_store_id) {
-                            log.info(`[AI] Automatically injected vector store: ${chatData.openai_vector_store_id}`)
+                            log.info(`[AI] Chat has Knowledge Base, auto-enabling file search with vector store: ${chatData.openai_vector_store_id}`)
+                            
+                            // Check if the current prompt seems to be about uploaded documents
+                            shouldForceFileSearch = isDocumentQuery(input.prompt)
+                            log.info(`[AI] Query "${input.prompt.substring(0, 50)}..." - isDocumentQuery: ${shouldForceFileSearch}`)
+                            
                             nativeToolsConfig = {
                                 ...nativeToolsConfig,
                                 fileSearch: {
                                     ...(typeof nativeToolsConfig?.fileSearch === 'object' ? nativeToolsConfig.fileSearch : {}),
                                     vectorStoreIds: [chatData.openai_vector_store_id]
-                                }
+                                },
+                                // CRITICAL: Disable web_search when query is about documents to force file_search
+                                ...(shouldForceFileSearch && { webSearch: false })
                             }
-                        } else {
-                            log.warn(`[AI] fileSearch requested but no vector store found for chat ${input.chatId}`)
+                            
+                            if (shouldForceFileSearch) {
+                                log.info(`[AI] Disabled web_search to force file_search for document query`)
+                            }
+                            
+                            // Get list of uploaded files to inform the model
+                            const { data: chatFiles } = await supabase
+                                .from('chat_files')
+                                .select('filename, file_size, content_type')
+                                .eq('chat_id', input.chatId)
+                                .order('created_at', { ascending: false })
+                            
+                            if (chatFiles && chatFiles.length > 0) {
+                                const fileList = chatFiles.map(f => `- ${f.filename}`).join('\n')
+                                const knowledgeBaseContext = `
+
+================================================================================
+KNOWLEDGE BASE - UPLOADED DOCUMENTS
+================================================================================
+
+The user has uploaded the following documents to this conversation:
+
+${fileList}
+
+These documents are indexed in your file_search tool. When the user asks about these documents, use the file_search tool to retrieve their contents.
+`
+                                systemPrompt = systemPrompt + knowledgeBaseContext
+                                log.info(`[AI] Added Knowledge Base context with ${chatFiles.length} files to system prompt`)
+                            }
                         }
                     }
 
@@ -732,6 +794,11 @@ export const aiRouter = router({
                     const allTools: ToolParam[] = [...functionTools, ...nativeTools]
                     
                     log.info(`[AI] Tools: ${allTools.length} (${functionTools.length} function, ${nativeTools.length} native)`)
+                    
+                    // Log native tools detail for debugging
+                    if (nativeTools.length > 0) {
+                        log.info(`[AI] Native tools detail:`, JSON.stringify(nativeTools, null, 2))
+                    }
 
                     // Build messages
                     const messages = toResponsesMessages(
@@ -799,10 +866,15 @@ export const aiRouter = router({
                             ...(maxOutputTokens && { max_output_tokens: maxOutputTokens }),
                             truncation: truncation,
                             // Use flex processing if requested (50% cost savings)
-                            ...(optimization.useFlex && { service_tier: 'flex' })
+                            ...(optimization.useFlex && { service_tier: 'flex' }),
+                            // Force file_search tool when query is about uploaded documents
+                            // Only on first step to avoid interfering with tool result handling
+                            ...(shouldForceFileSearch && currentStepNumber === 1 && { 
+                                tool_choice: { type: 'file_search' }
+                            })
                         }
 
-                        log.info(`[AI] Stream params: maxOutputTokens=${maxOutputTokens}, truncation=${truncation}, flex=${!!optimization.useFlex}`)
+                        log.info(`[AI] Stream params: maxOutputTokens=${maxOutputTokens}, truncation=${truncation}, flex=${!!optimization.useFlex}, tool_choice=${shouldForceFileSearch && currentStepNumber === 1 ? 'file_search' : 'auto'}`)
 
                         const stream = client.responses.stream(streamParams, {
                             signal: abortController.signal,
@@ -1025,9 +1097,20 @@ export const aiRouter = router({
                                         endIndex: a.end_index
                                     }))
                                 
-                                if (urlCitations.length > 0) {
-                                    log.info(`[AI] Emitting ${urlCitations.length} URL citations from final response`)
-                                    emit({ type: 'annotations', annotations: urlCitations })
+                                const fileCitations = allFinalAnnotations
+                                    .filter((a: any) => a.type === 'file_citation')
+                                    .map((a: any) => ({
+                                        type: 'file_citation' as const,
+                                        fileId: a.file_id,
+                                        filename: a.filename,
+                                        index: a.index
+                                    }))
+                                
+                                const allCitations = [...urlCitations, ...fileCitations]
+                                
+                                if (allCitations.length > 0) {
+                                    log.info(`[AI] Emitting ${urlCitations.length} URL citations and ${fileCitations.length} file citations from final response`)
+                                    emit({ type: 'annotations', annotations: allCitations })
                                 }
                             }
                         } else {
