@@ -31,6 +31,7 @@ import {
 } from '@/lib/atoms'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { CursorTooltip } from '@/components/ui/cursor-tooltip'
 import { Input } from '@/components/ui/input'
 import { toast } from 'sonner'
 
@@ -48,6 +49,21 @@ import {
     AvatarFallback
 } from '@/components/ui/avatar'
 import { cn, formatRelativeTime, isMacOS } from '@/lib/utils'
+
+const formatFullDate = (dateStr: string): string => {
+    const date = new Date(dateStr)
+    return date.toLocaleString('en-US', {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+    })
+}
+
+const getShortId = (id: string): string => {
+    return id.slice(0, 8) + '...'
+}
 
 // ============================================================================
 // FadeScrollArea - Scroll area with fade effect at top/bottom when content overflows
@@ -201,14 +217,51 @@ function ChatItem({
                         onClick={(e) => e.stopPropagation()}
                     />
                 ) : (
-                    <>
+                    <CursorTooltip
+                        content={
+                            <div className="space-y-2">
+                                <div className="space-y-0.5">
+                                    <p className="font-medium text-foreground text-sm">{chat.title || 'Untitled'}</p>
+                                    <p className="text-[11px] font-mono text-muted-foreground/60">ID: {getShortId(chat.id)}</p>
+                                </div>
+
+                                <div className="flex flex-wrap gap-1.5">
+                                    {chat.pinned && (
+                                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-primary/10 text-primary font-medium">
+                                            Pinned
+                                        </span>
+                                    )}
+                                    {isArchived && (
+                                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-600 dark:text-amber-400 font-medium">
+                                            Archived
+                                        </span>
+                                    )}
+                                    {isSelected && (
+                                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-green-500/10 text-green-600 dark:text-green-400 font-medium">
+                                            Active
+                                        </span>
+                                    )}
+                                </div>
+
+                                <div className="pt-1 border-t border-border/50 space-y-1">
+                                    <p className="text-xs text-muted-foreground">
+                                        Updated {formatRelativeTime(chat.updated_at)}
+                                    </p>
+                                    <p className="text-[10px] text-muted-foreground/70">
+                                        {formatFullDate(chat.updated_at)}
+                                    </p>
+                                </div>
+                            </div>
+                        }
+                        containerClassName="w-full"
+                    >
                         <p className="truncate font-medium">
                             {chat.title || 'Untitled'}
                         </p>
                         <p className="text-xs text-muted-foreground truncate">
                             {formatRelativeTime(chat.updated_at)}
                         </p>
-                    </>
+                    </CursorTooltip>
                 )}
             </div>
 

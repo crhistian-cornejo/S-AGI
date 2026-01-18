@@ -16,6 +16,7 @@ export interface UploadedDocument {
 
 export interface VectorStoreFile {
     id: string
+    fileId?: string
     filename: string
     status: string
     bytes: number
@@ -31,6 +32,9 @@ const SUPPORTED_EXTENSIONS = [
 
 // Max file size: 512MB (OpenAI limit)
 const MAX_FILE_SIZE = 512 * 1024 * 1024
+
+// Concurrency limit for faster uploads without overwhelming the API
+const MAX_CONCURRENT_UPLOADS = 2
 
 /**
  * Convert a File to base64 data
@@ -111,31 +115,42 @@ export function useDocumentUpload({ chatId }: UseDocumentUploadOptions) {
         }
 
         setIsUploading(true)
-        const newDocs: UploadedDocument[] = []
 
-        for (const file of files) {
+        const runWithConcurrency = async <T,>(items: T[], limit: number, worker: (item: T) => Promise<void>) => {
+            const queue = [...items]
+            const workers = Array.from({ length: Math.min(limit, queue.length) }, async () => {
+                while (queue.length > 0) {
+                    const item = queue.shift()
+                    if (!item) return
+                    await worker(item)
+                }
+            })
+            await Promise.all(workers)
+        }
+
+        const processFile = async (file: File) => {
             // Validate file
             if (!isDocumentSupported(file)) {
                 const ext = '.' + file.name.split('.').pop()?.toLowerCase()
                 console.warn(`[useDocumentUpload] Unsupported file type: ${ext}`)
-                newDocs.push({
+                setDocuments(prev => [...prev, {
                     id: crypto.randomUUID(),
                     filename: file.name,
                     status: 'failed',
                     error: `Unsupported file type: ${ext}`
-                })
-                continue
+                }])
+                return
             }
 
             if (file.size > MAX_FILE_SIZE) {
                 console.warn(`[useDocumentUpload] File too large: ${file.name}`)
-                newDocs.push({
+                setDocuments(prev => [...prev, {
                     id: crypto.randomUUID(),
                     filename: file.name,
                     status: 'failed',
                     error: 'File exceeds 512MB limit'
-                })
-                continue
+                }])
+                return
             }
 
             // Add to local state as uploading
@@ -146,7 +161,6 @@ export function useDocumentUpload({ chatId }: UseDocumentUploadOptions) {
                 status: 'uploading',
                 bytes: file.size
             }
-            newDocs.push(doc)
             setDocuments(prev => [...prev, doc])
 
             try {
@@ -181,6 +195,7 @@ export function useDocumentUpload({ chatId }: UseDocumentUploadOptions) {
             }
         }
 
+        await runWithConcurrency(files, MAX_CONCURRENT_UPLOADS, processFile)
         setIsUploading(false)
     }, [chatId, apiKey, uploadMutation])
 

@@ -7,6 +7,7 @@ import { getSecureApiKeyStore } from '../../auth/api-key-store'
 
 import OpenAI from 'openai'
 import type { Responses } from 'openai/resources/responses/responses'
+import { OpenAIFileService } from '../../ai/openai-files'
 import { SPREADSHEET_TOOLS, DOCUMENT_TOOLS, PLAN_TOOLS, executeTool } from './tools'
 import type { AIStreamEvent, ReasoningConfig, NativeToolsConfig } from '@shared/ai-types'
 import { 
@@ -717,24 +718,78 @@ export const aiRouter = router({
                     // Track if we should force file_search for document queries
                     let shouldForceFileSearch = false
                     
-                    // Helper function to detect if query is about uploaded documents
-                    const isDocumentQuery = (prompt: string): boolean => {
+                    /**
+                     * IMPROVED: Detect if query is about uploaded documents or personal information
+                     * Following best practices from Anthropic/OpenAI for RAG systems:
+                     * 1. Personal questions (my, mi, yo) should search knowledge base first
+                     * 2. Document-related keywords
+                     * 3. Questions about dates, names, certifications, etc. that would be in documents
+                     */
+                    const isDocumentQuery = (prompt: string, fileNames: string[] = []): boolean => {
+                        const normalizedPrompt = prompt.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+                        
+                        // Extract meaningful keywords from file names for context matching
+                        const fileKeywords = fileNames.flatMap(name => {
+                            const normalized = name.toLowerCase()
+                                .replace(/\.(pdf|doc|docx|txt|md)$/i, '')
+                                .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+                            return normalized.split(/[-_\s]+/).filter(w => w.length > 2)
+                        })
+                        
+                        // Check if prompt mentions any file-related keywords
+                        const mentionsFileContent = fileKeywords.some(keyword => 
+                            normalizedPrompt.includes(keyword)
+                        )
+                        
                         const docPatterns = [
-                            // English patterns
+                            // PRIORITY 1: Personal/possessive queries (most likely about user's documents)
+                            /\b(my|mi|mis|yo|me)\b/i,
+                            /\btu\s+(titulacion|titulo|certificado|constancia|documento)/i,
+                            
+                            // PRIORITY 2: Explicit document references
                             /\b(the\s+)?(pdf|document|file|attachment|uploaded)/i,
-                            /\b(summarize|summary|resume|resumen)/i,
+                            /\b(el\s+)?(pdf|documento|archivo|adjunto|subido)/i,
+                            
+                            // PRIORITY 3: Action verbs for document analysis
+                            /\b(summarize|summary|resume|resumen|resumir)/i,
                             /\b(what\s+does\s+it\s+say|what\s+is\s+in|read\s+the|analyze)/i,
+                            /\b(que\s+dice|que\s+contiene|lee\s+el|analiza|revisar)/i,
                             /\b(extract|content|contents|information\s+from)/i,
-                            // Spanish patterns
-                            /\b(el\s+)?(pdf|documento|archivo|adjunto)/i,
-                            /\b(qué\s+dice|qué\s+contiene|lee\s+el|analiza)/i,
-                            /\b(extrae|contenido|información\s+del)/i,
+                            /\b(extrae|contenido|informacion\s+del)/i,
+                            
+                            // PRIORITY 4: Specific document/certificate terms (Spanish)
+                            /\b(titulacion|titulo|grado|licenciatura|maestria|doctorado)/i,
+                            /\b(certificado|constancia|diploma|credencial)/i,
+                            /\b(fecha\s+de|cuando\s+fue|en\s+que\s+fecha)/i,
+                            /\b(universidad|institucion|escuela|facultad)/i,
+                            
+                            // PRIORITY 5: Personal data queries
+                            /\b(nombre|direccion|telefono|email|correo)/i,
+                            /\b(nacimiento|nacido|naci|edad)/i,
+                            /\b(trabajo|empleo|experiencia|laboral)/i,
+                            /\b(educacion|estudios|formacion|academico)/i,
+                            
+                            // PRIORITY 6: Common question patterns about documents
+                            /\bcuando\b.*\b(fue|era|obtuve|recibi)/i,
+                            /\bque\s+(fecha|dia|ano|mes)/i,
+                            /\b(dice|menciona|indica|especifica)\s+(el|la|mi)/i,
                         ]
-                        return docPatterns.some(pattern => pattern.test(prompt))
+                        
+                        const matchesPattern = docPatterns.some(pattern => pattern.test(prompt))
+                        
+                        log.info(`[AI] isDocumentQuery analysis:`, {
+                            prompt: prompt.substring(0, 100),
+                            matchesPattern,
+                            mentionsFileContent,
+                            fileKeywords: fileKeywords.slice(0, 10)
+                        })
+                        
+                        return matchesPattern || mentionsFileContent
                     }
 
                     // Automatically enable file search if chat has a vector store (Knowledge Base)
                     // This allows the AI to search uploaded documents without explicit frontend request
+                    // Following Anthropic/OpenAI best practices for RAG systems
                     if (modelDef?.supportsFileSearch) {
                         const { data: chatData } = await supabase
                             .from('chats')
@@ -745,55 +800,130 @@ export const aiRouter = router({
                         if (chatData?.openai_vector_store_id) {
                             log.info(`[AI] Chat has Knowledge Base, auto-enabling file search with vector store: ${chatData.openai_vector_store_id}`)
                             
-                            // Check if the current prompt seems to be about uploaded documents
-                            shouldForceFileSearch = isDocumentQuery(input.prompt)
-                            log.info(`[AI] Query "${input.prompt.substring(0, 50)}..." - isDocumentQuery: ${shouldForceFileSearch}`)
+                            // Get list of uploaded files FIRST to inform both isDocumentQuery and system prompt
+                            const { data: chatFiles } = await supabase
+                                .from('chat_files')
+                                .select('filename, file_size, content_type, openai_file_id')
+                                .eq('chat_id', input.chatId)
+                                .order('created_at', { ascending: false })
                             
+                            let fallbackFiles: Array<{ filename: string; file_size?: number }> = []
+                            if (!chatFiles || chatFiles.length === 0) {
+                                try {
+                                    const fileService = new OpenAIFileService({ apiKey: input.apiKey })
+                                    const openaiFiles = await fileService.listVectorStoreFiles(chatData.openai_vector_store_id)
+                                    fallbackFiles = openaiFiles.map(file => ({
+                                        filename: file.filename,
+                                        file_size: file.bytes
+                                    }))
+                                } catch (err) {
+                                    log.warn('[AI] Failed to fetch OpenAI file list for knowledge base context:', err)
+                                }
+                            }
+
+                            const filesForPrompt = (chatFiles && chatFiles.length > 0) ? chatFiles : fallbackFiles
+                            const fileNames = filesForPrompt.map(f => f.filename)
+                            
+                            // IMPROVED: Check if the current prompt seems to be about uploaded documents
+                            // Now passing file names for better context matching
+                            const isDocQuery = isDocumentQuery(input.prompt, fileNames)
+                            log.info(`[AI] Query "${input.prompt.substring(0, 50)}..." - isDocumentQuery: ${isDocQuery}`)
+                            
+                            // AGGRESSIVE STRATEGY: When knowledge base exists with files,
+                            // ALWAYS force file_search first unless query explicitly mentions "internet" or "web"
+                            const isExplicitWebQuery = /\b(internet|web|online|google|busca en la web|search online)\b/i.test(input.prompt)
+                            
+                            // Force file search if:
+                            // 1. Query matches document patterns, OR
+                            // 2. We have files AND query doesn't explicitly ask for web search
+                            shouldForceFileSearch = isDocQuery || (fileNames.length > 0 && !isExplicitWebQuery)
+                            
+                            log.info(`[AI] Force file_search decision:`, {
+                                isDocQuery,
+                                isExplicitWebQuery,
+                                hasFiles: fileNames.length > 0,
+                                shouldForceFileSearch
+                            })
+                            
+                            // BEST PRACTICE: When knowledge base exists, ALWAYS prioritize file_search
+                            // Web search should only be enabled when explicitly needed for external info
                             nativeToolsConfig = {
                                 ...nativeToolsConfig,
                                 fileSearch: {
                                     ...(typeof nativeToolsConfig?.fileSearch === 'object' ? nativeToolsConfig.fileSearch : {}),
-                                    vectorStoreIds: [chatData.openai_vector_store_id]
+                                    vectorStoreIds: [chatData.openai_vector_store_id],
+                                    // Increase max results for better coverage
+                                    maxResults: 10
                                 },
-                                // CRITICAL: Disable web_search when query is about documents to force file_search
+                                // CRITICAL: Disable web_search when forcing file_search
+                                // This prevents OpenAI from choosing web_search over file_search
                                 ...(shouldForceFileSearch && { webSearch: false })
                             }
                             
                             if (shouldForceFileSearch) {
-                                log.info(`[AI] Disabled web_search to force file_search for document query`)
+                                log.info(`[AI] FORCING file_search: Disabled web_search for knowledge base query`)
                             }
                             
-                            // Get list of uploaded files to inform the model
-                            const { data: chatFiles } = await supabase
-                                .from('chat_files')
-                                .select('filename, file_size, content_type')
-                                .eq('chat_id', input.chatId)
-                                .order('created_at', { ascending: false })
-                            
-                            if (chatFiles && chatFiles.length > 0) {
-                                const fileList = chatFiles.map(f => `- ${f.filename}`).join('\n')
+                            if (filesForPrompt.length > 0) {
+                                // IMPROVED: Provide richer context about files to help model decide
+                                const fileList = filesForPrompt.map(f => {
+                                    const sizeKB = Math.round((f.file_size || 0) / 1024)
+                                    return `- ${f.filename} (${sizeKB} KB)`
+                                }).join('\n')
+                                
+                                // BEST PRACTICE: Give clear instructions on tool priority
                                 const knowledgeBaseContext = `
 
 ================================================================================
-KNOWLEDGE BASE - UPLOADED DOCUMENTS
+KNOWLEDGE BASE - UPLOADED DOCUMENTS (PRIORITY SOURCE)
 ================================================================================
 
-The user has uploaded the following documents to this conversation:
+The user has uploaded the following documents to this conversation's knowledge base:
 
 ${fileList}
 
-These documents are indexed in your file_search tool. When the user asks about these documents, use the file_search tool to retrieve their contents.
+CRITICAL INSTRUCTIONS FOR DOCUMENT QUERIES:
+1. When the user asks about personal information, dates, names, certificates, 
+   degrees, work history, or ANY information that could be in these documents,
+   you MUST use the file_search tool FIRST before attempting web search.
+
+2. The file_search tool performs semantic search across ALL uploaded documents.
+   Use specific queries to find relevant information.
+
+3. If the user asks "when was my graduation?" or "what is my degree?" or similar
+   personal questions, the answer is ONLY in their uploaded documents, NOT on the web.
+
+4. Only use web_search for:
+   - Current events or news
+   - General knowledge questions NOT related to the user's documents
+   - Information explicitly requested from the internet
+
+5. When file_search returns results, cite the specific document where you found 
+   the information.
 `
                                 systemPrompt = systemPrompt + knowledgeBaseContext
-                                log.info(`[AI] Added Knowledge Base context with ${chatFiles.length} files to system prompt`)
+                                log.info(`[AI] Added Knowledge Base context with ${filesForPrompt.length} files to system prompt`)
                             }
                         }
                     }
 
+                    // CRITICAL: When forcing file_search, completely disable web_search in config
+                    if (shouldForceFileSearch) {
+                        nativeToolsConfig = {
+                            ...nativeToolsConfig,
+                            webSearch: false  // Explicitly disable
+                        }
+                        log.info(`[AI] Forcing file_search - set webSearch: false in config`)
+                    }
+                    
+                    log.info(`[AI] Building native tools with config:`, JSON.stringify(nativeToolsConfig, null, 2))
+                    
                     const nativeTools = buildNativeTools(modelId, nativeToolsConfig)
                     const allTools: ToolParam[] = [...functionTools, ...nativeTools]
                     
                     log.info(`[AI] Tools: ${allTools.length} (${functionTools.length} function, ${nativeTools.length} native)`)
+                    log.info(`[AI] shouldForceFileSearch: ${shouldForceFileSearch}`)
+                    log.info(`[AI] Native tools types: ${nativeTools.map((t: any) => t.type).join(', ')}`)
                     
                     // Log native tools detail for debugging
                     if (nativeTools.length > 0) {
@@ -850,11 +980,20 @@ These documents are indexed in your file_search tool. When the user asks about t
                         const maxOutputTokens = optimization.maxOutputTokens
                         const truncation = optimization.truncation?.type || 'auto'
 
+                        // Build tools array - ONLY include file_search when forcing it
+                        // This completely removes web_search from available tools
+                        let toolsForRequest = allTools
+                        if (shouldForceFileSearch && currentStepNumber === 1) {
+                            // Filter out web_search_preview to ensure model can ONLY use file_search
+                            toolsForRequest = allTools.filter((t: any) => t.type !== 'web_search_preview')
+                            log.info(`[AI] Removed web_search from tools, remaining: ${toolsForRequest.map((t: any) => t.type).join(', ')}`)
+                        }
+
                         // Stream the response using the official SDK
                         const streamParams: any = {
                             model: modelId,
                             input: inputForRequest,
-                            tools: allTools.length > 0 ? allTools : undefined,
+                            tools: toolsForRequest.length > 0 ? toolsForRequest : undefined,
                             instructions: systemPrompt,
                             store: true,
                             previous_response_id: currentResponseId,
@@ -874,7 +1013,7 @@ These documents are indexed in your file_search tool. When the user asks about t
                             })
                         }
 
-                        log.info(`[AI] Stream params: maxOutputTokens=${maxOutputTokens}, truncation=${truncation}, flex=${!!optimization.useFlex}, tool_choice=${shouldForceFileSearch && currentStepNumber === 1 ? 'file_search' : 'auto'}`)
+                        log.info(`[AI] Stream params: maxOutputTokens=${maxOutputTokens}, truncation=${truncation}, flex=${!!optimization.useFlex}, tool_choice=${shouldForceFileSearch && currentStepNumber === 1 ? 'file_search' : 'auto'}, tools=${toolsForRequest.map((t: any) => t.type).join(', ')}`)
 
                         const stream = client.responses.stream(streamParams, {
                             signal: abortController.signal,
@@ -1033,13 +1172,31 @@ These documents are indexed in your file_search tool. When the user asks about t
                                 emit({ type: 'code-interpreter-done', executionId: event.item_id, output: '' })
                             })
                             .on('response.file_search_call.in_progress', (event) => {
+                                log.info(`[AI] File search in_progress:`, JSON.stringify(event, null, 2))
                                 emit({ type: 'file-search-start', searchId: event.item_id })
                             })
                             .on('response.file_search_call.searching', (event) => {
+                                const fsEvent = event as any
+                                log.info(`[AI] File search searching:`, {
+                                    itemId: event.item_id,
+                                    queries: fsEvent.queries,
+                                    status: fsEvent.status
+                                })
                                 emit({ type: 'file-search-searching', searchId: event.item_id })
                             })
                             .on('response.file_search_call.completed', (event) => {
-                                emit({ type: 'file-search-done', searchId: event.item_id })
+                                const fsEvent = event as any
+                                // Log detailed results for debugging
+                                log.info(`[AI] File search completed:`, {
+                                    itemId: event.item_id,
+                                    resultsCount: fsEvent.results?.length || 0,
+                                    results: fsEvent.results?.map((r: any) => ({
+                                        filename: r.filename,
+                                        score: r.score,
+                                        textPreview: r.text?.substring(0, 200)
+                                    }))
+                                })
+                                emit({ type: 'file-search-done', searchId: event.item_id, results: fsEvent.results })
                             })
                             .on('error', (event) => {
                                 emit({ type: 'error', error: event.message })
@@ -1083,6 +1240,19 @@ These documents are indexed in your file_search tool. When the user asks about t
                                 } else if (itemType === 'web_search_call') {
                                     // Web search results might have URLs here
                                     log.info(`[AI] Web search call item: ${JSON.stringify(outputItem).slice(0, 500)}`)
+                                } else if (itemType === 'file_search_call') {
+                                    // File search results with document citations
+                                    const fsItem = outputItem as any
+                                    log.info(`[AI] File search call item:`, {
+                                        id: fsItem.id,
+                                        status: fsItem.status,
+                                        resultsCount: fsItem.results?.length || 0,
+                                        results: fsItem.results?.slice(0, 3)?.map((r: any) => ({
+                                            filename: r.filename,
+                                            score: r.score,
+                                            textPreview: r.text?.substring(0, 150)
+                                        }))
+                                    })
                                 }
                             }
                             

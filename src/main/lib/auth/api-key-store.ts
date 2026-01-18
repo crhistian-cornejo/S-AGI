@@ -12,130 +12,157 @@ interface ApiKeyStore {
 
 const STORE_FILE = 'api-keys.encrypted'
 
-/**
- * Secure API Key Store using Electron's safeStorage
- * Keys are encrypted at rest using OS-level encryption
- */
+const CACHE_TTL_MS = 5000
+let cachedData: { data: ApiKeyStore; timestamp: number } | null = null
+
 export class SecureApiKeyStore {
     private storePath: string
-    private cache: ApiKeyStore = {}
 
     constructor() {
         const userDataPath = app.getPath('userData')
         const secureDir = join(userDataPath, 'secure')
 
-        // Create secure directory if it doesn't exist
         if (!existsSync(secureDir)) {
             mkdirSync(secureDir, { recursive: true })
         }
 
         this.storePath = join(secureDir, STORE_FILE)
-        this.load()
     }
 
-    private load(): void {
+    private loadFromDisk(): ApiKeyStore {
         try {
             if (existsSync(this.storePath)) {
                 const encryptedData = readFileSync(this.storePath)
                 if (safeStorage.isEncryptionAvailable()) {
                     const decrypted = safeStorage.decryptString(encryptedData)
-                    this.cache = JSON.parse(decrypted)
-                    log.info('[SecureApiKeyStore] Loaded encrypted keys')
-                } else {
-                    log.warn('[SecureApiKeyStore] Encryption not available, keys not loaded')
+                    const parsed = JSON.parse(decrypted)
+                    log.info('[SecureApiKeyStore] Loaded encrypted keys from disk')
+                    return parsed
                 }
             }
         } catch (error) {
-            log.error('[SecureApiKeyStore] Failed to load:', error)
-            this.cache = {}
+            log.error('[SecureApiKeyStore] Failed to load from disk:', error)
+        }
+        return {}
+    }
+
+    private saveToDisk(data: ApiKeyStore): void {
+        try {
+            if (safeStorage.isEncryptionAvailable()) {
+                const encrypted = safeStorage.encryptString(JSON.stringify(data))
+                writeFileSync(this.storePath, encrypted)
+                log.info('[SecureApiKeyStore] Saved encrypted keys to disk')
+            }
+        } catch (error) {
+            log.error('[SecureApiKeyStore] Failed to save to disk:', error)
         }
     }
 
-    private save(): void {
-        try {
-            if (safeStorage.isEncryptionAvailable()) {
-                const data = JSON.stringify(this.cache)
-                const encrypted = safeStorage.encryptString(data)
-                writeFileSync(this.storePath, encrypted)
-                log.info('[SecureApiKeyStore] Saved encrypted keys')
-            } else {
-                log.warn('[SecureApiKeyStore] Encryption not available, keys not saved')
-            }
-        } catch (error) {
-            log.error('[SecureApiKeyStore] Failed to save:', error)
+    private getCached(): ApiKeyStore | null {
+        if (cachedData && Date.now() - cachedData.timestamp < CACHE_TTL_MS) {
+            return cachedData.data
         }
+        cachedData = null
+        return null
+    }
+
+    private setCache(data: ApiKeyStore): void {
+        cachedData = { data, timestamp: Date.now() }
     }
 
     setOpenAIKey(key: string | null): void {
+        const current = this.getCached() || this.loadFromDisk()
         if (key) {
-            this.cache.openai = key
+            current.openai = key
             log.info('[SecureApiKeyStore] OpenAI key updated (length:', key.length, ')')
         } else {
-            delete this.cache.openai
+            delete current.openai
             log.info('[SecureApiKeyStore] OpenAI key cleared')
         }
-        this.save()
+        this.setCache(current)
+        this.saveToDisk(current)
     }
 
     getOpenAIKey(): string | null {
-        // Always reload from disk to ensure we have the latest
-        this.load()
-        return this.cache.openai || null
+        const cached = this.getCached()
+        if (cached) return cached.openai || null
+
+        const data = this.loadFromDisk()
+        this.setCache(data)
+        return data.openai || null
     }
 
     setAnthropicKey(key: string | null): void {
+        const current = this.getCached() || this.loadFromDisk()
         if (key) {
-            this.cache.anthropic = key
+            current.anthropic = key
             log.info('[SecureApiKeyStore] Anthropic key updated (length:', key.length, ')')
         } else {
-            delete this.cache.anthropic
+            delete current.anthropic
             log.info('[SecureApiKeyStore] Anthropic key cleared')
         }
-        this.save()
+        this.setCache(current)
+        this.saveToDisk(current)
     }
 
     getAnthropicKey(): string | null {
-        // Always reload from disk to ensure we have the latest
-        this.load()
-        return this.cache.anthropic || null
+        const cached = this.getCached()
+        if (cached) return cached.anthropic || null
+
+        const data = this.loadFromDisk()
+        this.setCache(data)
+        return data.anthropic || null
     }
 
     hasOpenAIKey(): boolean {
-        return !!this.cache.openai
+        const cached = this.getCached()
+        const data = cached || this.loadFromDisk()
+        if (!cached) this.setCache(data)
+        return !!data.openai
     }
 
     hasAnthropicKey(): boolean {
-        return !!this.cache.anthropic
+        const cached = this.getCached()
+        const data = cached || this.loadFromDisk()
+        if (!cached) this.setCache(data)
+        return !!data.anthropic
     }
 
     setTavilyKey(key: string | null): void {
+        const current = this.getCached() || this.loadFromDisk()
         if (key) {
-            this.cache.tavily = key
+            current.tavily = key
             log.info('[SecureApiKeyStore] Tavily key updated (length:', key.length, ')')
         } else {
-            delete this.cache.tavily
+            delete current.tavily
             log.info('[SecureApiKeyStore] Tavily key cleared')
         }
-        this.save()
+        this.setCache(current)
+        this.saveToDisk(current)
     }
 
     getTavilyKey(): string | null {
-        // Always reload from disk to ensure we have the latest
-        this.load()
-        return this.cache.tavily || null
+        const cached = this.getCached()
+        if (cached) return cached.tavily || null
+
+        const data = this.loadFromDisk()
+        this.setCache(data)
+        return data.tavily || null
     }
 
     hasTavilyKey(): boolean {
-        return !!this.cache.tavily
+        const cached = this.getCached()
+        const data = cached || this.loadFromDisk()
+        if (!cached) this.setCache(data)
+        return !!data.tavily
     }
 
     clear(): void {
-        this.cache = {}
-        this.save()
+        cachedData = null
+        this.saveToDisk({})
     }
 }
 
-// Singleton instance
 let storeInstance: SecureApiKeyStore | null = null
 
 export function getSecureApiKeyStore(): SecureApiKeyStore {

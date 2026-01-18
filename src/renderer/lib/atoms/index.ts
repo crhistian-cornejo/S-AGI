@@ -195,6 +195,17 @@ export const streamingWebSearchesAtom = atom<WebSearchInfo[]>([])
 // URL citations from the response (collected at the end)
 export const streamingAnnotationsAtom = atom<Annotation[]>([])
 
+// === FILE SEARCH STATE (for OpenAI file_search tool) ===
+export interface FileSearchInfo {
+    searchId: string
+    status: 'searching' | 'done'
+    /** Optional: file being searched (if known) */
+    filename?: string
+}
+
+// Active file searches during streaming
+export const streamingFileSearchesAtom = atom<FileSearchInfo[]>([])
+
 // === SETTINGS MODAL ===
 export const settingsModalOpenAtom = atom(false)
 export type SettingsTab = 'account' | 'appearance' | 'api-keys' | 'debug'

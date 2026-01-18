@@ -10,6 +10,7 @@ import {
     IconFileZip,  // For archives
 } from '@tabler/icons-react'
 import { Button } from './ui/button'
+import { CursorTooltip } from './ui/cursor-tooltip'
 import { cn } from '@/lib/utils'
 
 interface FileAttachmentItemProps {
@@ -96,21 +97,38 @@ export function FileAttachmentItem({
             <div className={cn("flex items-center justify-center w-8 h-8 rounded-lg transition-colors", bg, color)}>
                 <Icon size={18} stroke={1.5} />
             </div>
-            <div className="flex flex-col min-w-0 pr-6">
-                <span className="text-xs font-medium truncate max-w-[140px] text-foreground/90">
-                    {filename}
-                </span>
-                {size && (
-                    <span className="text-[10px] text-muted-foreground/70">
-                        {formatFileSize(size)}
-                    </span>
-                )}
-                {isLoading && (
-                    <div className="w-full h-0.5 bg-border rounded-full mt-1.5 overflow-hidden">
-                        <div className="h-full bg-primary animate-progress origin-left" />
+            <CursorTooltip
+                content={
+                    <div className="space-y-1">
+                        <p className="font-medium text-foreground break-all">{filename}</p>
+                        {size && (
+                            <p className="text-xs text-muted-foreground">
+                                Size: {formatFileSize(size)}
+                            </p>
+                        )}
+                        <p className="text-xs text-muted-foreground capitalize">
+                            Type: {filename.split('.').pop()?.toUpperCase() || 'Unknown'}
+                        </p>
                     </div>
-                )}
-            </div>
+                }
+                containerClassName="flex-1 min-w-0"
+            >
+                <div className="flex flex-col min-w-0 pr-6">
+                    <span className="text-xs font-medium truncate max-w-[140px] text-foreground/90">
+                        {filename}
+                    </span>
+                    {size && (
+                        <span className="text-[10px] text-muted-foreground/70">
+                            {formatFileSize(size)}
+                        </span>
+                    )}
+                    {isLoading && (
+                        <div className="w-full h-0.5 bg-border rounded-full mt-1.5 overflow-hidden">
+                            <div className="h-full bg-primary animate-progress origin-left" />
+                        </div>
+                    )}
+                </div>
+            </CursorTooltip>
             
             <Button
                 variant="ghost"

@@ -16,7 +16,6 @@ import {
 } from '@/lib/atoms'
 import { Sidebar } from '@/features/sidebar/sidebar'
 import { ChatView } from '@/features/chat/chat-view'
-import { DocViewer } from '@/features/docs/doc-viewer'
 import { TitleBar } from './title-bar'
 import { cn, isMacOS } from '@/lib/utils'
 import { useAtom, useSetAtom, useAtomValue } from 'jotai'
@@ -27,9 +26,10 @@ import { ShortcutsDialog } from '@/features/help/shortcuts-dialog'
 import { useHotkeys } from 'react-hotkeys-hook'
 import { useUniverTheme } from '@/features/univer/use-univer-theme'
 
-// Lazy load less frequently used components
+// Lazy load heavy Univer components to improve initial load time
 const ArtifactPanel = lazy(() => import('@/features/artifacts/artifact-panel').then(m => ({ default: m.ArtifactPanel })))
 const UniverSpreadsheet = lazy(() => import('@/features/univer/univer-spreadsheet').then(m => ({ default: m.UniverSpreadsheet })))
+const UniverDocument = lazy(() => import('@/features/univer/univer-document').then(m => ({ default: m.UniverDocument })))
 const HistoryDialogContent = lazy(() => import('@/features/chat/history-dialog').then(m => ({ default: m.HistoryDialogContent })))
 
 // Loading fallback for lazy components
@@ -271,7 +271,12 @@ export function MainLayout() {
                  */}
                 {activeTab === 'doc' && (
                     <div className="flex-1 flex flex-col pt-10 animate-in fade-in zoom-in-95 duration-300 z-0 relative">
-                        <DocViewer />
+                        <Suspense fallback={<PanelLoadingFallback />}>
+                            <UniverDocument
+                                artifactId={selectedArtifact?.type === 'document' ? selectedArtifact.id : undefined}
+                                data={selectedArtifact?.type === 'document' ? selectedArtifact.univer_data : undefined}
+                            />
+                        </Suspense>
                     </div>
                 )}
             </div>

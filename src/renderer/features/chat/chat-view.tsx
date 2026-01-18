@@ -21,7 +21,9 @@ import {
     lastReasoningAtom,
     streamingWebSearchesAtom,
     streamingAnnotationsAtom,
+    streamingFileSearchesAtom,
     type WebSearchInfo,
+    type FileSearchInfo,
     type UrlCitation,
     type FileCitation,
     type Annotation,
@@ -64,6 +66,8 @@ export function ChatView() {
 
     // Web search state (for OpenAI native web search)
     const [streamingWebSearches, setStreamingWebSearches] = useAtom(streamingWebSearchesAtom)
+    // File search state (for OpenAI file_search tool)
+    const [streamingFileSearches, setStreamingFileSearches] = useAtom(streamingFileSearchesAtom)
     const [streamingAnnotations, setStreamingAnnotations] = useAtom(streamingAnnotationsAtom)
 
     // Artifact state
@@ -179,6 +183,7 @@ export function ChatView() {
         setIsReasoning(false)
         setStreamingError(null)
         setStreamingWebSearches([]) // Clear previous web searches
+        setStreamingFileSearches([]) // Clear previous file searches
         setStreamingAnnotations([]) // Clear previous annotations
 
         // Upload documents to OpenAI Vector Store for file search
@@ -419,7 +424,33 @@ export function ChatView() {
                         }
 
                         case 'file-search-start': {
+                            console.log('[ChatView] File search start:', event)
                             actionCounts.fileSearch += 1
+                            const newFileSearch: FileSearchInfo = {
+                                searchId: event.searchId,
+                                status: 'searching'
+                            }
+                            setStreamingFileSearches(prev => [...prev, newFileSearch])
+                            break
+                        }
+
+                        case 'file-search-searching': {
+                            console.log('[ChatView] File search searching:', event)
+                            setStreamingFileSearches(prev => prev.map(fs =>
+                                fs.searchId === event.searchId
+                                    ? { ...fs, status: 'searching' as const }
+                                    : fs
+                            ))
+                            break
+                        }
+
+                        case 'file-search-done': {
+                            console.log('[ChatView] File search done:', event)
+                            setStreamingFileSearches(prev => prev.map(fs =>
+                                fs.searchId === event.searchId
+                                    ? { ...fs, status: 'done' as const }
+                                    : fs
+                            ))
                             break
                         }
 
@@ -596,8 +627,9 @@ export function ChatView() {
                             }
                             setStreamingReasoning('')
                             setIsReasoning(false)
-                            // Clear web search state (already saved in message metadata)
+                            // Clear search states (already saved in message metadata)
                             setStreamingWebSearches([])
+                            setStreamingFileSearches([])
                             setStreamingAnnotations([])
                             cleanupListener?.() // Clean up listener when done
                             abortRef.current = null
@@ -922,6 +954,7 @@ export function ChatView() {
                             isReasoning={isReasoning}
                             onViewArtifact={handleViewArtifact}
                             streamingWebSearches={streamingWebSearches}
+                            streamingFileSearches={streamingFileSearches}
                             streamingAnnotations={streamingAnnotations}
                         />
                         <div ref={messagesEndRef} className="h-px" />

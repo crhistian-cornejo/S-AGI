@@ -18,6 +18,7 @@ import {
     AgentToolCallsGroup,
     AgentWebFetch,
     AgentWebSearch,
+    AgentFileSearch,
     AgentTodoTool,
     AgentExitPlanModeTool,
     getToolStatus,
@@ -236,12 +237,26 @@ function toWebSearchPart(search: StreamingWebSearch): ToolPart {
     }
 }
 
+function toFileSearchPart(search: StreamingFileSearch): ToolPart {
+    return {
+        type: 'tool-file_search',
+        state: search.status === 'done' ? 'output-available' : 'input-available',
+        input: {
+            // If we have filename info, we could add it here
+        },
+        output: {
+            // We don't have exact results during streaming usually, but we can indicate done
+        }
+    }
+}
+
 // Special tools that need their own dedicated components (not grouped)
 const SPECIAL_TOOLS = new Set([
     'Bash', 'bash',
     'Edit', 'edit',
     'WebFetch', 'webfetch', 'web_fetch',
     'WebSearch', 'websearch', 'web_search',
+    'FileSearch', 'filesearch', 'file_search',
     'Task', 'task',
     'PlanWrite', 'planwrite', 'plan_write',
     'TodoWrite', 'todowrite', 'todo_write',
@@ -330,6 +345,12 @@ interface StreamingWebSearch {
     url?: string
 }
 
+interface StreamingFileSearch {
+    searchId: string
+    status: 'searching' | 'done'
+    filename?: string
+}
+
 interface MessageListProps {
     messages: Message[]
     isLoading: boolean
@@ -341,6 +362,8 @@ interface MessageListProps {
     onViewArtifact?: (artifactId: string) => void
     /** Active web searches during streaming */
     streamingWebSearches?: StreamingWebSearch[]
+    /** Active file searches during streaming */
+    streamingFileSearches?: StreamingFileSearch[]
     /** Citations collected from the response (URL and file citations) */
     streamingAnnotations?: Array<
         | { type: 'url_citation'; url: string; title?: string; startIndex: number; endIndex: number }
@@ -372,6 +395,7 @@ export const MessageList = memo(function MessageList({
     isReasoning,
     onViewArtifact,
     streamingWebSearches,
+    streamingFileSearches,
     streamingAnnotations
 }: MessageListProps) {
     if (messages.length === 0 && !isLoading && !lastReasoning) {
@@ -403,7 +427,7 @@ export const MessageList = memo(function MessageList({
             ))}
 
             {/* Streaming response */}
-            {isLoading && (streamingText || streamingReasoning || (streamingToolCalls && streamingToolCalls.length > 0) || (streamingWebSearches && streamingWebSearches.length > 0)) && (
+            {isLoading && (streamingText || streamingReasoning || (streamingToolCalls && streamingToolCalls.length > 0) || (streamingWebSearches && streamingWebSearches.length > 0) || (streamingFileSearches && streamingFileSearches.length > 0)) && (
                 <div className="animate-in fade-in duration-300">
                     <div className="flex items-start gap-4">
                         <AssistantAvatar />
@@ -437,6 +461,18 @@ export const MessageList = memo(function MessageList({
                                 </div>
                             )}
 
+                            {streamingFileSearches && streamingFileSearches.length > 0 && (
+                                <div className="space-y-2">
+                                    {streamingFileSearches.map((search) => (
+                                        <AgentFileSearch
+                                            key={search.searchId}
+                                            part={toFileSearchPart(search)}
+                                            chatStatus="streaming"
+                                        />
+                                    ))}
+                                </div>
+                            )}
+
                             {streamingToolCalls && streamingToolCalls.length > 0 && (
                                 <ToolCallsRenderer
                                     toolCalls={streamingToolCalls}
@@ -451,7 +487,7 @@ export const MessageList = memo(function MessageList({
             )}
 
             {/* Initial Loading / Thinking State */}
-            {isLoading && !streamingText && !streamingReasoning && (!streamingToolCalls || streamingToolCalls.length === 0) && (!streamingWebSearches || streamingWebSearches.length === 0) && (
+            {isLoading && !streamingText && !streamingReasoning && (!streamingToolCalls || streamingToolCalls.length === 0) && (!streamingWebSearches || streamingWebSearches.length === 0) && (!streamingFileSearches || streamingFileSearches.length === 0) && (
                 <div className="flex gap-4 animate-in fade-in duration-500">
                     <AssistantAvatar />
                     <div className="flex-1 space-y-3 pt-2">
@@ -736,6 +772,10 @@ const AgentToolRenderer = memo(function AgentToolRenderer({
 
     if (toolType === 'tool-WebSearch' || toolType === 'tool-web_search') {
         return <AgentWebSearch part={part} chatStatus={chatStatus} isNativeSearch={toolType === 'tool-web_search'} />
+    }
+
+    if (toolType === 'tool-FileSearch' || toolType === 'tool-file_search') {
+        return <AgentFileSearch part={part} chatStatus={chatStatus} />
     }
 
     if (toolType === 'tool-Task') {

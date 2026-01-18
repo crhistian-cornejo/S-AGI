@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { IconX, IconLoader2, IconPhotoOff, IconChevronLeft, IconChevronRight, IconPhoto } from '@tabler/icons-react'
 import { cn } from '@/lib/utils'
+import { CursorTooltip } from './ui/cursor-tooltip'
 
 interface ImageData {
   id: string
@@ -148,34 +149,76 @@ export function ImageAttachmentItem({
               <span className="text-[10px] text-destructive/70">Failed to process</span>
             </span>
           </span>
-        ) : url ? (
-          <button
-            type="button"
-            onClick={openFullscreen}
-            className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-accent/50 border border-border/50 hover:border-primary/50 hover:bg-accent transition-all cursor-pointer"
-            aria-label={`View ${filename}`}
-          >
-            <span className="size-10 flex items-center justify-center bg-muted rounded overflow-hidden shrink-0">
-              <img
-                src={url}
-                alt={filename}
-                className="size-10 object-cover"
-                onError={handleImageError}
-              />
-            </span>
-            <span className="flex flex-col gap-0.5 min-w-0">
-              <span className="text-xs font-medium truncate max-w-[100px]">{filename}</span>
-              {compressedSize && originalSize && compressionRatio && compressionRatio > 1.1 ? (
-                <span className="text-[10px] text-muted-foreground flex items-center gap-1">
-                  <span className="line-through opacity-50">{formatBytes(originalSize)}</span>
-                  <span className="text-green-500 font-medium">→ {formatBytes(compressedSize)}</span>
-                  <span className="text-green-500/70 text-[9px]">({compressionRatio.toFixed(1)}x)</span>
-                </span>
-              ) : compressedSize ? (
-                <span className="text-[10px] text-muted-foreground">{formatBytes(compressedSize)}</span>
-              ) : null}
-            </span>
-          </button>
+         ) : url ? (
+           <CursorTooltip
+             content={
+               <div className="space-y-2">
+                 <div className="flex items-start justify-between gap-4">
+                   <div className="space-y-1 flex-1 min-w-0">
+                     <p className="font-medium text-foreground break-all">{filename}</p>
+                     <p className="text-xs text-muted-foreground">{filename.split('.').pop()?.toUpperCase()} Image</p>
+                   </div>
+                   {hasMultipleImages && (
+                     <span className="text-xs font-semibold text-primary bg-primary/10 px-2 py-0.5 rounded">
+                       {imageIndex + 1} / {allImages?.length || 1}
+                     </span>
+                   )}
+                 </div>
+                 {(compressedSize || originalSize) && (
+                   <div className="pt-1 border-t border-border/50 space-y-1">
+                     {originalSize && (
+                       <div className="flex items-center justify-between text-xs">
+                         <span className="text-muted-foreground">Original:</span>
+                         <span className="text-foreground">{formatBytes(originalSize)}</span>
+                       </div>
+                     )}
+                     {compressedSize && (
+                       <div className="flex items-center justify-between text-xs">
+                         <span className="text-muted-foreground">Optimized:</span>
+                         <span className="text-green-600 font-medium">{formatBytes(compressedSize)}</span>
+                       </div>
+                     )}
+                     {compressionRatio && compressionRatio > 1.1 && (
+                       <div className="flex items-center justify-between text-xs">
+                         <span className="text-muted-foreground">Saved:</span>
+                         <span className="text-green-600 font-medium">
+                           {formatBytes(originalSize - compressedSize)} ({((1 - compressedSize / originalSize) * 100).toFixed(0)}%)
+                         </span>
+                       </div>
+                     )}
+                   </div>
+                 )}
+               </div>
+             }
+           >
+             <button
+               type="button"
+               onClick={openFullscreen}
+               className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-accent/50 border border-border/50 hover:border-primary/50 hover:bg-accent transition-all cursor-pointer"
+               aria-label={`View ${filename}`}
+             >
+               <span className="size-10 flex items-center justify-center bg-muted rounded overflow-hidden shrink-0">
+                 <img
+                   src={url}
+                   alt={filename}
+                   className="size-10 object-cover"
+                   onError={handleImageError}
+                 />
+               </span>
+               <span className="flex flex-col gap-0.5 min-w-0">
+                 <span className="text-xs font-medium truncate max-w-[100px]">{filename}</span>
+                 {compressedSize && originalSize && compressionRatio && compressionRatio > 1.1 ? (
+                   <span className="text-[10px] text-muted-foreground flex items-center gap-1">
+                     <span className="line-through opacity-50">{formatBytes(originalSize)}</span>
+                     <span className="text-green-500 font-medium">→ {formatBytes(compressedSize)}</span>
+                     <span className="text-green-500/70 text-[9px]">({compressionRatio.toFixed(1)}x)</span>
+                   </span>
+                 ) : compressedSize ? (
+                   <span className="text-[10px] text-muted-foreground">{formatBytes(compressedSize)}</span>
+                 ) : null}
+               </span>
+             </button>
+           </CursorTooltip>
         ) : (
           <span className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-accent/50 border border-border/50">
             <span className="size-10 bg-muted rounded flex items-center justify-center">

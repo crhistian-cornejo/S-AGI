@@ -39,6 +39,7 @@ const SUPPORTED_MIME_TYPES = [
 export const filesRouter = router({
     /**
      * Upload a file to OpenAI and attach it to the chat's vector store
+     * Includes duplicate detection to prevent uploading the same file multiple times
      */
     uploadForChat: protectedProcedure
         .input(z.object({
@@ -60,6 +61,36 @@ export const filesRouter = router({
                     throw new Error('OpenAI API key is required for file upload')
                 }
                 
+                // Calculate file size for duplicate check
+                const buffer = Buffer.from(input.fileBase64, 'base64')
+                const fileSize = buffer.length
+                
+                // CHECK FOR DUPLICATES: Same filename AND same size in this chat
+                const { data: existingFile } = await supabase
+                    .from('chat_files')
+                    .select('id, openai_file_id, openai_vector_store_file_id, filename')
+                    .eq('chat_id', input.chatId)
+                    .eq('filename', input.fileName)
+                    .eq('file_size', fileSize)
+                    .single()
+                
+                if (existingFile) {
+                    const existingVectorStoreFileId = existingFile.openai_vector_store_file_id || existingFile.openai_file_id
+                    log.info('[FilesRouter] Duplicate file detected, skipping upload:', {
+                        fileName: input.fileName,
+                        existingFileId: existingVectorStoreFileId
+                    })
+                    // Return existing file info instead of uploading again
+                    return { 
+                        success: true, 
+                        fileId: existingVectorStoreFileId, 
+                        openaiFileId: existingFile.openai_file_id,
+                        vectorStoreId: null, // Will be fetched if needed
+                        skipped: true,
+                        reason: 'duplicate'
+                    }
+                }
+                
                 const service = new OpenAIFileService({ apiKey: input.apiKey })
                 
                 // 1. Get or create vector store
@@ -67,8 +98,7 @@ export const filesRouter = router({
                 const vectorStoreId = await service.getOrCreateVectorStore(input.chatId, ctx.userId)
                 log.info('[FilesRouter] Vector store ID:', vectorStoreId)
                 
-                // 2. Decode file
-                const buffer = Buffer.from(input.fileBase64, 'base64')
+                // Note: buffer already decoded above for duplicate check
 
                 // 3. Determine content type from file extension
                 const ext = input.fileName.split('.').pop()?.toLowerCase() || ''
@@ -135,13 +165,10 @@ export const filesRouter = router({
                 log.info('[FilesRouter] File persisted to storage:', storagePath)
                 
                 // 5. Upload to OpenAI and attach
-                const fileId = await service.uploadAndAttachFile(vectorStoreId, buffer, input.fileName)
-                log.info('[FilesRouter] File uploaded to OpenAI:', fileId)
+                const uploaded = await service.uploadAndAttachFile(vectorStoreId, buffer, input.fileName)
+                log.info('[FilesRouter] File uploaded to OpenAI:', uploaded)
                 
-                // 6. Determine file size
-                const fileSize = buffer.length
-                
-                // 7. Save metadata to chat_files table
+                // 6. Save metadata to chat_files table (fileSize already calculated above)
                 const { error: dbError } = await supabase
                     .from('chat_files')
                     .insert({
@@ -150,8 +177,9 @@ export const filesRouter = router({
                         filename: input.fileName,
                         storage_path: storagePath,
                         file_size: fileSize,
-                        openai_file_id: fileId,
-                        content_type: 'application/octet-stream' // You might want to infer this real type if possible
+                        openai_file_id: uploaded.fileId,
+                        openai_vector_store_file_id: uploaded.vectorStoreFileId,
+                        content_type: contentType
                     })
 
                 if (dbError) {
@@ -160,13 +188,10 @@ export const filesRouter = router({
                     // Should theoretically rollup/cleanup but for now logging.
                 }
 
-                log.info('[FilesRouter] File uploaded and persisted successfully:', { fileId, vectorStoreId, fileName: input.fileName, storagePath })
+                log.info('[FilesRouter] File uploaded and persisted successfully:', { fileId: uploaded.fileId, vectorStoreFileId: uploaded.vectorStoreFileId, vectorStoreId, fileName: input.fileName, storagePath })
                 
-                // Return 'id' as the openai_file_id for backward compatibility with frontend if it expects that
-                // Or prefer the local DB id if we change the frontend.
-                // For now, let's assume usage of openai id for operations, 
-                // but we should eventually switch.
-                return { success: true, fileId, vectorStoreId }
+                // Return vector store file id for operations, include OpenAI file id for reference
+                return { success: true, fileId: uploaded.vectorStoreFileId, vectorStoreId, openaiFileId: uploaded.fileId }
             } catch (error) {
                 const errorMessage = error instanceof Error ? error.message : 'Unknown error'
                 log.error('[FilesRouter] uploadForChat error:', error)
@@ -212,6 +237,7 @@ export const filesRouter = router({
             // This might happen for old chats before this migration.
             let files: {
                 id: string
+                fileId?: string
                 filename: string
                 status: string
                 bytes: number
@@ -221,10 +247,11 @@ export const filesRouter = router({
             
             if (dbFiles && dbFiles.length > 0) {
                 files = dbFiles.map(f => ({
-                    id: f.openai_file_id, // Use OpenAI ID as the primary ID for current tool compatibility
+                    id: f.openai_vector_store_file_id || f.openai_file_id || f.id,
+                    fileId: f.openai_file_id || undefined,
                     dbId: f.id,
                     filename: f.filename,
-                    status: 'available', // derived
+                    status: 'completed',
                     bytes: f.file_size || 0,
                     createdAt: new Date(f.created_at).getTime() / 1000
                 }))
@@ -265,21 +292,24 @@ export const filesRouter = router({
                 throw new Error('Chat or vector store not found')
             }
 
-            // 1. Delete from OpenAI
+            // 1. Find file in DB to get storage path + OpenAI IDs
+            const { data: fileData } = await supabase
+                .from('chat_files')
+                .select('storage_path, openai_file_id, openai_vector_store_file_id')
+                .eq('chat_id', input.chatId)
+                .or(`openai_vector_store_file_id.eq.${input.fileId},openai_file_id.eq.${input.fileId}`)
+                .single()
+
+            const vectorStoreFileId = fileData?.openai_vector_store_file_id || input.fileId
+            const openaiFileId = fileData?.openai_file_id || undefined
+
+            // 2. Delete from OpenAI
             try {
                 const service = new OpenAIFileService({ apiKey: input.apiKey })
-                await service.deleteFile(chat.openai_vector_store_id, input.fileId)
+                await service.deleteFile(chat.openai_vector_store_id, vectorStoreFileId, openaiFileId)
             } catch (err) {
                 log.warn('[FilesRouter] Failed to delete from OpenAI, proceeding to local delete:', err)
             }
-
-            // 2. Find file in DB to get storage path
-            const { data: fileData } = await supabase
-                .from('chat_files')
-                .select('storage_path')
-                .eq('chat_id', input.chatId)
-                .eq('openai_file_id', input.fileId) // Assuming input.fileId is OpenAI ID
-                .single()
 
             // 3. Delete from Storage
             if (fileData?.storage_path) {
@@ -295,7 +325,7 @@ export const filesRouter = router({
                 .from('chat_files')
                 .delete()
                 .eq('chat_id', input.chatId)
-                .eq('openai_file_id', input.fileId)
+                .or(`openai_vector_store_file_id.eq.${input.fileId},openai_file_id.eq.${input.fileId}`)
 
             if (delError) {
                 log.error('[FilesRouter] Failed to delete from DB:', delError)
@@ -326,8 +356,18 @@ export const filesRouter = router({
                 return { status: 'unknown' }
             }
 
+            const { data: fileData } = await supabase
+                .from('chat_files')
+                .select('openai_file_id, openai_vector_store_file_id')
+                .eq('chat_id', input.chatId)
+                .or(`openai_vector_store_file_id.eq.${input.fileId},openai_file_id.eq.${input.fileId}`)
+                .single()
+
+            const vectorStoreFileId = fileData?.openai_vector_store_file_id || input.fileId
+            const openaiFileId = fileData?.openai_file_id
+            
             const service = new OpenAIFileService({ apiKey: input.apiKey })
-            const status = await service.getFileStatus(chat.openai_vector_store_id, input.fileId)
+            const status = await service.getFileStatus(chat.openai_vector_store_id, vectorStoreFileId, openaiFileId)
             
             return { status }
         }),
@@ -382,7 +422,7 @@ export const filesRouter = router({
                 // Get file statuses individually for more detail
                 const filesWithStatus = await Promise.all(
                     openaiFiles.map(async (file) => {
-                        const status = await service.getFileStatus(chat.openai_vector_store_id, file.id)
+                        const status = await service.getFileStatus(chat.openai_vector_store_id, file.id, file.fileId)
                         return { ...file, openaiStatus: status }
                     })
                 )
@@ -412,6 +452,207 @@ export const filesRouter = router({
                     openaiFiles: [],
                     dbFiles: []
                 }
+            }
+        }),
+
+    /**
+     * Verify vector store health and return detailed status
+     * Use this to check if files are properly indexed for search
+     */
+    verifyVectorStoreHealth: protectedProcedure
+        .input(z.object({
+            chatId: z.string().uuid(),
+            apiKey: z.string()
+        }))
+        .query(async ({ ctx, input }) => {
+            log.info('[FilesRouter] verifyVectorStoreHealth called for chat:', input.chatId)
+            
+            const { data: chat, error: chatError } = await supabase
+                .from('chats')
+                .select('openai_vector_store_id')
+                .eq('id', input.chatId)
+                .eq('user_id', ctx.userId)
+                .single()
+            
+            if (chatError || !chat?.openai_vector_store_id) {
+                return { 
+                    healthy: false, 
+                    error: 'No vector store found for this chat',
+                    totalFiles: 0,
+                    completedFiles: 0,
+                    failedFiles: 0,
+                    inProgressFiles: 0,
+                    files: []
+                }
+            }
+
+            try {
+                const service = new OpenAIFileService({ apiKey: input.apiKey })
+                const health = await service.verifyVectorStoreHealth(chat.openai_vector_store_id)
+                return { ...health, error: null }
+            } catch (err) {
+                log.error('[FilesRouter] verifyVectorStoreHealth error:', err)
+                return {
+                    healthy: false,
+                    error: err instanceof Error ? err.message : 'Unknown error',
+                    totalFiles: 0,
+                    completedFiles: 0,
+                    failedFiles: 0,
+                    inProgressFiles: 0,
+                    files: []
+                }
+            }
+        }),
+
+    /**
+     * Reprocess a failed file in the vector store
+     */
+    reprocessFile: protectedProcedure
+        .input(z.object({
+            chatId: z.string().uuid(),
+            fileId: z.string(),
+            apiKey: z.string()
+        }))
+        .mutation(async ({ ctx, input }) => {
+            log.info('[FilesRouter] reprocessFile called:', { chatId: input.chatId, fileId: input.fileId })
+            
+            const { data: chat, error: chatError } = await supabase
+                .from('chats')
+                .select('openai_vector_store_id')
+                .eq('id', input.chatId)
+                .eq('user_id', ctx.userId)
+                .single()
+            
+            if (chatError || !chat?.openai_vector_store_id) {
+                throw new Error('Chat or vector store not found')
+            }
+
+            try {
+                const { data: fileData } = await supabase
+                    .from('chat_files')
+                    .select('openai_file_id, openai_vector_store_file_id')
+                    .eq('chat_id', input.chatId)
+                    .or(`openai_vector_store_file_id.eq.${input.fileId},openai_file_id.eq.${input.fileId}`)
+                    .single()
+
+                const vectorStoreFileId = fileData?.openai_vector_store_file_id || input.fileId
+                const openaiFileId = fileData?.openai_file_id
+                
+                const service = new OpenAIFileService({ apiKey: input.apiKey })
+                const success = await service.reprocessFile(chat.openai_vector_store_id, vectorStoreFileId, openaiFileId)
+                return { success }
+            } catch (err) {
+                log.error('[FilesRouter] reprocessFile error:', err)
+                throw new Error(err instanceof Error ? err.message : 'Failed to reprocess file')
+            }
+        }),
+
+    /**
+     * Clean up duplicate files in the vector store
+     * Keeps only the most recent version of each unique filename
+     */
+    cleanupDuplicates: protectedProcedure
+        .input(z.object({
+            chatId: z.string().uuid(),
+            apiKey: z.string()
+        }))
+        .mutation(async ({ ctx, input }) => {
+            log.info('[FilesRouter] cleanupDuplicates called for chat:', input.chatId)
+            
+            const { data: chat, error: chatError } = await supabase
+                .from('chats')
+                .select('openai_vector_store_id')
+                .eq('id', input.chatId)
+                .eq('user_id', ctx.userId)
+                .single()
+            
+            if (chatError || !chat?.openai_vector_store_id) {
+                throw new Error('Chat or vector store not found')
+            }
+
+            try {
+                const service = new OpenAIFileService({ apiKey: input.apiKey })
+                
+                // Get all files from OpenAI vector store
+                const files = await service.listVectorStoreFiles(chat.openai_vector_store_id)
+                
+                // Group by filename
+                const filesByName: Record<string, typeof files> = {}
+                for (const file of files) {
+                    if (!filesByName[file.filename]) {
+                        filesByName[file.filename] = []
+                    }
+                    filesByName[file.filename].push(file)
+                }
+                
+                // Find duplicates (files with same name)
+                const duplicates: Array<{ vectorStoreFileId: string; openaiFileId?: string }> = []
+                for (const [filename, fileGroup] of Object.entries(filesByName)) {
+                    if (fileGroup.length > 1) {
+                        log.info(`[FilesRouter] Found ${fileGroup.length} copies of "${filename}"`)
+                        // Sort by createdAt descending (newest first)
+                        fileGroup.sort((a, b) => b.createdAt - a.createdAt)
+                        // Keep the first one (newest), mark rest as duplicates
+                        for (let i = 1; i < fileGroup.length; i++) {
+                            duplicates.push({
+                                vectorStoreFileId: fileGroup[i].id,
+                                openaiFileId: fileGroup[i].fileId
+                            })
+                        }
+                    }
+                }
+                
+                log.info(`[FilesRouter] Found ${duplicates.length} duplicate files to remove`)
+                
+                // Delete duplicates from OpenAI
+                let deleted = 0
+                for (const file of duplicates) {
+                    try {
+                        await service.deleteFile(chat.openai_vector_store_id, file.vectorStoreFileId, file.openaiFileId)
+                        deleted++
+                        log.info(`[FilesRouter] Deleted duplicate file: ${file.vectorStoreFileId}`)
+                    } catch (err) {
+                        log.error(`[FilesRouter] Failed to delete duplicate file ${file.vectorStoreFileId}:`, err)
+                    }
+                }
+
+                
+                // Also clean up duplicate entries in chat_files table
+                const { data: dbFiles } = await supabase
+                    .from('chat_files')
+                    .select('id, filename, created_at')
+                    .eq('chat_id', input.chatId)
+                    .order('created_at', { ascending: false })
+                
+                if (dbFiles) {
+                    const seenFilenames = new Set<string>()
+                    const duplicateDbIds: string[] = []
+                    
+                    for (const file of dbFiles) {
+                        if (seenFilenames.has(file.filename)) {
+                            duplicateDbIds.push(file.id)
+                        } else {
+                            seenFilenames.add(file.filename)
+                        }
+                    }
+                    
+                    if (duplicateDbIds.length > 0) {
+                        await supabase
+                            .from('chat_files')
+                            .delete()
+                            .in('id', duplicateDbIds)
+                        log.info(`[FilesRouter] Deleted ${duplicateDbIds.length} duplicate DB entries`)
+                    }
+                }
+                
+                return { 
+                    success: true, 
+                    duplicatesFound: duplicates.length,
+                    deleted 
+                }
+            } catch (err) {
+                log.error('[FilesRouter] cleanupDuplicates error:', err)
+                throw new Error(err instanceof Error ? err.message : 'Failed to cleanup duplicates')
             }
         })
 })

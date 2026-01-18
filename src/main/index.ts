@@ -9,6 +9,9 @@ import { supabase } from './lib/supabase/client'
 import { setMainWindow } from './lib/window-manager'
 import log from 'electron-log'
 
+// Disable default menu for faster startup
+Menu.setApplicationMenu(null)
+
 // Suppress Chromium autofill console errors (cosmetic, not actual errors)
 app.commandLine.appendSwitch('disable-features', 'AutofillServerCommunication')
 

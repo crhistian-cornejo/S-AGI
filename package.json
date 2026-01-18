@@ -20,6 +20,32 @@
         "ts:check": "tsc --noEmit",
         "postinstall": "electron-rebuild -f -w better-sqlite3"
     },
+    "build": {
+        "appId": "com.s-agi.app",
+        "productName": "S-AGI",
+        "directories": {
+            "output": "dist"
+        },
+        "files": ["out/**/*"],
+        "mac": {
+            "identity": "Developer ID Application: Crhistian Cornejo Ruiz (663F68N7L3)",
+            "hardenedRuntime": true,
+            "entitlements": "build/entitlements.plist",
+            "entitlementsInherit": "build/entitlements.plist",
+            "signatureFlags": ["library"],
+            "notarize": {
+                "teamId": "663F68N7L3"
+            }
+        },
+        "win": {
+            "target": ["nsis", "portable"]
+        },
+        "nsis": {
+            "oneClick": false,
+            "allowToChangeInstallationDirectory": true,
+            "background": "build/background.png"
+        }
+    },
     "dependencies": {
         "@emotion/is-prop-valid": "^1.4.0",
         "@git-diff-view/react": "^0.0.36",

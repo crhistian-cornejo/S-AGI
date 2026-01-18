@@ -92,7 +92,7 @@ function getActionLabel(action: AgentReasoningAction) {
     case 'web-search':
       return count > 1 ? `Searched the web (${count}x)` : 'Searched the web'
     case 'file-search':
-      return count > 1 ? `Searched files (${count}x)` : 'Searched files'
+      return count > 1 ? `Searched Knowledge Base (${count}x)` : 'Searched Knowledge Base'
     case 'code-interpreter':
       return count > 1 ? `Ran code (${count}x)` : 'Ran code'
     case 'tool':

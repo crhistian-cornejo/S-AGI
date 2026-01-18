@@ -41,6 +41,8 @@ export type { WebFetchResult, AgentWebFetchProps_Legacy } from './agent-web-fetc
 export { AgentWebSearch } from './agent-web-search'
 export type { WebSearchResult, AgentWebSearchProps_Legacy } from './agent-web-search'
 
+export { AgentFileSearch } from './agent-file-search'
+
 export { AgentPlan } from './agent-plan'
 export type { AgentPlanProps, PlanStep } from './agent-plan'
 

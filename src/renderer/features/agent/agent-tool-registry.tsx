@@ -391,9 +391,9 @@ export const AgentToolRegistry: Record<string, ToolMeta> = {
     title: (part) => {
       const isPending =
         part.state !== "output-available" && part.state !== "output-error"
-      return isPending ? "Searching files" : "File search complete"
+      return isPending ? "Searching Knowledge Base" : "Searched Knowledge Base"
     },
-    subtitle: () => "Vector store search",
+    subtitle: () => "Documents & PDFs",
     variant: "simple",
   },
 

@@ -30,6 +30,7 @@ import {
     reasoningEffortAtom,
     streamingToolCallsAtom,
     streamingWebSearchesAtom,
+    streamingFileSearchesAtom,
     streamingReasoningAtom,
     isReasoningAtom,
     allModelsGroupedAtom,
@@ -37,6 +38,7 @@ import {
 } from '@/lib/atoms'
 
 import { useFileUpload } from '@/lib/use-file-upload'
+import { getDocumentAcceptTypes } from '@/lib/use-document-upload'
 import { cn } from '@/lib/utils'
 import {
     Tooltip,
@@ -68,6 +70,7 @@ export function ChatInput({ value, onChange, onSend, onStop, isLoading, streamin
     const [reasoningEffort, setReasoningEffort] = useAtom(reasoningEffortAtom)
     const streamingToolCalls = useAtomValue(streamingToolCallsAtom)
     const streamingWebSearches = useAtomValue(streamingWebSearchesAtom)
+    const streamingFileSearches = useAtomValue(streamingFileSearchesAtom)
     const streamingReasoning = useAtomValue(streamingReasoningAtom)
     const isReasoning = useAtomValue(isReasoningAtom)
     
@@ -249,16 +252,22 @@ export function ChatInput({ value, onChange, onSend, onStop, isLoading, streamin
         return `${value.slice(0, max)}…`
     }
 
-    const activeSearch = streamingWebSearches.find(ws => ws.status === 'searching')
-    const latestSearchDone = [...streamingWebSearches].reverse().find(ws => ws.status === 'done')
+    const activeWebSearch = streamingWebSearches.find(ws => ws.status === 'searching')
+    const latestWebSearchDone = [...streamingWebSearches].reverse().find(ws => ws.status === 'done')
+    const activeFileSearch = streamingFileSearches.find(fs => fs.status === 'searching')
+    const latestFileSearchDone = [...streamingFileSearches].reverse().find(fs => fs.status === 'done')
     const activeTool = streamingToolCalls.find(tc => tc.status === 'executing' || tc.status === 'streaming')
 
     const statusLabel = (() => {
         if (!isLoading) return ''
-        if (activeSearch?.query) {
-            return truncate(`Searching: ${activeSearch.query}`)
+        // File search takes priority (more specific - searching uploaded documents)
+        if (activeFileSearch) {
+            return 'Searching Knowledge Base'
         }
-        if (activeSearch) {
+        if (activeWebSearch?.query) {
+            return truncate(`Web: ${activeWebSearch.query}`)
+        }
+        if (activeWebSearch) {
             return 'Searching the web'
         }
         if (activeTool) {
@@ -270,13 +279,17 @@ export function ChatInput({ value, onChange, onSend, onStop, isLoading, streamin
         if (streamingText && streamingText.length > 0) {
             return 'Responding'
         }
-        if (latestSearchDone?.action === 'open_page') {
+        // File search completion takes priority
+        if (latestFileSearchDone) {
+            return 'Documents searched'
+        }
+        if (latestWebSearchDone?.action === 'open_page') {
             return 'Opening page'
         }
-        if (latestSearchDone?.action === 'find_in_page') {
+        if (latestWebSearchDone?.action === 'find_in_page') {
             return 'Scanning page'
         }
-        if (latestSearchDone) {
+        if (latestWebSearchDone) {
             return 'Web search complete'
         }
         return 'Responding'
@@ -317,6 +330,7 @@ export function ChatInput({ value, onChange, onSend, onStop, isLoading, streamin
                 ref={docInputRef}
                 type="file"
                 multiple
+                accept={getDocumentAcceptTypes()}
                 onChange={handleDocSelect}
                 className="hidden"
             />
