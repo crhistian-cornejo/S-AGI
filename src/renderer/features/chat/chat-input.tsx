@@ -1,6 +1,7 @@
 import { useRef, useEffect, useState, useCallback } from 'react'
 import { useAtom, useAtomValue } from 'jotai'
 import { AnimatedLogo } from './animated-logo'
+import { TextShimmer } from '@/components/ui/text-shimmer'
 import {
     IconArrowUp,
     IconPlayerStop,
@@ -22,10 +23,15 @@ import {
     chatModeAtom,
     currentProviderAtom,
     selectedModelAtom,
-    allModelsGroupedAtom,
     reasoningEffortAtom,
+    streamingToolCallsAtom,
+    streamingWebSearchesAtom,
+    streamingReasoningAtom,
+    isReasoningAtom,
+    allModelsGroupedAtom,
     type ReasoningEffort,
 } from '@/lib/atoms'
+
 import { useFileUpload } from '@/lib/use-file-upload'
 import { cn } from '@/lib/utils'
 import {
@@ -43,9 +49,10 @@ interface ChatInputProps {
     onSend: (images?: Array<{ base64Data: string; mediaType: string; filename: string }>) => void
     onStop?: () => void
     isLoading: boolean
+    streamingText?: string
 }
 
-export function ChatInput({ value, onChange, onSend, onStop, isLoading }: ChatInputProps) {
+export function ChatInput({ value, onChange, onSend, onStop, isLoading, streamingText }: ChatInputProps) {
     const textareaRef = useRef<HTMLTextAreaElement>(null)
     const fileInputRef = useRef<HTMLInputElement>(null)
     const [mode, setMode] = useAtom(chatModeAtom)
@@ -53,9 +60,20 @@ export function ChatInput({ value, onChange, onSend, onStop, isLoading }: ChatIn
     const [selectedModel, setSelectedModel] = useAtom(selectedModelAtom)
     const allModelsGrouped = useAtomValue(allModelsGroupedAtom)
     const [reasoningEffort, setReasoningEffort] = useAtom(reasoningEffortAtom)
+    const streamingToolCalls = useAtomValue(streamingToolCallsAtom)
+    const streamingWebSearches = useAtomValue(streamingWebSearchesAtom)
+    const streamingReasoning = useAtomValue(streamingReasoningAtom)
+    const isReasoning = useAtomValue(isReasoningAtom)
     
     // Get current model info for display
     const currentModelInfo = AI_MODELS[selectedModel]
+
+    useEffect(() => {
+        const allowedEfforts = new Set(['none', 'low', 'medium', 'high'])
+        if (!allowedEfforts.has(reasoningEffort)) {
+            setReasoningEffort('medium')
+        }
+    }, [reasoningEffort, setReasoningEffort])
     
     // Use the new file upload hook
     const {
@@ -182,17 +200,48 @@ export function ChatInput({ value, onChange, onSend, onStop, isLoading }: ChatIn
         fileInputRef.current?.click()
     }
 
-    const [phraseIndex, setPhraseIndex] = useState(0)
-    const phrases = ['Pensando', 'Analizando', 'Generando', 'Refinando']
+    const formatToolName = (name?: string) => {
+        if (!name) return 'tool'
+        return name.replace(/_/g, ' ')
+    }
 
-    useEffect(() => {
-        if (isLoading) {
-            const interval = setInterval(() => {
-                setPhraseIndex((prev: number) => (prev + 1) % phrases.length)
-            }, 2000)
-            return () => clearInterval(interval)
+    const truncate = (value: string, max = 44) => {
+        if (value.length <= max) return value
+        return `${value.slice(0, max)}…`
+    }
+
+    const activeSearch = streamingWebSearches.find(ws => ws.status === 'searching')
+    const latestSearchDone = [...streamingWebSearches].reverse().find(ws => ws.status === 'done')
+    const activeTool = streamingToolCalls.find(tc => tc.status === 'executing' || tc.status === 'streaming')
+
+    const statusLabel = (() => {
+        if (!isLoading) return ''
+        if (activeSearch?.query) {
+            return truncate(`Searching: ${activeSearch.query}`)
         }
-    }, [isLoading])
+        if (activeSearch) {
+            return 'Searching the web'
+        }
+        if (activeTool) {
+            return truncate(`Running ${formatToolName(activeTool.name)}`)
+        }
+        if (isReasoning || streamingReasoning) {
+            return 'Thinking'
+        }
+        if (streamingText && streamingText.length > 0) {
+            return 'Responding'
+        }
+        if (latestSearchDone?.action === 'open_page') {
+            return 'Opening page'
+        }
+        if (latestSearchDone?.action === 'find_in_page') {
+            return 'Scanning page'
+        }
+        if (latestSearchDone) {
+            return 'Web search complete'
+        }
+        return 'Responding'
+    })()
 
     // Build allImages array for gallery navigation
     const allImagesData = images
@@ -231,9 +280,14 @@ export function ChatInput({ value, onChange, onSend, onStop, isLoading }: ChatIn
             )}>
                 <div className="flex items-center gap-3 px-4 py-1.5 rounded-t-2xl bg-background/90 backdrop-blur-3xl border border-border border-b-transparent shadow-[0_-4px_20px_-10px_rgba(0,0,0,0.5)] min-w-[140px]">
                     <AnimatedLogo className="w-3.5 h-3.5" />
-                    <span className="text-[10px] font-black tracking-[0.25em] uppercase text-primary animate-pulse italic drop-shadow-[0_0_10px_rgba(var(--primary),0.4)]">
-                        {phrases[phraseIndex]}<span className="animate-bounce inline-block">...</span>
-                    </span>
+                    <TextShimmer 
+                        as="span" 
+                        className="text-[10px] font-black tracking-[0.25em] uppercase italic"
+                        duration={1.5}
+                        spread={1.5}
+                    >
+                        {statusLabel}...
+                    </TextShimmer>
                 </div>
             </div>
 

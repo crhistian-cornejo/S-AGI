@@ -1,17 +1,18 @@
 import * as React from 'react'
 import { trpc } from '@/lib/trpc'
-import { initSheetsUniver, createWorkbook, disposeSheetsUniver, getSheetsInstanceVersion } from './univer-sheets-core'
+import { initDocsUniver, createDocument, disposeDocsUniver, getDocsInstanceVersion } from './univer-docs-core'
 
-interface UniverSpreadsheetProps {
+interface UniverDocumentProps {
     artifactId?: string
     data?: any
 }
 
-export interface UniverSpreadsheetRef {
+export interface UniverDocumentRef {
     save: () => Promise<void>
+    getContent: () => any
 }
 
-export const UniverSpreadsheet = React.forwardRef<UniverSpreadsheetRef, UniverSpreadsheetProps>(({
+export const UniverDocument = React.forwardRef<UniverDocumentRef, UniverDocumentProps>(({
     artifactId,
     data
 }, ref) => {
@@ -19,11 +20,11 @@ export const UniverSpreadsheet = React.forwardRef<UniverSpreadsheetRef, UniverSp
     const [isLoading, setIsLoading] = React.useState(true)
     const [error, setError] = React.useState<string | null>(null)
     const [isSaving, setIsSaving] = React.useState(false)
-    const workbookRef = React.useRef<any>(null)
+    const documentRef = React.useRef<any>(null)
     const versionRef = React.useRef<number>(-1)
 
     // Generate a stable instance ID
-    const instanceIdRef = React.useRef<string>(`spreadsheet-${Date.now()}`)
+    const instanceIdRef = React.useRef<string>(`document-${Date.now()}`)
     const instanceId = instanceIdRef.current
 
     // Use artifact ID for data purposes
@@ -31,11 +32,11 @@ export const UniverSpreadsheet = React.forwardRef<UniverSpreadsheetRef, UniverSp
 
     // Debug: log received data
     React.useEffect(() => {
-        console.log('[UniverSpreadsheet] Mounted with data:', {
+        console.log('[UniverDocument] Mounted with data:', {
             artifactId,
             hasData: !!data,
             dataKeys: data ? Object.keys(data) : [],
-            sheetsKeys: data?.sheets ? Object.keys(data.sheets) : [],
+            bodyLength: data?.body?.dataStream?.length
         })
     }, [artifactId, data])
 
@@ -43,11 +44,11 @@ export const UniverSpreadsheet = React.forwardRef<UniverSpreadsheetRef, UniverSp
     const saveSnapshot = trpc.artifacts.saveUniverSnapshot.useMutation()
 
     const handleSave = React.useCallback(async () => {
-        if (!workbookRef.current || isSaving) return
+        if (!documentRef.current || isSaving) return
 
         try {
             setIsSaving(true)
-            const snapshot = workbookRef.current.save()
+            const snapshot = documentRef.current.save()
 
             if (snapshot && artifactId) {
                 await saveSnapshot.mutateAsync({
@@ -56,21 +57,29 @@ export const UniverSpreadsheet = React.forwardRef<UniverSpreadsheetRef, UniverSp
                 })
             }
         } catch (err) {
-            console.error('Failed to save spreadsheet:', err)
+            console.error('Failed to save document:', err)
         } finally {
             setIsSaving(false)
         }
     }, [artifactId, isSaving, saveSnapshot])
 
+    const getContent = React.useCallback(() => {
+        if (documentRef.current) {
+            return documentRef.current.save()
+        }
+        return null
+    }, [])
+
     React.useImperativeHandle(ref, () => ({
-        save: handleSave
+        save: handleSave,
+        getContent
     }))
 
     // Initialize Univer on mount, dispose on unmount
     React.useEffect(() => {
         let mounted = true
 
-        const initUniver = async () => {
+        const initUniverDocs = async () => {
             if (!containerRef.current) {
                 return
             }
@@ -79,10 +88,10 @@ export const UniverSpreadsheet = React.forwardRef<UniverSpreadsheetRef, UniverSp
                 setIsLoading(true)
                 setError(null)
 
-                console.log('[UniverSpreadsheet] Initializing sheets instance')
+                console.log('[UniverDocument] Initializing docs instance')
 
-                // Get the sheets Univer instance
-                const instance = await initSheetsUniver(containerRef.current)
+                // Get the docs Univer instance
+                const instance = await initDocsUniver(containerRef.current)
                 
                 // Store version for cleanup
                 versionRef.current = instance.version
@@ -90,32 +99,32 @@ export const UniverSpreadsheet = React.forwardRef<UniverSpreadsheetRef, UniverSp
                 if (!mounted) {
                     // Component unmounted during init - defer dispose with version check
                     const version = versionRef.current
-                    setTimeout(() => disposeSheetsUniver(version), 0)
+                    setTimeout(() => disposeDocsUniver(version), 0)
                     return
                 }
 
-                // Create workbook with data
-                const workbook = createWorkbook(instance.api, data, effectiveDataId)
-                workbookRef.current = workbook
+                // Create document with data
+                const doc = createDocument(instance.api, data, effectiveDataId)
+                documentRef.current = doc
 
-                console.log('[UniverSpreadsheet] Workbook created:', effectiveDataId)
+                console.log('[UniverDocument] Document created:', effectiveDataId)
                 setIsLoading(false)
 
             } catch (err) {
-                console.error('Failed to initialize Univer Sheets:', err)
+                console.error('Failed to initialize Univer Docs:', err)
                 if (mounted) {
-                    setError(err instanceof Error ? err.message : 'Failed to load spreadsheet')
+                    setError(err instanceof Error ? err.message : 'Failed to load document')
                     setIsLoading(false)
                 }
             }
         }
 
-        initUniver()
+        initUniverDocs()
 
         // Cleanup on unmount - defer dispose with version check
         return () => {
             mounted = false
-            workbookRef.current = null
+            documentRef.current = null
             
             // Capture version at cleanup time
             const version = versionRef.current
@@ -124,11 +133,11 @@ export const UniverSpreadsheet = React.forwardRef<UniverSpreadsheetRef, UniverSp
             // Version check ensures we don't dispose a newer instance
             setTimeout(() => {
                 // Only dispose if current instance matches our version
-                if (getSheetsInstanceVersion() === version) {
-                    console.log('[UniverSpreadsheet] Deferred dispose executing for version:', version)
-                    disposeSheetsUniver(version)
+                if (getDocsInstanceVersion() === version) {
+                    console.log('[UniverDocument] Deferred dispose executing for version:', version)
+                    disposeDocsUniver(version)
                 } else {
-                    console.log('[UniverSpreadsheet] Skipping dispose - instance was replaced')
+                    console.log('[UniverDocument] Skipping dispose - instance was replaced')
                 }
             }, 0)
         }
@@ -148,7 +157,7 @@ export const UniverSpreadsheet = React.forwardRef<UniverSpreadsheetRef, UniverSp
                 <div className="absolute inset-0 flex items-center justify-center bg-background/80 z-10">
                     <div className="flex items-center gap-2">
                         <div className="w-4 h-4 border-2 border-primary border-t-transparent rounded-full animate-spin" />
-                        <span className="text-sm text-muted-foreground">Loading spreadsheet...</span>
+                        <span className="text-sm text-muted-foreground">Loading document...</span>
                     </div>
                 </div>
             )}
@@ -157,4 +166,4 @@ export const UniverSpreadsheet = React.forwardRef<UniverSpreadsheetRef, UniverSp
     )
 })
 
-UniverSpreadsheet.displayName = 'UniverSpreadsheet'
+UniverDocument.displayName = 'UniverDocument'

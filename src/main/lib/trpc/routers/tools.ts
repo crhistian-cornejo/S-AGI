@@ -69,6 +69,46 @@ function parseCellReference(cell: string): { row: number; col: number } {
     return { row, col }
 }
 
+// Helper: Create Univer document data structure (for Word-like documents)
+function createUniverDocument(title: string, content: string = ''): Record<string, unknown> {
+    // Convert plain text content to Univer document format
+    // Each line becomes a paragraph
+    const lines = content ? content.split('\n') : ['']
+    let dataStream = ''
+    const paragraphs: Array<{ startIndex: number; paragraphStyle?: Record<string, unknown> }> = []
+    
+    let currentIndex = 0
+    for (let i = 0; i < lines.length; i++) {
+        const line = lines[i]
+        paragraphs.push({
+            startIndex: currentIndex,
+            paragraphStyle: {}
+        })
+        dataStream += line + '\r\n'
+        currentIndex += line.length + 2 // +2 for \r\n
+    }
+    
+    return {
+        id: crypto.randomUUID(),
+        title,
+        body: {
+            dataStream,
+            textRuns: [],
+            paragraphs
+        },
+        documentStyle: {
+            pageSize: {
+                width: 816, // 8.5 inches * 96 DPI
+                height: 1056 // 11 inches * 96 DPI
+            },
+            marginTop: 72,
+            marginBottom: 72,
+            marginLeft: 90,
+            marginRight: 90
+        }
+    }
+}
+
 // Tool definitions with their schemas
 // IMPORTANT: Avoid z.any() and nested z.array() as OpenAI JSON Schema conversion doesn't handle them well
 // For 2D arrays, use JSON string that we parse on execution
@@ -181,6 +221,44 @@ export const SPREADSHEET_TOOLS = {
     }
 }
 
+// Document tools for Word-like editing (FREE - no license required)
+export const DOCUMENT_TOOLS = {
+    create_document: {
+        description: 'Create a new Word-like document with an optional title and initial text content.',
+        inputSchema: z.object({
+            title: z.string().describe('Title of the document'),
+            content: z.string().optional().describe('Initial text content for the document. Use newlines (\\n) to separate paragraphs.')
+        })
+    },
+    insert_text: {
+        description: 'Insert text at the end of a document or at a specific position.',
+        inputSchema: z.object({
+            artifactId: z.string().describe('ID of the document artifact'),
+            text: z.string().describe('Text to insert'),
+            position: z.enum(['end', 'start']).default('end').describe('Where to insert the text')
+        })
+    },
+    replace_document_content: {
+        description: 'Replace the entire content of a document with new text.',
+        inputSchema: z.object({
+            artifactId: z.string().describe('ID of the document artifact'),
+            content: z.string().describe('New text content for the document')
+        })
+    },
+    get_document_content: {
+        description: 'Get the text content of a document. Use this to read what is currently in the document before making modifications.',
+        inputSchema: z.object({
+            artifactId: z.string().describe('ID of the document artifact')
+        })
+    }
+}
+
+// Combined tools object for API exposure
+export const ALL_TOOLS = {
+    ...SPREADSHEET_TOOLS,
+    ...DOCUMENT_TOOLS
+}
+
 // Tool execution functions
 async function executeCreateSpreadsheet(
     args: z.infer<typeof SPREADSHEET_TOOLS.create_spreadsheet.inputSchema>,
@@ -188,6 +266,8 @@ async function executeCreateSpreadsheet(
     _userId: string
 ): Promise<{ artifactId: string; message: string }> {
     const { name, columns, rows: rowsJson } = args
+    
+    log.info(`[Tools] executeCreateSpreadsheet called with name="${name}", columns=${columns.length}, rowsJson length=${rowsJson?.length || 0}`)
     
     // Parse rows from JSON string if provided
     let parsedRows: any[][] = []
@@ -197,13 +277,16 @@ async function executeCreateSpreadsheet(
             if (!Array.isArray(parsedRows)) {
                 throw new Error('Rows must be an array')
             }
+            log.info(`[Tools] Parsed ${parsedRows.length} rows from JSON`)
         } catch (e) {
             log.warn(`[Tools] Failed to parse rows JSON: ${e}`)
+            log.warn(`[Tools] Raw rowsJson (first 500 chars): ${rowsJson?.substring(0, 500)}`)
             parsedRows = []
         }
     }
     
     const univerData = createUniverWorkbook(name, columns, parsedRows)
+    log.info(`[Tools] Created univerData with cellData keys: ${Object.keys(univerData.sheets.sheet1.cellData).join(', ')}`)
     
     const { data: artifact, error } = await supabase
         .from('artifacts')
@@ -679,6 +762,155 @@ async function executeDeleteRow(
     return { artifactId, message: `Deleted row(s) ${rows.join(', ')}` }
 }
 
+// ============================================
+// Document Tool Execution Functions (FREE)
+// ============================================
+
+async function executeCreateDocument(
+    args: z.infer<typeof DOCUMENT_TOOLS.create_document.inputSchema>,
+    chatId: string,
+    _userId: string
+): Promise<{ artifactId: string; message: string }> {
+    const { title, content } = args
+    
+    const univerData = createUniverDocument(title, content || '')
+    
+    const { data: artifact, error } = await supabase
+        .from('artifacts')
+        .insert({
+            chat_id: chatId,
+            type: 'document',
+            name: title,
+            content: { title, characterCount: content?.length || 0 },
+            univer_data: univerData
+        })
+        .select()
+        .single()
+
+    if (error) throw new Error(`Failed to create document: ${error.message}`)
+    
+    log.info(`[Tools] Created document artifact: ${artifact.id}`)
+    return { artifactId: artifact.id, message: `Created document "${title}"` }
+}
+
+async function executeInsertText(
+    args: z.infer<typeof DOCUMENT_TOOLS.insert_text.inputSchema>,
+    userId: string
+): Promise<{ artifactId: string; message: string }> {
+    const { artifactId, text, position } = args
+    
+    const { data: artifact, error } = await supabase
+        .from('artifacts')
+        .select('*, chats!inner(user_id)')
+        .eq('id', artifactId)
+        .single()
+
+    if (error || !artifact) throw new Error('Document not found')
+    if (artifact.chats.user_id !== userId) throw new Error('Access denied')
+
+    const univerData = artifact.univer_data
+    const body = univerData.body as { dataStream: string; paragraphs: Array<{ startIndex: number }> }
+    
+    // Insert text at position
+    if (position === 'start') {
+        // Prepend to dataStream and shift paragraph indices
+        body.dataStream = text + '\r\n' + body.dataStream
+        const shift = text.length + 2
+        body.paragraphs = [
+            { startIndex: 0 },
+            ...body.paragraphs.map(p => ({ ...p, startIndex: p.startIndex + shift }))
+        ]
+    } else {
+        // Append to dataStream (before final \r\n)
+        const oldLength = body.dataStream.length
+        body.dataStream = body.dataStream.slice(0, -2) + text + '\r\n'
+        body.paragraphs.push({ startIndex: oldLength - 2 })
+    }
+
+    await supabase
+        .from('artifacts')
+        .update({ univer_data: univerData, updated_at: new Date().toISOString() })
+        .eq('id', artifactId)
+
+    log.info(`[Tools] Inserted text at ${position} in document ${artifactId}`)
+    return { artifactId, message: `Inserted ${text.length} characters at ${position}` }
+}
+
+async function executeReplaceDocumentContent(
+    args: z.infer<typeof DOCUMENT_TOOLS.replace_document_content.inputSchema>,
+    userId: string
+): Promise<{ artifactId: string; message: string }> {
+    const { artifactId, content } = args
+    
+    const { data: artifact, error } = await supabase
+        .from('artifacts')
+        .select('*, chats!inner(user_id)')
+        .eq('id', artifactId)
+        .single()
+
+    if (error || !artifact) throw new Error('Document not found')
+    if (artifact.chats.user_id !== userId) throw new Error('Access denied')
+
+    // Create new document body from content
+    const lines = content.split('\n')
+    let dataStream = ''
+    const paragraphs: Array<{ startIndex: number }> = []
+    
+    let currentIndex = 0
+    for (const line of lines) {
+        paragraphs.push({ startIndex: currentIndex })
+        dataStream += line + '\r\n'
+        currentIndex += line.length + 2
+    }
+
+    const univerData = artifact.univer_data
+    univerData.body = {
+        dataStream,
+        textRuns: [],
+        paragraphs
+    }
+
+    await supabase
+        .from('artifacts')
+        .update({ 
+            univer_data: univerData, 
+            content: { ...artifact.content, characterCount: content.length },
+            updated_at: new Date().toISOString() 
+        })
+        .eq('id', artifactId)
+
+    log.info(`[Tools] Replaced content in document ${artifactId}`)
+    return { artifactId, message: `Replaced document content with ${content.length} characters` }
+}
+
+async function executeGetDocumentContent(
+    args: z.infer<typeof DOCUMENT_TOOLS.get_document_content.inputSchema>,
+    userId: string
+): Promise<{ artifactId: string; content: string; title: string }> {
+    const { artifactId } = args
+    
+    const { data: artifact, error } = await supabase
+        .from('artifacts')
+        .select('*, chats!inner(user_id)')
+        .eq('id', artifactId)
+        .single()
+
+    if (error || !artifact) throw new Error('Document not found')
+    if (artifact.chats.user_id !== userId) throw new Error('Access denied')
+
+    const univerData = artifact.univer_data
+    const body = univerData.body as { dataStream: string }
+    
+    // Convert dataStream back to plain text (remove \r\n formatting)
+    const content = body.dataStream.replace(/\r\n/g, '\n').trim()
+    
+    return { 
+        artifactId, 
+        content, 
+        title: univerData.title || artifact.name 
+    }
+}
+
 // Main tool execution function
 export async function executeTool(
     toolName: string,
@@ -750,6 +982,32 @@ export async function executeTool(
                 userId
             )
 
+        // Document tools (FREE)
+        case 'create_document':
+            return executeCreateDocument(
+                DOCUMENT_TOOLS.create_document.inputSchema.parse(args),
+                chatId,
+                userId
+            )
+
+        case 'insert_text':
+            return executeInsertText(
+                DOCUMENT_TOOLS.insert_text.inputSchema.parse(args),
+                userId
+            )
+
+        case 'replace_document_content':
+            return executeReplaceDocumentContent(
+                DOCUMENT_TOOLS.replace_document_content.inputSchema.parse(args),
+                userId
+            )
+
+        case 'get_document_content':
+            return executeGetDocumentContent(
+                DOCUMENT_TOOLS.get_document_content.inputSchema.parse(args),
+                userId
+            )
+
         default:
             throw new Error(`Unknown tool: ${toolName}`)
     }
@@ -757,7 +1015,7 @@ export async function executeTool(
 
 // Convert tools to API format
 export function getToolsForAPI(provider: 'openai' | 'anthropic') {
-    const tools = Object.entries(SPREADSHEET_TOOLS).map(([name, tool]) => {
+    const tools = Object.entries(ALL_TOOLS).map(([name, tool]) => {
         // Convert Zod schema to JSON Schema
         const zodToJsonSchema = (schema: z.ZodObject<any>): any => {
             const shape = schema.shape
@@ -834,7 +1092,7 @@ export const toolsRouter = router({
         }),
 
     list: protectedProcedure.query(() => {
-        return Object.entries(SPREADSHEET_TOOLS).map(([name, tool]) => ({
+        return Object.entries(ALL_TOOLS).map(([name, tool]) => ({
             name,
             description: tool.description
         }))

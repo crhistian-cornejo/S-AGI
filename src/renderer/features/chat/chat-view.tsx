@@ -1,6 +1,7 @@
-import { useEffect, useRef, useCallback } from 'react'
+import { useEffect, useRef, useCallback, useState } from 'react'
 import { useAtom, useAtomValue, useSetAtom } from 'jotai'
-import { IconSparkles, IconBrandOpenai, IconBrain } from '@tabler/icons-react'
+import { IconSparkles, IconBrandOpenai, IconBrain, IconArrowDown } from '@tabler/icons-react'
+import { toast } from 'sonner'
 import {
     selectedChatIdAtom,
     chatInputAtom,
@@ -16,10 +17,16 @@ import {
     streamingReasoningAtom,
     isReasoningAtom,
     reasoningEffortAtom,
+    lastReasoningAtom,
+    streamingWebSearchesAtom,
+    streamingAnnotationsAtom,
+    type WebSearchInfo,
+    type UrlCitation,
 } from '@/lib/atoms'
 import { trpc, trpcClient } from '@/lib/trpc'
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { MessageList } from './message-list'
 import { ChatInput } from './chat-input'
 import { useSmoothStream } from '@/hooks/use-smooth-stream'
@@ -35,7 +42,7 @@ export function ChatView() {
     const selectedModel = useAtomValue(selectedModelAtom)
 
     // Smooth streaming for text (buffers and releases gradually)
-    const smoothStream = useSmoothStream({ delayMs: 12, chunking: 'word' })
+    const smoothStream = useSmoothStream({ delayMs: 3, chunking: 'word' })
     const streamingText = smoothStream.displayText
 
     // Streaming state
@@ -45,7 +52,12 @@ export function ChatView() {
     // Reasoning state (for GPT-5 with reasoning enabled)
     const [streamingReasoning, setStreamingReasoning] = useAtom(streamingReasoningAtom)
     const [isReasoning, setIsReasoning] = useAtom(isReasoningAtom)
+    const [lastReasoning, setLastReasoning] = useAtom(lastReasoningAtom)
     const reasoningEffort = useAtomValue(reasoningEffortAtom)
+
+    // Web search state (for OpenAI native web search)
+    const [streamingWebSearches, setStreamingWebSearches] = useAtom(streamingWebSearchesAtom)
+    const [streamingAnnotations, setStreamingAnnotations] = useAtom(streamingAnnotationsAtom)
 
     // Artifact state
     const setSelectedArtifact = useSetAtom(selectedArtifactAtom)
@@ -55,6 +67,7 @@ export function ChatView() {
     const abortRef = useRef<(() => void) | null>(null)
     const messagesEndRef = useRef<HTMLDivElement>(null)
     const scrollContainerRef = useRef<HTMLDivElement>(null)
+    const [showScrollToBottom, setShowScrollToBottom] = useState(false)
 
     // Get key status from main process (persisted in safeStorage)
     const { data: keyStatus } = trpc.settings.getApiKeyStatus.useQuery()
@@ -73,6 +86,7 @@ export function ChatView() {
     // Mutations
     const addMessage = trpc.messages.add.useMutation()
     const chatMutation = trpc.ai.chat.useMutation()
+    const createChat = trpc.chats.create.useMutation()
 
     const utils = trpc.useUtils()
     const setSelectedChatId = useSetAtom(selectedChatIdAtom)
@@ -88,72 +102,98 @@ export function ChatView() {
         }
     }, [messagesError, selectedChatId, setSelectedChatId])
 
+    const isChatAccessError = (message: string) => {
+        const normalized = message.toLowerCase()
+        return normalized.includes('not found') || normalized.includes('access denied')
+    }
+
+    const createFallbackChat = async () => {
+        const chat = await createChat.mutateAsync({ title: 'New Chat' })
+        utils.chats.list.invalidate()
+        utils.chats.get.invalidate({ id: chat.id })
+        setSelectedChatId(chat.id)
+        setSelectedArtifact(null)
+        setArtifactPanelOpen(false)
+        return chat
+    }
+
     // Handle send message
     const handleSend = async (images?: Array<{ base64Data: string; mediaType: string; filename: string }>) => {
         if ((!input.trim() && !images?.length) || !selectedChatId || isStreaming) return
 
         const userMessage = input.trim()
-        const isFirstMessage = messages?.length === 0
+        const existingMessages = messages
 
         setInput('')
         setIsStreaming(true)
         smoothStream.startStream()
         setStreamingToolCalls([])
         setStreamingReasoning('')
+        setLastReasoning('') // Clear previous reasoning when starting new message
         setIsReasoning(false)
         setStreamingError(null)
+        setStreamingWebSearches([]) // Clear previous web searches
+        setStreamingAnnotations([]) // Clear previous annotations
 
-        try {
-            // Upload images to Supabase Storage and prepare attachments
-            let attachments: Array<{
-                id: string
-                name: string
-                size: number
-                type: string
-                url?: string
-                preview?: string
-            }> = []
+        // Upload images to Supabase Storage and prepare attachments
+        let attachments: Array<{
+            id: string
+            name: string
+            size: number
+            type: string
+            url?: string
+            preview?: string
+        }> = []
 
-            if (images && images.length > 0) {
-                console.log('[ChatView] Uploading', images.length, 'images to storage...')
-                
-                for (const img of images) {
-                    try {
-                        // Calculate approximate size from base64
-                        const sizeInBytes = Math.round((img.base64Data.length * 3) / 4)
-                        
-                        // Upload to Supabase Storage via tRPC
-                        const uploaded = await trpcClient.messages.uploadFile.mutate({
-                            fileName: img.filename,
-                            fileSize: sizeInBytes,
-                            fileType: img.mediaType,
-                            fileData: img.base64Data
-                        })
-                        
-                        attachments.push({
-                            id: uploaded.id,
-                            name: uploaded.name,
-                            size: uploaded.size,
-                            type: uploaded.type,
-                            url: uploaded.url
-                        })
-                        
-                        console.log('[ChatView] Uploaded image:', uploaded.name, '→', uploaded.url)
-                    } catch (uploadError) {
-                        console.error('[ChatView] Failed to upload image:', img.filename, uploadError)
-                        // Continue with other images even if one fails
-                    }
+        if (images && images.length > 0) {
+            console.log('[ChatView] Uploading', images.length, 'images to storage...')
+            
+            for (const img of images) {
+                try {
+                    // Calculate approximate size from base64
+                    const sizeInBytes = Math.round((img.base64Data.length * 3) / 4)
+                    
+                    // Upload to Supabase Storage via tRPC
+                    const uploaded = await trpcClient.messages.uploadFile.mutate({
+                        fileName: img.filename,
+                        fileSize: sizeInBytes,
+                        fileType: img.mediaType,
+                        fileData: img.base64Data
+                    })
+                    
+                    attachments.push({
+                        id: uploaded.id,
+                        name: uploaded.name,
+                        size: uploaded.size,
+                        type: uploaded.type,
+                        url: uploaded.url
+                    })
+                    
+                    console.log('[ChatView] Uploaded image:', uploaded.name, '→', uploaded.url)
+                } catch (uploadError) {
+                    console.error('[ChatView] Failed to upload image:', img.filename, uploadError)
+                    // Continue with other images even if one fails
                 }
             }
+        }
+
+        const sendWithChatId = async (chatId: string, historySource: typeof messages | undefined) => {
+            const chatIdForStream = chatId
+            const isFirstMessage = !historySource || historySource.length === 0
 
             // Add user message to database with attachments
             await addMessage.mutateAsync({
-                chatId: selectedChatId,
+                chatId: chatIdForStream,
                 role: 'user',
                 content: { type: 'text', text: userMessage },
                 attachments: attachments.length > 0 ? attachments : undefined
             })
-            await refetchMessages()
+
+            if (chatIdForStream === selectedChatId) {
+                await refetchMessages()
+            } else {
+                utils.messages.list.invalidate({ chatId: chatIdForStream })
+            }
 
             // Get API key from main process
             const apiKeyResult = provider === 'openai'
@@ -170,11 +210,11 @@ export function ChatView() {
             const tavilyKeyResult = await trpcClient.settings.getTavilyKey.query()
 
             if (isFirstMessage) {
-                generateAutoTitle(selectedChatId, userMessage, apiKeyResult.key, provider, selectedModel)
+                generateAutoTitle(chatIdForStream, userMessage, apiKeyResult.key, provider)
             }
 
             // Get conversation history for context
-            const messageHistory = (messages || [])
+            const messageHistory = (historySource || [])
                 .filter(m => m.role === 'user' || m.role === 'assistant')
                 .map(m => ({
                     role: m.role as 'user' | 'assistant',
@@ -183,209 +223,364 @@ export function ChatView() {
 
             // Variables to track streaming response
             let fullText = ''
+            let fullReasoning = ''
             const toolCalls: Map<string, { id: string; name: string; args: string; result?: unknown }> = new Map()
+            let cleanupListener: (() => void) | null = null
+            const actionCounts = {
+                webSearch: 0,
+                fileSearch: 0,
+                codeInterpreter: 0,
+                attachments: images?.length || 0
+            }
+            // Collect annotations in local variable to persist them
+            let collectedAnnotations: UrlCitation[] = []
 
-            // Setup IPC listener for streaming events
-            // Tools are executed in main process - we just display results here
-            // @ts-ignore - desktopApi type extended in preload
-            const cleanupListener = window.desktopApi.onAIStreamEvent(async (event: any) => {
-                switch (event.type) {
-                    case 'text-delta': {
-                        fullText += event.delta
-                        smoothStream.appendToBuffer(event.delta)
-                        break
-                    }
+            try {
+                const streamStartedAt = Date.now()
 
-                    case 'reasoning-delta': {
-                        setStreamingReasoning(prev => prev + event.delta)
-                        setIsReasoning(true)
-                        break
-                    }
+                // Setup IPC listener for streaming events
+                // Tools are executed in main process - we just display results here
+                // @ts-ignore - desktopApi type extended in preload
+                cleanupListener = window.desktopApi.onAIStreamEvent(async (event: any) => {
+                    switch (event.type) {
+                        case 'text-delta': {
+                            fullText += event.delta
+                            smoothStream.appendToBuffer(event.delta)
+                            break
+                        }
 
-                    case 'reasoning-done': {
-                        setIsReasoning(false)
-                        break
-                    }
+                        case 'reasoning-summary-delta': {
+                            fullReasoning += event.delta
+                            setStreamingReasoning(prev => prev + event.delta)
+                            setIsReasoning(true)
+                            break
+                        }
 
-                    case 'tool-call-start': {
-                        toolCalls.set(event.toolCallId, {
-                            id: event.toolCallId,
-                            name: event.toolName,
-                            args: ''
-                        })
-                        setStreamingToolCalls(Array.from(toolCalls.values()).map(tc => ({
-                            ...tc,
-                            status: 'streaming' as const
-                        })))
-                        break
-                    }
+                        case 'reasoning-summary-done': {
+                            setIsReasoning(false)
+                            break
+                        }
 
-                    case 'tool-call-delta': {
-                        const tc = toolCalls.get(event.toolCallId)
-                        if (tc) {
-                            tc.args += event.argsDelta
-                            setStreamingToolCalls(Array.from(toolCalls.values()).map(t => ({
-                                ...t,
+                        case 'web-search-start': {
+                            console.log('[ChatView] Web search start:', event)
+                            actionCounts.webSearch += 1
+                            const newSearch: WebSearchInfo = {
+                                searchId: event.searchId,
+                                query: event.query,
+                                status: 'searching',
+                                action: event.action,
+                                domains: event.domains,
+                                url: event.url
+                            }
+                            setStreamingWebSearches(prev => [...prev, newSearch])
+                            break
+                        }
+
+                        case 'web-search-searching': {
+                            console.log('[ChatView] Web search searching:', event)
+                            setStreamingWebSearches(prev => prev.map(ws =>
+                                ws.searchId === event.searchId
+                                    ? {
+                                        ...ws,
+                                        status: 'searching' as const,
+                                        action: event.action ?? ws.action,
+                                        query: event.query || ws.query,
+                                        domains: event.domains ?? ws.domains,
+                                        url: event.url ?? ws.url
+                                    }
+                                    : ws
+                            ))
+                            break
+                        }
+
+                        case 'web-search-done': {
+                            console.log('[ChatView] Web search done:', event)
+                            setStreamingWebSearches(prev => prev.map(ws =>
+                                ws.searchId === event.searchId
+                                    ? {
+                                        ...ws,
+                                        status: 'done' as const,
+                                        action: event.action ?? ws.action,
+                                        query: event.query || ws.query,
+                                        domains: event.domains ?? ws.domains,
+                                        url: event.url ?? ws.url
+                                    }
+                                    : ws
+                            ))
+                            break
+                        }
+
+                        case 'annotations': {
+                            // Collect URL citations from the response
+                            console.log('[ChatView] Received annotations event:', event)
+                            const urlCitations = (event.annotations || [])
+                                .filter((a: any) => a.type === 'url_citation')
+                                .map((a: any): UrlCitation => ({
+                                    type: 'url_citation',
+                                    url: a.url,
+                                    title: a.title,
+                                    startIndex: a.startIndex,
+                                    endIndex: a.endIndex
+                                }))
+                            console.log('[ChatView] Parsed URL citations:', urlCitations)
+                            if (urlCitations.length > 0) {
+                                // Accumulate in local variable for persistence
+                                collectedAnnotations = [...collectedAnnotations, ...urlCitations]
+                                // Also update streaming state for live display
+                                setStreamingAnnotations(prev => [...prev, ...urlCitations])
+                            }
+                            break
+                        }
+
+                        case 'file-search-start': {
+                            actionCounts.fileSearch += 1
+                            break
+                        }
+
+                        case 'code-interpreter-start': {
+                            actionCounts.codeInterpreter += 1
+                            break
+                        }
+
+                        case 'tool-call-start': {
+                            toolCalls.set(event.toolCallId, {
+                                id: event.toolCallId,
+                                name: event.toolName,
+                                args: ''
+                            })
+                            setStreamingToolCalls(Array.from(toolCalls.values()).map(tc => ({
+                                ...tc,
                                 status: 'streaming' as const
                             })))
+                            break
                         }
-                        break
-                    }
 
-                    case 'tool-call-done': {
-                        // Tool is being executed in main process
-                        // Just update status to "executing"
-                        const existingTc = toolCalls.get(event.toolCallId)
-                        if (existingTc) {
-                            toolCalls.set(event.toolCallId, { 
-                                ...existingTc, 
-                                args: JSON.stringify(event.args) 
-                            })
-                        }
-                        setStreamingToolCalls(prev => prev.map(t =>
-                            t.id === event.toolCallId
-                                ? { ...t, status: 'executing' as const, args: JSON.stringify(event.args) }
-                                : t
-                        ))
-                        break
-                    }
-
-                    case 'tool-result': {
-                        // Tool was executed in main process, update with result
-                        const existingTc = toolCalls.get(event.toolCallId)
-                        if (existingTc) {
-                            toolCalls.set(event.toolCallId, { 
-                                ...existingTc, 
-                                result: event.result 
-                            })
-                        }
-                        
-                        setStreamingToolCalls(prev => prev.map(t =>
-                            t.id === event.toolCallId
-                                ? { 
-                                    ...t, 
-                                    status: event.success ? 'complete' as const : 'error' as const, 
-                                    result: event.result 
-                                }
-                                : t
-                        ))
-
-                        // Auto-open artifact panel when spreadsheet/document is created
-                        const isArtifactCreation = event.toolName === 'create_spreadsheet' || event.toolName === 'create_document'
-                        if (isArtifactCreation && event.success && event.result?.artifactId) {
-                            // Invalidate artifacts query to show new artifact
-                            utils.artifacts.list.invalidate({ chatId: selectedChatId })
-                            
-                            // Auto-open the newly created artifact
-                            try {
-                                const artifact = await trpcClient.artifacts.get.query({ id: event.result.artifactId })
-                                if (artifact) {
-                                    setSelectedArtifact(artifact as any)
-                                    setArtifactPanelOpen(true)
-                                }
-                            } catch (err) {
-                                console.warn('[ChatView] Failed to auto-open artifact:', err)
+                        case 'tool-call-delta': {
+                            const tc = toolCalls.get(event.toolCallId)
+                            if (tc) {
+                                tc.args += event.argsDelta
+                                setStreamingToolCalls(Array.from(toolCalls.values()).map(t => ({
+                                    ...t,
+                                    status: 'streaming' as const
+                                })))
                             }
+                            break
                         }
-                        break
-                    }
 
-                    case 'error': {
-                        setStreamingError(event.error)
-                        break
-                    }
+                        case 'tool-call-done': {
+                            // Tool is being executed in main process
+                            // Just update status to "executing"
+                            const existingTc = toolCalls.get(event.toolCallId)
+                            if (existingTc) {
+                                toolCalls.set(event.toolCallId, { 
+                                    ...existingTc, 
+                                    args: JSON.stringify(event.args) 
+                                })
+                            }
+                            setStreamingToolCalls(prev => prev.map(t =>
+                                t.id === event.toolCallId
+                                    ? { ...t, status: 'executing' as const, args: JSON.stringify(event.args) }
+                                    : t
+                            ))
+                            break
+                        }
 
-                    case 'finish': {
-                        // Save assistant message to database
-                        if (fullText || toolCalls.size > 0) {
-                            const toolCallsArray = Array.from(toolCalls.values()).map(tc => {
-                                try {
-                                    return {
-                                        id: tc.id,
-                                        name: tc.name,
-                                        args: tc.args ? JSON.parse(tc.args) : null,
-                                        result: tc.result
-                                    }
-                                } catch {
-                                    return {
-                                        id: tc.id,
-                                        name: tc.name,
-                                        args: null
-                                    }
-                                }
-                            })
-
-                            console.log('[ChatView] Saving message with tool calls:', JSON.stringify(toolCallsArray, null, 2))
-
-                            await addMessage.mutateAsync({
-                                chatId: selectedChatId,
-                                role: 'assistant',
-                                content: { type: 'text', text: fullText },
-                                toolCalls: toolCallsArray.length > 0 ? toolCallsArray : undefined
-                            })
-
-                            await refetchMessages()
+                        case 'tool-result': {
+                            // Tool was executed in main process, update with result
+                            const existingTc = toolCalls.get(event.toolCallId)
+                            if (existingTc) {
+                                toolCalls.set(event.toolCallId, { 
+                                    ...existingTc, 
+                                    result: event.result 
+                                })
+                            }
                             
-                            // Refresh artifacts list after message is saved
-                            utils.artifacts.list.invalidate({ chatId: selectedChatId })
+                            setStreamingToolCalls(prev => prev.map(t =>
+                                t.id === event.toolCallId
+                                    ? { 
+                                        ...t, 
+                                        status: event.success ? 'complete' as const : 'error' as const, 
+                                        result: event.result 
+                                    }
+                                    : t
+                            ))
+
+                            // Auto-open artifact panel when spreadsheet/document is created
+                            const isArtifactCreation = event.toolName === 'create_spreadsheet' || event.toolName === 'create_document'
+                            if (isArtifactCreation && event.success && event.result?.artifactId) {
+                                // Invalidate artifacts query to show new artifact
+                                utils.artifacts.list.invalidate({ chatId: chatIdForStream })
+                                
+                                // Auto-open the newly created artifact
+                                try {
+                                    const artifact = await trpcClient.artifacts.get.query({ id: event.result.artifactId })
+                                    console.log('[ChatView] Auto-opening artifact:', {
+                                        id: artifact?.id,
+                                        name: artifact?.name,
+                                        hasUniverData: !!artifact?.univer_data,
+                                        univerDataKeys: artifact?.univer_data ? Object.keys(artifact.univer_data) : [],
+                                        cellDataRows: artifact?.univer_data?.sheets?.sheet1?.cellData ? Object.keys(artifact.univer_data.sheets.sheet1.cellData).length : 0
+                                    })
+                                    if (artifact) {
+                                        setSelectedArtifact(artifact as any)
+                                        setArtifactPanelOpen(true)
+                                    }
+                                } catch (err) {
+                                    console.warn('[ChatView] Failed to auto-open artifact:', err)
+                                }
+                            }
+                            break
                         }
 
-                        setIsStreaming(false)
-                        smoothStream.stopStream()
-                        setStreamingToolCalls([])
-                        setStreamingReasoning('')
-                        setIsReasoning(false)
-                        cleanupListener() // Clean up listener when done
-                        abortRef.current = null
-                        break
+                        case 'error': {
+                            setStreamingError(event.error)
+                            break
+                        }
+
+                        case 'finish': {
+                            const durationMs = Date.now() - streamStartedAt
+                            const usage = event.usage
+                                ? {
+                                    inputTokens: event.usage.promptTokens || 0,
+                                    outputTokens: event.usage.completionTokens || 0,
+                                    reasoningTokens: event.usage.reasoningTokens || 0,
+                                    totalTokens: (event.usage.promptTokens || 0) + (event.usage.completionTokens || 0)
+                                }
+                                : undefined
+
+                            // Save assistant message to database
+                            if (fullText || toolCalls.size > 0) {
+                                const toolCallsArray = Array.from(toolCalls.values()).map(tc => {
+                                    try {
+                                        return {
+                                            id: tc.id,
+                                            name: tc.name,
+                                            args: tc.args ? JSON.parse(tc.args) : null,
+                                            result: tc.result
+                                        }
+                                    } catch {
+                                        return {
+                                            id: tc.id,
+                                            name: tc.name,
+                                            args: null
+                                        }
+                                    }
+                                })
+
+                                const actions = [
+                                    actionCounts.attachments > 0 ? { type: 'attachments', count: actionCounts.attachments } : null,
+                                    actionCounts.webSearch > 0 ? { type: 'web-search', count: actionCounts.webSearch } : null,
+                                    actionCounts.fileSearch > 0 ? { type: 'file-search', count: actionCounts.fileSearch } : null,
+                                    actionCounts.codeInterpreter > 0 ? { type: 'code-interpreter', count: actionCounts.codeInterpreter } : null,
+                                    toolCallsArray.length > 0 ? { type: 'tool', count: toolCallsArray.length } : null
+                                ].filter(Boolean) as Array<{ type: 'attachments' | 'web-search' | 'file-search' | 'code-interpreter' | 'tool'; count: number }>
+
+                                console.log('[ChatView] Saving message with tool calls:', JSON.stringify(toolCallsArray, null, 2))
+
+                                await addMessage.mutateAsync({
+                                    chatId: chatIdForStream,
+                                    role: 'assistant',
+                                    content: { type: 'text', text: fullText },
+                                    toolCalls: toolCallsArray.length > 0 ? toolCallsArray : undefined,
+                                    metadata: {
+                                        usage,
+                                        durationMs,
+                                        reasoning: fullReasoning || undefined,
+                                        actions: actions.length > 0 ? actions : undefined,
+                                        annotations: collectedAnnotations.length > 0 ? collectedAnnotations : undefined
+                                    }
+                                })
+
+                                if (chatIdForStream === selectedChatId) {
+                                    await refetchMessages()
+                                } else {
+                                    utils.messages.list.invalidate({ chatId: chatIdForStream })
+                                }
+                                
+                                // Refresh artifacts list after message is saved
+                                utils.artifacts.list.invalidate({ chatId: chatIdForStream })
+                            }
+
+                            setIsStreaming(false)
+                            smoothStream.stopStream()
+                            setStreamingToolCalls([])
+                            // Save reasoning from local variable before clearing
+                            if (fullReasoning) {
+                                setLastReasoning(fullReasoning)
+                            }
+                            setStreamingReasoning('')
+                            setIsReasoning(false)
+                            // Clear web search state (already saved in message metadata)
+                            setStreamingWebSearches([])
+                            setStreamingAnnotations([])
+                            cleanupListener?.() // Clean up listener when done
+                            abortRef.current = null
+                            break
+                        }
                     }
+                })
+
+                // Store abort function to remove listener and cancel stream
+                abortRef.current = () => {
+                    cleanupListener?.()
+                    // Also call cancel mutation
+                    trpcClient.ai.cancel.mutate({ chatId: chatIdForStream })
                 }
-            })
 
-            // Store abort function to remove listener and cancel stream
-            abortRef.current = () => {
-                cleanupListener()
-                // Also call cancel mutation
-                trpcClient.ai.cancel.mutate({ chatId: selectedChatId })
+                // Start the stream via mutation
+                // Build images array for Claude vision API
+                const imageContent = images?.map(img => ({
+                    type: 'image' as const,
+                    data: img.base64Data,
+                    mediaType: img.mediaType,
+                }))
+
+                await chatMutation.mutateAsync({
+                    chatId: chatIdForStream,
+                    prompt: userMessage,
+                    mode,
+                    provider,
+                    apiKey: apiKeyResult.key,
+                    tavilyApiKey: tavilyKeyResult.key || undefined,
+                    model: selectedModel,
+                    messages: messageHistory,
+                    images: imageContent && imageContent.length > 0 ? imageContent : undefined,
+                    // Pass reasoning configuration if not 'none'
+                    reasoning: reasoningEffort !== 'none' ? {
+                        effort: reasoningEffort,
+                        summary: 'auto' // Required to receive reasoning summary events
+                    } : undefined
+                })
+            } catch (error) {
+                cleanupListener?.()
+                throw error
             }
+        }
 
-            // Start the stream via mutation
-            // Build images array for Claude vision API
-            const imageContent = images?.map(img => ({
-                type: 'image' as const,
-                data: img.base64Data,
-                mediaType: img.mediaType,
-            }))
-
-            await chatMutation.mutateAsync({
-                chatId: selectedChatId,
-                prompt: userMessage,
-                mode,
-                provider,
-                apiKey: apiKeyResult.key,
-                tavilyApiKey: tavilyKeyResult.key || undefined,
-                model: selectedModel,
-                messages: messageHistory,
-                images: imageContent && imageContent.length > 0 ? imageContent : undefined,
-                // Pass reasoning configuration if not 'none'
-                reasoning: reasoningEffort !== 'none' ? {
-                    effort: reasoningEffort,
-                    streamReasoning: true
-                } : undefined
-            })
-
+        try {
+            await sendWithChatId(selectedChatId, existingMessages)
         } catch (error) {
             console.error('Failed to send message:', error)
             const errorMessage = error instanceof Error ? error.message : 'Unknown error'
 
-            // If chat not found or access denied, clear selection
-            if (errorMessage.includes('not found') || errorMessage.includes('access denied')) {
-                console.warn('[ChatView] Chat not found, clearing selection')
-                setSelectedChatId(null)
-                setStreamingError('Chat not found. Please create a new chat.')
-            } else {
-                setStreamingError(errorMessage)
+            if (isChatAccessError(errorMessage)) {
+                console.warn('[ChatView] Chat not found, creating a new chat and retrying')
+
+                try {
+                    const newChat = await createFallbackChat()
+                    toast.info('Chat anterior no existía. Se creó uno nuevo.')
+                    await sendWithChatId(newChat.id, [])
+                    return
+                } catch (retryError) {
+                    console.error('[ChatView] Failed to recover from chat access error:', retryError)
+                    setSelectedChatId(null)
+                    setStreamingError('Chat not found. Please create a new chat.')
+                    setIsStreaming(false)
+                    return
+                }
             }
+
+            setStreamingError(errorMessage)
             setIsStreaming(false)
         }
     }
@@ -410,10 +605,24 @@ export function ChatView() {
         setArtifactPanelOpen(false)
     }, [selectedChatId, utils, setSelectedArtifact, setArtifactPanelOpen])
 
+    const getScrollViewport = useCallback(() => {
+        const root = scrollContainerRef.current
+        if (!root) return null
+        return root.querySelector('[data-radix-scroll-area-viewport]') as HTMLDivElement | null
+    }, [])
+
     // Auto-scroll to bottom
     const scrollToBottom = useCallback((behavior: ScrollBehavior = 'smooth') => {
         messagesEndRef.current?.scrollIntoView({ behavior, block: 'end' })
+        setShowScrollToBottom(false)
     }, [])
+
+    const updateScrollButton = useCallback(() => {
+        const viewport = getScrollViewport()
+        if (!viewport) return
+        const distanceFromBottom = viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight
+        setShowScrollToBottom(distanceFromBottom > 120)
+    }, [getScrollViewport])
 
     // Memoized handler for viewing artifacts
     const handleViewArtifact = useCallback(async (artifactId: string) => {
@@ -429,18 +638,29 @@ export function ChatView() {
     }, [setSelectedArtifact, setArtifactPanelOpen])
 
     useEffect(() => {
-        // Scroll on new messages or streaming updates
-        if (messages?.length || streamingText || streamingToolCalls.length) {
+        // Scroll on new messages or streaming updates (only if user is at bottom)
+        if (!showScrollToBottom && (messages?.length || streamingText || streamingToolCalls.length)) {
             scrollToBottom('smooth')
         }
-    }, [messages?.length, streamingText, streamingToolCalls.length, scrollToBottom])
+        updateScrollButton()
+    }, [messages?.length, streamingText, streamingToolCalls.length, scrollToBottom, updateScrollButton, showScrollToBottom])
 
-    // Scroll immediately on send
+    // Scroll immediately on send (only if user is at bottom)
     useEffect(() => {
-        if (isStreaming) {
+        if (isStreaming && !showScrollToBottom) {
             scrollToBottom('auto')
         }
-    }, [isStreaming, scrollToBottom])
+    }, [isStreaming, scrollToBottom, showScrollToBottom])
+
+    useEffect(() => {
+        const viewport = getScrollViewport()
+        if (!viewport) return
+        updateScrollButton()
+
+        const handleScroll = () => updateScrollButton()
+        viewport.addEventListener('scroll', handleScroll, { passive: true })
+        return () => viewport.removeEventListener('scroll', handleScroll)
+    }, [getScrollViewport, updateScrollButton])
 
     // Error state - chat not found (stale localStorage)
     if (messagesError && selectedChatId) {
@@ -529,12 +749,36 @@ export function ChatView() {
                             streamingText={streamingText}
                             streamingToolCalls={streamingToolCalls}
                             streamingReasoning={streamingReasoning}
+                            lastReasoning={lastReasoning}
                             isReasoning={isReasoning}
                             onViewArtifact={handleViewArtifact}
+                            streamingWebSearches={streamingWebSearches}
+                            streamingAnnotations={streamingAnnotations}
                         />
                         <div ref={messagesEndRef} className="h-px" />
                     </div>
                 </ScrollArea>
+
+                {showScrollToBottom && (
+                    <div className="absolute bottom-[20px] left-1/2 -translate-x-1/2 z-20">
+                        <Tooltip>
+                            <TooltipTrigger asChild>
+                                <div className="rounded-full bg-border/70 shadow-md">
+                                    <Button
+                                        type="button"
+                                        size="icon"
+                                        variant="secondary"
+                                        className="h-9 w-9 rounded-full"
+                                        onClick={() => scrollToBottom('smooth')}
+                                    >
+                                        <IconArrowDown size={18} />
+                                    </Button>
+                                </div>
+                            </TooltipTrigger>
+                            <TooltipContent side="top">Ir al final</TooltipContent>
+                        </Tooltip>
+                    </div>
+                )}
 
                 {/* Bottom Fade Overlay */}
                 <div className="absolute bottom-0 left-0 right-0 h-16 bg-gradient-to-t from-background to-transparent pointer-events-none z-10" />
@@ -560,6 +804,7 @@ export function ChatView() {
                             onSend={handleSend}
                             onStop={handleStop}
                             isLoading={isStreaming}
+                            streamingText={streamingText}
                         />
                     )}
                 </div>
@@ -569,26 +814,56 @@ export function ChatView() {
 }
 
 // Generate auto title for new chats
+const autoTitleRetryDelays = [0, 3_000, 5_000, 5_000]
+const autoTitleModel = 'gpt-5-nano'
+
+function getFallbackTitle(userMessage: string) {
+    const trimmed = userMessage.trim()
+    if (!trimmed) return 'New Chat'
+    if (trimmed.length <= 25) return trimmed
+    return `${trimmed.slice(0, 25)}...`
+}
+
+const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms))
+
 async function generateAutoTitle(
     chatId: string,
     userMessage: string,
     apiKey: string,
-    provider: string,
-    model: string
+    provider: string
 ) {
     try {
         const result = await trpcClient.ai.generateTitle.mutate({
             prompt: userMessage,
             provider: provider as 'openai',
             apiKey,
-            model
+            model: autoTitleModel
         })
 
-        if (result.title && result.title !== 'New Chat') {
-            await trpcClient.chats.update.mutate({
-                id: chatId,
-                title: result.title
-            })
+        const resolvedTitle = result.title && result.title !== 'New Chat'
+            ? result.title
+            : getFallbackTitle(userMessage)
+
+        if (!resolvedTitle || resolvedTitle === 'New Chat') {
+            return
+        }
+
+        for (let attempt = 0; attempt < autoTitleRetryDelays.length; attempt += 1) {
+            if (attempt > 0) {
+                await sleep(autoTitleRetryDelays[attempt])
+            }
+
+            try {
+                await trpcClient.chats.update.mutate({
+                    id: chatId,
+                    title: resolvedTitle
+                })
+                return
+            } catch (error) {
+                if (attempt === autoTitleRetryDelays.length - 1) {
+                    console.error('[ChatView] Failed to apply auto title after retries:', error)
+                }
+            }
         }
     } catch (error) {
         console.error('[ChatView] Failed to generate auto title:', error)

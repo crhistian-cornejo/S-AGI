@@ -5,7 +5,8 @@ import {
     IconX,
     IconLayoutSidebarRightCollapse,
     IconMessageChatbot,
-    IconTable
+    IconTable,
+    IconFileText
 } from '@tabler/icons-react'
 import {
     artifactPanelOpenAtom,
@@ -77,6 +78,19 @@ export function TitleBar() {
                     >
                         <IconTable size={14} />
                         Excel
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => setActiveTab('doc')}
+                        className={cn(
+                            "flex items-center gap-1.5 px-3 h-full rounded-md text-[11px] font-bold uppercase tracking-wider transition-all duration-300",
+                            activeTab === 'doc'
+                                ? "bg-accent text-primary shadow-sm"
+                                : "text-muted-foreground hover:text-foreground hover:bg-accent/30"
+                        )}
+                    >
+                        <IconFileText size={14} />
+                        Docs
                     </button>
                 </div>
             </div>

@@ -51,4 +51,4 @@ export { AgentEdit } from './agent-edit'
 export type { AgentEditProps, EditResult } from './agent-edit'
 
 export { AgentReasoning } from './agent-reasoning'
-export type { AgentReasoningProps } from './agent-reasoning'
+export type { AgentReasoningProps, AgentReasoningAction, WebSearchData, UrlCitationData } from './agent-reasoning'

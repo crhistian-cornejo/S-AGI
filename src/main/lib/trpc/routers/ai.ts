@@ -3,22 +3,17 @@ import { router, protectedProcedure } from '../trpc'
 import log from 'electron-log'
 import { sendToRenderer } from '../../window-manager'
 import { supabase } from '../../supabase/client'
-import { 
-    OpenAIResponsesClient,
-    type ResponsesTool,
-    type ResponsesFunctionTool,
-    type ResponsesMessage,
-    type ResponsesStreamEvent,
-    type ToolCallOutputItem
-} from '../../openai/responses-client'
+import { getSecureApiKeyStore } from '../../auth/api-key-store'
+
+import OpenAI from 'openai'
+import type { Responses } from 'openai/resources/responses/responses'
 import { SPREADSHEET_TOOLS, executeTool } from './tools'
 import { DOCUMENT_TOOLS, executeDocTool } from './doc-tools'
 import type { AIStreamEvent, ReasoningConfig, NativeToolsConfig } from '@shared/ai-types'
 import { 
     AI_MODELS, 
     DEFAULT_MODELS, 
-    getModelById,
-    DEFAULT_REASONING_CONFIG
+    getModelById
 } from '@shared/ai-types'
 
 // Re-export type for consumers
@@ -29,6 +24,15 @@ const activeStreams = new Map<string, AbortController>()
 
 // Maximum number of agent loop steps
 const MAX_AGENT_STEPS = 15
+
+const AUTO_TITLE_MAX_LENGTH = 25
+
+function getFallbackTitle(prompt: string) {
+    const trimmed = prompt.trim()
+    if (!trimmed) return 'New Chat'
+    if (trimmed.length <= AUTO_TITLE_MAX_LENGTH) return trimmed
+    return `${trimmed.slice(0, AUTO_TITLE_MAX_LENGTH)}...`
+}
 
 // System prompt for S-AGI agent
 const SYSTEM_PROMPT = `You are S-AGI, an AI assistant specialized in creating and manipulating spreadsheets, writing documents, and researching information from the web.
@@ -85,6 +89,52 @@ const SYSTEM_PROMPT = `You are S-AGI, an AI assistant specialized in creating an
  */
 function zodToJsonSchema(schema: z.ZodTypeAny): Record<string, unknown> {
     return convertZodType(schema)
+}
+
+function extractWebSearchDetails(wsEvent: any): {
+    action?: 'search' | 'open_page' | 'find_in_page'
+    query?: string
+    domains?: string[]
+    url?: string
+} {
+    const actionValue = wsEvent?.action
+    const actionObj = typeof actionValue === 'object' && actionValue !== null ? actionValue : {}
+    const actionType = actionValue === 'search' || actionValue === 'open_page' || actionValue === 'find_in_page'
+        ? actionValue
+        : actionObj.type === 'search' || actionObj.type === 'open_page' || actionObj.type === 'find_in_page'
+            ? actionObj.type
+            : undefined
+
+    const queries = Array.isArray(actionObj.queries)
+        ? actionObj.queries
+        : Array.isArray(wsEvent?.queries)
+            ? wsEvent.queries
+            : undefined
+
+    const query = typeof actionObj.query === 'string'
+        ? actionObj.query
+        : typeof wsEvent?.query === 'string'
+            ? wsEvent.query
+            : queries?.[0]
+
+    const domains = Array.isArray(actionObj.domains)
+        ? actionObj.domains
+        : Array.isArray(wsEvent?.domains)
+            ? wsEvent.domains
+            : undefined
+
+    const url = typeof actionObj.url === 'string'
+        ? actionObj.url
+        : typeof wsEvent?.url === 'string'
+            ? wsEvent.url
+            : undefined
+
+    return {
+        action: actionType,
+        query,
+        domains,
+        url
+    }
 }
 
 function convertZodType(zodType: z.ZodTypeAny): Record<string, unknown> {
@@ -210,15 +260,18 @@ function convertZodType(zodType: z.ZodTypeAny): Record<string, unknown> {
     return { type: 'string', description }
 }
 
+// Type for function tools
+type FunctionToolParam = Responses.FunctionTool
+
 /**
  * Create function tools for Responses API
  */
 function createFunctionTools(
     chatId: string,
     userId: string
-): { tools: ResponsesFunctionTool[]; executors: Map<string, (args: unknown) => Promise<unknown>> } {
+): { tools: FunctionToolParam[]; executors: Map<string, (args: unknown) => Promise<unknown>> } {
     const executors = new Map<string, (args: unknown) => Promise<unknown>>()
-    const tools: ResponsesFunctionTool[] = []
+    const tools: FunctionToolParam[] = []
 
     // Add spreadsheet tools
     for (const [name, tool] of Object.entries(SPREADSHEET_TOOLS)) {
@@ -226,7 +279,7 @@ function createFunctionTools(
             type: 'function',
             name,
             description: tool.description,
-            parameters: zodToJsonSchema(tool.inputSchema),
+            parameters: zodToJsonSchema(tool.inputSchema) as FunctionToolParam['parameters'],
             strict: true
         })
         executors.set(name, (args) => executeTool(name, args, chatId, userId))
@@ -238,7 +291,7 @@ function createFunctionTools(
             type: 'function',
             name,
             description: tool.description,
-            parameters: zodToJsonSchema(tool.inputSchema),
+            parameters: zodToJsonSchema(tool.inputSchema) as FunctionToolParam['parameters'],
             strict: true
         })
         executors.set(name, (args) => executeDocTool(name, args, chatId, userId))
@@ -247,36 +300,35 @@ function createFunctionTools(
     return { tools, executors }
 }
 
+// Union type for all tools
+type ToolParam = Responses.Tool
+
 /**
  * Build native tools array based on configuration and model support
  */
 function buildNativeTools(
     modelId: string,
     config?: NativeToolsConfig
-): ResponsesTool[] {
+): ToolParam[] {
     const model = getModelById(modelId)
     if (!model) return []
 
-    const tools: ResponsesTool[] = []
+    const tools: ToolParam[] = []
 
     // Web Search
     if (config?.webSearch !== false && model.supportsNativeWebSearch) {
         const webSearchConfig = typeof config?.webSearch === 'object' ? config.webSearch : {}
         tools.push({
-            type: 'web_search',
+            type: 'web_search_preview',
             search_context_size: webSearchConfig.searchContextSize || 'medium'
-        })
+        } as ToolParam)
     }
 
     // Code Interpreter
     if (config?.codeInterpreter && model.supportsCodeInterpreter) {
-        const codeConfig = typeof config.codeInterpreter === 'object' ? config.codeInterpreter : {}
         tools.push({
-            type: 'code_interpreter',
-            container: {
-                type: codeConfig.containerType || 'auto'
-            }
-        })
+            type: 'code_interpreter'
+        } as ToolParam)
     }
 
     // File Search
@@ -284,9 +336,9 @@ function buildNativeTools(
         const fileConfig = typeof config.fileSearch === 'object' ? config.fileSearch : {}
         tools.push({
             type: 'file_search',
-            vector_store_ids: fileConfig.vectorStoreIds,
+            vector_store_ids: fileConfig.vectorStoreIds || [],
             max_num_results: fileConfig.maxResults
-        })
+        } as ToolParam)
     }
 
     return tools
@@ -328,6 +380,8 @@ function sanitizeApiError(errorText: string): string {
     return errorText.replace(/sk-[a-zA-Z0-9_-]{20,}/g, '[REDACTED_API_KEY]')
 }
 
+// Types for input content
+
 /**
  * Convert internal messages to Responses API format
  */
@@ -335,33 +389,51 @@ function toResponsesMessages(
     messages: Array<{ role: 'user' | 'assistant' | 'system'; content: string }>,
     currentPrompt: string,
     images?: Array<{ type: 'image'; data: string; mediaType: string }>
-): ResponsesMessage[] {
-    const result: ResponsesMessage[] = []
+): Array<Responses.ResponseInputItem> {
+    const result: Array<Responses.ResponseInputItem> = []
 
     // Add previous messages
     for (const msg of messages) {
         if (msg.role === 'user' || msg.role === 'assistant') {
-            result.push({ role: msg.role, content: msg.content })
+            result.push({
+                type: 'message',
+                role: msg.role,
+                content: msg.content
+            } as Responses.ResponseInputItem)
         }
     }
 
     // Add current message with optional images
     if (images?.length) {
+        const content: Array<Responses.ResponseInputContent> = [
+            ...images.map(img => ({
+                type: 'input_image' as const,
+                image_url: `data:${img.mediaType};base64,${img.data}`,
+                detail: 'auto' as const
+            })),
+            { type: 'input_text' as const, text: currentPrompt }
+        ]
         result.push({
+            type: 'message',
             role: 'user',
-            content: [
-                ...images.map(img => ({
-                    type: 'image_url' as const,
-                    image_url: { url: `data:${img.mediaType};base64,${img.data}` }
-                })),
-                { type: 'text' as const, text: currentPrompt }
-            ]
-        })
+            content
+        } as Responses.ResponseInputItem)
     } else {
-        result.push({ role: 'user', content: currentPrompt })
+        result.push({
+            type: 'message',
+            role: 'user',
+            content: currentPrompt
+        } as Responses.ResponseInputItem)
     }
 
     return result
+}
+
+// Type for pending tool calls we need to track
+interface PendingToolCall {
+    callId: string
+    name: string
+    arguments: string
 }
 
 export const aiRouter = router({
@@ -410,7 +482,7 @@ export const aiRouter = router({
             // Responses API specific
             reasoning: z.object({
                 effort: z.enum(['none', 'low', 'medium', 'high']),
-                streamReasoning: z.boolean().optional(),
+                summary: z.enum(['auto', 'concise', 'detailed']).optional(),
                 maxReasoningTokens: z.number().optional()
             }).optional(),
             nativeTools: z.object({
@@ -460,19 +532,20 @@ export const aiRouter = router({
             }
 
             const runAgentLoop = async () => {
+                const startTime = Date.now()
                 try {
                     const modelId = input.model || DEFAULT_MODELS.openai
                     const modelDef = getModelById(modelId)
                     
                     log.info(`[AI] Starting Responses API agent loop with ${modelId}`)
+                    log.info(`[AI] Reasoning config:`, input.reasoning)
                     if (input.images?.length) {
                         log.info(`[AI] Including ${input.images.length} image(s)`)
                     }
 
-                    // Create Responses API client
-                    const client = new OpenAIResponsesClient({
-                        apiKey: input.apiKey,
-                        model: modelId
+                    // Create OpenAI client
+                    const client = new OpenAI({
+                        apiKey: input.apiKey
                     })
 
                     // Build tools
@@ -481,7 +554,9 @@ export const aiRouter = router({
                         : { tools: [], executors: new Map() }
                     
                     const nativeTools = buildNativeTools(modelId, input.nativeTools)
-                    const allTools: ResponsesTool[] = [...functionTools, ...nativeTools]
+                    const allTools: ToolParam[] = [...functionTools, ...nativeTools]
+                    
+                    log.info(`[AI] Tools: ${allTools.length} (${functionTools.length} function, ${nativeTools.length} native)`)
 
                     // Build messages
                     const messages = toResponsesMessages(
@@ -492,63 +567,271 @@ export const aiRouter = router({
 
                     // Determine reasoning config
                     const reasoningConfig: ReasoningConfig | undefined = modelDef?.supportsReasoning
-                        ? (input.reasoning || { 
-                            effort: modelDef.defaultReasoningEffort || DEFAULT_REASONING_CONFIG.effort 
-                          })
+                        ? input.reasoning
                         : undefined
+                    
+                    log.info(`[AI] Final reasoning config:`, reasoningConfig)
 
                     let currentStepNumber = 0
                     let fullText = ''
-                    let fullReasoning = ''
+                    let fullReasoningSummary = ''
                     let currentResponseId = input.previousResponseId
-                    let pendingToolCalls: ToolCallOutputItem[] = []
+                    let pendingToolCalls: PendingToolCall[] = []
+                    const usageTotals = {
+                        promptTokens: 0,
+                        completionTokens: 0,
+                        reasoningTokens: 0
+                    }
 
                     // Agent loop
                     while (currentStepNumber < MAX_AGENT_STEPS) {
                         currentStepNumber++
-                        log.info(`[AI] Step ${currentStepNumber}`)
+                        const stepStartTime = Date.now()
+                        log.info(`[AI] Step ${currentStepNumber} starting...`)
 
-                        // Stream the response
-                        const streamGenerator = currentResponseId && pendingToolCalls.length > 0
-                            ? client.submitToolOutputsStream(
-                                currentResponseId,
-                                pendingToolCalls.map(tc => ({
-                                    call_id: tc.call_id,
-                                    output: tc.arguments // This will be the result after execution
-                                })),
-                                { tools: allTools, reasoning: reasoningConfig },
-                                abortController.signal
-                              )
-                            : client.stream({
-                                input: messages,
-                                tools: allTools.length > 0 ? allTools : undefined,
-                                reasoning: reasoningConfig,
-                                instructions: SYSTEM_PROMPT,
-                                store: true
-                              }, abortController.signal)
+                        // Build input for this iteration
+                        let inputForRequest: Responses.ResponseCreateParams['input']
+                        
+                        if (currentResponseId && pendingToolCalls.length > 0) {
+                            // Submit tool outputs
+                            inputForRequest = pendingToolCalls.map(tc => ({
+                                type: 'function_call_output' as const,
+                                call_id: tc.callId,
+                                output: tc.arguments // This contains the result after execution
+                            }))
+                        } else {
+                            inputForRequest = messages
+                        }
+
+                        // Stream the response using the official SDK
+                        const stream = client.responses.stream({
+                            model: modelId,
+                            input: inputForRequest,
+                            tools: allTools.length > 0 ? allTools : undefined,
+                            instructions: SYSTEM_PROMPT,
+                            store: true,
+                            previous_response_id: currentResponseId,
+                            reasoning: reasoningConfig ? {
+                                effort: reasoningConfig.effort,
+                                summary: reasoningConfig.summary
+                            } : undefined
+                        }, {
+                            signal: abortController.signal
+                        })
 
                         pendingToolCalls = []
                         let hasToolCalls = false
 
-                        for await (const event of streamGenerator) {
-                            if (abortController.signal.aborted) {
-                                log.info('[AI] Stream aborted')
-                                return
-                            }
-
-                            handleStreamEvent(
-                                event,
-                                emit,
-                                {
-                                    onTextDelta: (delta) => { fullText += delta },
-                                    onReasoningDelta: (delta) => { fullReasoning += delta },
-                                    onToolCall: (toolCall) => {
-                                        hasToolCalls = true
-                                        pendingToolCalls.push(toolCall)
-                                    },
-                                    onResponseId: (id) => { currentResponseId = id }
+                        // Handle stream events
+                        stream
+                            .on('response.created', (event) => {
+                                log.info(`[AI] Stream: response.created, id=${event.response.id}`)
+                                currentResponseId = event.response.id
+                            })
+                            .on('response.output_text.delta', (event) => {
+                                fullText += event.delta
+                                emit({ type: 'text-delta', delta: event.delta })
+                            })
+                            .on('response.reasoning_summary_text.delta', (event) => {
+                                if (fullReasoningSummary.length === 0) {
+                                    log.info(`[AI] Stream: First reasoning delta received`)
                                 }
-                            )
+                                fullReasoningSummary += event.delta
+                                emit({ 
+                                    type: 'reasoning-summary-delta', 
+                                    delta: event.delta,
+                                    summaryIndex: event.summary_index
+                                })
+                            })
+                            .on('response.reasoning_summary_text.done', (event) => {
+                                log.info(`[AI] Stream: Reasoning summary done, ${event.text?.length || 0} chars`)
+                                emit({ 
+                                    type: 'reasoning-summary-done', 
+                                    text: event.text,
+                                    summaryIndex: event.summary_index
+                                })
+                            })
+                            .on('response.output_item.done', (event) => {
+                                // Log the full event for debugging
+                                log.info(`[AI] output_item.done - type: ${event.item.type}`)
+                                
+                                // Check if this is a function call item
+                                if (event.item.type === 'function_call') {
+                                    const functionCall = event.item as Responses.ResponseFunctionToolCall
+                                    hasToolCalls = true
+                                    emit({
+                                        type: 'tool-call-done',
+                                        toolCallId: functionCall.call_id,
+                                        toolName: functionCall.name,
+                                        args: JSON.parse(functionCall.arguments)
+                                    })
+                                    
+                                    // Track pending tool call
+                                    pendingToolCalls.push({
+                                        callId: functionCall.call_id,
+                                        name: functionCall.name,
+                                        arguments: functionCall.arguments
+                                    })
+                                }
+                                
+                                // Check if this is a message with annotations (web search citations)
+                                if (event.item.type === 'message') {
+                                    const messageItem = event.item as any
+                                    log.info(`[AI] Message item done, content count: ${messageItem.content?.length || 0}`)
+                                    log.info(`[AI] Message item raw:`, JSON.stringify(messageItem, null, 2))
+                                    
+                                    // Annotations can be on multiple content items (type: output_text)
+                                    const allAnnotations: any[] = []
+                                    for (const content of messageItem.content || []) {
+                                        log.info(`[AI] Content item type: ${content?.type}, has annotations: ${!!content?.annotations}, count: ${content?.annotations?.length || 0}`)
+                                        if (content?.annotations && content.annotations.length > 0) {
+                                            allAnnotations.push(...content.annotations)
+                                        }
+                                    }
+                                    
+                                    if (allAnnotations.length > 0) {
+                                        log.info(`[AI] Total annotations found: ${allAnnotations.length}`)
+                                        const urlCitations = allAnnotations
+                                            .filter((a: any) => a.type === 'url_citation')
+                                            .map((a: any) => ({
+                                                type: 'url_citation' as const,
+                                                url: a.url,
+                                                title: a.title,
+                                                startIndex: a.start_index,
+                                                endIndex: a.end_index
+                                            }))
+                                        
+                                        if (urlCitations.length > 0) {
+                                            log.info(`[AI] Emitting ${urlCitations.length} URL citations`)
+                                            emit({ type: 'annotations', annotations: urlCitations })
+                                        }
+                                    }
+                                }
+                            })
+                            .on('response.web_search_call.in_progress', (event) => {
+                                const wsEvent = event as any
+                                const { action, query, domains, url } = extractWebSearchDetails(wsEvent)
+                                emit({
+                                    type: 'web-search-start',
+                                    searchId: event.item_id,
+                                    action,
+                                    query,
+                                    domains,
+                                    url
+                                })
+                            })
+                            .on('response.web_search_call.searching', (event) => {
+                                const wsEvent = event as any
+                                const { action, query, domains, url } = extractWebSearchDetails(wsEvent)
+                                emit({
+                                    type: 'web-search-searching',
+                                    searchId: event.item_id,
+                                    action,
+                                    query,
+                                    domains,
+                                    url
+                                })
+                            })
+                            .on('response.web_search_call.completed', (event) => {
+                                const wsEvent = event as any
+                                log.info(`[AI] Web search completed:`, JSON.stringify(wsEvent, null, 2))
+                                const { action, query, domains, url } = extractWebSearchDetails(wsEvent)
+                                emit({
+                                    type: 'web-search-done',
+                                    searchId: event.item_id,
+                                    action,
+                                    query,
+                                    domains,
+                                    url
+                                })
+                            })
+                            .on('response.code_interpreter_call.in_progress', (event) => {
+                                emit({ type: 'code-interpreter-start', executionId: event.item_id })
+                            })
+                            .on('response.code_interpreter_call.interpreting', (event) => {
+                                emit({ type: 'code-interpreter-interpreting', executionId: event.item_id })
+                            })
+                            .on('response.code_interpreter_call_code.delta', (event) => {
+                                emit({ type: 'code-interpreter-code-delta', executionId: event.item_id, delta: event.delta })
+                            })
+                            .on('response.code_interpreter_call_code.done', (event) => {
+                                emit({ type: 'code-interpreter-code-done', executionId: event.item_id, code: event.code })
+                            })
+                            .on('response.code_interpreter_call.completed', (event) => {
+                                emit({ type: 'code-interpreter-done', executionId: event.item_id, output: '' })
+                            })
+                            .on('response.file_search_call.in_progress', (event) => {
+                                emit({ type: 'file-search-start', searchId: event.item_id })
+                            })
+                            .on('response.file_search_call.searching', (event) => {
+                                emit({ type: 'file-search-searching', searchId: event.item_id })
+                            })
+                            .on('response.file_search_call.completed', (event) => {
+                                emit({ type: 'file-search-done', searchId: event.item_id })
+                            })
+                            .on('error', (event) => {
+                                emit({ type: 'error', error: event.message })
+                            })
+
+                        // Wait for stream to complete
+                        const finalResponse = await stream.finalResponse()
+                        const responseUsage = finalResponse.usage
+                        if (responseUsage) {
+                            usageTotals.promptTokens += responseUsage.input_tokens || 0
+                            usageTotals.completionTokens += responseUsage.output_tokens || 0
+                            usageTotals.reasoningTokens += responseUsage.output_tokens_details?.reasoning_tokens || 0
+                        }
+                        log.info(`[AI] Step ${currentStepNumber} complete in ${Date.now() - stepStartTime}ms, text=${fullText.length} chars`)
+                        
+                        // DEBUG: Log the full final response structure
+                        log.info(`[AI] finalResponse keys: ${Object.keys(finalResponse).join(', ')}`)
+                        log.info(`[AI] finalResponse.output type: ${typeof finalResponse.output}, isArray: ${Array.isArray(finalResponse.output)}, length: ${(finalResponse.output as any)?.length}`)
+                        
+                        // Check finalResponse.output for annotations (fallback if not received via streaming)
+                        // The annotations may be in the final response output items
+                        if (finalResponse.output && Array.isArray(finalResponse.output)) {
+                            const allFinalAnnotations: any[] = []
+                            
+                            for (const outputItem of finalResponse.output) {
+                                const itemType = (outputItem as any).type
+                                log.info(`[AI] Final output item type: ${itemType}`)
+                                
+                                // Log the full structure of each output item
+                                if (itemType === 'message') {
+                                    const msgItem = outputItem as any
+                                    log.info(`[AI] Message content count: ${msgItem.content?.length || 0}`)
+                                    
+                                    for (const content of msgItem.content || []) {
+                                        log.info(`[AI] Content type: ${content?.type}, annotations: ${JSON.stringify(content?.annotations?.slice(0, 2))}`)
+                                        if (content?.annotations && content.annotations.length > 0) {
+                                            log.info(`[AI] Found ${content.annotations.length} annotations in final response`)
+                                            allFinalAnnotations.push(...content.annotations)
+                                        }
+                                    }
+                                } else if (itemType === 'web_search_call') {
+                                    // Web search results might have URLs here
+                                    log.info(`[AI] Web search call item: ${JSON.stringify(outputItem).slice(0, 500)}`)
+                                }
+                            }
+                            
+                            if (allFinalAnnotations.length > 0) {
+                                const urlCitations = allFinalAnnotations
+                                    .filter((a: any) => a.type === 'url_citation')
+                                    .map((a: any) => ({
+                                        type: 'url_citation' as const,
+                                        url: a.url,
+                                        title: a.title,
+                                        startIndex: a.start_index,
+                                        endIndex: a.end_index
+                                    }))
+                                
+                                if (urlCitations.length > 0) {
+                                    log.info(`[AI] Emitting ${urlCitations.length} URL citations from final response`)
+                                    emit({ type: 'annotations', annotations: urlCitations })
+                                }
+                            }
+                        } else {
+                            log.warn(`[AI] finalResponse.output is not a valid array: ${JSON.stringify(finalResponse.output)?.slice(0, 200)}`)
                         }
 
                         // Execute any pending tool calls IN PARALLEL
@@ -568,7 +851,7 @@ export const aiRouter = router({
                                         const success = !(result && typeof result === 'object' && 'error' in result)
                                         emit({
                                             type: 'tool-result',
-                                            toolCallId: toolCall.call_id,
+                                            toolCallId: toolCall.callId,
                                             toolName: toolCall.name,
                                             result,
                                             success
@@ -580,7 +863,7 @@ export const aiRouter = router({
                                     toolCall.arguments = JSON.stringify({ error: errorMsg, success: false })
                                     emit({
                                         type: 'tool-result',
-                                        toolCallId: toolCall.call_id,
+                                        toolCallId: toolCall.callId,
                                         toolName: toolCall.name,
                                         result: { error: errorMsg },
                                         success: false
@@ -599,14 +882,16 @@ export const aiRouter = router({
 
                     // Finalize
                     emit({ type: 'text-done', text: fullText })
-                    if (fullReasoning) {
-                        emit({ type: 'reasoning-done', text: fullReasoning })
-                    }
                     emit({
                         type: 'finish',
-                        usage: { promptTokens: 0, completionTokens: 0 }, // Will be updated from response
+                        usage: {
+                            promptTokens: usageTotals.promptTokens,
+                            completionTokens: usageTotals.completionTokens,
+                            reasoningTokens: usageTotals.reasoningTokens
+                        },
                         totalSteps: currentStepNumber
                     })
+                    log.info(`[AI] Agent loop finished in ${Date.now() - startTime}ms, totalSteps=${currentStepNumber}`)
 
                 } catch (error) {
                     if (error instanceof Error && error.name === 'AbortError') {
@@ -640,6 +925,44 @@ export const aiRouter = router({
             return { success: false, message: 'No active stream found' }
         }),
 
+    // Generate speech audio from text (OpenAI TTS)
+    textToSpeech: protectedProcedure
+        .input(z.object({
+            text: z.string().min(1),
+            model: z.string().optional(),
+            voice: z.string().optional()
+        }))
+        .mutation(async ({ input }) => {
+            const store = getSecureApiKeyStore()
+            const apiKey = store.getOpenAIKey()
+
+            if (!apiKey) {
+                throw new Error('OpenAI API key not configured')
+            }
+
+            try {
+                const client = new OpenAI({ apiKey })
+                const modelId = input.model || 'gpt-4o-mini-tts'
+                const voice = input.voice || 'alloy'
+
+                const response = await client.audio.speech.create({
+                    model: modelId,
+                    voice,
+                    input: input.text
+                })
+
+                const audioBuffer = Buffer.from(await response.arrayBuffer())
+
+                return {
+                    audioBase64: audioBuffer.toString('base64'),
+                    mimeType: 'audio/mpeg'
+                }
+            } catch (error) {
+                log.error('[AI] Text-to-speech error:', error)
+                throw new Error('Failed to generate speech audio')
+            }
+        }),
+
     // Generate chat title
     generateTitle: protectedProcedure
         .input(z.object({
@@ -650,101 +973,28 @@ export const aiRouter = router({
         }))
         .mutation(async ({ input }) => {
             try {
-                const client = new OpenAIResponsesClient({
-                    apiKey: input.apiKey,
-                    model: 'gpt-5-nano' // Fast model for title generation
+                const client = new OpenAI({
+                    apiKey: input.apiKey
                 })
 
-                const response = await client.create({
-                    input: [{ role: 'user', content: input.prompt }],
+                const modelId = input.model || 'gpt-5-nano'
+
+                const response = await client.responses.create({
+                    model: modelId, // Fast model for title generation
+                    input: input.prompt,
                     instructions: "Generate a short, concise title (max 5 words) for the user's message. Do not use quotes. Just respond with the title, nothing else.",
-                    maxOutputTokens: 50
+                    max_output_tokens: 50
                 })
 
-                const title = response.output_text?.trim() || 'New Chat'
+                const candidate = response.output_text?.trim() || ''
+                const title = candidate && candidate !== 'New Chat'
+                    ? candidate
+                    : getFallbackTitle(input.prompt)
+
                 return { title }
             } catch (error) {
                 log.error('[AI] Generate title error:', error)
-                return { title: 'New Chat' }
+                return { title: getFallbackTitle(input.prompt) }
             }
         })
 })
-
-/**
- * Handle individual stream events (sync for performance)
- */
-function handleStreamEvent(
-    event: ResponsesStreamEvent,
-    emit: (e: AIStreamEvent) => void,
-    callbacks: {
-        onTextDelta: (delta: string) => void
-        onReasoningDelta: (delta: string) => void
-        onToolCall: (toolCall: ToolCallOutputItem) => void
-        onResponseId: (id: string) => void
-    }
-): void {
-    switch (event.type) {
-        case 'response.created':
-            callbacks.onResponseId(event.response.id)
-            break
-
-        case 'response.output_text.delta':
-            callbacks.onTextDelta(event.delta)
-            emit({ type: 'text-delta', delta: event.delta })
-            break
-
-        case 'response.reasoning.delta':
-            callbacks.onReasoningDelta(event.delta)
-            emit({ type: 'reasoning-delta', delta: event.delta })
-            break
-
-        case 'response.reasoning.done':
-            emit({ type: 'reasoning-done', text: event.text })
-            break
-
-        case 'response.function_call_arguments.done': {
-            emit({
-                type: 'tool-call-done',
-                toolCallId: event.call_id,
-                toolName: event.name,
-                args: JSON.parse(event.arguments)
-            })
-            
-            // Create a pending tool call
-            callbacks.onToolCall({
-                type: 'function_call',
-                id: event.call_id,
-                call_id: event.call_id,
-                name: event.name,
-                arguments: event.arguments,
-                status: 'completed'
-            })
-            break
-        }
-
-        case 'response.web_search_call.in_progress':
-            emit({ type: 'web-search-start', searchId: event.call_id })
-            break
-
-        case 'response.web_search_call.completed':
-            emit({ type: 'web-search-done', searchId: event.call_id, results: event.output })
-            break
-
-        case 'response.code_interpreter.in_progress':
-            emit({ type: 'code-interpreter-start', executionId: event.call_id })
-            break
-
-        case 'response.code_interpreter.completed':
-            emit({ type: 'code-interpreter-done', executionId: event.call_id, output: event.output || '' })
-            break
-
-        case 'response.completed':
-            // Response completed, no action needed
-            break
-
-        case 'response.failed':
-        case 'error':
-            emit({ type: 'error', error: event.error.message })
-            break
-    }
-}

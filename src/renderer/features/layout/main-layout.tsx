@@ -3,8 +3,6 @@ import {
     IconPlus,
     IconLayoutSidebarLeftExpand,
     IconHistory,
-    IconTable,
-    IconSparkles
 } from '@tabler/icons-react'
 import { trpc } from '@/lib/trpc'
 import {
@@ -13,7 +11,8 @@ import {
     selectedArtifactAtom,
     selectedChatIdAtom,
     activeTabAtom,
-    shortcutsDialogOpenAtom
+    shortcutsDialogOpenAtom,
+    settingsModalOpenAtom
 } from '@/lib/atoms'
 import { Sidebar } from '@/features/sidebar/sidebar'
 import { ChatView } from '@/features/chat/chat-view'
@@ -26,6 +25,7 @@ import { Button } from '@/components/ui/button'
 import { Dialog, DialogTrigger } from '@/components/ui/dialog'
 import { ShortcutsDialog } from '@/features/help/shortcuts-dialog'
 import { useHotkeys } from 'react-hotkeys-hook'
+import { useUniverTheme } from '@/features/univer/use-univer-theme'
 
 // Lazy load less frequently used components
 const ArtifactPanel = lazy(() => import('@/features/artifacts/artifact-panel').then(m => ({ default: m.ArtifactPanel })))
@@ -46,10 +46,14 @@ export function MainLayout() {
     const [artifactPanelOpen] = useAtom(artifactPanelOpenAtom)
     const selectedArtifact = useAtomValue(selectedArtifactAtom)
     const setSelectedChatId = useSetAtom(selectedChatIdAtom)
-    const [activeTab, setActiveTab] = useAtom(activeTabAtom)
+    const [activeTab] = useAtom(activeTabAtom)
     const [, setShortcutsOpen] = useAtom(shortcutsDialogOpenAtom)
+    const setSettingsOpen = useSetAtom(settingsModalOpenAtom)
     const utils = trpc.useUtils()
     const [historyOpen, setHistoryOpen] = useState(false)
+
+    // Sync Univer theme with app dark/light mode
+    useUniverTheme()
 
     const createChat = trpc.chats.create.useMutation({
         onSuccess: (chat) => {
@@ -73,6 +77,7 @@ export function MainLayout() {
         e.preventDefault()
         handleNewChat()
     }, { enableOnFormTags: true, preventDefault: true })
+    useHotkeys('meta+comma, ctrl+comma', () => setSettingsOpen(true), { preventDefault: true })
 
     return (
         <div className="h-screen w-screen bg-background flex flex-col overflow-hidden">
@@ -80,6 +85,7 @@ export function MainLayout() {
             <ShortcutsDialog />
 
             <div className="flex flex-1 overflow-hidden relative">
+                {/* Chat Tab - conditionally rendered because it doesn't have Univer conflicts */}
                 {activeTab === 'chat' && (
                     <>
                         {/* Sidebar */}
@@ -110,7 +116,12 @@ export function MainLayout() {
                                                 <IconPlus size={20} />
                                             </Button>
                                         </TooltipTrigger>
-                                        <TooltipContent side="right" className="font-bold">New Chat</TooltipContent>
+                                        <TooltipContent side="right" className="flex items-center gap-2 font-semibold">
+                                            New Chat
+                                            <kbd className="pointer-events-none inline-flex h-5 select-none items-center gap-1 rounded border bg-muted px-1.5 font-mono text-[10px] font-medium text-muted-foreground opacity-100">
+                                                {navigator.platform.toLowerCase().includes('mac') ? '⌘' : 'Ctrl'} N
+                                            </kbd>
+                                        </TooltipContent>
                                     </Tooltip>
 
                                     <div className="flex flex-col gap-1.5 p-1 rounded-2xl bg-background/40 backdrop-blur-md border border-border/50 shadow-xl">
@@ -149,7 +160,12 @@ export function MainLayout() {
                                                     <IconLayoutSidebarLeftExpand size={18} />
                                                 </Button>
                                             </TooltipTrigger>
-                                            <TooltipContent side="right">Open Sidebar</TooltipContent>
+                                            <TooltipContent side="right" className="flex items-center gap-2 font-semibold">
+                                                Open Sidebar
+                                                <kbd className="pointer-events-none inline-flex h-5 select-none items-center gap-1 rounded border bg-muted px-1.5 font-mono text-[10px] font-medium text-muted-foreground opacity-100">
+                                                    {navigator.platform.toLowerCase().includes('mac') ? '⌘' : 'Ctrl'} \
+                                                </kbd>
+                                            </TooltipContent>
                                         </Tooltip>
                                     </div>
                                 </div>
@@ -173,42 +189,27 @@ export function MainLayout() {
                     </>
                 )}
 
+                {/* 
+                 * Excel Tab - Conditional rendering to avoid Univer DI conflicts.
+                 * Only one Univer instance exists at a time.
+                 */}
                 {activeTab === 'excel' && (
-                    <div className="flex-1 flex flex-col animate-in fade-in zoom-in-95 duration-500">
-                        {selectedArtifact && selectedArtifact.type === 'spreadsheet' ? (
-                            <Suspense fallback={<PanelLoadingFallback />}>
-                                <UniverSpreadsheet
-                                    artifactId={selectedArtifact.id}
-                                    data={selectedArtifact.univer_data}
-                                />
-                            </Suspense>
-                        ) : (
-                            <div className="flex-1 flex flex-col items-center justify-center p-8">
-                                <div className="max-w-md text-center space-y-4">
-                                    <div className="w-16 h-16 rounded-2xl bg-emerald-500/10 flex items-center justify-center mx-auto">
-                                        <IconTable size={32} className="text-emerald-600" />
-                                    </div>
-                                    <div>
-                                        <h2 className="text-xl font-semibold">No Spreadsheet Selected</h2>
-                                        <p className="text-muted-foreground mt-1">
-                                            Create a spreadsheet in the chat or select one from your conversation history.
-                                        </p>
-                                    </div>
-                                    <Button 
-                                        variant="outline"
-                                        onClick={() => setActiveTab('chat')}
-                                    >
-                                        <IconSparkles size={16} className="mr-2" />
-                                        Go to Chat
-                                    </Button>
-                                </div>
-                            </div>
-                        )}
+                    <div className="flex-1 flex flex-col animate-in fade-in zoom-in-95 duration-300">
+                        <Suspense fallback={<PanelLoadingFallback />}>
+                            <UniverSpreadsheet
+                                artifactId={selectedArtifact?.type === 'spreadsheet' ? selectedArtifact.id : undefined}
+                                data={selectedArtifact?.type === 'spreadsheet' ? selectedArtifact.univer_data : undefined}
+                            />
+                        </Suspense>
                     </div>
                 )}
 
+                {/* 
+                 * Doc Tab - Conditional rendering to avoid Univer DI conflicts.
+                 * Only one Univer instance exists at a time.
+                 */}
                 {activeTab === 'doc' && (
-                    <div className="flex-1 flex flex-col animate-in fade-in zoom-in-95 duration-500">
+                    <div className="flex-1 flex flex-col animate-in fade-in zoom-in-95 duration-300">
                         <DocViewer />
                     </div>
                 )}

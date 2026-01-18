@@ -86,3 +86,31 @@ export interface UniverCellData {
     s?: string // style id
     t?: 'n' | 's' | 'b' | 'f' // type: number, string, boolean, formula
 }
+
+// Univer document data structure (for Word-like documents)
+export interface UniverDocumentData {
+    id: string
+    title?: string
+    body: {
+        dataStream: string
+        textRuns?: Array<{
+            st: number
+            ed: number
+            ts?: Record<string, any>
+        }>
+        paragraphs?: Array<{
+            startIndex: number
+            paragraphStyle?: Record<string, any>
+        }>
+    }
+    documentStyle?: {
+        pageSize?: {
+            width: number
+            height: number
+        }
+        marginTop?: number
+        marginBottom?: number
+        marginLeft?: number
+        marginRight?: number
+    }
+}

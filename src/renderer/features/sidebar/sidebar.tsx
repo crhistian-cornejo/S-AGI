@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useRef, useEffect, useCallback } from 'react'
 import { useAtom, useAtomValue, useSetAtom } from 'jotai'
 import {
     IconPlus,
@@ -25,7 +25,6 @@ import {
     artifactPanelOpenAtom
 } from '@/lib/atoms'
 import { Button } from '@/components/ui/button'
-import { ScrollArea } from '@/components/ui/scroll-area'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { Input } from '@/components/ui/input'
 
@@ -44,6 +43,76 @@ import {
 } from '@/components/ui/avatar'
 import { cn, formatRelativeTime } from '@/lib/utils'
 
+// ============================================================================
+// FadeScrollArea - Scroll area with fade effect at top/bottom when content overflows
+// ============================================================================
+interface FadeScrollAreaProps {
+    children: React.ReactNode
+    className?: string
+}
+
+function FadeScrollArea({ children, className }: FadeScrollAreaProps) {
+    const scrollRef = useRef<HTMLDivElement>(null)
+    const [canScrollUp, setCanScrollUp] = useState(false)
+    const [canScrollDown, setCanScrollDown] = useState(false)
+
+    const checkScroll = useCallback(() => {
+        const el = scrollRef.current
+        if (!el) return
+        
+        const { scrollTop, scrollHeight, clientHeight } = el
+        setCanScrollUp(scrollTop > 0)
+        setCanScrollDown(scrollTop + clientHeight < scrollHeight - 1)
+    }, [])
+
+    useEffect(() => {
+        const el = scrollRef.current
+        if (!el) return
+
+        checkScroll()
+        el.addEventListener('scroll', checkScroll, { passive: true })
+        
+        // Also check on resize
+        const resizeObserver = new ResizeObserver(checkScroll)
+        resizeObserver.observe(el)
+
+        return () => {
+            el.removeEventListener('scroll', checkScroll)
+            resizeObserver.disconnect()
+        }
+    }, [checkScroll])
+
+    return (
+        <div className={cn("relative flex-1 overflow-hidden", className)}>
+            {/* Top fade */}
+            <div 
+                className={cn(
+                    "absolute top-0 left-0 right-0 h-8 z-10 pointer-events-none transition-opacity duration-200",
+                    "bg-gradient-to-b from-background to-transparent",
+                    canScrollUp ? "opacity-100" : "opacity-0"
+                )}
+            />
+            
+            {/* Scrollable content */}
+            <div 
+                ref={scrollRef}
+                className="h-full overflow-y-auto overflow-x-hidden scrollbar-thin scrollbar-thumb-border scrollbar-track-transparent"
+            >
+                {children}
+            </div>
+            
+            {/* Bottom fade */}
+            <div 
+                className={cn(
+                    "absolute bottom-0 left-0 right-0 h-8 z-10 pointer-events-none transition-opacity duration-200",
+                    "bg-gradient-to-t from-background to-transparent",
+                    canScrollDown ? "opacity-100" : "opacity-0"
+                )}
+            />
+        </div>
+    )
+}
+
 interface Chat {
     id: string
     title: string | null
@@ -59,6 +128,8 @@ export function Sidebar() {
     const setSelectedArtifact = useSetAtom(selectedArtifactAtom)
     const setArtifactPanelOpen = useSetAtom(artifactPanelOpenAtom)
     const [searchQuery, setSearchQuery] = useState('')
+    const [editingChatId, setEditingChatId] = useState<string | null>(null)
+    const [editingTitle, setEditingTitle] = useState('')
 
     // Get API key status from main process
     const { data: keyStatus } = trpc.settings.getApiKeyStatus.useQuery()
@@ -108,6 +179,14 @@ export function Sidebar() {
         }
     })
 
+    const updateChat = trpc.chats.update.useMutation({
+        onSuccess: () => {
+            setEditingChatId(null)
+            setEditingTitle('')
+            refetch()
+        }
+    })
+
     const utils = trpc.useUtils()
 
     const signOut = trpc.auth.signOut.useMutation({
@@ -143,6 +222,25 @@ export function Sidebar() {
         }
     }
 
+    const handleStartRename = (chatId: string, currentTitle: string) => {
+        setEditingChatId(chatId)
+        setEditingTitle(currentTitle || 'Untitled')
+    }
+
+    const handleSaveRename = () => {
+        if (editingChatId && editingTitle.trim()) {
+            updateChat.mutate({ id: editingChatId, title: editingTitle.trim() })
+        } else {
+            setEditingChatId(null)
+            setEditingTitle('')
+        }
+    }
+
+    const handleCancelRename = () => {
+        setEditingChatId(null)
+        setEditingTitle('')
+    }
+
 
 
     return (
@@ -160,7 +258,12 @@ export function Sidebar() {
                             <span>New Chat</span>
                         </Button>
                     </TooltipTrigger>
-                    <TooltipContent side="bottom">New Conversation</TooltipContent>
+                    <TooltipContent side="bottom" className="flex items-center gap-2 font-semibold">
+                        New Conversation
+                        <kbd className="pointer-events-none inline-flex h-5 select-none items-center gap-1 rounded border bg-muted px-1.5 font-mono text-[10px] font-medium text-muted-foreground opacity-100">
+                            {navigator.platform.toLowerCase().includes('mac') ? '⌘' : 'Ctrl'} N
+                        </kbd>
+                    </TooltipContent>
                 </Tooltip>
 
                 <Tooltip>
@@ -174,7 +277,12 @@ export function Sidebar() {
                             <IconLayoutSidebarLeftCollapse size={18} />
                         </Button>
                     </TooltipTrigger>
-                    <TooltipContent side="bottom">Collapse Sidebar</TooltipContent>
+                    <TooltipContent side="bottom" className="flex items-center gap-2 font-semibold">
+                        Collapse Sidebar
+                        <kbd className="pointer-events-none inline-flex h-5 select-none items-center gap-1 rounded border bg-muted px-1.5 font-mono text-[10px] font-medium text-muted-foreground opacity-100">
+                            {navigator.platform.toLowerCase().includes('mac') ? '⌘' : 'Ctrl'} \
+                        </kbd>
+                    </TooltipContent>
                 </Tooltip>
             </div>
 
@@ -191,8 +299,8 @@ export function Sidebar() {
                 </div>
             </div>
 
-            {/* Chat list */}
-            <ScrollArea className="flex-1 px-2">
+            {/* Chat list with fade scroll effect */}
+            <FadeScrollArea className="flex-1 px-2">
                 <div className="space-y-1 pb-4">
                     {isLoading ? (
                         <div className="flex items-center justify-center py-8">
@@ -213,52 +321,84 @@ export function Sidebar() {
                                         ? 'bg-accent text-accent-foreground'
                                         : 'text-foreground/80 hover:bg-accent/50'
                                 )}
-                                onClick={() => handleChatSelect(chat.id)}
+                                onClick={() => editingChatId !== chat.id && handleChatSelect(chat.id)}
+                                onKeyDown={(e) => {
+                                    if (e.key === 'Enter' && editingChatId !== chat.id) {
+                                        handleChatSelect(chat.id)
+                                    }
+                                }}
+                                role="button"
+                                tabIndex={0}
                             >
                                 <IconMessage size={16} className="shrink-0 opacity-60" />
                                 <div className="flex-1 min-w-0">
-                                    <p className="truncate font-medium">
-                                        {chat.title || 'Untitled'}
-                                    </p>
-                                    <p className="text-xs text-muted-foreground truncate">
-                                        {formatRelativeTime(chat.updated_at)}
-                                    </p>
+                                    {editingChatId === chat.id ? (
+                                        <input
+                                            type="text"
+                                            value={editingTitle}
+                                            onChange={(e) => setEditingTitle(e.target.value)}
+                                            onKeyDown={(e) => {
+                                                e.stopPropagation()
+                                                if (e.key === 'Enter') {
+                                                    handleSaveRename()
+                                                } else if (e.key === 'Escape') {
+                                                    handleCancelRename()
+                                                }
+                                            }}
+                                            onBlur={handleSaveRename}
+                                            className="w-full bg-background border border-border rounded px-2 py-0.5 text-sm font-medium focus:outline-none focus:ring-1 focus:ring-primary"
+                                            autoFocus
+                                            onClick={(e) => e.stopPropagation()}
+                                        />
+                                    ) : (
+                                        <>
+                                            <p className="truncate font-medium">
+                                                {chat.title || 'Untitled'}
+                                            </p>
+                                            <p className="text-xs text-muted-foreground truncate">
+                                                {formatRelativeTime(chat.updated_at)}
+                                            </p>
+                                        </>
+                                    )}
                                 </div>
 
-                                {/* Actions menu */}
-                                <DropdownMenu>
-                                    <DropdownMenuTrigger asChild>
-                                        <button
-                                            className="opacity-0 group-hover:opacity-100 p-1 hover:bg-background rounded transition-opacity"
-                                            onClick={(e) => e.stopPropagation()}
-                                        >
-                                            <IconDots size={14} />
-                                        </button>
-                                    </DropdownMenuTrigger>
-                                    <DropdownMenuContent align="end" className="w-40">
-                                        <DropdownMenuItem>
-                                            <IconPencil size={14} className="mr-2" />
-                                            Rename
-                                        </DropdownMenuItem>
-                                        <DropdownMenuItem onClick={() => handleArchiveChat(chat.id)}>
-                                            <IconArchive size={14} className="mr-2" />
-                                            Archive
-                                        </DropdownMenuItem>
-                                        <DropdownMenuSeparator />
-                                        <DropdownMenuItem
-                                            variant="destructive"
-                                            onClick={() => handleDeleteChat(chat.id)}
-                                        >
-                                            <IconTrash size={14} className="mr-2" />
-                                            Delete
-                                        </DropdownMenuItem>
-                                    </DropdownMenuContent>
-                                </DropdownMenu>
+                                {/* Actions menu - hidden when editing */}
+                                {editingChatId !== chat.id && (
+                                    <DropdownMenu>
+                                        <DropdownMenuTrigger asChild>
+                                            <button
+                                                type="button"
+                                                className="opacity-0 group-hover:opacity-100 p-1 hover:bg-accent/50 rounded-md transition-all active:scale-95"
+                                                onClick={(e) => e.stopPropagation()}
+                                            >
+                                                <IconDots size={14} />
+                                            </button>
+                                        </DropdownMenuTrigger>
+                                        <DropdownMenuContent align="end" className="w-40">
+                                            <DropdownMenuItem onClick={() => handleStartRename(chat.id, chat.title || '')}>
+                                                <IconPencil size={14} className="mr-2" />
+                                                Rename
+                                            </DropdownMenuItem>
+                                            <DropdownMenuItem onClick={() => handleArchiveChat(chat.id)}>
+                                                <IconArchive size={14} className="mr-2" />
+                                                Archive
+                                            </DropdownMenuItem>
+                                            <DropdownMenuSeparator />
+                                            <DropdownMenuItem
+                                                variant="destructive"
+                                                onClick={() => handleDeleteChat(chat.id)}
+                                            >
+                                                <IconTrash size={14} className="mr-2" />
+                                                Delete
+                                            </DropdownMenuItem>
+                                        </DropdownMenuContent>
+                                    </DropdownMenu>
+                                )}
                             </div>
                         ))
                     )}
                 </div>
-            </ScrollArea>
+            </FadeScrollArea>
 
             {/* Footer */}
             <div className="p-3 border-t border-border space-y-3">
@@ -314,9 +454,14 @@ export function Sidebar() {
                         <DropdownMenuContent align="start" side="top" className="w-56">
                             <DropdownMenuLabel>My Account</DropdownMenuLabel>
                             <DropdownMenuSeparator />
-                            <DropdownMenuItem onClick={() => setSettingsOpen(true)}>
-                                <IconSettings size={14} className="mr-2" />
-                                Settings
+                            <DropdownMenuItem onClick={() => setSettingsOpen(true)} className="justify-between">
+                                <span className="flex items-center">
+                                    <IconSettings size={14} className="mr-2" />
+                                    Settings
+                                </span>
+                                <kbd className="ml-auto text-[10px] font-medium text-muted-foreground bg-muted/50 px-1.5 py-0.5 rounded border border-border/50">
+                                    {navigator.platform.toLowerCase().includes('mac') ? '⌘,' : 'Ctrl+,'}
+                                </kbd>
                             </DropdownMenuItem>
                             <DropdownMenuItem
                                 variant="destructive"

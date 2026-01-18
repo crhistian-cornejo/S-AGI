@@ -34,18 +34,18 @@ export const overlayContent = `${overlayContentBase} ${overlayMaxHeight} ${overl
 
 /** Base item layout - margin creates spacing from container edges */
 export const overlayItemBase =
-    "flex items-center gap-1.5 min-h-[32px] py-[5px] px-1.5 mx-1 rounded-md text-sm cursor-default select-none outline-none"
+    "flex items-center gap-1.5 min-h-[32px] py-[6px] px-2 mx-1 rounded-lg text-sm cursor-default select-none outline-none"
 
 /** Item hover state */
-export const overlayItemHover = "hover:bg-accent hover:text-foreground"
+export const overlayItemHover = "hover:bg-accent/50 hover:text-foreground"
 
 /** Item focus state (keyboard navigation) */
 export const overlayItemFocus =
-    "focus:bg-accent focus:text-accent-foreground"
+    "focus:bg-accent/50 focus:text-accent-foreground"
 
 /** Radix data-highlighted state (used by DropdownMenu, Select, ContextMenu) */
 export const overlayItemHighlighted =
-    "data-[highlighted]:bg-accent data-[highlighted]:text-accent-foreground"
+    "data-[highlighted]:bg-accent/50 data-[highlighted]:text-accent-foreground"
 
 /** Item disabled state */
 export const overlayItemDisabled =
@@ -58,7 +58,7 @@ export const overlayItemTransition = "transition-colors"
 export const overlayItem = `${overlayItemBase} ${overlayItemHover} ${overlayItemFocus} ${overlayItemHighlighted} ${overlayItemDisabled} ${overlayItemTransition}`
 
 /** Destructive item variant */
-export const overlayItemDestructive = "text-destructive focus:bg-destructive focus:text-destructive-foreground data-[highlighted]:bg-destructive data-[highlighted]:text-destructive-foreground"
+export const overlayItemDestructive = "text-destructive focus:bg-destructive/10 focus:text-destructive data-[highlighted]:bg-destructive/10 data-[highlighted]:text-destructive"
 
 /** Item with icon styles (includes svg handling) */
 export const overlayItemWithIcon = `${overlayItem} [&_svg]:pointer-events-none [&_svg]:shrink-0`
@@ -69,7 +69,7 @@ export const overlayItemWithIcon = `${overlayItem} [&_svg]:pointer-events-none [
 
 /** Sub-trigger open state */
 export const overlaySubTriggerOpen =
-    "data-[state=open]:bg-accent"
+    "data-[state=open]:bg-accent/50"
 
 /** Combined sub-trigger styles */
 export const overlaySubTrigger = `${overlayItemWithIcon} ${overlaySubTriggerOpen}`
@@ -80,7 +80,7 @@ export const overlaySubTrigger = `${overlayItemWithIcon} ${overlaySubTriggerOpen
 
 /** Checkbox/Radio item base (with left padding for indicator) */
 export const overlayCheckableItem =
-    "relative flex items-center gap-1.5 min-h-[32px] py-[5px] pl-7 pr-1.5 mx-1 rounded-md text-sm cursor-default select-none outline-none transition-colors hover:bg-accent hover:text-foreground focus:bg-accent focus:text-accent-foreground data-[highlighted]:bg-accent data-[highlighted]:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50"
+    "relative flex items-center gap-1.5 min-h-[32px] py-[6px] pl-8 pr-2 mx-1 rounded-lg text-sm cursor-default select-none outline-none transition-colors hover:bg-accent/50 hover:text-foreground focus:bg-accent/50 focus:text-accent-foreground data-[highlighted]:bg-accent/50 data-[highlighted]:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50"
 
 /** Indicator container (positioned left) */
 export const overlayItemIndicator =

@@ -6,8 +6,17 @@ import { z } from 'zod'
 
 export type AIProvider = 'openai'
 
-/** Reasoning effort levels for GPT-5 and o-series models */
+/** 
+ * Reasoning effort levels for GPT-5 and o-series models
+ * - 'none': Disable reasoning
+ * - 'low': Low reasoning effort
+ * - 'medium': Medium reasoning effort (default)
+ * - 'high': High reasoning effort
+ */
 export type ReasoningEffort = 'none' | 'low' | 'medium' | 'high'
+
+/** Reasoning summary levels */
+export type ReasoningSummary = 'auto' | 'concise' | 'detailed'
 
 export interface ModelDefinition {
     id: string
@@ -76,8 +85,8 @@ export const AI_MODELS: Record<string, ModelDefinition> = {
         supportsNativeWebSearch: true,
         supportsCodeInterpreter: true,
         supportsFileSearch: false,
-        supportsReasoning: false,
-        defaultReasoningEffort: 'none'
+        supportsReasoning: true,
+        defaultReasoningEffort: 'low'
     },
 
 } as const
@@ -117,6 +126,7 @@ export function getReasoningModels(): ModelDefinition[] {
 /**
  * Events emitted during AI streaming to the renderer
  * Extended for Responses API with reasoning and native tools
+ * Types aligned with OpenAI SDK ResponseStreamEvent
  */
 export type AIStreamEvent =
     // Text streaming
@@ -124,8 +134,9 @@ export type AIStreamEvent =
     | { type: 'text-done'; text: string }
     
     // Reasoning/Thinking (for o-series and GPT-5 with reasoning)
-    | { type: 'reasoning-delta'; delta: string }
-    | { type: 'reasoning-done'; text: string; summary?: string }
+    // Note: OpenAI now uses reasoning_summary instead of raw reasoning
+    | { type: 'reasoning-summary-delta'; delta: string; summaryIndex: number }
+    | { type: 'reasoning-summary-done'; text: string; summaryIndex: number }
     
     // Function tool calls (custom tools like spreadsheet operations)
     | { type: 'tool-call-start'; toolCallId: string; toolName: string }
@@ -134,12 +145,17 @@ export type AIStreamEvent =
     | { type: 'tool-result'; toolCallId: string; toolName: string; result: unknown; success: boolean }
     
     // Native tool events (web search, code interpreter, file search)
-    | { type: 'web-search-start'; searchId: string }
-    | { type: 'web-search-done'; searchId: string; results?: unknown }
+    | { type: 'web-search-start'; searchId: string; action?: 'search' | 'open_page' | 'find_in_page'; query?: string; domains?: string[]; url?: string }
+    | { type: 'web-search-searching'; searchId: string; action?: 'search' | 'open_page' | 'find_in_page'; query?: string; domains?: string[]; url?: string }
+    | { type: 'web-search-done'; searchId: string; action?: 'search' | 'open_page' | 'find_in_page'; query?: string; domains?: string[]; url?: string }
+    | { type: 'annotations'; annotations: Array<{ type: 'url_citation'; url: string; title?: string; startIndex: number; endIndex: number }> }
     | { type: 'code-interpreter-start'; executionId: string }
-    | { type: 'code-interpreter-delta'; executionId: string; code?: string; output?: string }
+    | { type: 'code-interpreter-interpreting'; executionId: string }
+    | { type: 'code-interpreter-code-delta'; executionId: string; delta: string }
+    | { type: 'code-interpreter-code-done'; executionId: string; code: string }
     | { type: 'code-interpreter-done'; executionId: string; output: string }
     | { type: 'file-search-start'; searchId: string }
+    | { type: 'file-search-searching'; searchId: string }
     | { type: 'file-search-done'; searchId: string; results?: unknown }
     
     // Approval flow (for human-in-the-loop)
@@ -198,15 +214,15 @@ export const DEFAULT_TOOL_APPROVAL_CONFIG: ToolApprovalConfig = {
 export interface ReasoningConfig {
     /** Reasoning effort level */
     effort: ReasoningEffort
-    /** Whether to stream reasoning tokens (shows thinking process) */
-    streamReasoning?: boolean
+    /** Summary level for reasoning output */
+    summary?: ReasoningSummary
     /** Maximum reasoning tokens (for cost control) */
     maxReasoningTokens?: number
 }
 
 export const DEFAULT_REASONING_CONFIG: ReasoningConfig = {
     effort: 'medium',
-    streamReasoning: true
+    summary: 'auto'
 }
 
 // ============================================================================
@@ -236,6 +252,8 @@ export const AIProviderSchema = z.enum(['openai'])
 
 export const ReasoningEffortSchema = z.enum(['none', 'low', 'medium', 'high'])
 
+export const ReasoningSummarySchema = z.enum(['auto', 'concise', 'detailed'])
+
 export const ModelIdSchema = z.string().refine(
     (id) => id in AI_MODELS,
     { message: 'Invalid model ID' }
@@ -254,7 +272,7 @@ export const ImageAttachmentSchema = z.object({
 
 export const ReasoningConfigSchema = z.object({
     effort: ReasoningEffortSchema,
-    streamReasoning: z.boolean().optional(),
+    summary: ReasoningSummarySchema.optional(),
     maxReasoningTokens: z.number().optional()
 })
 

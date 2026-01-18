@@ -1,16 +1,18 @@
 import { useRef } from 'react'
 import { useAtom, useSetAtom } from 'jotai'
-import { IconX, IconDownload, IconMaximize } from '@tabler/icons-react'
+import { IconX, IconDownload, IconMaximize, IconFileText } from '@tabler/icons-react'
 import { selectedArtifactAtom, artifactPanelOpenAtom, activeTabAtom } from '@/lib/atoms'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { UniverSpreadsheet, type UniverSpreadsheetRef } from '@/features/univer/univer-spreadsheet'
+import { UniverDocument, type UniverDocumentRef } from '@/features/univer/univer-document'
 
 export function ArtifactPanel() {
     const [artifact, setArtifact] = useAtom(selectedArtifactAtom)
     const [, setPanelOpen] = useAtom(artifactPanelOpenAtom)
     const setActiveTab = useSetAtom(activeTabAtom)
     const spreadsheetRef = useRef<UniverSpreadsheetRef>(null)
+    const documentRef = useRef<UniverDocumentRef>(null)
 
     const handleClose = () => {
         setArtifact(null)
@@ -24,24 +26,30 @@ export function ArtifactPanel() {
     }
 
     const handleSave = async () => {
-        if (spreadsheetRef.current) {
+        if (artifact?.type === 'spreadsheet' && spreadsheetRef.current) {
             await spreadsheetRef.current.save()
+        } else if (artifact?.type === 'document' && documentRef.current) {
+            await documentRef.current.save()
         }
     }
 
     if (!artifact) return null
+
+    const isSpreadsheet = artifact.type === 'spreadsheet'
+    const isDocument = artifact.type === 'document'
 
     return (
         <div className="flex flex-col h-full">
             {/* Header */}
             <div className="flex items-center justify-between p-3 border-b border-border shrink-0">
                 <div className="flex items-center gap-2 min-w-0">
+                    {isDocument && <IconFileText size={16} className="text-muted-foreground shrink-0" />}
                     <span className="font-medium truncate">{artifact.name}</span>
-                    <span className="text-xs text-muted-foreground">{artifact.type}</span>
+                    <span className="text-xs text-muted-foreground capitalize">{artifact.type}</span>
                 </div>
 
                 <div className="flex items-center gap-1">
-                    {artifact.type === 'spreadsheet' && (
+                    {(isSpreadsheet || isDocument) && (
                         <Tooltip>
                             <TooltipTrigger asChild>
                                 <Button
@@ -84,9 +92,15 @@ export function ArtifactPanel() {
 
             {/* Content */}
             <div className="flex-1 overflow-hidden">
-                {artifact.type === 'spreadsheet' ? (
+                {isSpreadsheet ? (
                     <UniverSpreadsheet
                         ref={spreadsheetRef}
+                        artifactId={artifact.id}
+                        data={artifact.univer_data}
+                    />
+                ) : isDocument ? (
+                    <UniverDocument
+                        ref={documentRef}
                         artifactId={artifact.id}
                         data={artifact.univer_data}
                     />
@@ -99,3 +113,4 @@ export function ArtifactPanel() {
         </div>
     )
 }
+

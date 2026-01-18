@@ -1,7 +1,8 @@
-import { cn } from '@/lib/utils'
-import { memo, useState, useCallback } from 'react'
+import { memo, useState, useCallback, useEffect, useMemo, useRef } from 'react'
+import * as HoverCard from '@radix-ui/react-hover-card'
 import { Streamdown } from 'streamdown'
 import { IconCopy, IconCheck } from '@tabler/icons-react'
+import { cn } from '@/lib/utils'
 
 /**
  * Code block with copy button
@@ -47,7 +48,168 @@ function CodeBlock({
     )
 }
 
-type MarkdownSize = 'sm' | 'md' | 'lg'
+const PREVIEW_WIDTH = 240
+const PREVIEW_HEIGHT = 150
+const PREVIEW_CACHE_TTL = 5 * 60 * 1000
+const previewCache = new Map<string, { status: 'ok' | 'error'; timestamp: number }>()
+
+function isExternalLink(href?: string) {
+    return Boolean(href && (href.startsWith('http://') || href.startsWith('https://')))
+}
+
+function getDomain(url: string) {
+    try {
+        return new URL(url).hostname.replace('www.', '')
+    } catch {
+        return url
+    }
+}
+
+function getPreviewUrl(url: string) {
+    const params = new URLSearchParams({
+        url,
+        screenshot: 'true',
+        meta: 'false',
+        embed: 'screenshot.url',
+        colorScheme: 'dark',
+        'viewport.isMobile': 'true',
+        'viewport.deviceScaleFactor': '1',
+        'viewport.width': `${Math.round(PREVIEW_WIDTH * 2.5)}`,
+        'viewport.height': `${Math.round(PREVIEW_HEIGHT * 2.5)}`
+    })
+
+    return `https://api.microlink.io/?${params.toString()}`
+}
+
+function useVisibility(ref: React.RefObject<HTMLElement | null>) {
+    const [isVisible, setIsVisible] = useState(false)
+
+    useEffect(() => {
+        if (!ref.current) return
+        const observer = new IntersectionObserver(
+            ([entry]) => setIsVisible(entry.isIntersecting),
+            { threshold: 0.1 }
+        )
+        observer.observe(ref.current)
+        return () => observer.disconnect()
+    }, [ref])
+
+    return isVisible
+}
+
+function LinkWithPreview({ href, children, ...props }: React.AnchorHTMLAttributes<HTMLAnchorElement>) {
+    const [open, setOpen] = useState(false)
+    const [shouldLoad, setShouldLoad] = useState(false)
+    const [hasError, setHasError] = useState(false)
+    const triggerRef = useRef<HTMLAnchorElement>(null)
+    const isVisible = useVisibility(triggerRef)
+
+    const previewUrl = useMemo(() => (href ? getPreviewUrl(href) : ''), [href])
+
+    useEffect(() => {
+        if (!href) return
+        const cached = previewCache.get(href)
+        if (!cached) return
+        if (Date.now() - cached.timestamp > PREVIEW_CACHE_TTL) {
+            previewCache.delete(href)
+            return
+        }
+        if (cached.status === 'error') {
+            setHasError(true)
+        }
+    }, [href])
+
+    useEffect(() => {
+        if (open || isVisible) {
+            setShouldLoad(true)
+        }
+    }, [open, isVisible])
+
+    const handleImageLoad = useCallback(() => {
+        if (!href) return
+        previewCache.set(href, { status: 'ok', timestamp: Date.now() })
+    }, [href])
+
+    const handleImageError = useCallback(() => {
+        if (href) {
+            previewCache.set(href, { status: 'error', timestamp: Date.now() })
+        }
+        setHasError(true)
+    }, [href])
+
+    if (!isExternalLink(href)) {
+        return (
+            <a
+                href={href}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-primary underline underline-offset-2 hover:text-primary/80"
+                {...props}
+            >
+                {children}
+            </a>
+        )
+    }
+
+    return (
+        <HoverCard.Root openDelay={60} closeDelay={120} onOpenChange={setOpen}>
+            <HoverCard.Trigger asChild>
+                <a
+                    ref={triggerRef}
+                    href={href}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-primary underline underline-offset-2 hover:text-primary/80"
+                    {...props}
+                >
+                    {children}
+                </a>
+            </HoverCard.Trigger>
+            <HoverCard.Portal>
+                <HoverCard.Content
+                    side="top"
+                    align="center"
+                    sideOffset={8}
+                    className="z-50 rounded-xl border border-border bg-background/95 p-2 shadow-xl backdrop-blur"
+                >
+                    <div className="rounded-lg overflow-hidden bg-muted/40">
+                        {hasError ? (
+                            <div
+                                className="flex items-center justify-center text-xs text-muted-foreground"
+                                style={{ width: PREVIEW_WIDTH, height: PREVIEW_HEIGHT }}
+                            >
+                                Preview unavailable
+                            </div>
+                        ) : shouldLoad ? (
+                            <img
+                                src={previewUrl}
+                                width={PREVIEW_WIDTH}
+                                height={PREVIEW_HEIGHT}
+                                loading="eager"
+                                decoding="async"
+                                alt={`Preview of ${getDomain(href || '')}`}
+                                className="block object-cover"
+                                onLoad={handleImageLoad}
+                                onError={handleImageError}
+                            />
+                        ) : (
+                            <div
+                                className="animate-pulse bg-muted"
+                                style={{ width: PREVIEW_WIDTH, height: PREVIEW_HEIGHT }}
+                            />
+                        )}
+                    </div>
+                    <div className="mt-2 text-[11px] text-muted-foreground truncate max-w-[240px]">
+                        {getDomain(href || '')}
+                    </div>
+                </HoverCard.Content>
+            </HoverCard.Portal>
+        </HoverCard.Root>
+    )
+}
+
+ type MarkdownSize = 'sm' | 'md' | 'lg'
+
 
 interface ChatMarkdownRendererProps {
     content: string
@@ -147,15 +309,9 @@ export const ChatMarkdownRenderer = memo(function ChatMarkdownRenderer({
                         <li className={styles.li} {...props}>{children}</li>
                     ),
                     a: ({ href, children, ...props }) => (
-                        <a
-                            href={href}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-primary hover:underline"
-                            {...props}
-                        >
+                        <LinkWithPreview href={href} {...props}>
                             {children}
-                        </a>
+                        </LinkWithPreview>
                     ),
                     strong: ({ children, ...props }) => (
                         <strong className="font-semibold text-foreground" {...props}>{children}</strong>

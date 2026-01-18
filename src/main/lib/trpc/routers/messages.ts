@@ -8,9 +8,11 @@ export const messagesRouter = router({
     list: protectedProcedure
         .input(z.object({
             chatId: z.string().uuid(),
-            limit: z.number().optional().default(100)
+            limit: z.number().min(1).max(200).optional().default(100)
         }))
         .query(async ({ ctx, input }) => {
+            // Server-side clamp for safety
+            const safeLimit = Math.min(input.limit, 200)
             // First verify the chat belongs to the user
             const { data: chat } = await supabase
                 .from('chats')
@@ -28,7 +30,7 @@ export const messagesRouter = router({
                 .select('*')
                 .eq('chat_id', input.chatId)
                 .order('created_at', { ascending: true })
-                .limit(input.limit)
+                .limit(safeLimit)
 
             if (error) throw new Error(error.message)
 
@@ -46,6 +48,7 @@ export const messagesRouter = router({
             role: z.enum(['user', 'assistant', 'system', 'tool']),
             content: z.any(),
             toolCalls: z.any().optional(),
+            metadata: z.any().optional(),
             attachments: z.array(z.object({
                 id: z.string(),
                 name: z.string(),
@@ -81,6 +84,11 @@ export const messagesRouter = router({
                 contentText = String(input.content)
             }
 
+            const metadataPayload = {
+                ...(input.metadata && typeof input.metadata === 'object' ? input.metadata : {}),
+                ...(input.toolCalls ? { tool_calls: input.toolCalls } : {})
+            }
+
             const { data, error } = await supabase
                 .from('chat_messages')
                 .insert({
@@ -89,7 +97,7 @@ export const messagesRouter = router({
                     role: input.role,
                     content: contentText,
                     attachments: input.attachments || [],
-                    metadata: input.toolCalls ? { tool_calls: input.toolCalls } : undefined
+                    metadata: Object.keys(metadataPayload).length > 0 ? metadataPayload : undefined
                 })
                 .select()
                 .maybeSingle()
@@ -196,7 +204,7 @@ export const messagesRouter = router({
     uploadFile: protectedProcedure
         .input(z.object({
             fileName: z.string(),
-            fileSize: z.number(),
+            fileSize: z.number().max(10 * 1024 * 1024, 'File size must be less than 10MB'),
             fileType: z.string(),
             fileData: z.string() // Base64 encoded file data
         }))
@@ -226,17 +234,22 @@ export const messagesRouter = router({
                 throw new Error(`Upload failed: ${uploadError.message}`)
             }
 
-            // Get public URL
-            const { data: urlData } = supabase.storage
+            // Generate signed URL (bucket is private, URLs expire in 1 hour)
+            const { data: signedUrlData, error: signedUrlError } = await supabase.storage
                 .from('attachments')
-                .getPublicUrl(storagePath)
+                .createSignedUrl(storagePath, 60 * 60) // 1 hour TTL
+
+            if (signedUrlError) {
+                console.error('[MessagesRouter] Signed URL error:', signedUrlError);
+                throw new Error(`Failed to generate signed URL: ${signedUrlError.message}`)
+            }
 
             return {
                 id: randomId,
                 name: input.fileName,
                 size: input.fileSize,
                 type: input.fileType,
-                url: urlData.publicUrl,
+                url: signedUrlData.signedUrl,
                 storagePath: storagePath
             }
         })

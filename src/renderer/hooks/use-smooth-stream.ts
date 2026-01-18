@@ -14,7 +14,7 @@ interface UseSmoothStreamOptions {
  * for a more natural streaming experience
  */
 export function useSmoothStream(options: UseSmoothStreamOptions = {}) {
-    const { delayMs = 8, chunking = 'word', initialDelayMs = 100 } = options
+    const { delayMs = 3, chunking = 'word', initialDelayMs = 0 } = options
     
     const [displayText, setDisplayText] = useState('')
     const bufferRef = useRef('')

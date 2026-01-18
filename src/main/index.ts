@@ -22,6 +22,7 @@ function createWindow(): void {
         autoHideMenuBar: true,
         frame: false,
         titleBarStyle: 'hiddenInset',
+        icon: process.platform === 'linux' ? join(__dirname, '../../public/logo.svg') : join(__dirname, '../../public/icon.ico'),
         webPreferences: {
             preload: join(__dirname, '../preload/index.js'),
             sandbox: false,

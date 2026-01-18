@@ -31,6 +31,18 @@ export const AgentWebSearch = memo(function AgentWebSearch({
   const sources = (part.output?.sources as Array<{ url: string; title?: string }>) || []
   const error = part.output?.error as string | undefined
 
+  const headerLabel = query || (isNativeSearch ? "Web search" : "Search")
+  const headerDomain = (() => {
+    if (sources.length > 0) {
+      try {
+        return new URL(sources[0].url).hostname
+      } catch {
+        return sources[0].url
+      }
+    }
+    return ""
+  })()
+
   const resultCount = results.length || sources.length || 0
   const hasResults = resultCount > 0
 
@@ -60,14 +72,21 @@ export const AgentWebSearch = memo(function AgentWebSearch({
             <span className="text-xs text-muted-foreground">Searched web</span>
           )}
 
-          <span className="truncate text-foreground">
-            "{query}"
-            {isNativeSearch && (
-              <span className="ml-1.5 text-[10px] px-1 py-0.5 rounded bg-violet-500/10 text-violet-600 font-medium">
-                Native
+          <div className="min-w-0">
+            <span className="truncate text-foreground block">
+              "{headerLabel}"
+              {isNativeSearch && (
+                <span className="ml-1.5 text-[10px] px-1 py-0.5 rounded bg-violet-500/10 text-violet-600 font-medium">
+                  Native
+                </span>
+              )}
+            </span>
+            {headerDomain && (
+              <span className="truncate text-[10px] text-muted-foreground block">
+                {headerDomain}
               </span>
             )}
-          </span>
+          </div>
         </div>
 
         {/* Status and expand button */}

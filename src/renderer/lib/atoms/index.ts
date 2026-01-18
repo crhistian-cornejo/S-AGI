@@ -125,8 +125,34 @@ export const streamingErrorAtom = atom<string | null>(null)
 // === REASONING STATE (for GPT-5 with reasoning enabled) ===
 export const streamingReasoningAtom = atom('')
 export const isReasoningAtom = atom(false)
+// Stores the last completed reasoning to display after streaming ends
+export const lastReasoningAtom = atom('')
+// Matches OpenAI SDK ReasoningEffort: 'none' | 'low' | 'medium' | 'high'
 export type ReasoningEffort = 'none' | 'low' | 'medium' | 'high'
 export const reasoningEffortAtom = atomWithStorage<ReasoningEffort>('reasoning-effort', 'medium')
+
+// === WEB SEARCH STATE (for native OpenAI web search) ===
+export interface WebSearchInfo {
+    searchId: string
+    query?: string
+    status: 'searching' | 'done'
+    action?: 'search' | 'open_page' | 'find_in_page'
+    domains?: string[]
+    url?: string
+}
+
+export interface UrlCitation {
+    type: 'url_citation'
+    url: string
+    title?: string
+    startIndex: number
+    endIndex: number
+}
+
+// Active web searches during streaming
+export const streamingWebSearchesAtom = atom<WebSearchInfo[]>([])
+// URL citations from the response (collected at the end)
+export const streamingAnnotationsAtom = atom<UrlCitation[]>([])
 
 // === SETTINGS MODAL ===
 export const settingsModalOpenAtom = atom(false)
