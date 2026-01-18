@@ -2,6 +2,7 @@ import { z } from 'zod'
 import { router, protectedProcedure } from '../trpc'
 import { supabase } from '../../supabase/client'
 import path from 'path'
+import { processBase64Image, isProcessableImage, getExtensionForFormat } from '../../ai/image-processor'
 
 export const messagesRouter = router({
     // List messages for a chat
@@ -200,32 +201,83 @@ export const messagesRouter = router({
             return { success: true }
         }),
 
-    // Upload file attachment
+    // Upload file attachment with automatic image optimization
     uploadFile: protectedProcedure
         .input(z.object({
             fileName: z.string(),
-            fileSize: z.number().max(10 * 1024 * 1024, 'File size must be less than 10MB'),
+            fileSize: z.number().max(20 * 1024 * 1024, 'File size must be less than 20MB'),
             fileType: z.string(),
-            fileData: z.string() // Base64 encoded file data
+            fileData: z.string(), // Base64 encoded file data
+            // Image optimization options
+            optimize: z.boolean().optional().default(true),
+            maxWidth: z.number().optional().default(1920),
+            maxHeight: z.number().optional().default(1920),
+            quality: z.number().min(1).max(100).optional().default(75)
         }))
         .mutation(async ({ ctx, input }) => {
+            const startTime = Date.now()
             console.log('[MessagesRouter] Upload file:', input.fileName, 'for user:', ctx.userId);
 
+            // Verify session is active for storage RLS
+            const { data: { session }, error: sessionError } = await supabase.auth.getSession()
+            if (sessionError || !session) {
+                console.error('[MessagesRouter] No active session for storage upload:', sessionError);
+                throw new Error('Authentication required for file upload. Please sign in again.')
+            }
+
+            let finalBuffer: Buffer
+            let finalFileName = input.fileName
+            let finalMimeType = input.fileType
+            let finalSize = input.fileSize
+            let compressionInfo: { originalSize: number; processedSize: number; ratio: number } | null = null
+
+            // Process images for optimization
+            if (input.optimize && isProcessableImage(input.fileType)) {
+                try {
+                    console.log('[MessagesRouter] Optimizing image...')
+                    const processed = await processBase64Image(input.fileData, {
+                        format: 'webp',
+                        quality: input.quality,
+                        maxWidth: input.maxWidth,
+                        maxHeight: input.maxHeight,
+                        stripMetadata: true
+                    })
+
+                    finalBuffer = Buffer.from(processed.base64, 'base64')
+                    finalMimeType = processed.mimeType
+                    finalSize = processed.stats.processedSize
+                    
+                    // Update filename to .webp
+                    const baseName = path.basename(input.fileName, path.extname(input.fileName))
+                    finalFileName = `${baseName}${getExtensionForFormat('webp')}`
+
+                    compressionInfo = {
+                        originalSize: processed.stats.originalSize,
+                        processedSize: processed.stats.processedSize,
+                        ratio: processed.stats.compressionRatio
+                    }
+
+                    console.log(`[MessagesRouter] Image optimized: ${(compressionInfo.originalSize / 1024).toFixed(0)}KB → ${(compressionInfo.processedSize / 1024).toFixed(0)}KB (${compressionInfo.ratio.toFixed(1)}x smaller)`)
+                } catch (err) {
+                    console.warn('[MessagesRouter] Image optimization failed, uploading original:', err)
+                    finalBuffer = Buffer.from(input.fileData, 'base64')
+                }
+            } else {
+                finalBuffer = Buffer.from(input.fileData, 'base64')
+            }
+
             // Generate unique file path
-            const fileExt = path.extname(input.fileName)
-            const fileNameWithoutExt = path.basename(input.fileName, fileExt)
+            const fileExt = path.extname(finalFileName)
+            const fileNameWithoutExt = path.basename(finalFileName, fileExt)
             const timestamp = Date.now()
             const randomId = Math.random().toString(36).substring(2, 15)
-            const storagePath = `attachments/${ctx.userId}/${timestamp}-${randomId}-${fileNameWithoutExt}${fileExt}`
-
-            // Convert base64 to buffer
-            const buffer = Buffer.from(input.fileData, 'base64')
+            const storagePath = `${ctx.userId}/${timestamp}-${randomId}-${fileNameWithoutExt}${fileExt}`
 
             // Upload to Supabase Storage
             const { error: uploadError } = await supabase.storage
                 .from('attachments')
-                .upload(storagePath, buffer, {
-                    contentType: input.fileType,
+                .upload(storagePath, finalBuffer, {
+                    contentType: finalMimeType,
                     upsert: false
                 })
 
@@ -244,13 +296,18 @@ export const messagesRouter = router({
                 throw new Error(`Failed to generate signed URL: ${signedUrlError.message}`)
             }
 
+            const totalTime = Date.now() - startTime
+            console.log(`[MessagesRouter] Upload complete in ${totalTime}ms`)
+
             return {
                 id: randomId,
-                name: input.fileName,
-                size: input.fileSize,
-                type: input.fileType,
+                name: finalFileName,
+                size: finalSize,
+                type: finalMimeType,
                 url: signedUrlData.signedUrl,
-                storagePath: storagePath
+                storagePath: storagePath,
+                // Include compression info for UI feedback
+                compression: compressionInfo
             }
         })
 })

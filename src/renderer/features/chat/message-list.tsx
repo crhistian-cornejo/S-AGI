@@ -15,8 +15,11 @@ import {
     AgentTask,
     AgentToolCall,
     AgentToolRegistry,
+    AgentToolCallsGroup,
     AgentWebFetch,
     AgentWebSearch,
+    AgentTodoTool,
+    AgentExitPlanModeTool,
     getToolStatus,
     type PlanStep,
     type ToolPart
@@ -233,6 +236,39 @@ function toWebSearchPart(search: StreamingWebSearch): ToolPart {
     }
 }
 
+// Special tools that need their own dedicated components (not grouped)
+const SPECIAL_TOOLS = new Set([
+    'Bash', 'bash',
+    'Edit', 'edit',
+    'WebFetch', 'webfetch', 'web_fetch',
+    'WebSearch', 'websearch', 'web_search',
+    'Task', 'task',
+    'PlanWrite', 'planwrite', 'plan_write',
+    'TodoWrite', 'todowrite', 'todo_write',
+    'ExitPlanMode', 'exitplanmode', 'exit_plan_mode'
+])
+
+/** Check if a tool should be rendered individually with a dedicated component */
+function isSpecialTool(toolName: string): boolean {
+    return SPECIAL_TOOLS.has(toolName)
+}
+
+/** Separate tool calls into special (individual rendering) and simple (grouped) */
+function separateToolCalls<T extends { name: string }>(toolCalls: T[]): { special: T[], simple: T[] } {
+    const special: T[] = []
+    const simple: T[] = []
+    
+    for (const tc of toolCalls) {
+        if (isSpecialTool(tc.name)) {
+            special.push(tc)
+        } else {
+            simple.push(tc)
+        }
+    }
+    
+    return { special, simple }
+}
+
 // ============================================================================
 // Types
 // ============================================================================
@@ -378,7 +414,7 @@ export const MessageList = memo(function MessageList({
                     <div className="flex items-start gap-4">
                         <AssistantAvatar />
                         <div className="flex-1 min-w-0 space-y-2 pt-0.5">
-                            {/* Reasoning section with web searches - shows ABOVE the text */}
+                            {/* Reasoning section - shows ABOVE the text */}
                             {(isReasoning || streamingReasoning || (streamingAnnotations && streamingAnnotations.length > 0)) && (
                                 <AgentReasoning
                                     content={streamingReasoning || ''}
@@ -408,16 +444,12 @@ export const MessageList = memo(function MessageList({
                             )}
 
                             {streamingToolCalls && streamingToolCalls.length > 0 && (
-                                <div className="space-y-2">
-                                    {streamingToolCalls.map((tc) => (
-                                        <AgentToolRenderer
-                                            key={tc.id}
-                                            toolCall={tc}
-                                            chatStatus="streaming"
-                                            onViewArtifact={onViewArtifact}
-                                        />
-                                    ))}
-                                </div>
+                                <ToolCallsRenderer
+                                    toolCalls={streamingToolCalls}
+                                    chatStatus="streaming"
+                                    onViewArtifact={onViewArtifact}
+                                    isStreaming
+                                />
                             )}
                         </div>
                     </div>
@@ -551,7 +583,7 @@ const MessageItem = memo(function MessageItem({
         <div className="flex items-start gap-4 group">
             <AssistantAvatar />
             <div className="flex-1 min-w-0 space-y-2 pt-0.5">
-                {/* Reasoning shown above the text content */}
+                {/* Reasoning shown above everything */}
                 {reasoning && (
                     <AgentReasoning
                         content={reasoning}
@@ -559,9 +591,23 @@ const MessageItem = memo(function MessageItem({
                         defaultCollapsed
                         durationMs={message.metadata?.durationMs}
                         actions={message.metadata?.actions}
+                        annotations={message.metadata?.annotations}
                     />
                 )}
                 
+                {/* Tool calls shown after reasoning, before content */}
+                {message.tool_calls && message.tool_calls.length > 0 && (
+                    <ToolCallsRenderer
+                        toolCalls={message.tool_calls.map(tc => ({ 
+                            ...tc, 
+                            args: JSON.stringify(tc.args), 
+                            status: 'complete' as const 
+                        }))}
+                        onViewArtifact={onViewArtifact}
+                    />
+                )}
+                
+                {/* Text content shown last */}
                 {content && (
                     <div className="prose-container">
                         <ChatMarkdownRenderer content={content} size="md" />
@@ -573,19 +619,6 @@ const MessageItem = memo(function MessageItem({
                     <MessageAttachments 
                         attachments={message.attachments} 
                     />
-                )}
-
-                {message.tool_calls && message.tool_calls.length > 0 && (
-                    <div className="space-y-2">
-                        {message.tool_calls.map((tc) => (
-                            <AgentToolRenderer
-                                key={tc.id}
-                                toolCall={{ ...tc, args: JSON.stringify(tc.args), status: 'complete' }}
-                                onViewArtifact={onViewArtifact}
-                            />
-                        ))}
-
-                    </div>
                 )}
 
                 {(content || hasUsage) && (
@@ -749,6 +782,41 @@ const AgentToolRenderer = memo(function AgentToolRenderer({
         }
     }
 
+    // TodoWrite - show todo list updates
+    if (toolType === 'tool-TodoWrite' || toolType === 'tool-todowrite') {
+        return (
+            <AgentTodoTool
+                part={{
+                    ...part,
+                    toolCallId: toolCall.id,
+                    input: { todos: Array.isArray(input.todos) ? input.todos : [] },
+                    output: {
+                        oldTodos: Array.isArray(output.oldTodos) ? output.oldTodos : [],
+                        newTodos: Array.isArray(output.newTodos) ? output.newTodos : Array.isArray(input.todos) ? input.todos : [],
+                        success: output.success as boolean | undefined
+                    }
+                }}
+                chatStatus={chatStatus}
+            />
+        )
+    }
+
+    // ExitPlanMode - show plan summary
+    if (toolType === 'tool-ExitPlanMode' || toolType === 'tool-exitplanmode') {
+        return (
+            <AgentExitPlanModeTool
+                part={{
+                    ...part,
+                    output: {
+                        plan: typeof output.plan === 'string' ? output.plan : undefined,
+                        success: output.success as boolean | undefined
+                    }
+                }}
+                chatStatus={chatStatus}
+            />
+        )
+    }
+
     const meta = AgentToolRegistry[toolType]
     const fallbackMeta = AgentToolRegistry['tool-Task']
     const { isPending, isError } = getToolStatus(part, chatStatus)
@@ -782,6 +850,48 @@ const AgentToolRenderer = memo(function AgentToolRenderer({
                 >
                     View Artifact
                 </Button>
+            )}
+        </div>
+    )
+})
+
+/** 
+ * ToolCallsRenderer - Separates special tools (individual) from simple tools (grouped)
+ * Special tools get their dedicated components, simple tools are grouped for compact display
+ */
+const ToolCallsRenderer = memo(function ToolCallsRenderer({
+    toolCalls,
+    chatStatus,
+    onViewArtifact,
+    isStreaming = false
+}: {
+    toolCalls: ToolCall[]
+    chatStatus?: string
+    onViewArtifact?: (id: string) => void
+    isStreaming?: boolean
+}) {
+    const { special, simple } = separateToolCalls(toolCalls)
+    
+    return (
+        <div className="space-y-2">
+            {/* Special tools - render individually with dedicated components */}
+            {special.map((tc) => (
+                <AgentToolRenderer
+                    key={tc.id}
+                    toolCall={tc}
+                    chatStatus={chatStatus}
+                    onViewArtifact={onViewArtifact}
+                />
+            ))}
+            
+            {/* Simple tools - render grouped */}
+            {simple.length > 0 && (
+                <AgentToolCallsGroup
+                    toolCalls={simple}
+                    chatStatus={chatStatus}
+                    onViewArtifact={onViewArtifact}
+                    isStreaming={isStreaming}
+                />
             )}
         </div>
     )

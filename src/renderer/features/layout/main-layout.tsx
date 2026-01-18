@@ -70,14 +70,29 @@ export function MainLayout() {
         createChat.mutate({ title: 'New Chat' })
     }
 
-    // Global Shortcuts
-    useHotkeys('shift+?', () => setShortcutsOpen((prev) => !prev), { preventDefault: true })
-    useHotkeys('meta+\\', () => setSidebarOpen((prev) => !prev), { preventDefault: true })
+    // Global Shortcuts - disabled when Univer tabs are active to avoid input conflicts
+    const isUniverTabActive = activeTab === 'excel' || activeTab === 'doc'
+    
+    useHotkeys('shift+?', () => setShortcutsOpen((prev) => !prev), { 
+        preventDefault: true,
+        enabled: !isUniverTabActive
+    })
+    useHotkeys('meta+\\', () => setSidebarOpen((prev) => !prev), { 
+        preventDefault: true,
+        enabled: !isUniverTabActive
+    })
     useHotkeys('meta+n, ctrl+n', (e) => {
         e.preventDefault()
         handleNewChat()
-    }, { enableOnFormTags: true, preventDefault: true })
-    useHotkeys('meta+comma, ctrl+comma', () => setSettingsOpen(true), { preventDefault: true })
+    }, { 
+        enableOnFormTags: true, 
+        preventDefault: true,
+        enabled: !isUniverTabActive
+    })
+    useHotkeys('meta+comma, ctrl+comma', () => setSettingsOpen(true), { 
+        preventDefault: true,
+        enabled: !isUniverTabActive
+    })
 
     return (
         <div className="h-screen w-screen bg-background flex flex-col overflow-hidden">

@@ -10,6 +10,7 @@ import { aiRouter } from './routers/ai'
 import { authRouter } from './routers/auth'
 import { settingsRouter } from './routers/settings'
 import { toolsRouter } from './routers/tools'
+import { filesRouter } from './routers/files'
 
 // Main app router
 export const appRouter = router({
@@ -19,7 +20,8 @@ export const appRouter = router({
     ai: aiRouter,
     auth: authRouter,
     settings: settingsRouter,
-    tools: toolsRouter
+    tools: toolsRouter,
+    files: filesRouter
 })
 
 // Export type for client

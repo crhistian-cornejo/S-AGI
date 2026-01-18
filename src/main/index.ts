@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, nativeTheme } from 'electron'
+import { app, BrowserWindow, ipcMain, nativeTheme, Tray, Menu, nativeImage } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import { createIPCHandler } from 'trpc-electron/main'
@@ -12,12 +12,60 @@ import log from 'electron-log'
 app.commandLine.appendSwitch('disable-features', 'AutofillServerCommunication')
 
 let mainWindow: BrowserWindow | null = null
+let tray: Tray | null = null
+
+function createTray(): void {
+    // macOS: Using 'Template' suffix allows Electron to automatically invert colors for dark/light mode
+    const iconPath = is.dev 
+        ? join(__dirname, '../../src/main/trayTemplate.svg')
+        : join(__dirname, 'trayTemplate.svg')
+        
+    const icon = nativeImage.createFromPath(iconPath).resize({ width: 18, height: 18 })
+    icon.setTemplateImage(true) // Ensure it behaves as a template on macOS
+    
+    tray = new Tray(icon)
+    log.info('[Tray] Tray instance created at:', iconPath)
+    
+    const contextMenu = Menu.buildFromTemplate([
+        { 
+            label: 'Open S-AGI', 
+            click: () => {
+                mainWindow?.show()
+                mainWindow?.focus()
+            } 
+        },
+        { type: 'separator' },
+        { 
+            label: 'Quit', 
+            click: () => {
+                app.quit()
+            } 
+        }
+    ])
+
+    tray.setToolTip('S-AGI Agent')
+    tray.setContextMenu(contextMenu)
+
+    // Standard macOS behavior for tray icons
+    tray.on('click', () => {
+        if (mainWindow) {
+            if (mainWindow.isVisible()) {
+                mainWindow.focus()
+            } else {
+                mainWindow.show()
+                mainWindow.focus()
+            }
+        }
+    })
+}
 
 function createWindow(): void {
     // Create the browser window
     mainWindow = new BrowserWindow({
         width: 1200,
         height: 800,
+        minWidth: 600,
+        minHeight: 400,
         show: false,
         autoHideMenuBar: true,
         frame: false,
@@ -152,6 +200,9 @@ app.whenReady().then(() => {
 
     // Create window
     createWindow()
+
+    // Create Tray
+    createTray()
 
     app.on('activate', function () {
         if (BrowserWindow.getAllWindows().length === 0) createWindow()

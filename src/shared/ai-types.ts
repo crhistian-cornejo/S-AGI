@@ -6,14 +6,12 @@ import { z } from 'zod'
 
 export type AIProvider = 'openai'
 
-/** 
- * Reasoning effort levels for GPT-5 and o-series models
- * - 'none': Disable reasoning
- * - 'low': Low reasoning effort
- * - 'medium': Medium reasoning effort (default)
+/**
+ * - 'low': Low reasoning effort (default)
+ * - 'medium': Medium reasoning effort
  * - 'high': High reasoning effort
  */
-export type ReasoningEffort = 'none' | 'low' | 'medium' | 'high'
+export type ReasoningEffort = 'low' | 'medium' | 'high'
 
 /** Reasoning summary levels */
 export type ReasoningSummary = 'auto' | 'concise' | 'detailed'
@@ -202,7 +200,8 @@ export const DEFAULT_TOOL_APPROVAL_CONFIG: ToolApprovalConfig = {
         fetch_url: 'auto',
         // Document tools
         create_document: 'auto',
-        update_document: 'auto',
+        insert_text: 'auto',
+        replace_document_content: 'auto',
         get_document_content: 'auto'
     }
 }
@@ -221,7 +220,7 @@ export interface ReasoningConfig {
 }
 
 export const DEFAULT_REASONING_CONFIG: ReasoningConfig = {
-    effort: 'medium',
+    effort: 'low',
     summary: 'auto'
 }
 
@@ -245,12 +244,57 @@ export const DEFAULT_NATIVE_TOOLS_CONFIG: NativeToolsConfig = {
 }
 
 // ============================================================================
+// Cost Optimization Configuration
+// ============================================================================
+
+/**
+ * Configuration for cost optimization strategies
+ * @see https://platform.openai.com/docs/guides/cost-optimization
+ */
+export interface CostOptimizationConfig {
+    /** 
+     * Maximum output tokens (controls response length and cost)
+     * Lower values = less output = lower cost
+     */
+    maxOutputTokens?: number
+    
+    /**
+     * Use flex processing for 50% cost savings
+     * Trade-off: Slower response times, may return 429 if busy
+     * Best for: Non-urgent tasks, batch processing, evaluations
+     * @see https://platform.openai.com/docs/guides/flex-processing
+     */
+    useFlex?: boolean
+    
+    /**
+     * Truncation strategy for context window management
+     * - 'auto': Automatically truncate oldest messages if context exceeds limit
+     * - 'disabled': Return error if context exceeds limit
+     */
+    truncation?: {
+        type: 'auto' | 'disabled'
+    }
+}
+
+export const DEFAULT_COST_OPTIMIZATION_CONFIG: CostOptimizationConfig = {
+    maxOutputTokens: undefined, // No limit by default
+    useFlex: false, // Standard processing by default
+    truncation: { type: 'auto' } // Auto-truncate for better UX
+}
+
+/**
+ * Service tier options for OpenAI API
+ * @see https://platform.openai.com/docs/guides/flex-processing
+ */
+export type ServiceTier = 'auto' | 'flex'
+
+// ============================================================================
 // Zod Schemas for Validation
 // ============================================================================
 
 export const AIProviderSchema = z.enum(['openai'])
 
-export const ReasoningEffortSchema = z.enum(['none', 'low', 'medium', 'high'])
+export const ReasoningEffortSchema = z.enum(['low', 'medium', 'high'])
 
 export const ReasoningSummarySchema = z.enum(['auto', 'concise', 'detailed'])
 

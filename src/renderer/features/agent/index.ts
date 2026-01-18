@@ -52,3 +52,8 @@ export type { AgentEditProps, EditResult } from './agent-edit'
 
 export { AgentReasoning } from './agent-reasoning'
 export type { AgentReasoningProps, AgentReasoningAction, WebSearchData, UrlCitationData } from './agent-reasoning'
+
+// Planning and Todo components
+export { AgentTodoTool } from './agent-todo-tool'
+export { AgentExitPlanModeTool } from './agent-exit-plan-mode-tool'
+export { AgentToolCallsGroup } from './agent-tool-calls-group'

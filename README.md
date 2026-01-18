@@ -1,97 +1,59 @@
 <p align="center">
-  <img src="build/logo.svg" width="128" alt="S-AGI Logo" />
+  <img src="build/logo.svg" width="120" alt="S-AGI Logo" />
 </p>
 
-# S-AGI - AI Spreadsheet Agent
+# S-AGI
+### Spreadsheet Agent with Univer & AI SDK v6
+
+S-AGI es un agente de IA diseñado para interactuar con hojas de cálculo de forma natural. No es solo un chat; es una interfaz que entiende el contexto de tus datos, genera fórmulas complejas y manipula celdas usando el motor de **Univer**.
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-0.1.0-blue.svg" alt="Version" />
-  <img src="https://img.shields.io/badge/license-Apache--2.0-green.svg" alt="License" />
-  <img src="https://img.shields.io/badge/electron-33.4.5-informational.svg" alt="Electron" />
-  <img src="https://img.shields.io/badge/runtime-Bun-black.svg" alt="Bun" />
+  <img src="https://img.shields.io/badge/version-0.1.0-blue.svg?style=flat-square" alt="Version" />
+  <img src="https://img.shields.io/badge/runtime-Bun-black.svg?style=flat-square" alt="Bun" />
+  <img src="https://img.shields.io/badge/electron-33.4.5-informational.svg?style=flat-square" alt="Electron" />
 </p>
 
+---
 
-AI-powered chat assistant for creating spreadsheets, tables, and formulas using Univer.
+## 🚀 Key Differences
+- **Native Spreadsheet Engine**: A diferencia de otros agentes que solo generan CSVs estáticos, S-AGI emplea **Univer** para renderizar hojas de cálculo reales con soporte completo de fórmulas y formato persistente.
+- **Agent Loop (v6)**: Implementa el nuevo agent loop de AI SDK v6 para ejecución de tareas multi-paso y uso dinámico de herramientas.
+- **Deep Desktop Integration**: Construido sobre Electron con persistencia en Supabase, manejo de sesiones seguras y soporte para deep linking (`s-agi://`).
 
-> **Attribution**: This project is based on [21st-dev/1code](https://github.com/21st-dev/1code) (Apache-2.0 License). See [THIRD-PARTY-NOTICES](./THIRD-PARTY-NOTICES) for full license details.
+## 🛠 Tech Internals
+- **Runtime**: [Bun](https://bun.sh) (Obligatorio para el flujo de desarrollo).
+- **Core**: React 19 + TypeScript + Tailwind CSS.
+- **Communication**: tRPC integrado con Electron IPC para comunicación type-safe entre Main y Renderer.
+- **AI Layers**: Integración nativa con OpenAI (con soporte de reasoning/GPT-5) y Anthropic.
+- **Persistence**: Supabase (Auth, PostgreSQL, Storage y Vector Store para File Search).
 
-## Features
-
-- 🤖 **AI Chat** - Natural language interface for spreadsheet creation
-- 📊 **Univer Spreadsheets** - Full-featured spreadsheet with formulas
-- 🔄 **Artifacts** - Persistent spreadsheet artifacts in chat history
-- 🌓 **Themes** - Light/Dark/System mode support
-- 💾 **Supabase Backend** - Cloud persistence for all data
-- 🖥️ **Cross-platform** - Windows, macOS, and Web support
-
-## Tech Stack
-
-- **Frontend**: React 19, TypeScript, Tailwind CSS
-- **Desktop**: Electron + Vite
-- **State**: Jotai, Zustand, React Query
-- **Backend**: tRPC, Supabase
-- **AI**: AI SDK v6 (Claude Code / OpenAI fallback)
-- **Spreadsheets**: Univer
-- **Icons**: Tabler Icons
-
-## Getting Started
+## 📦 Setup Rápido
 
 ```bash
-# Install dependencies
+# Instalación (Recomendado usar Bun para consistencia)
 bun install
 
-# Setup environment
+# Variables de entorno
 cp .env.example .env
-# Edit .env with your Supabase and API keys
-
-# Development
-bun run dev
-
-# Build
-bun run build
-
-# Package for distribution
-bun run package:win   # Windows
-bun run package:mac   # macOS
-bun run package:linux # Linux
-
-# Production builds with code signing (macOS)
-# 1. Set up Apple Developer account and create App ID
-# 2. Generate App-Specific Password in Apple ID settings
-# 3. Add to .env:
-#    APPLE_IDENTITY="Developer ID Application: Your Name (TEAM_ID)"
-#    APPLE_TEAM_ID=your_team_id
-#    APPLE_ID=your_apple_id
-#    APPLE_ID_PASSWORD=your_app_specific_password
-# 4. Build: bun run dist
+# Configura tus credenciales de Supabase y API keys de IA
 ```
 
-## Project Structure
-
-```
-src/
-├── main/           # Electron main process
-│   ├── lib/
-│   │   ├── auth/   # Claude Code OAuth
-│   │   ├── supabase/
-│   │   └── trpc/   # tRPC routers
-│   └── index.ts
-├── preload/        # IPC bridge
-├── renderer/       # React UI
-│   ├── components/ui/
-│   ├── features/
-│   │   ├── chat/
-│   │   ├── artifacts/
-│   │   ├── sidebar/
-│   │   ├── layout/
-│   │   └── univer/
-│   └── lib/
-└── shared/         # Shared types
+### Comandos Disponibles
+```bash
+bun run dev      # Iniciar entorno de desarrollo (HMR habilitado)
+bun run build    # Compilar assets para producción
+bun run package  # Generar binario ejecutable (.app, .exe, .deb)
 ```
 
-## License
+## 🍎 macOS Signing & Notarization
+Para distribuir en macOS con Gatekeeper habilitado, configura estas variables en tu `.env` antes de ejecutar `bun run dist`:
 
-Apache-2.0
+- `APPLE_IDENTITY`: El nombre de tu certificado "Developer ID Application".
+- `APPLE_TEAM_ID`: Tu ID de equipo de Apple Developer.
+- `APPLE_ID`: Tu correo de Apple Developer.
+- `APPLE_ID_PASSWORD`: Tu contraseña específica de aplicación (App-specific password).
 
-See [THIRD-PARTY-NOTICES](./THIRD-PARTY-NOTICES) for third-party license attributions.
+## 📜 Attribution & License
+Este proyecto es una evolución técnica basada en [21st-dev/1code](https://github.com/21st-dev/1code).  
+Distribuido bajo la **Apache-2.0 License**. Consulta [THIRD-PARTY-NOTICES](./THIRD-PARTY-NOTICES) para detalles sobre atribuciones de terceros.
+

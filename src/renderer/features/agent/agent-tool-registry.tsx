@@ -347,6 +347,19 @@ export const AgentToolRegistry: Record<string, ToolMeta> = {
     variant: "simple",
   },
 
+  "tool-ExitPlanMode": {
+    icon: PlanningIcon,
+    title: (part) => {
+      const isPending =
+        part.state !== "output-available" && part.state !== "output-error"
+      if (isPending) return "Finishing plan..."
+      const hasPlan = !!(part.output as { plan?: string } | undefined)?.plan
+      return hasPlan ? "Plan ready" : "Exited plan mode"
+    },
+    subtitle: () => "",
+    variant: "simple",
+  },
+
   // ========================================================================
   // OpenAI Native Tools (Responses API)
   // ========================================================================
@@ -483,18 +496,29 @@ export const AgentToolRegistry: Record<string, ToolMeta> = {
       return isPending ? "Creating document" : "Created document"
     },
     subtitle: (part) => {
-      const name = (part.input?.name as string) || ""
-      return name.length > 40 ? name.slice(0, 37) + "..." : name
+      const title = (part.input?.title as string) || (part.input?.name as string) || ""
+      return title.length > 40 ? title.slice(0, 37) + "..." : title
     },
     variant: "simple",
   },
 
-  "tool-update_document": {
+  "tool-insert_text": {
     icon: IconEditFile,
     title: (part) => {
       const isPending =
         part.state !== "output-available" && part.state !== "output-error"
-      return isPending ? "Updating document" : "Updated document"
+      return isPending ? "Inserting text" : "Inserted text"
+    },
+    subtitle: () => "",
+    variant: "simple",
+  },
+
+  "tool-replace_document_content": {
+    icon: IconEditFile,
+    title: (part) => {
+      const isPending =
+        part.state !== "output-available" && part.state !== "output-error"
+      return isPending ? "Replacing document" : "Replaced document"
     },
     subtitle: () => "",
     variant: "simple",

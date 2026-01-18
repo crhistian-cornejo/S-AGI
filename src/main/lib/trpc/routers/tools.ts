@@ -38,6 +38,7 @@ function createUniverWorkbook(name: string, columns: string[], rows: any[][] = [
     return {
         id: crypto.randomUUID(),
         name,
+        sheetOrder: [sheetId],
         sheets: {
             [sheetId]: {
                 id: sheetId,
@@ -259,6 +260,16 @@ export const ALL_TOOLS = {
     ...DOCUMENT_TOOLS
 }
 
+// Plan mode tools - used when mode='plan' to create execution plans
+export const PLAN_TOOLS = {
+    ExitPlanMode: {
+        description: 'Call this tool when you have finished creating the execution plan. Include the complete plan as markdown with numbered steps.',
+        inputSchema: z.object({
+            plan: z.string().describe('The complete execution plan in markdown format with numbered steps. Each step should describe what will be done.')
+        })
+    }
+}
+
 // Tool execution functions
 async function executeCreateSpreadsheet(
     args: z.infer<typeof SPREADSHEET_TOOLS.create_spreadsheet.inputSchema>,
@@ -280,7 +291,7 @@ async function executeCreateSpreadsheet(
             log.info(`[Tools] Parsed ${parsedRows.length} rows from JSON`)
         } catch (e) {
             log.warn(`[Tools] Failed to parse rows JSON: ${e}`)
-            log.warn(`[Tools] Raw rowsJson (first 500 chars): ${rowsJson?.substring(0, 500)}`)
+            log.warn(`[Tools] Rows JSON length: ${rowsJson.length}`)
             parsedRows = []
         }
     }
@@ -331,10 +342,12 @@ async function executeUpdateCells(
         sheet.cellData[row][column] = { v: value }
     })
 
-    await supabase
+    const { error: updateError } = await supabase
         .from('artifacts')
         .update({ univer_data: univerData, updated_at: new Date().toISOString() })
         .eq('id', artifactId)
+
+    if (updateError) throw new Error(`Failed to update cells: ${updateError.message}`)
 
     log.info(`[Tools] Updated ${updates.length} cells in spreadsheet: ${artifactId}`)
     return { artifactId, message: `Updated ${updates.length} cells` }
@@ -363,10 +376,12 @@ async function executeInsertFormula(
     if (!sheet.cellData[row]) sheet.cellData[row] = {}
     sheet.cellData[row][col] = { v: formula, f: formula }
 
-    await supabase
+    const { error: updateError } = await supabase
         .from('artifacts')
         .update({ univer_data: univerData, updated_at: new Date().toISOString() })
         .eq('id', artifactId)
+
+    if (updateError) throw new Error(`Failed to insert formula: ${updateError.message}`)
 
     log.info(`[Tools] Inserted formula in ${cell}: ${formula}`)
     return { artifactId, message: `Inserted formula ${formula} in cell ${cell}` }
@@ -477,10 +492,12 @@ async function executeFormatCells(
         }
     }
 
-    await supabase
+    const { error: updateError } = await supabase
         .from('artifacts')
         .update({ univer_data: univerData, updated_at: new Date().toISOString() })
         .eq('id', artifactId)
+
+    if (updateError) throw new Error(`Failed to format cells: ${updateError.message}`)
 
     const cellCount = (end.row - start.row + 1) * (end.col - start.col + 1)
     log.info(`[Tools] Formatted ${cellCount} cells in range ${range}`)
@@ -531,10 +548,12 @@ async function executeAddRow(
     // Update row count if needed
     sheet.rowCount = Math.max(sheet.rowCount, newRowIndex + 10)
 
-    await supabase
+    const { error: updateError } = await supabase
         .from('artifacts')
         .update({ univer_data: univerData, updated_at: new Date().toISOString() })
         .eq('id', artifactId)
+
+    if (updateError) throw new Error(`Failed to add row: ${updateError.message}`)
 
     log.info(`[Tools] Added row at index ${newRowIndex}`)
     return { artifactId, message: `Added new row with ${values.length} values`, newRowIndex }
@@ -625,10 +644,12 @@ async function executeMergeCells(
         endColumn: end.col
     })
 
-    await supabase
+    const { error: updateError } = await supabase
         .from('artifacts')
         .update({ univer_data: univerData, updated_at: new Date().toISOString() })
         .eq('id', artifactId)
+
+    if (updateError) throw new Error(`Failed to merge cells: ${updateError.message}`)
 
     log.info(`[Tools] Merged cells ${range}`)
     return { artifactId, message: `Merged cells in range ${range}` }
@@ -663,10 +684,12 @@ async function executeSetColumnWidth(
         sheet.columnData[colIndex].w = width
     }
 
-    await supabase
+    const { error: updateError } = await supabase
         .from('artifacts')
         .update({ univer_data: univerData, updated_at: new Date().toISOString() })
         .eq('id', artifactId)
+
+    if (updateError) throw new Error(`Failed to set column width: ${updateError.message}`)
 
     log.info(`[Tools] Set column width for ${columns.join(', ')} to ${width}px`)
     return { artifactId, message: `Set width of column(s) ${columns.join(', ')} to ${width}px` }
@@ -701,10 +724,12 @@ async function executeSetRowHeight(
         sheet.rowData[rowIndex].h = height
     }
 
-    await supabase
+    const { error: updateError } = await supabase
         .from('artifacts')
         .update({ univer_data: univerData, updated_at: new Date().toISOString() })
         .eq('id', artifactId)
+
+    if (updateError) throw new Error(`Failed to set row height: ${updateError.message}`)
 
     log.info(`[Tools] Set row height for rows ${rows.join(', ')} to ${height}px`)
     return { artifactId, message: `Set height of row(s) ${rows.join(', ')} to ${height}px` }
@@ -753,10 +778,12 @@ async function executeDeleteRow(
         sheet.cellData = newCellData
     }
 
-    await supabase
+    const { error: updateError } = await supabase
         .from('artifacts')
         .update({ univer_data: univerData, updated_at: new Date().toISOString() })
         .eq('id', artifactId)
+
+    if (updateError) throw new Error(`Failed to delete rows: ${updateError.message}`)
 
     log.info(`[Tools] Deleted rows ${rows.join(', ')}`)
     return { artifactId, message: `Deleted row(s) ${rows.join(', ')}` }
@@ -827,10 +854,12 @@ async function executeInsertText(
         body.paragraphs.push({ startIndex: oldLength - 2 })
     }
 
-    await supabase
+    const { error: updateError } = await supabase
         .from('artifacts')
         .update({ univer_data: univerData, updated_at: new Date().toISOString() })
         .eq('id', artifactId)
+
+    if (updateError) throw new Error(`Failed to insert text: ${updateError.message}`)
 
     log.info(`[Tools] Inserted text at ${position} in document ${artifactId}`)
     return { artifactId, message: `Inserted ${text.length} characters at ${position}` }
@@ -870,7 +899,7 @@ async function executeReplaceDocumentContent(
         paragraphs
     }
 
-    await supabase
+    const { error: updateError } = await supabase
         .from('artifacts')
         .update({ 
             univer_data: univerData, 
@@ -878,6 +907,8 @@ async function executeReplaceDocumentContent(
             updated_at: new Date().toISOString() 
         })
         .eq('id', artifactId)
+
+    if (updateError) throw new Error(`Failed to replace document content: ${updateError.message}`)
 
     log.info(`[Tools] Replaced content in document ${artifactId}`)
     return { artifactId, message: `Replaced document content with ${content.length} characters` }
@@ -1007,6 +1038,18 @@ export async function executeTool(
                 DOCUMENT_TOOLS.get_document_content.inputSchema.parse(args),
                 userId
             )
+
+        // Plan mode tools
+        case 'ExitPlanMode': {
+            // ExitPlanMode just returns the plan - no side effects
+            const planArgs = PLAN_TOOLS.ExitPlanMode.inputSchema.parse(args)
+            log.info(`[Tools] ExitPlanMode called with plan: ${planArgs.plan.slice(0, 100)}...`)
+            return { 
+                success: true, 
+                plan: planArgs.plan,
+                message: 'Plan created successfully. User can now approve to implement.' 
+            }
+        }
 
         default:
             throw new Error(`Unknown tool: ${toolName}`)

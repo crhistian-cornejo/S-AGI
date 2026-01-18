@@ -276,6 +276,7 @@ export const ChatMarkdownRenderer = memo(function ChatMarkdownRenderer({
     return (
         <div className={cn('prose prose-sm max-w-none dark:prose-invert', className)}>
             <Streamdown
+                mode={isAnimating ? 'streaming' : 'static'}
                 isAnimating={isAnimating}
                 components={{
                     h1: ({ children, ...props }) => (

@@ -109,6 +109,38 @@ export const activeTabAtom = atomWithStorage<AppTab>('active-tab', 'chat')
 export const chatInputAtom = atom('')
 export const chatModeAtom = atomWithStorage<'plan' | 'agent'>('chat-mode', 'agent')
 
+// === PLAN MODE STATE ===
+export const isPlanModeAtom = atomWithStorage<boolean>('agents:isPlanMode', false)
+
+// Track sub-chats with pending plan approval (plan ready but not yet implemented)
+// Set<subChatId>
+export const pendingPlanApprovalsAtom = atom<Set<string>>(new Set<string>())
+
+// === TODO STATE ===
+export interface TodoItem {
+    id: string
+    content: string
+    status: 'pending' | 'in_progress' | 'completed' | 'cancelled'
+    priority: 'high' | 'medium' | 'low'
+}
+
+interface TodoState {
+    todos: TodoItem[]
+    creationToolCallId: string | null
+}
+
+// Storage atom for all todos by subChatId
+const allTodosStorageAtom = atom<Record<string, TodoState>>({})
+
+// atomFamily-like pattern: get/set todos per subChatId
+export const getTodosAtom = (subChatId: string) => atom(
+    (get) => get(allTodosStorageAtom)[subChatId] ?? { todos: [], creationToolCallId: null },
+    (get, set, newState: TodoState) => {
+        const current = get(allTodosStorageAtom)
+        set(allTodosStorageAtom, { ...current, [subChatId]: newState })
+    }
+)
+
 // Note: File attachments are now managed via useFileUpload hook (local state, not global atom)
 
 // === STREAMING STATE ===
@@ -127,9 +159,9 @@ export const streamingReasoningAtom = atom('')
 export const isReasoningAtom = atom(false)
 // Stores the last completed reasoning to display after streaming ends
 export const lastReasoningAtom = atom('')
-// Matches OpenAI SDK ReasoningEffort: 'none' | 'low' | 'medium' | 'high'
-export type ReasoningEffort = 'none' | 'low' | 'medium' | 'high'
-export const reasoningEffortAtom = atomWithStorage<ReasoningEffort>('reasoning-effort', 'medium')
+// Matches OpenAI SDK ReasoningEffort: 'low' | 'medium' | 'high'
+export type ReasoningEffort = 'low' | 'medium' | 'high'
+export const reasoningEffortAtom = atomWithStorage<ReasoningEffort>('reasoning-effort', 'low')
 
 // === WEB SEARCH STATE (for native OpenAI web search) ===
 export interface WebSearchInfo {
@@ -149,10 +181,19 @@ export interface UrlCitation {
     endIndex: number
 }
 
+export interface FileCitation {
+    type: 'file_citation'
+    fileId: string
+    filename: string
+    index: number
+}
+
+export type Annotation = UrlCitation | FileCitation
+
 // Active web searches during streaming
 export const streamingWebSearchesAtom = atom<WebSearchInfo[]>([])
 // URL citations from the response (collected at the end)
-export const streamingAnnotationsAtom = atom<UrlCitation[]>([])
+export const streamingAnnotationsAtom = atom<Annotation[]>([])
 
 // === SETTINGS MODAL ===
 export const settingsModalOpenAtom = atom(false)

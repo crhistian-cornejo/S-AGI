@@ -24,7 +24,7 @@ export const artifactsRouter = router({
 
             const { data, error } = await supabase
                 .from('artifacts')
-                .select('*')
+                .select('id, chat_id, type, name, content, created_at, updated_at')
                 .eq('chat_id', input.chatId)
                 .order('created_at', { ascending: false })
 

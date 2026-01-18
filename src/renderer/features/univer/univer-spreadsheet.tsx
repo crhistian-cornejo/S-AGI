@@ -66,12 +66,23 @@ export const UniverSpreadsheet = React.forwardRef<UniverSpreadsheetRef, UniverSp
         save: handleSave
     }))
 
+    // Store data in a ref to avoid re-initialization on every render
+    // Only the initial data matters - subsequent changes should use Univer's API
+    const initialDataRef = React.useRef(data)
+    const isInitializedRef = React.useRef(false)
+
     // Initialize Univer on mount, dispose on unmount
+    // Only depends on effectiveDataId to avoid unnecessary re-initialization
     React.useEffect(() => {
         let mounted = true
 
         const initUniver = async () => {
             if (!containerRef.current) {
+                return
+            }
+
+            // Skip if already initialized with same ID
+            if (isInitializedRef.current) {
                 return
             }
 
@@ -94,9 +105,10 @@ export const UniverSpreadsheet = React.forwardRef<UniverSpreadsheetRef, UniverSp
                     return
                 }
 
-                // Create workbook with data
-                const workbook = createWorkbook(instance.api, data, effectiveDataId)
+                // Create workbook with data - use the ref to get stable initial data
+                const workbook = createWorkbook(instance.univer, instance.api, initialDataRef.current, effectiveDataId)
                 workbookRef.current = workbook
+                isInitializedRef.current = true
 
                 console.log('[UniverSpreadsheet] Workbook created:', effectiveDataId)
                 setIsLoading(false)
@@ -116,6 +128,7 @@ export const UniverSpreadsheet = React.forwardRef<UniverSpreadsheetRef, UniverSp
         return () => {
             mounted = false
             workbookRef.current = null
+            isInitializedRef.current = false
             
             // Capture version at cleanup time
             const version = versionRef.current
@@ -132,7 +145,7 @@ export const UniverSpreadsheet = React.forwardRef<UniverSpreadsheetRef, UniverSp
                 }
             }, 0)
         }
-    }, [effectiveDataId, data])
+    }, [effectiveDataId])
 
     if (error) {
         return (

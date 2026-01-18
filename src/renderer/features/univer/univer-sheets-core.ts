@@ -5,7 +5,7 @@
  * and unmount disposes it completely. No need for complex workbook switching logic.
  */
 
-import { Univer, LocaleType, LogLevel, merge } from '@univerjs/core'
+import { Univer, LocaleType, LogLevel, merge, UniverInstanceType } from '@univerjs/core'
 import { FUniver } from '@univerjs/core/facade'
 import { defaultTheme } from '@univerjs/design'
 import { UniverDocsPlugin } from '@univerjs/docs'
@@ -19,9 +19,12 @@ import { UniverSheetsNumfmtPlugin } from '@univerjs/sheets-numfmt'
 import { UniverUIPlugin } from '@univerjs/ui'
 
 // Import facade extensions - ORDER MATTERS!
+// These extend the FUniver API with methods for each plugin
+import '@univerjs/ui/facade'
+import '@univerjs/engine-formula/facade'
 import '@univerjs/sheets/facade'
-import '@univerjs/sheets-formula/facade'
 import '@univerjs/sheets-ui/facade'
+import '@univerjs/sheets-formula/facade'
 import '@univerjs/docs-ui/facade'
 
 // Import styles
@@ -89,22 +92,32 @@ export async function initSheetsUniver(container: HTMLElement): Promise<UniverSh
         logLevel: LogLevel.WARN,
     })
     
-    // Register plugins in order
-    univer.registerPlugin(UniverRenderEnginePlugin)
-    univer.registerPlugin(UniverFormulaEnginePlugin)
+    // Register plugins in order - Following Teable's working configuration
+    // https://github.com/teableio/teable/blob/develop/plugins/src/app/sheet-form-view/components/sheet/UniverSheet.tsx
     
+    // 1. Render engine first
+    univer.registerPlugin(UniverRenderEnginePlugin)
+    
+    // 2. UI plugin with container
     univer.registerPlugin(UniverUIPlugin, {
         container,
     })
     
-    // Docs plugins for cell editing
-    univer.registerPlugin(UniverDocsPlugin)
+    // 3. Docs plugins (required for cell editing)
+    univer.registerPlugin(UniverDocsPlugin, {
+        hasScroll: false,
+    })
     univer.registerPlugin(UniverDocsUIPlugin)
     
-    // Sheets plugins
+    // 4. Sheets core
     univer.registerPlugin(UniverSheetsPlugin)
     univer.registerPlugin(UniverSheetsUIPlugin)
+    
+    // 5. Formula plugins (after sheets)
+    univer.registerPlugin(UniverFormulaEnginePlugin)
     univer.registerPlugin(UniverSheetsFormulaPlugin)
+    
+    // 6. Additional plugins
     univer.registerPlugin(UniverSheetsNumfmtPlugin)
     
     const api = FUniver.newAPI(univer)
@@ -156,10 +169,10 @@ export function getSheetsInstanceVersion(): number {
 
 /**
  * Create a new workbook with optional data
+ * Uses univer.createUnit() as per official examples
  */
-export function createWorkbook(api: FUniver, data?: any, id?: string): any {
+export function createWorkbook(univer: Univer, api: FUniver, data?: any, id?: string): any {
     const workbookId = data?.id || id || `workbook-${Date.now()}`
-    const extendedApi = api as any
     
     console.log('[UniverSheets] createWorkbook:', {
         hasData: !!data,
@@ -168,30 +181,29 @@ export function createWorkbook(api: FUniver, data?: any, id?: string): any {
         sheetsKeys: data?.sheets ? Object.keys(data.sheets) : [],
     })
     
-    let workbook: any
-    
-    if (data) {
-        console.log('[UniverSheets] Creating workbook with provided data')
-        workbook = extendedApi.createWorkbook(data)
-    } else {
-        console.log('[UniverSheets] Creating empty workbook')
-        workbook = extendedApi.createWorkbook({
-            id: workbookId,
-            name: 'Workbook',
-            sheetOrder: ['sheet1'],
-            sheets: {
-                sheet1: {
-                    id: 'sheet1',
-                    name: 'Sheet1',
-                    rowCount: 100,
-                    columnCount: 26,
-                    cellData: {},
-                    defaultColumnWidth: 100,
-                    defaultRowHeight: 24,
-                },
+    // Build workbook data
+    const workbookData = data || {
+        id: workbookId,
+        name: 'Workbook',
+        sheetOrder: ['sheet1'],
+        sheets: {
+            sheet1: {
+                id: 'sheet1',
+                name: 'Sheet1',
+                rowCount: 100,
+                columnCount: 26,
+                cellData: {},
+                defaultColumnWidth: 100,
+                defaultRowHeight: 24,
             },
-        })
+        },
     }
+    
+    // Use createUnit instead of api.createWorkbook - this is the official way
+    univer.createUnit(UniverInstanceType.UNIVER_SHEET, workbookData)
+    
+    // Get the workbook via API
+    const workbook = api.getActiveWorkbook()
     
     console.log('[UniverSheets] Workbook created with ID:', workbook?.getId?.() || workbookId)
     

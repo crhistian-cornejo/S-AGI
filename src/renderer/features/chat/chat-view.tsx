@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback, useState } from 'react'
+import { useEffect, useRef, useCallback, useState, useMemo } from 'react'
 import { useAtom, useAtomValue, useSetAtom } from 'jotai'
 import { IconSparkles, IconBrandOpenai, IconBrain, IconArrowDown } from '@tabler/icons-react'
 import { toast } from 'sonner'
@@ -9,6 +9,7 @@ import {
     currentProviderAtom,
     settingsModalOpenAtom,
     chatModeAtom,
+    isPlanModeAtom,
     selectedModelAtom,
     streamingToolCallsAtom,
     streamingErrorAtom,
@@ -25,11 +26,14 @@ import {
 } from '@/lib/atoms'
 import { trpc, trpcClient } from '@/lib/trpc'
 import { Button } from '@/components/ui/button'
+import { Kbd } from '@/components/ui/kbd'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { MessageList } from './message-list'
 import { ChatInput } from './chat-input'
+import { ChatFilesPanel } from './chat-files-panel'
 import { useSmoothStream } from '@/hooks/use-smooth-stream'
+import { useDocumentUpload } from '@/lib/use-document-upload'
 
 export function ChatView() {
     // Force rebuild
@@ -41,8 +45,8 @@ export function ChatView() {
     const setSettingsOpen = useSetAtom(settingsModalOpenAtom)
     const selectedModel = useAtomValue(selectedModelAtom)
 
-    // Smooth streaming for text (buffers and releases gradually)
-    const smoothStream = useSmoothStream({ delayMs: 3, chunking: 'word' })
+    // Smooth streaming for text (show immediately as received)
+    const smoothStream = useSmoothStream({ delayMs: 0, chunking: 'word' })
     const streamingText = smoothStream.displayText
 
     // Streaming state
@@ -63,8 +67,12 @@ export function ChatView() {
     const setSelectedArtifact = useSetAtom(selectedArtifactAtom)
     const setArtifactPanelOpen = useSetAtom(artifactPanelOpenAtom)
 
+    // Document upload for file search
+    const documentUpload = useDocumentUpload({ chatId: selectedChatId })
+
     // Abort controller and scroll refs
     const abortRef = useRef<(() => void) | null>(null)
+    const handleSendRef = useRef<typeof handleSend | null>(null)
     const messagesEndRef = useRef<HTMLDivElement>(null)
     const scrollContainerRef = useRef<HTMLDivElement>(null)
     const [showScrollToBottom, setShowScrollToBottom] = useState(false)
@@ -82,6 +90,40 @@ export function ChatView() {
         { chatId: selectedChatId! },
         { enabled: !!selectedChatId, retry: false }
     )
+
+    // Plan mode state
+    const setIsPlanMode = useSetAtom(isPlanModeAtom)
+
+    // Detect unapproved plan - look for ExitPlanMode tool without subsequent "Implement plan" user message
+    const hasUnapprovedPlan = useMemo(() => {
+        if (!messages || messages.length === 0) return false
+        
+        // Traverse messages from end to find unapproved ExitPlanMode
+        for (let i = messages.length - 1; i >= 0; i--) {
+            const msg = messages[i]
+            
+            // If user message says "Implement plan", plan is already approved
+            if (msg.role === 'user') {
+                const text = typeof msg.content === 'string' 
+                    ? msg.content 
+                    : (msg.content as any)?.text || ''
+                if (text.trim().toLowerCase() === 'implement plan') {
+                    return false
+                }
+            }
+            
+            // If assistant message with ExitPlanMode tool call, we found an unapproved plan
+            if (msg.role === 'assistant' && msg.tool_calls) {
+                const exitPlanCall = msg.tool_calls.find(
+                    (tc: any) => tc.name === 'ExitPlanMode' || tc.name === 'exitplanmode'
+                )
+                if (exitPlanCall?.result?.plan) {
+                    return true
+                }
+            }
+        }
+        return false
+    }, [messages])
 
     // Mutations
     const addMessage = trpc.messages.add.useMutation()
@@ -118,10 +160,11 @@ export function ChatView() {
     }
 
     // Handle send message
-    const handleSend = async (images?: Array<{ base64Data: string; mediaType: string; filename: string }>) => {
-        if ((!input.trim() && !images?.length) || !selectedChatId || isStreaming) return
+    const handleSend = async (images?: Array<{ base64Data: string; mediaType: string; filename: string }>, _documents?: File[], messageOverride?: string) => {
+        const messageToSend = messageOverride ?? input.trim()
+        if ((!messageToSend && !images?.length) || !selectedChatId || isStreaming) return
 
-        const userMessage = input.trim()
+        const userMessage = messageToSend
         const existingMessages = messages
 
         setInput('')
@@ -147,12 +190,12 @@ export function ChatView() {
 
         if (images && images.length > 0) {
             console.log('[ChatView] Uploading', images.length, 'images to storage...')
-            
+
             for (const img of images) {
                 try {
                     // Calculate approximate size from base64
                     const sizeInBytes = Math.round((img.base64Data.length * 3) / 4)
-                    
+
                     // Upload to Supabase Storage via tRPC
                     const uploaded = await trpcClient.messages.uploadFile.mutate({
                         fileName: img.filename,
@@ -160,7 +203,7 @@ export function ChatView() {
                         fileType: img.mediaType,
                         fileData: img.base64Data
                     })
-                    
+
                     attachments.push({
                         id: uploaded.id,
                         name: uploaded.name,
@@ -168,7 +211,7 @@ export function ChatView() {
                         type: uploaded.type,
                         url: uploaded.url
                     })
-                    
+
                     console.log('[ChatView] Uploaded image:', uploaded.name, '→', uploaded.url)
                 } catch (uploadError) {
                     console.error('[ChatView] Failed to upload image:', img.filename, uploadError)
@@ -220,6 +263,10 @@ export function ChatView() {
                     role: m.role as 'user' | 'assistant',
                     content: typeof m.content === 'string' ? m.content : m.content?.text || ''
                 }))
+
+            // Check if there are files in vector store or uploading for file search
+            const hasFilesInVectorStore = (documentUpload.files && documentUpload.files.length > 0) ||
+                (documentUpload.uploadingDocuments && documentUpload.uploadingDocuments.length > 0)
 
             // Variables to track streaming response
             let fullText = ''
@@ -545,11 +592,13 @@ export function ChatView() {
                     model: selectedModel,
                     messages: messageHistory,
                     images: imageContent && imageContent.length > 0 ? imageContent : undefined,
-                    // Pass reasoning configuration if not 'none'
-                    reasoning: reasoningEffort !== 'none' ? {
+                    // Always pass reasoning configuration
+                    reasoning: {
                         effort: reasoningEffort,
                         summary: 'auto' // Required to receive reasoning summary events
-                    } : undefined
+                    },
+                    // Enable file search if there are files in vector store
+                    nativeTools: hasFilesInVectorStore ? { fileSearch: true } : undefined
                 })
             } catch (error) {
                 cleanupListener?.()
@@ -584,6 +633,37 @@ export function ChatView() {
             setIsStreaming(false)
         }
     }
+
+    // Keep ref updated for use in callbacks
+    handleSendRef.current = handleSend
+
+    // Handle plan approval - sends "Implement plan" message and switches to agent mode
+    const handleApprovePlan = useCallback(() => {
+        // Switch to agent mode
+        setIsPlanMode(false)
+
+        // Send "Implement plan" message using ref to avoid stale closure
+        handleSendRef.current?.(undefined, undefined, 'Implement plan')
+    }, [setIsPlanMode])
+
+    // Keyboard shortcut: Cmd/Ctrl+Enter to approve plan
+    useEffect(() => {
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if (
+                e.key === 'Enter' &&
+                (e.metaKey || e.ctrlKey) &&
+                !e.shiftKey &&
+                hasUnapprovedPlan &&
+                !isStreaming
+            ) {
+                e.preventDefault()
+                handleApprovePlan()
+            }
+        }
+        
+        window.addEventListener('keydown', handleKeyDown)
+        return () => window.removeEventListener('keydown', handleKeyDown)
+    }, [hasUnapprovedPlan, isStreaming, handleApprovePlan])
 
     // Handle stop streaming
     const handleStop = () => {
@@ -753,7 +833,7 @@ export function ChatView() {
                             isReasoning={isReasoning}
                             onViewArtifact={handleViewArtifact}
                             streamingWebSearches={streamingWebSearches}
-                            streamingAnnotations={streamingAnnotations}
+                            streamingAnnotations={streamingAnnotations.filter((a): a is UrlCitation => a.type === 'url_citation')}
                         />
                         <div ref={messagesEndRef} className="h-px" />
                     </div>
@@ -798,14 +878,40 @@ export function ChatView() {
                             </Button>
                         </div>
                     ) : (
-                        <ChatInput
-                            value={input}
-                            onChange={setInput}
-                            onSend={handleSend}
-                            onStop={handleStop}
-                            isLoading={isStreaming}
-                            streamingText={streamingText}
-                        />
+                        <>
+                            {/* Files panel - shows uploaded documents */}
+                            {documentUpload.files.length > 0 && (
+                                <ChatFilesPanel className="px-4 pb-2 max-w-3xl mx-auto" />
+                            )}
+                            
+                            {/* Show "Implement Plan" button when there's an unapproved plan and input is empty */}
+                            {hasUnapprovedPlan && !input.trim() && !isStreaming ? (
+                                <div className="px-4 pb-4 max-w-3xl mx-auto w-full">
+                                    <Button
+                                        type="button"
+                                        onClick={handleApprovePlan}
+                                        className="w-full flex items-center justify-center gap-3 h-12 px-6 rounded-xl bg-[hsl(var(--plan-mode))] text-[hsl(var(--plan-mode-foreground))] text-base font-medium hover:bg-[hsl(var(--plan-mode))]/90 transition-all shadow-lg shadow-[hsl(var(--plan-mode))]/20"
+                                    >
+                                        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" stroke="none">
+                                            <polygon points="5 3 19 12 5 21 5 3" />
+                                        </svg>
+                                        Implement Plan
+                                        <Kbd className="ml-1 text-[hsl(var(--plan-mode-foreground))]/70 border-[hsl(var(--plan-mode-foreground))]/20 bg-[hsl(var(--plan-mode-foreground))]/10">
+                                            ⌘↵
+                                        </Kbd>
+                                    </Button>
+                                </div>
+                            ) : (
+                                <ChatInput
+                                    value={input}
+                                    onChange={setInput}
+                                    onSend={handleSend}
+                                    onStop={handleStop}
+                                    isLoading={isStreaming}
+                                    streamingText={streamingText}
+                                />
+                            )}
+                        </>
                     )}
                 </div>
             </div>
@@ -869,4 +975,3 @@ async function generateAutoTitle(
         console.error('[ChatView] Failed to generate auto title:', error)
     }
 }
-

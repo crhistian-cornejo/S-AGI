@@ -7,8 +7,7 @@ import { getSecureApiKeyStore } from '../../auth/api-key-store'
 
 import OpenAI from 'openai'
 import type { Responses } from 'openai/resources/responses/responses'
-import { SPREADSHEET_TOOLS, executeTool } from './tools'
-import { DOCUMENT_TOOLS, executeDocTool } from './doc-tools'
+import { SPREADSHEET_TOOLS, DOCUMENT_TOOLS, PLAN_TOOLS, executeTool } from './tools'
 import type { AIStreamEvent, ReasoningConfig, NativeToolsConfig } from '@shared/ai-types'
 import { 
     AI_MODELS, 
@@ -35,52 +34,158 @@ function getFallbackTitle(prompt: string) {
 }
 
 // System prompt for S-AGI agent
-const SYSTEM_PROMPT = `You are S-AGI, an AI assistant specialized in creating and manipulating spreadsheets, writing documents, and researching information from the web.
+// OPTIMIZATION: OpenAI automatically caches prompts > 1024 tokens
+// Keep the static parts at the beginning for maximum cache hits
+// @see https://platform.openai.com/docs/guides/prompt-caching
+const SYSTEM_PROMPT = `# S-AGI System Instructions
+Version: 1.0.0
+Role: AI assistant for spreadsheet creation, document writing, and web research
 
-## Your Capabilities
+================================================================================
+CORE IDENTITY
+================================================================================
 
-### Native Tools (Built-in)
-- **Web Search**: You can search the web for current information, news, and data. Use this for up-to-date information.
-- **Code Interpreter**: You can write and execute Python code for data analysis, calculations, and generating insights.
-- **File Search**: You can search through uploaded files to find relevant information.
+You are S-AGI, a specialized AI assistant designed to help users create, edit, and analyze spreadsheets and documents. You have access to powerful native tools and custom spreadsheet/document operations.
 
-### Spreadsheet Tools
-**Creation & Data:**
-- create_spreadsheet - Create new spreadsheets with column headers and initial data
-- update_cells - Update multiple cells with new values
-- add_row - Add new rows to existing spreadsheets
-- delete_row - Delete rows from a spreadsheet
-- insert_formula - Insert Excel-style formulas (=SUM, =AVERAGE, =IF, etc.)
+================================================================================
+NATIVE TOOLS (Built-in OpenAI Capabilities)
+================================================================================
 
-**Formatting & Styling:**
-- format_cells - Comprehensive formatting: bold, italic, underline, strikethrough, font size/color/family, background color, alignment (horizontal/vertical), text wrap, number formats, borders
-- merge_cells - Merge a range of cells into one
-- set_column_width - Set width of columns
-- set_row_height - Set height of rows
+### Web Search
+- Search the web for current information, news, and data
+- Use for up-to-date information that may not be in your training data
+- Can search specific domains or general web
+- Returns URLs and content snippets
 
-**Analysis:**
-- get_spreadsheet_summary - Get current state of a spreadsheet (use this to understand data before modifications)
+### Code Interpreter
+- Write and execute Python code for data analysis
+- Perform complex calculations and data transformations
+- Generate charts and visualizations
+- Process and analyze data before creating spreadsheets
 
-### Document Tools
-- create_document - Create a new markdown document (reports, articles, analysis, etc.)
-- update_document - Update an existing document's content
-- get_document_content - Read a document's current content
+### File Search
+- Search through uploaded files to find relevant information
+- Query vector stores for semantic search
+- Extract specific data from documents
 
-## IMPORTANT WORKFLOW GUIDELINES:
+================================================================================
+SPREADSHEET TOOLS
+================================================================================
 
-1. **Multi-tool Operations:** You can use multiple tools in sequence to accomplish complex tasks
-2. **Native + Custom Tools:** Combine web search with spreadsheet creation for data-driven reports
-3. **Code for Analysis:** Use code interpreter for complex calculations before populating spreadsheets
-4. **Context Awareness:** When modifying existing content, first use get_spreadsheet_summary or get_document_content
-5. **Research Workflow:** Search the web, analyze with code, then create spreadsheets/documents with findings
+### Creation & Data Management
+- create_spreadsheet: Create new spreadsheets with column headers and initial data
+- update_cells: Update multiple cells with new values (batch operation)
+- add_row: Add new rows to existing spreadsheets
+- delete_row: Delete rows from a spreadsheet
+- insert_formula: Insert Excel-style formulas (=SUM, =AVERAGE, =IF, =VLOOKUP, etc.)
 
-## Response Style:
+### Formatting & Styling
+- format_cells: Apply comprehensive formatting including:
+  * Text: bold, italic, underline, strikethrough
+  * Font: size, color, family
+  * Cell: background color, alignment (horizontal/vertical), text wrap
+  * Numbers: currency, percentage, date formats
+  * Borders: style, color, thickness
+- merge_cells: Merge a range of cells into one
+- set_column_width: Set width of specific columns
+- set_row_height: Set height of specific rows
+
+### Analysis
+- get_spreadsheet_summary: Get current state of a spreadsheet
+  * Use this FIRST when modifying existing spreadsheets
+  * Returns structure, data, and formatting information
+
+================================================================================
+DOCUMENT TOOLS
+================================================================================
+
+- create_document: Create a new Word-like document with optional initial content
+- insert_text: Insert text at the start or end of a document
+- replace_document_content: Replace the entire content of a document
+- get_document_content: Read a document's current content
+
+================================================================================
+WORKFLOW GUIDELINES
+================================================================================
+
+1. **Multi-tool Operations**: Execute multiple tools in sequence for complex tasks
+2. **Research → Create**: Use web search to gather data, then create spreadsheets
+3. **Code → Visualize**: Use code interpreter for analysis, then format results
+4. **Context First**: Always use get_spreadsheet_summary or get_document_content before modifications
+5. **Parallel Execution**: When possible, batch related operations together
+
+================================================================================
+RESPONSE STYLE
+================================================================================
+
 - Be concise but helpful
-- Format responses with Markdown when appropriate
-- When creating spreadsheets with data, add proper formatting (bold headers, appropriate column widths)
-- When writing documents, use proper markdown structure (headings, lists, etc.)
-- Explain what you're doing before and after using tools
-- When citing web search results, include source URLs when available`
+- Use Markdown formatting for clarity
+- Explain actions before and after tool use
+- For spreadsheets: always format headers (bold) and set column widths
+- For documents: use clear structure with headings and lists
+- Include source URLs when citing web search results
+- Acknowledge errors clearly and suggest alternatives
+
+================================================================================
+END OF STATIC INSTRUCTIONS
+================================================================================
+`
+
+// Plan Mode system prompt - used when mode='plan'
+const PLAN_MODE_SYSTEM_PROMPT = `# S-AGI Planning Mode
+
+You are in PLANNING MODE. Your ONLY job is to create a plan and call the ExitPlanMode tool.
+
+## CRITICAL RULES
+
+1. **NEVER output text directly** - ALL your output MUST be through the ExitPlanMode tool
+2. **ALWAYS call ExitPlanMode** - This is mandatory, not optional
+3. **Plan only, don't execute** - You're creating a roadmap, not doing the work
+
+## HOW TO RESPOND
+
+When the user asks for something:
+1. Think about what steps are needed
+2. Create a plan in markdown format  
+3. Call ExitPlanMode with the plan parameter
+
+## PLAN FORMAT (JSON for the tool)
+
+The plan parameter should be markdown with this structure:
+
+## Summary
+[One sentence describing what will be accomplished]
+
+## Steps
+1. **[Action name]** - [What will be done and expected result]
+2. **[Action name]** - [What will be done and expected result]
+3. ...
+
+## Notes
+- [Any important considerations]
+
+## EXAMPLE
+
+If user says "Create a sales report", you MUST call:
+
+ExitPlanMode({
+  plan: "## Summary\\nCreate a sales report spreadsheet with data and formatting.\\n\\n## Steps\\n1. **Create spreadsheet** - Initialize 'Sales Report' with columns\\n2. **Add headers** - Revenue, Units, Region\\n3. **Insert sample data** - Add example rows\\n4. **Add formulas** - SUM for totals\\n5. **Format cells** - Bold headers, currency format\\n\\n## Notes\\n- Will use update_cells for data entry"
+})
+
+## AVAILABLE TOOLS FOR EXECUTION (reference only)
+
+- Spreadsheet: create_spreadsheet, update_cells, insert_formula, format_cells, merge_cells, add_row, delete_row
+- Documents: create_document, insert_text, replace_document_content
+- Native: web_search, code_interpreter
+
+## REMEMBER
+
+- Do NOT write any text response
+- Do NOT explain your plan in chat
+- JUST call ExitPlanMode with the plan
+- The UI will display your plan beautifully
+- User will click "Implement Plan" to execute
+`
 
 /**
  * Convert Zod schema to JSON Schema for OpenAI Responses API
@@ -294,7 +399,32 @@ function createFunctionTools(
             parameters: zodToJsonSchema(tool.inputSchema) as FunctionToolParam['parameters'],
             strict: true
         })
-        executors.set(name, (args) => executeDocTool(name, args, chatId, userId))
+        executors.set(name, (args) => executeTool(name, args, chatId, userId))
+    }
+
+    return { tools, executors }
+}
+
+/**
+ * Create plan mode tools for Responses API (only ExitPlanMode)
+ */
+function createPlanModeTools(
+    chatId: string,
+    userId: string
+): { tools: FunctionToolParam[]; executors: Map<string, (args: unknown) => Promise<unknown>> } {
+    const executors = new Map<string, (args: unknown) => Promise<unknown>>()
+    const tools: FunctionToolParam[] = []
+
+    // Add plan mode tools
+    for (const [name, tool] of Object.entries(PLAN_TOOLS)) {
+        tools.push({
+            type: 'function',
+            name,
+            description: tool.description,
+            parameters: zodToJsonSchema(tool.inputSchema) as FunctionToolParam['parameters'],
+            strict: true
+        })
+        executors.set(name, (args) => executeTool(name, args, chatId, userId))
     }
 
     return { tools, executors }
@@ -481,7 +611,7 @@ export const aiRouter = router({
             })).optional(),
             // Responses API specific
             reasoning: z.object({
-                effort: z.enum(['none', 'low', 'medium', 'high']),
+                effort: z.enum(['low', 'medium', 'high']),
                 summary: z.enum(['auto', 'concise', 'detailed']).optional(),
                 maxReasoningTokens: z.number().optional()
             }).optional(),
@@ -502,7 +632,18 @@ export const aiRouter = router({
                     })
                 ]).optional()
             }).optional(),
-            previousResponseId: z.string().optional()
+            previousResponseId: z.string().optional(),
+            // Cost optimization options
+            optimization: z.object({
+                /** Maximum output tokens (controls response length and cost) */
+                maxOutputTokens: z.number().optional(),
+                /** Use flex processing for 50% cost savings (slower, may fail if busy) */
+                useFlex: z.boolean().optional(),
+                /** Truncation strategy for context window management */
+                truncation: z.object({
+                    type: z.enum(['auto', 'disabled']).optional()
+                }).optional()
+            }).optional()
         }))
         .mutation(async ({ ctx, input }) => {
             // Validate user has access to this chat
@@ -548,12 +689,38 @@ export const aiRouter = router({
                         apiKey: input.apiKey
                     })
 
-                    // Build tools
-                    const { tools: functionTools, executors } = input.mode === 'agent' 
-                        ? createFunctionTools(input.chatId, ctx.userId)
-                        : { tools: [], executors: new Map() }
+                    // Build tools based on mode
+                    const { tools: functionTools, executors } = input.mode === 'plan'
+                        ? createPlanModeTools(input.chatId, ctx.userId)
+                        : createFunctionTools(input.chatId, ctx.userId)
                     
-                    const nativeTools = buildNativeTools(modelId, input.nativeTools)
+                    // Select system prompt based on mode
+                    const systemPrompt = input.mode === 'plan' ? PLAN_MODE_SYSTEM_PROMPT : SYSTEM_PROMPT
+                    
+                    // Build native tools configuration
+                    let nativeToolsConfig = input.nativeTools
+
+                    // Automatically inject Vector Store ID from Supabase if none provided
+                    if (modelDef?.supportsFileSearch && (!nativeToolsConfig?.fileSearch || (typeof nativeToolsConfig.fileSearch === 'object' && !nativeToolsConfig.fileSearch.vectorStoreIds?.length))) {
+                        const { data: chatData } = await supabase
+                            .from('chats')
+                            .select('openai_vector_store_id')
+                            .eq('id', input.chatId)
+                            .single()
+                        
+                        if (chatData?.openai_vector_store_id) {
+                            log.info(`[AI] Automatically injected vector store: ${chatData.openai_vector_store_id}`)
+                            nativeToolsConfig = {
+                                ...nativeToolsConfig,
+                                fileSearch: {
+                                    ...(typeof nativeToolsConfig?.fileSearch === 'object' ? nativeToolsConfig.fileSearch : {}),
+                                    vectorStoreIds: [chatData.openai_vector_store_id]
+                                }
+                            }
+                        }
+                    }
+
+                    const nativeTools = buildNativeTools(modelId, nativeToolsConfig)
                     const allTools: ToolParam[] = [...functionTools, ...nativeTools]
                     
                     log.info(`[AI] Tools: ${allTools.length} (${functionTools.length} function, ${nativeTools.length} native)`)
@@ -603,20 +770,36 @@ export const aiRouter = router({
                             inputForRequest = messages
                         }
 
+                        // Build optimization options
+                        const optimization = input.optimization || {}
+                        const maxOutputTokens = optimization.maxOutputTokens
+                        const truncation = optimization.truncation?.type || 'auto'
+
                         // Stream the response using the official SDK
-                        const stream = client.responses.stream({
+                        const streamParams: any = {
                             model: modelId,
                             input: inputForRequest,
                             tools: allTools.length > 0 ? allTools : undefined,
-                            instructions: SYSTEM_PROMPT,
+                            instructions: systemPrompt,
                             store: true,
                             previous_response_id: currentResponseId,
                             reasoning: reasoningConfig ? {
                                 effort: reasoningConfig.effort,
                                 summary: reasoningConfig.summary
-                            } : undefined
-                        }, {
-                            signal: abortController.signal
+                            } : undefined,
+                            // Cost optimization parameters
+                            ...(maxOutputTokens && { max_output_tokens: maxOutputTokens }),
+                            truncation: truncation,
+                            // Use flex processing if requested (50% cost savings)
+                            ...(optimization.useFlex && { service_tier: 'flex' })
+                        }
+
+                        log.info(`[AI] Stream params: maxOutputTokens=${maxOutputTokens}, truncation=${truncation}, flex=${!!optimization.useFlex}`)
+
+                        const stream = client.responses.stream(streamParams, {
+                            signal: abortController.signal,
+                            // Increase timeout for flex processing (can be slower)
+                            ...(optimization.useFlex && { timeout: 900_000 }) // 15 minutes
                         })
 
                         pendingToolCalls = []
@@ -659,6 +842,15 @@ export const aiRouter = router({
                                 if (event.item.type === 'function_call') {
                                     const functionCall = event.item as Responses.ResponseFunctionToolCall
                                     hasToolCalls = true
+                                    
+                                    // Emit tool-call-start first so frontend can track it
+                                    emit({
+                                        type: 'tool-call-start',
+                                        toolCallId: functionCall.call_id,
+                                        toolName: functionCall.name
+                                    })
+                                    
+                                    // Then emit tool-call-done with args
                                     emit({
                                         type: 'tool-call-done',
                                         toolCallId: functionCall.call_id,

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { IconX, IconLoader2, IconPhotoOff, IconChevronLeft, IconChevronRight } from '@tabler/icons-react'
+import { IconX, IconLoader2, IconPhotoOff, IconChevronLeft, IconChevronRight, IconPhoto } from '@tabler/icons-react'
 import { cn } from '@/lib/utils'
 
 interface ImageData {
@@ -18,6 +18,21 @@ interface ImageAttachmentItemProps {
   allImages?: ImageData[]
   /** Index of this image in the group */
   imageIndex?: number
+  /** Original file size in bytes */
+  originalSize?: number
+  /** Compressed file size in bytes */
+  compressedSize?: number
+  /** Compression ratio (e.g., 5.2 means 5.2x smaller) */
+  compressionRatio?: number
+  /** Upload status */
+  status?: 'pending' | 'compressing' | 'ready' | 'error'
+}
+
+/** Format bytes to human readable string */
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
 export function ImageAttachmentItem({
@@ -28,6 +43,10 @@ export function ImageAttachmentItem({
   onRemove,
   allImages,
   imageIndex = 0,
+  originalSize,
+  compressedSize,
+  compressionRatio,
+  status = 'ready',
 }: ImageAttachmentItemProps) {
   const [isHovered, setIsHovered] = useState(false)
   const [hasError, setHasError] = useState(false)
@@ -91,38 +110,78 @@ export function ImageAttachmentItem({
       <span
         role="img"
         aria-label={filename}
-        className="relative inline-block"
+        className="relative inline-block group"
         onMouseEnter={() => setIsHovered(true)}
         onMouseLeave={() => setIsHovered(false)}
       >
-        {isLoading ? (
-          <span className="size-8 flex items-center justify-center bg-muted rounded">
-            <IconLoader2 size={16} className="text-muted-foreground animate-spin" />
+        {/* Compressing status */}
+        {status === 'compressing' || isLoading ? (
+          <span className="relative flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-accent/50 border border-border/50">
+            <span className="size-10 flex items-center justify-center bg-muted rounded overflow-hidden">
+              {url ? (
+                <img src={url} alt="" className="size-10 object-cover opacity-50" />
+              ) : (
+                <IconPhoto size={18} className="text-muted-foreground/50" />
+              )}
+              <span className="absolute inset-0 flex items-center justify-center bg-black/30">
+                <IconLoader2 size={16} className="text-white animate-spin" />
+              </span>
+            </span>
+            <span className="flex flex-col gap-0.5">
+              <span className="text-xs font-medium truncate max-w-[100px]">{filename}</span>
+              <span className="text-[10px] text-muted-foreground flex items-center gap-1">
+                <span className="animate-pulse">Compressing...</span>
+                {originalSize && <span className="text-muted-foreground/60">{formatBytes(originalSize)}</span>}
+              </span>
+            </span>
           </span>
-        ) : hasError ? (
+        ) : status === 'error' || hasError ? (
           <span 
-            className="size-8 flex items-center justify-center bg-muted/50 rounded border border-destructive/20" 
-            title="Failed to load image"
+            className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-destructive/10 border border-destructive/20" 
+            title="Failed to process image"
           >
-            <IconPhotoOff size={16} className="text-destructive/50" />
+            <span className="size-10 flex items-center justify-center bg-muted/50 rounded">
+              <IconPhotoOff size={18} className="text-destructive/50" />
+            </span>
+            <span className="flex flex-col gap-0.5">
+              <span className="text-xs font-medium truncate max-w-[100px] text-destructive">{filename}</span>
+              <span className="text-[10px] text-destructive/70">Failed to process</span>
+            </span>
           </span>
         ) : url ? (
           <button
             type="button"
             onClick={openFullscreen}
-            className="size-8 p-0 bg-transparent border-0 rounded cursor-pointer hover:ring-2 hover:ring-primary/50 transition-all"
+            className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-accent/50 border border-border/50 hover:border-primary/50 hover:bg-accent transition-all cursor-pointer"
             aria-label={`View ${filename}`}
           >
-            <img
-              src={url}
-              alt={filename}
-              className="size-8 object-cover rounded"
-              onError={handleImageError}
-            />
+            <span className="size-10 flex items-center justify-center bg-muted rounded overflow-hidden shrink-0">
+              <img
+                src={url}
+                alt={filename}
+                className="size-10 object-cover"
+                onError={handleImageError}
+              />
+            </span>
+            <span className="flex flex-col gap-0.5 min-w-0">
+              <span className="text-xs font-medium truncate max-w-[100px]">{filename}</span>
+              {compressedSize && originalSize && compressionRatio && compressionRatio > 1.1 ? (
+                <span className="text-[10px] text-muted-foreground flex items-center gap-1">
+                  <span className="line-through opacity-50">{formatBytes(originalSize)}</span>
+                  <span className="text-green-500 font-medium">→ {formatBytes(compressedSize)}</span>
+                  <span className="text-green-500/70 text-[9px]">({compressionRatio.toFixed(1)}x)</span>
+                </span>
+              ) : compressedSize ? (
+                <span className="text-[10px] text-muted-foreground">{formatBytes(compressedSize)}</span>
+              ) : null}
+            </span>
           </button>
         ) : (
-          <span className="size-8 bg-muted rounded flex items-center justify-center">
-            <IconLoader2 size={16} className="text-muted-foreground animate-spin" />
+          <span className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-accent/50 border border-border/50">
+            <span className="size-10 bg-muted rounded flex items-center justify-center">
+              <IconLoader2 size={16} className="text-muted-foreground animate-spin" />
+            </span>
+            <span className="text-xs text-muted-foreground">Loading...</span>
           </span>
         )}
 
