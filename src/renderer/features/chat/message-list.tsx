@@ -18,6 +18,7 @@ import {
     AgentToolCallsGroup,
     AgentWebFetch,
     AgentWebSearch,
+    ConsolidatedWebSearch,
     AgentFileSearch,
     AgentTodoTool,
     AgentExitPlanModeTool,
@@ -213,30 +214,6 @@ function toEditArgs(input: Record<string, unknown>) {
     }
 }
 
-function toWebSearchPart(search: StreamingWebSearch): ToolPart {
-    const sources = (search.domains || []).map((domain) => ({
-        url: domain.startsWith('http') ? domain : `https://${domain}`,
-        title: domain
-    }))
-
-    if (search.url && sources.length === 0) {
-        sources.push({ url: search.url, title: search.url })
-    }
-
-    const fallbackQuery = (search.action === 'open_page' || search.action === 'find_in_page')
-        ? (search.url || search.query || search.domains?.[0] || '')
-        : (search.query || search.url || search.domains?.[0] || '')
-
-    return {
-        type: 'tool-web_search',
-        state: search.status === 'done' ? 'output-available' : 'input-available',
-        input: {
-            query: fallbackQuery
-        },
-        output: sources.length > 0 ? { sources } : {}
-    }
-}
-
 function toFileSearchPart(search: StreamingFileSearch): ToolPart {
     return {
         type: 'tool-file_search',
@@ -307,6 +284,7 @@ interface Message {
         }
         durationMs?: number
         reasoning?: string
+        contextWindow?: number
         actions?: Array<{
             type: 'attachments' | 'web-search' | 'file-search' | 'code-interpreter' | 'tool'
             count?: number
@@ -449,16 +427,10 @@ export const MessageList = memo(function MessageList({
                             )}
 
                             {streamingWebSearches && streamingWebSearches.length > 0 && (
-                                <div className="space-y-2">
-                                    {streamingWebSearches.map((search) => (
-                                        <AgentWebSearch
-                                            key={search.searchId}
-                                            part={toWebSearchPart(search)}
-                                            chatStatus="streaming"
-                                            isNativeSearch
-                                        />
-                                    ))}
-                                </div>
+                                <ConsolidatedWebSearch
+                                    searches={streamingWebSearches}
+                                    isNativeSearch
+                                />
                             )}
 
                             {streamingFileSearches && streamingFileSearches.length > 0 && (
@@ -520,6 +492,7 @@ const MessageItem = memo(function MessageItem({
     const usage = message.metadata?.usage
     const durationMs = message.metadata?.durationMs
     const totalTokens = usage?.totalTokens ?? ((usage?.inputTokens || 0) + (usage?.outputTokens || 0))
+    const contextWindow = message.metadata?.contextWindow ?? DEFAULT_CONTEXT_WINDOW
     const hasUsage = totalTokens > 0 || (durationMs !== undefined && durationMs > 0)
 
     useEffect(() => {
@@ -709,7 +682,7 @@ const MessageItem = memo(function MessageItem({
                                         type="button"
                                         className="h-5 px-1.5 flex items-center gap-1.5 text-[10px] rounded-md text-muted-foreground/70 hover:text-muted-foreground hover:bg-muted/50 transition-[background-color,transform] duration-150 ease-out"
                                     >
-                                        <ContextUsageRing used={totalTokens} />
+                                        <ContextUsageRing used={totalTokens} total={contextWindow} />
                                         <span className="font-mono">{formatTokens(totalTokens)}</span>
                                     </button>
                                 </TooltipTrigger>
@@ -724,7 +697,7 @@ const MessageItem = memo(function MessageItem({
                                         <div className="flex justify-between gap-4">
                                             <span className="text-muted-foreground">Context:</span>
                                             <span className="font-mono text-foreground">
-                                                {((totalTokens / DEFAULT_CONTEXT_WINDOW) * 100).toFixed(1)}%
+                                                {((totalTokens / contextWindow) * 100).toFixed(1)}%
                                             </span>
                                         </div>
                                         {durationMs !== undefined && durationMs > 0 && (

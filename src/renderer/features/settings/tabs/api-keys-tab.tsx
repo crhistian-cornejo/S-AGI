@@ -6,10 +6,28 @@ import { Badge } from '@/components/ui/badge'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { trpc } from '@/lib/trpc'
 import { toast } from 'sonner'
-import { IconLoader2, IconKey, IconShieldCheck, IconEye, IconEyeOff, IconTrash, IconBolt, IconWorldSearch, IconBrandOpenai, IconPlugConnected, IconPlugConnectedX, IconSparkles } from '@tabler/icons-react'
-import { ZaiIcon } from '@/components/icons/model-icons'
+import { 
+    IconLoader2, 
+    IconKey, 
+    IconEye, 
+    IconEyeOff, 
+    IconTrash, 
+    IconBolt, 
+    IconBrandOpenai, 
+    IconWorldSearch 
+} from '@tabler/icons-react'
+import { ZaiIcon, GeminiIcon } from '@/components/icons/model-icons'
 import { useAtom, useAtomValue, useSetAtom } from 'jotai'
-import { availableModelsAtom, selectedModelAtom, allModelsGroupedAtom, hasChatGPTPlusAtom, chatGPTPlusStatusAtom, currentProviderAtom } from '@/lib/atoms'
+import { 
+    availableModelsAtom, 
+    selectedModelAtom, 
+    allModelsGroupedAtom, 
+    hasChatGPTPlusAtom, 
+    chatGPTPlusStatusAtom, 
+    currentProviderAtom,
+    hasGeminiAdvancedAtom,
+    geminiAdvancedStatusAtom
+} from '@/lib/atoms'
 import type { AIProvider } from '@shared/ai-types'
 
 export function ApiKeysTab() {
@@ -19,14 +37,17 @@ export function ApiKeysTab() {
     const allModelsGrouped = useAtomValue(allModelsGroupedAtom)
     const setHasChatGPTPlus = useSetAtom(hasChatGPTPlusAtom)
     const setChatGPTPlusStatus = useSetAtom(chatGPTPlusStatusAtom)
+    const setHasGeminiAdvanced = useSetAtom(hasGeminiAdvancedAtom)
+    const setGeminiAdvancedStatus = useSetAtom(geminiAdvancedStatusAtom)
     
-    // Get API key status
-    const { data: keyStatus, isLoading: isStatusLoading } = trpc.settings.getApiKeyStatus.useQuery()
+    const utils = trpc.useUtils()
+
+    // Get status queries
+    const { data: keyStatus } = trpc.settings.getApiKeyStatus.useQuery()
+    const { data: chatGPTStatus } = trpc.auth.getChatGPTStatus.useQuery()
+    const { data: geminiStatus } = trpc.auth.getGeminiStatus.useQuery()
     
-    // Get ChatGPT Plus status
-    const { data: chatGPTStatus, isLoading: isChatGPTStatusLoading } = trpc.auth.getChatGPTStatus.useQuery()
-    
-    // Update atoms when status changes
+    // Sync atoms with queries
     useEffect(() => {
         if (chatGPTStatus) {
             setHasChatGPTPlus(chatGPTStatus.isConnected)
@@ -39,87 +60,101 @@ export function ApiKeysTab() {
         }
     }, [chatGPTStatus, setHasChatGPTPlus, setChatGPTPlusStatus])
 
-    // Mutations
+    useEffect(() => {
+        if (geminiStatus) {
+            setHasGeminiAdvanced(geminiStatus.isConnected)
+            setGeminiAdvancedStatus({
+                isConnected: geminiStatus.isConnected,
+                email: geminiStatus.email ?? undefined,
+                connectedAt: geminiStatus.connectedAt ?? undefined
+            })
+        }
+    }, [geminiStatus, setHasGeminiAdvanced, setGeminiAdvancedStatus])
+
+    // Mutations for API Keys
     const setOpenAIKeyMutation = trpc.settings.setOpenAIKey.useMutation({
         onSuccess: () => {
-            toast.success('OpenAI API key updated successfully')
+            toast.success('OpenAI API key updated')
             utils.settings.getApiKeyStatus.invalidate()
         },
-        onError: (error) => {
-            toast.error(error.message || 'Failed to update OpenAI API key')
-        }
+        onError: (e) => toast.error(e.message)
     })
 
     const setZaiKeyMutation = trpc.settings.setZaiKey.useMutation({
         onSuccess: () => {
-            toast.success('Z.AI API key updated successfully')
+            toast.success('Z.AI API key updated')
             utils.settings.getApiKeyStatus.invalidate()
         },
-        onError: (error) => {
-            toast.error(error.message || 'Failed to update Z.AI API key')
-        }
+        onError: (e) => toast.error(e.message)
     })
 
     const setTavilyKeyMutation = trpc.settings.setTavilyKey.useMutation({
         onSuccess: () => {
-            toast.success('Tavily API key updated successfully')
+            toast.success('Tavily API key updated')
             utils.settings.getApiKeyStatus.invalidate()
         },
-        onError: (error) => {
-            toast.error(error.message || 'Failed to update Tavily API key')
-        }
+        onError: (e) => toast.error(e.message)
     })
 
     const clearAllKeysMutation = trpc.settings.clearAllKeys.useMutation({
         onSuccess: () => {
-            toast.success('All API keys cleared successfully')
+            toast.success('All credentials cleared')
             utils.settings.getApiKeyStatus.invalidate()
+            utils.auth.getChatGPTStatus.invalidate()
+            utils.auth.getGeminiStatus.invalidate()
         },
-        onError: (error) => {
-            toast.error(error.message || 'Failed to clear API keys')
-        }
+        onError: (e) => toast.error(e.message)
     })
 
-    // ChatGPT Plus OAuth mutations
+    // Mutations for OAuth
     const connectChatGPTMutation = trpc.auth.connectChatGPT.useMutation({
-        onSuccess: () => {
-            toast.info('Opening ChatGPT authorization in browser...')
-        },
-        onError: (error) => {
-            toast.error(error.message || 'Failed to start ChatGPT connection')
-        }
+        onSuccess: () => toast.info('Opening authorization...'),
+        onError: (e) => toast.error(e.message)
     })
 
     const disconnectChatGPTMutation = trpc.auth.disconnectChatGPT.useMutation({
         onSuccess: () => {
-            toast.success('Disconnected from ChatGPT Plus')
+            toast.success('Disconnected from ChatGPT')
             utils.auth.getChatGPTStatus.invalidate()
-            // Switch back to openai provider if currently using chatgpt-plus
-            if (currentProvider === 'chatgpt-plus') {
-                setCurrentProvider('openai')
-                setSelectedModel('gpt-5-mini')
-            }
+            if (currentProvider === 'chatgpt-plus') setCurrentProvider('openai')
         },
-        onError: (error) => {
-            toast.error(error.message || 'Failed to disconnect from ChatGPT Plus')
-        }
+        onError: (e) => toast.error(e.message)
     })
 
-    const utils = trpc.useUtils()
+    const connectGeminiMutation = trpc.auth.connectGemini.useMutation({
+        onSuccess: () => toast.info('Opening authorization...'),
+        onError: (e) => toast.error(e.message)
+    })
 
-    // Listen for ChatGPT Plus connection event from main process
+    // NOTE: Gemini mutations disabled - OAuth incompatible
+    const disconnectGeminiMutation = trpc.auth.disconnectGemini.useMutation({
+        onSuccess: () => {
+            toast.success('Disconnected from Gemini')
+            utils.auth.getGeminiStatus.invalidate()
+            // if (currentProvider === 'gemini-advanced') setCurrentProvider('openai')
+        },
+        onError: (e) => toast.error(e.message)
+    })
+
+    // Listen for main process events
     useEffect(() => {
-        // @ts-ignore - desktopApi type extended in preload
-        const cleanup = window.desktopApi?.onChatGPTConnected?.(() => {
-            // Refresh status when OAuth completes
+        // @ts-ignore
+        const cleanupCP = window.desktopApi?.onChatGPTConnected?.(() => {
             utils.auth.getChatGPTStatus.invalidate()
-            utils.settings.getApiKeyStatus.invalidate()
-            toast.success('Connected to ChatGPT Plus!')
+            toast.success('ChatGPT Connected!')
         })
-        return () => cleanup?.()
+        // @ts-ignore
+        const cleanupGM = window.desktopApi?.onGeminiConnected?.(() => {
+            utils.auth.getGeminiStatus.invalidate()
+            toast.success('Gemini Connected!')
+        })
+        return () => {
+            cleanupCP?.()
+            cleanupGM?.()
+        }
     }, [utils])
 
-    // Local state for form inputs
+    // UI state
     const [openaiKey, setOpenaiKey] = useState('')
     const [zaiKey, setZaiKey] = useState('')
     const [tavilyKey, setTavilyKey] = useState('')
@@ -127,140 +162,58 @@ export function ApiKeysTab() {
     const [showZaiKey, setShowZaiKey] = useState(false)
     const [showTavilyKey, setShowTavilyKey] = useState(false)
 
-    const handleSaveOpenAIKey = () => {
-        setOpenAIKeyMutation.mutate({ key: openaiKey.trim() || null })
-        setOpenaiKey('')
-    }
-
-    const handleSaveZaiKey = () => {
-        setZaiKeyMutation.mutate({ key: zaiKey.trim() || null })
-        setZaiKey('')
-    }
-
-    const handleSaveTavilyKey = () => {
-        setTavilyKeyMutation.mutate({ key: tavilyKey.trim() || null })
-        setTavilyKey('')
-    }
-
-    const handleClearAllKeys = () => {
-        if (confirm('Are you sure you want to clear all API keys? This will sign you out from all AI services.')) {
-            clearAllKeysMutation.mutate()
-        }
-    }
-
-    const handleConnectChatGPT = () => {
-        connectChatGPTMutation.mutate()
-    }
-
-    const handleDisconnectChatGPT = () => {
-        if (confirm('Are you sure you want to disconnect from ChatGPT Plus?')) {
-            disconnectChatGPTMutation.mutate()
-        }
-    }
-
-    const handleProviderChange = (provider: AIProvider) => {
-        setCurrentProvider(provider)
-        // Set default model for the provider
-        const models = provider === 'chatgpt-plus' 
-            ? allModelsGrouped['chatgpt-plus'] 
-            : provider === 'zai'
-                ? allModelsGrouped.zai
-                : allModelsGrouped.openai
-        if (models.length > 0) {
-            setSelectedModel(models[0].id)
-        }
-    }
-
-    if (isStatusLoading || isChatGPTStatusLoading) {
-        return (
-            <div className="flex items-center justify-center h-64">
-                <IconLoader2 className="animate-spin" size={24} />
-            </div>
-        )
+    const handleProviderChange = (p: AIProvider) => {
+        setCurrentProvider(p)
+        const models = allModelsGrouped[p] || []
+        if (models.length > 0) setSelectedModel(models[0].id)
     }
 
     return (
         <div className="space-y-6 p-6">
             <div className="space-y-2">
-                <h3 className="text-lg font-semibold">API Keys</h3>
+                <h3 className="text-lg font-semibold">AI Settings</h3>
                 <p className="text-sm text-muted-foreground">
-                    Manage your API keys for AI providers. Keys are stored securely using your system's keychain.
+                    Configure your AI providers. Subscription-based providers (Gemini/ChatGPT) use zero credits.
                 </p>
             </div>
 
-            {/* Security Notice */}
-            <div className="flex items-start gap-3 p-4 bg-green-50 dark:bg-green-950/20 border border-green-200 dark:border-green-800 rounded-lg">
-                <IconShieldCheck className="h-4 w-4 text-green-600 dark:text-green-400 mt-0.5" />
-                <div className="text-sm text-green-800 dark:text-green-200">
-                    Your API keys are stored securely using your system's keychain and are never exposed in the browser or logs.
-                </div>
-            </div>
-
-            {/* Provider & Model Selection */}
+            {/* Selector */}
             <div className="border border-border rounded-lg p-6 space-y-4">
-                <div className="space-y-2">
-                    <div className="flex items-center gap-2">
-                        <IconBolt size={18} />
-                        <h4 className="font-medium">AI Provider & Model</h4>
-                    </div>
-                    <p className="text-sm text-muted-foreground">
-                        Choose your AI provider and model. ChatGPT Plus uses your subscription (no per-token cost).
-                    </p>
+                <div className="flex items-center gap-2 mb-2">
+                    <IconBolt size={18} />
+                    <h4 className="font-medium">Primary Provider</h4>
                 </div>
-
                 <div className="grid grid-cols-2 gap-4">
-                    {/* Provider Selection */}
                     <div className="space-y-2">
-                        <Label htmlFor="provider-select">Provider</Label>
+                        <Label>Provider</Label>
                         <Select value={currentProvider} onValueChange={(v) => handleProviderChange(v as AIProvider)}>
-                            <SelectTrigger id="provider-select">
-                                <SelectValue />
-                            </SelectTrigger>
+                            <SelectTrigger><SelectValue /></SelectTrigger>
                             <SelectContent>
                                 <SelectItem value="openai">
-                                    <div className="flex items-center gap-2">
-                                        <IconKey size={14} />
-                                        <span>OpenAI API</span>
-                                        {keyStatus?.hasOpenAI && <Badge variant="secondary" className="text-xs ml-1">Key Set</Badge>}
-                                    </div>
-                                </SelectItem>
-                                <SelectItem value="zai">
-                                    <div className="flex items-center gap-2">
-                                        <ZaiIcon className="text-amber-500" size={14} />
-                                        <span>Z.AI Coding</span>
-                                        {keyStatus?.hasZai && <Badge variant="secondary" className="text-xs ml-1">Key Set</Badge>}
-                                    </div>
+                                    <div className="flex items-center gap-2"><IconBrandOpenai size={14} /><span>OpenAI API</span></div>
                                 </SelectItem>
                                 <SelectItem value="chatgpt-plus" disabled={!chatGPTStatus?.isConnected}>
-                                    <div className="flex items-center gap-2">
-                                        <IconSparkles size={14} />
-                                        <span>ChatGPT Plus</span>
-                                        {chatGPTStatus?.isConnected ? (
-                                            <Badge variant="secondary" className="text-xs ml-1">Connected</Badge>
-                                        ) : (
-                                            <Badge variant="outline" className="text-xs ml-1">Not Connected</Badge>
-                                        )}
-                                    </div>
+                                    <div className="flex items-center gap-2"><IconBrandOpenai size={14} className="text-emerald-500" /><span>ChatGPT Plus</span></div>
+                                </SelectItem>
+                                <SelectItem value="gemini-advanced" disabled={!geminiStatus?.isConnected}>
+                                    <div className="flex items-center gap-2"><GeminiIcon size={14} className="text-blue-500" /><span>Gemini Advanced</span></div>
+                                </SelectItem>
+                                <SelectItem value="zai">
+                                    <div className="flex items-center gap-2"><ZaiIcon size={14} className="text-amber-500" /><span>Z.AI Subscription</span></div>
                                 </SelectItem>
                             </SelectContent>
                         </Select>
                     </div>
-
-                    {/* Model Selection */}
                     <div className="space-y-2">
-                        <Label htmlFor="model-select">Model</Label>
+                        <Label>Model</Label>
                         <Select value={selectedModel} onValueChange={setSelectedModel}>
-                            <SelectTrigger id="model-select">
-                                <SelectValue />
-                            </SelectTrigger>
+                            <SelectTrigger><SelectValue /></SelectTrigger>
                             <SelectContent>
-                                {availableModels.map((model) => (
-                                    <SelectItem key={model.id} value={model.id}>
+                                {availableModels.map(m => (
+                                    <SelectItem key={m.id} value={m.id}>
                                         <div className="flex flex-col">
-                                            <span>{model.name}</span>
-                                            {model.description && (
-                                                <span className="text-xs text-muted-foreground">{model.description}</span>
-                                            )}
+                                            <span>{m.name}</span>
+                                            {m.description && <span className="text-xs text-muted-foreground">{m.description}</span>}
                                         </div>
                                     </SelectItem>
                                 ))}
@@ -268,296 +221,152 @@ export function ApiKeysTab() {
                         </Select>
                     </div>
                 </div>
-
-                {currentProvider === 'openai' && !keyStatus?.hasOpenAI && (
-                    <div className="text-sm text-muted-foreground p-3 bg-muted/50 rounded-md">
-                        Configure your OpenAI API key below to enable AI features
-                    </div>
-                )}
-
-                {currentProvider === 'zai' && !keyStatus?.hasZai && (
-                    <div className="text-sm text-muted-foreground p-3 bg-muted/50 rounded-md">
-                        Configure your Z.AI API key below to enable GLM models
-                    </div>
-                )}
-                
-                {currentProvider === 'chatgpt-plus' && chatGPTStatus?.isConnected && (
-                    <div className="text-sm text-emerald-600 dark:text-emerald-400 p-3 bg-emerald-50 dark:bg-emerald-950/20 rounded-md flex items-center gap-2">
-                        <IconPlugConnected size={16} />
-                        Using ChatGPT Plus subscription - no per-token cost
-                    </div>
-                )}
             </div>
 
-            {/* ChatGPT Plus OAuth Connection */}
-            <div className={`border rounded-lg p-6 space-y-4 ${chatGPTStatus?.isConnected ? 'border-emerald-500/50 bg-emerald-50/30 dark:bg-emerald-950/10' : 'border-border'}`}>
-                <div className="space-y-2">
-                    <div className="flex items-center gap-2">
-                        <IconBrandOpenai size={18} />
-                        <h4 className="font-medium">ChatGPT Plus / Pro</h4>
-                        {chatGPTStatus?.isConnected ? (
-                            <Badge variant="default" className="text-xs bg-emerald-600">
-                                <IconPlugConnected size={12} className="mr-1" />
-                                Connected
-                            </Badge>
-                        ) : (
-                            <Badge variant="outline" className="text-xs">
-                                Not Connected
-                            </Badge>
-                        )}
+            {/* Subscriptions */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* Gemini - DISABLED: OAuth token incompatible with API endpoint */}
+                {/*
+                <div className={`border rounded-lg p-6 space-y-4 ${geminiStatus?.isConnected ? 'border-blue-500/50 bg-blue-50/10' : ''}`}>
+                    <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2"><GeminiIcon className="text-blue-500" size={20} /><h4 className="font-semibold">Gemini Advanced</h4></div>
+                        {geminiStatus?.isConnected && <Badge className="bg-blue-500">Connected</Badge>}
                     </div>
-                    <p className="text-sm text-muted-foreground">
-                        Connect your ChatGPT Plus or Pro subscription to use GPT-5 Codex models without per-token costs.
-                        Your subscription is used instead of API credits.
-                    </p>
+                    <p className="text-xs text-muted-foreground">Use Google One AI Premium for free tokens.</p>
+                    {geminiStatus?.isConnected ? (
+                        <div className="space-y-2">
+                            <p className="text-xs font-medium">{geminiStatus.email}</p>
+                            <Button variant="outline" size="sm" className="w-full text-red-500" onClick={() => disconnectGeminiMutation.mutate()}>Disconnect</Button>
+                        </div>
+                    ) : (
+                        <Button className="w-full bg-blue-600 hover:bg-blue-700" onClick={() => connectGeminiMutation.mutate()} disabled={connectGeminiMutation.isPending}>
+                            {connectGeminiMutation.isPending ? <IconLoader2 className="animate-spin" size={16} /> : <GeminiIcon className="mr-2" size={16} />}
+                            Connect Google
+                        </Button>
+                    )}
                 </div>
+                */}
 
-                {chatGPTStatus?.isConnected ? (
-                    <div className="space-y-3">
-                        <div className="flex items-center justify-between p-3 bg-muted/50 rounded-md">
-                            <div className="space-y-1">
-                                <p className="text-sm font-medium">{chatGPTStatus.email || 'Connected'}</p>
-                                {chatGPTStatus.connectedAt && (
-                                    <p className="text-xs text-muted-foreground">
-                                        Connected {new Date(chatGPTStatus.connectedAt).toLocaleDateString()}
-                                    </p>
-                                )}
-                            </div>
-                            <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={handleDisconnectChatGPT}
-                                disabled={disconnectChatGPTMutation.isPending}
-                                className="hover:bg-destructive hover:text-destructive-foreground hover:border-destructive"
-                            >
-                                {disconnectChatGPTMutation.isPending ? (
-                                    <IconLoader2 className="animate-spin mr-2" size={14} />
-                                ) : (
-                                    <IconPlugConnectedX className="mr-2" size={14} />
-                                )}
-                                Disconnect
+                {/* ChatGPT */}
+                <div className={`border rounded-lg p-6 space-y-4 ${chatGPTStatus?.isConnected ? 'border-emerald-500/50 bg-emerald-50/10' : ''}`}>
+                    <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2"><IconBrandOpenai className="text-emerald-500" size={20} /><h4 className="font-semibold">ChatGPT Plus</h4></div>
+                        {chatGPTStatus?.isConnected && <Badge className="bg-emerald-500">Connected</Badge>}
+                    </div>
+                    <p className="text-xs text-muted-foreground">Use ChatGPT Plus/Pro subscription via Codex.</p>
+                    {chatGPTStatus?.isConnected ? (
+                        <div className="space-y-2">
+                            <p className="text-xs font-medium">{chatGPTStatus.email}</p>
+                            <Button variant="outline" size="sm" className="w-full text-red-500" onClick={() => disconnectChatGPTMutation.mutate()}>Disconnect</Button>
+                        </div>
+                    ) : (
+                        <Button className="w-full" onClick={() => connectChatGPTMutation.mutate()} disabled={connectChatGPTMutation.isPending}>
+                            {connectChatGPTMutation.isPending ? <IconLoader2 className="animate-spin" size={16} /> : <IconBrandOpenai className="mr-2" size={16} />}
+                            Connect Plus
+                        </Button>
+                    )}
+                </div>
+            </div>
+
+            {/* API Keys */}
+            <div className="space-y-4">
+                {/* OpenAI API */}
+                <div className="border border-border rounded-lg p-6 space-y-4">
+                    <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2"><IconKey size={18} /><h4>OpenAI API</h4></div>
+                        {keyStatus?.hasOpenAI && <Badge variant="secondary">Set</Badge>}
+                    </div>
+                    <div className="flex gap-2">
+                        <div className="relative flex-1">
+                            <Input 
+                                type={showOpenaiKey ? 'text' : 'password'} 
+                                placeholder="sk-..."
+                                value={openaiKey} 
+                                onChange={e => setOpenaiKey(e.target.value)} 
+                                className="pr-10" 
+                            />
+                            <Button variant="ghost" size="icon" className="absolute right-0 top-0 h-full" onClick={() => setShowOpenaiKey(!showOpenaiKey)}>
+                                {showOpenaiKey ? <IconEyeOff size={16} /> : <IconEye size={16} />}
                             </Button>
                         </div>
-                        
-                        <div className="text-xs text-muted-foreground">
-                            Available models: {allModelsGrouped['chatgpt-plus'].map(m => m.name).join(', ')}
+                        <Button 
+                            className="bg-[#D97757] hover:bg-[#C16648] text-white px-6 font-semibold"
+                            onClick={() => setOpenAIKeyMutation.mutate({ key: openaiKey.trim() || null })} 
+                            disabled={setOpenAIKeyMutation.isPending}
+                        >
+                            {setOpenAIKeyMutation.isPending ? <IconLoader2 className="animate-spin" size={16} /> : 'Save'}
+                        </Button>
+                    </div>
+                </div>
+
+                {/* Z.AI Key */}
+                <div className="border border-border rounded-lg p-6 space-y-4">
+                    <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2"><ZaiIcon size={18} className="text-amber-500" /><h4>Z.AI Key</h4></div>
+                        {keyStatus?.hasZai && <Badge variant="secondary">Set</Badge>}
+                    </div>
+                    <div className="flex gap-2">
+                        <div className="relative flex-1">
+                            <Input 
+                                type={showZaiKey ? 'text' : 'password'} 
+                                placeholder="zai-..."
+                                value={zaiKey} 
+                                onChange={e => setZaiKey(e.target.value)} 
+                                className="pr-10" 
+                            />
+                            <Button variant="ghost" size="icon" className="absolute right-0 top-0 h-full" onClick={() => setShowZaiKey(!showZaiKey)}>
+                                {showZaiKey ? <IconEyeOff size={16} /> : <IconEye size={16} />}
+                            </Button>
                         </div>
-                    </div>
-                ) : (
-                    <div className="space-y-3">
-                        <Button
-                            onClick={handleConnectChatGPT}
-                            disabled={connectChatGPTMutation.isPending}
-                            className="w-full"
+                        <Button 
+                            className="bg-[#D97757] hover:bg-[#C16648] text-white px-6 font-semibold"
+                            onClick={() => setZaiKeyMutation.mutate({ key: zaiKey.trim() || null })} 
+                            disabled={setZaiKeyMutation.isPending}
                         >
-                            {connectChatGPTMutation.isPending ? (
-                                <IconLoader2 className="animate-spin mr-2" size={16} />
-                            ) : (
-                                <IconBrandOpenai className="mr-2" size={16} />
-                            )}
-                            Connect ChatGPT Plus
+                            {setZaiKeyMutation.isPending ? <IconLoader2 className="animate-spin" size={16} /> : 'Save'}
                         </Button>
-                        
-                        <p className="text-xs text-muted-foreground text-center">
-                            You'll be redirected to OpenAI to authorize access to your ChatGPT subscription.
-                        </p>
                     </div>
-                )}
-            </div>
-
-            {/* OpenAI API Key */}
-            <div className="border border-border rounded-lg p-6 space-y-4">
-                <div className="space-y-2">
-                    <div className="flex items-center gap-2">
-                        <IconKey size={18} />
-                        <h4 className="font-medium">OpenAI API Key</h4>
-                        {keyStatus?.hasOpenAI && (
-                            <Badge variant="secondary" className="text-xs">
-                                Configured
-                            </Badge>
-                        )}
-                    </div>
-                    <p className="text-sm text-muted-foreground">
-                        Required for GPT-5 models. Get your API key from{' '}
-                        <a
-                            href="https://platform.openai.com/api-keys"
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-primary underline underline-offset-2"
-                        >
-                            OpenAI Platform
-                        </a>
-                    </p>
                 </div>
-                <div className="flex gap-2">
-                    <div className="relative flex-1">
-                        <Input
-                            type={showOpenaiKey ? 'text' : 'password'}
-                            placeholder={keyStatus?.hasOpenAI ? '••••••••••••••••' : 'sk-...'}
-                            value={openaiKey}
-                            onChange={(e) => setOpenaiKey(e.target.value)}
-                            className="pr-10"
-                        />
-                        <Button
-                            type="button"
-                            variant="ghost"
-                            size="icon"
-                            className="absolute right-0 top-0 h-full"
-                            onClick={() => setShowOpenaiKey(!showOpenaiKey)}
+
+                {/* Tavily (Search) */}
+                <div className="border border-border rounded-lg p-6 space-y-4">
+                    <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2"><IconWorldSearch size={18} className="text-blue-500" /><h4>Tavily (Search)</h4></div>
+                        {keyStatus?.hasTavily && <Badge variant="secondary">Set</Badge>}
+                    </div>
+                    <div className="flex gap-2">
+                        <div className="relative flex-1">
+                            <Input 
+                                type={showTavilyKey ? 'text' : 'password'} 
+                                placeholder="tvly-..."
+                                value={tavilyKey} 
+                                onChange={e => setTavilyKey(e.target.value)} 
+                                className="pr-10" 
+                            />
+                            <Button variant="ghost" size="icon" className="absolute right-0 top-0 h-full" onClick={() => setShowTavilyKey(!showTavilyKey)}>
+                                {showTavilyKey ? <IconEyeOff size={16} /> : <IconEye size={16} />}
+                            </Button>
+                        </div>
+                        <Button 
+                            className="bg-[#D97757] hover:bg-[#C16648] text-white px-6 font-semibold"
+                            onClick={() => setTavilyKeyMutation.mutate({ key: tavilyKey.trim() || null })} 
+                            disabled={setTavilyKeyMutation.isPending}
                         >
-                            {showOpenaiKey ? <IconEyeOff size={16} /> : <IconEye size={16} />}
+                            {setTavilyKeyMutation.isPending ? <IconLoader2 className="animate-spin" size={16} /> : 'Save'}
                         </Button>
                     </div>
-                    <Button
-                        onClick={handleSaveOpenAIKey}
-                        disabled={setOpenAIKeyMutation.isPending || !openaiKey.trim()}
-                    >
-                        {setOpenAIKeyMutation.isPending ? <IconLoader2 className="animate-spin" size={16} /> : 'Save'}
-                    </Button>
                 </div>
             </div>
 
-            {/* Z.AI API Key */}
-            <div className="border border-border rounded-lg p-6 space-y-4">
-                <div className="space-y-2">
-                    <div className="flex items-center gap-2">
-                        <ZaiIcon className="text-amber-500" size={18} />
-                        <h4 className="font-medium">Z.AI API Key</h4>
-                        {keyStatus?.hasZai && (
-                            <Badge variant="secondary" className="text-xs">
-                                Configured
-                            </Badge>
-                        )}
-                    </div>
-                    <p className="text-sm text-muted-foreground">
-                        Required for GLM-4.7 and GLM-4.5 Air. Paste your Z.AI Coding Plan key.
-                    </p>
-                </div>
-                <div className="flex gap-2">
-                    <div className="relative flex-1">
-                        <Input
-                            type={showZaiKey ? 'text' : 'password'}
-                            placeholder={keyStatus?.hasZai ? '••••••••••••••••' : 'zai-...'}
-                            value={zaiKey}
-                            onChange={(e) => setZaiKey(e.target.value)}
-                            onPaste={(event) => {
-                                const text = event.clipboardData.getData('text')
-                                if (text) {
-                                    event.preventDefault()
-                                    setZaiKey(text)
-                                }
-                            }}
-                            onKeyDown={(event) => {
-                                if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'v') {
-                                    event.preventDefault()
-                                    navigator.clipboard
-                                        .readText()
-                                        .then((text) => {
-                                            if (text) setZaiKey(text)
-                                        })
-                                        .catch(() => {
-                                            // Fallback: let the default paste happen if clipboard read fails
-                                            const input = event.currentTarget
-                                            input.focus()
-                                        })
-                                }
-                            }}
-                            className="pr-10"
-                        />
-                        <Button
-                            type="button"
-                            variant="ghost"
-                            size="icon"
-                            className="absolute right-0 top-0 h-full"
-                            onClick={() => setShowZaiKey(!showZaiKey)}
-                        >
-                            {showZaiKey ? <IconEyeOff size={16} /> : <IconEye size={16} />}
-                        </Button>
-                    </div>
-                    <Button
-                        onClick={handleSaveZaiKey}
-                        disabled={setZaiKeyMutation.isPending || !zaiKey.trim()}
-                    >
-                        {setZaiKeyMutation.isPending ? <IconLoader2 className="animate-spin" size={16} /> : 'Save'}
-                    </Button>
-                </div>
-            </div>
-
-            {/* Tavily API Key */}
-            <div className="border border-border rounded-lg p-6 space-y-4">
-                <div className="space-y-2">
-                    <div className="flex items-center gap-2">
-                        <IconWorldSearch size={18} />
-                        <h4 className="font-medium">Tavily API Key</h4>
-                        <Badge variant="outline" className="text-xs">Optional</Badge>
-                        {keyStatus?.hasTavily && (
-                            <Badge variant="secondary" className="text-xs">
-                                Configured
-                            </Badge>
-                        )}
-                    </div>
-                    <p className="text-sm text-muted-foreground">
-                        Optional fallback for web search. GPT-5 models have native web search, but Tavily can be used as backup.{' '}
-                        <a
-                            href="https://tavily.com"
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-primary underline underline-offset-2"
-                        >
-                            Get a free key
-                        </a>
-                    </p>
-                </div>
-                <div className="flex gap-2">
-                    <div className="relative flex-1">
-                        <Input
-                            type={showTavilyKey ? 'text' : 'password'}
-                            placeholder={keyStatus?.hasTavily ? '••••••••••••••••' : 'tvly-...'}
-                            value={tavilyKey}
-                            onChange={(e) => setTavilyKey(e.target.value)}
-                            className="pr-10"
-                        />
-                        <Button
-                            type="button"
-                            variant="ghost"
-                            size="icon"
-                            className="absolute right-0 top-0 h-full"
-                            onClick={() => setShowTavilyKey(!showTavilyKey)}
-                        >
-                            {showTavilyKey ? <IconEyeOff size={16} /> : <IconEye size={16} />}
-                        </Button>
-                    </div>
-                    <Button
-                        onClick={handleSaveTavilyKey}
-                        disabled={setTavilyKeyMutation.isPending || !tavilyKey.trim()}
-                    >
-                        {setTavilyKeyMutation.isPending ? <IconLoader2 className="animate-spin" size={16} /> : 'Save'}
-                    </Button>
-                </div>
-            </div>
-
-            {/* Clear All Keys */}
-            <div className="border border-destructive/20 rounded-lg p-6 space-y-4">
-                <div className="space-y-2">
-                    <div className="flex items-center gap-2">
-                        <IconTrash size={18} className="text-destructive" />
-                        <h4 className="font-medium text-destructive">Clear All API Keys</h4>
-                    </div>
-                    <p className="text-sm text-muted-foreground">
-                        This will remove all stored API keys. You will need to re-enter them to use AI features.
-                    </p>
-                </div>
-                <Button
-                    variant="destructive"
-                    onClick={handleClearAllKeys}
+            <div className="pt-4 border-t border-border">
+                <Button 
+                    variant="ghost" 
+                    className="text-red-500 hover:text-red-600 hover:bg-red-50/10 transition-colors" 
+                    onClick={() => { if(confirm('Are you sure you want to clear all stored credentials?')) clearAllKeysMutation.mutate() }} 
                     disabled={clearAllKeysMutation.isPending}
                 >
-                    {clearAllKeysMutation.isPending ? (
-                        <IconLoader2 className="animate-spin mr-2" size={16} />
-                    ) : (
-                        <IconTrash className="mr-2" size={16} />
-                    )}
-                    Clear All Keys
+                    <IconTrash size={16} className="mr-2" />
+                    Clear All Credentials
                 </Button>
             </div>
         </div>

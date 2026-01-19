@@ -39,6 +39,7 @@ import { ChatInput } from './chat-input'
 import { ChatFilesPanel } from './chat-files-panel'
 import { useSmoothStream } from '@/hooks/use-smooth-stream'
 import { useDocumentUpload } from '@/lib/use-document-upload'
+import { AI_MODELS } from '@shared/ai-types'
 
 export function ChatView() {
     // Force rebuild
@@ -94,6 +95,7 @@ export function ChatView() {
             ? keyStatus?.hasChatGPTPlus
             : provider === 'zai'
                 ? keyStatus?.hasZai
+                // NOTE: gemini-advanced disabled
                 : keyStatus?.hasAnthropic
 
     // Fetch messages for selected chat
@@ -286,6 +288,17 @@ export function ChatView() {
                 }
                 // No API key needed - backend uses OAuth token directly
                 apiKey = undefined
+            
+            // NOTE: gemini-advanced disabled - OAuth token incompatible with API endpoint
+            // } else if (provider === 'gemini-advanced') {
+            //     const geminiStatus = await trpcClient.auth.getGeminiStatus.query()
+            //     if (!geminiStatus.isConnected) {
+            //         setStreamingError('Gemini Advanced not connected. Please connect in Settings.')
+            //         setIsStreaming(false)
+            //         return
+            //     }
+            //     apiKey = undefined
+            
             } else if (provider === 'zai') {
                 const result = await trpcClient.settings.getZaiKey.query()
                 if (!result.key) {
@@ -599,6 +612,7 @@ export function ChatView() {
                                     totalTokens: (event.usage.promptTokens || 0) + (event.usage.completionTokens || 0)
                                 }
                                 : undefined
+                            const contextWindow = AI_MODELS[selectedModel]?.contextWindow
 
                             // Save assistant message to database
                             if (fullText || toolCalls.size > 0) {
@@ -636,6 +650,7 @@ export function ChatView() {
                                     toolCalls: toolCallsArray.length > 0 ? toolCallsArray : undefined,
                                     metadata: {
                                         usage,
+                                        contextWindow: contextWindow || undefined,
                                         durationMs,
                                         reasoning: fullReasoning || undefined,
                                         actions: actions.length > 0 ? actions : undefined,

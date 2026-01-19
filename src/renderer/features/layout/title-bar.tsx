@@ -3,8 +3,8 @@ import {
     artifactPanelOpenAtom,
     selectedArtifactAtom,
     activeTabAtom,
-    sidebarOpenAtom,
-    settingsModalOpenAtom
+    settingsModalOpenAtom,
+    currentProviderAtom
 } from '@/lib/atoms'
 import { trpc } from '@/lib/trpc'
 import {
@@ -31,10 +31,13 @@ import {
     IconUser,
     IconSettings,
     IconLogout,
-    IconChevronDown
+    IconChevronDown,
+    IconBrandOpenai
 } from '@tabler/icons-react'
 import { Button } from '@/components/ui/button'
 import { Logo } from '@/components/ui/logo'
+import { ZaiIcon } from '@/components/icons/model-icons'
+// NOTE: Gemini disabled - import { ZaiIcon, GeminiIcon } from '@/components/icons/model-icons'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn, isMacOS, isElectron } from '@/lib/utils'
 
@@ -46,7 +49,6 @@ export interface TitleBarProps {
 export function TitleBar({ className, noTrafficLightSpace }: TitleBarProps) {
     const [artifactPanelOpen, setArtifactPanelOpen] = useAtom(artifactPanelOpenAtom)
     const [activeTab, setActiveTab] = useAtom(activeTabAtom)
-    const sidebarOpen = useAtomValue(sidebarOpenAtom)
     const setSettingsOpen = useSetAtom(settingsModalOpenAtom)
     const selectedArtifact = useAtomValue(selectedArtifactAtom)
     const isDesktop = isElectron()
@@ -55,6 +57,7 @@ export function TitleBar({ className, noTrafficLightSpace }: TitleBarProps) {
     const utils = trpc.useUtils()
     const { data: session } = trpc.auth.getSession.useQuery()
     const user = session?.user
+    const userDisplayName = user?.user_metadata?.full_name || user?.email || 'Not logged in'
 
     const signOut = trpc.auth.signOut.useMutation({
         onSuccess: () => {
@@ -67,14 +70,36 @@ export function TitleBar({ className, noTrafficLightSpace }: TitleBarProps) {
     const handleMaximize = () => window.desktopApi?.maximize()
     const handleClose = () => window.desktopApi?.close()
 
-    // Move UserProfile out of the render loop to avoid focus/highlight issues with Radix
-    const userDisplayName = user?.user_metadata?.full_name || user?.email || 'Not logged in'
+    // Get current provider and connection status
+    const provider = useAtomValue(currentProviderAtom)
+    const { data: keyStatus } = trpc.settings.getApiKeyStatus.useQuery()
+
+    const isConnected = provider === 'chatgpt-plus' 
+        ? keyStatus?.hasChatGPTPlus 
+        // NOTE: gemini-advanced disabled
+        : provider === 'openai' 
+            ? keyStatus?.hasOpenAI 
+            : provider === 'zai'
+                ? keyStatus?.hasZai
+                : false
+
+    const providerIcon = (() => {
+        if (!isConnected) return { icon: IconUser, className: "text-muted-foreground" }
+        switch (provider) {
+            case 'chatgpt-plus': return { icon: IconBrandOpenai, className: "text-emerald-600" }
+            case 'openai': return { icon: IconBrandOpenai, className: "" }
+            case 'zai': return { icon: ZaiIcon, className: "text-amber-500" }
+            // NOTE: gemini-advanced disabled
+            // case 'gemini-advanced': return { icon: GeminiIcon, className: "" }
+            default: return { icon: IconUser, className: "text-muted-foreground" }
+        }
+    })()
 
     return (
         <div
             className={cn(
-                'h-10 flex items-center bg-transparent drag-region shrink-0 px-2',
-                showTrafficLights && !noTrafficLightSpace && 'pl-20', // Space for traffic lights if needed
+                'h-10 flex items-center bg-transparent drag-region shrink-0 px-2 transition-all duration-300',
+                showTrafficLights && !noTrafficLightSpace && 'pl-20',
                 className
             )}
         >
@@ -199,30 +224,47 @@ export function TitleBar({ className, noTrafficLightSpace }: TitleBarProps) {
                 )}
 
                 {/* MacOS Profile Trigger - Pegado al borde derecho */}
-                {showTrafficLights && !sidebarOpen && (
+                {showTrafficLights && (
                     <DropdownMenu>
                         <DropdownMenuTrigger asChild>
                             <Button
                                 variant="ghost"
-                                className="h-8 flex items-center gap-1.5 p-1 hover:bg-accent rounded-lg transition-colors no-drag ml-1"
+                                className="h-8 flex items-center gap-1.5 p-1 hover:bg-accent rounded-lg transition-colors no-drag ml-1 relative"
                             >
-                                <Avatar className="h-6 w-6 border border-border/50">
-                                    <AvatarImage src={user?.user_metadata?.avatar_url || user?.user_metadata?.picture} />
-                                    <AvatarFallback className="bg-primary/10 text-[10px]">
-                                        {user?.email?.charAt(0).toUpperCase() || <IconUser size={12} />}
-                                    </AvatarFallback>
-                                </Avatar>
+                                <div className="relative">
+                                    <Avatar className="h-6 w-6 border border-border/50">
+                                        <AvatarImage src={user?.user_metadata?.avatar_url || user?.user_metadata?.picture} />
+                                        <AvatarFallback className="bg-primary/10 text-[10px]">
+                                            {user?.email?.charAt(0).toUpperCase() || <IconUser size={12} />}
+                                        </AvatarFallback>
+                                    </Avatar>
+                                    <div className="absolute -bottom-0.5 -right-0.5 bg-background border border-border rounded-full h-2 w-2 flex items-center justify-center shadow-sm ring-1 ring-background shrink-0 overflow-hidden">
+                                        {/* NOTE: gemini-advanced disabled */}
+                                        <providerIcon.icon size={5} className={providerIcon.className} />
+                                    </div>
+                                </div>
                                 <IconChevronDown size={12} className="text-muted-foreground opacity-50" />
                             </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end" className="w-56 mt-1">
-                            <DropdownMenuLabel className="flex flex-col">
-                                <span className="text-sm font-semibold truncate">
-                                    {userDisplayName}
-                                </span>
-                                <span className="text-[10px] text-muted-foreground truncate font-normal">
-                                    {user?.email}
-                                </span>
+                            <DropdownMenuLabel className="flex items-center justify-between">
+                                <div className="flex flex-col min-w-0">
+                                    <span className="text-sm font-semibold truncate">
+                                        {userDisplayName}
+                                    </span>
+                                    <span className="text-[10px] text-muted-foreground truncate font-normal">
+                                        {user?.email}
+                                    </span>
+                                </div>
+                                {isConnected && (
+                                    <div className="flex items-center gap-1.5 bg-accent/50 px-2 py-0.5 rounded-full shrink-0 ml-2">
+                                        {/* NOTE: gemini-advanced disabled */}
+                                        <providerIcon.icon size={10} className={providerIcon.className} />
+                                        <span className="text-[9px] font-bold tracking-tight uppercase">
+                                            {provider === 'chatgpt-plus' ? 'Plus' : provider}
+                                        </span>
+                                    </div>
+                                )}
                             </DropdownMenuLabel>
                             <DropdownMenuSeparator />
                             <DropdownMenuItem 

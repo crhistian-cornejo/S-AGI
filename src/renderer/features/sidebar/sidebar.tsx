@@ -1,6 +1,7 @@
 import { useState, useMemo, useRef, useEffect, useCallback } from 'react'
 import { useAtom, useAtomValue, useSetAtom } from 'jotai'
 import { ZaiIcon } from '@/components/icons/model-icons'
+// NOTE: Gemini disabled - import { ZaiIcon, GeminiIcon } from '@/components/icons/model-icons'
 import {
     IconPlus,
     IconMessage,
@@ -19,7 +20,8 @@ import {
     IconPinFilled,
     IconArchiveOff,
     IconChevronDown,
-    IconChevronRight
+    IconChevronRight,
+    IconSparkles
 } from '@tabler/icons-react'
 import { trpc } from '@/lib/trpc'
 import {
@@ -29,7 +31,6 @@ import {
     sidebarOpenAtom,
     selectedArtifactAtom,
     artifactPanelOpenAtom,
-    hasChatGPTPlusAtom,
     undoStackAtom,
     type UndoItem
 } from '@/lib/atoms'
@@ -55,20 +56,6 @@ import {
 } from '@/components/ui/avatar'
 import { cn, formatRelativeTime, isMacOS } from '@/lib/utils'
 
-const formatFullDate = (dateStr: string): string => {
-    const date = new Date(dateStr)
-    return date.toLocaleString('en-US', {
-        year: 'numeric',
-        month: 'short',
-        day: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit'
-    })
-}
-
-const getShortId = (id: string): string => {
-    return id.slice(0, 8) + '...'
-}
 
 // ============================================================================
 // FadeScrollArea - Scroll area with fade effect at top/bottom when content overflows
@@ -144,6 +131,7 @@ interface Chat {
     id: string
     title: string | null
     updated_at: string
+    created_at: string
     archived: boolean
     pinned?: boolean
 }
@@ -184,43 +172,91 @@ function ChatItem({
     onRestore,
     isArchived
 }: ChatItemProps) {
+    // Parse dates with timezone awareness
+    const createdDate = new Date(chat.created_at)
+    const now = new Date()
+    
+    // Calculate days difference using local dates (not UTC)
+    const todayLocal = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+    const createdLocal = new Date(createdDate.getFullYear(), createdDate.getMonth(), createdDate.getDate())
+    const daysSinceCreated = Math.floor((todayLocal.getTime() - createdLocal.getTime()) / (1000 * 60 * 60 * 24))
+
+    // Format date for display (uses local timezone)
+    const formatDate = (date: Date) => {
+        return date.toLocaleDateString(undefined, { 
+            month: 'short', 
+            day: 'numeric', 
+            year: 'numeric',
+            timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone
+        })
+    }
+
+    const tooltipContent = (
+        <div className="space-y-3 min-w-[200px]">
+            {/* Title */}
+            <div>
+                <p className="font-semibold text-foreground text-sm leading-tight line-clamp-2">
+                    {chat.title || 'Untitled'}
+                </p>
+            </div>
+
+            {/* Status Badges */}
+            <div className="flex flex-wrap gap-1.5">
+                {chat.pinned && (
+                    <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-amber-500/15 text-amber-500 font-medium flex items-center gap-1">
+                        <IconPinFilled size={10} />
+                        Pinned
+                    </span>
+                )}
+                {isArchived && (
+                    <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-orange-500/15 text-orange-500 font-medium flex items-center gap-1">
+                        <IconArchive size={10} />
+                        Archived
+                    </span>
+                )}
+                {isSelected && (
+                    <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-emerald-500/15 text-emerald-500 font-medium">
+                        Currently Open
+                    </span>
+                )}
+            </div>
+
+            {/* Timestamps */}
+            <div className="pt-2 border-t border-border/40 space-y-1.5">
+                <div className="flex items-center justify-between text-xs">
+                    <span className="text-muted-foreground">Created</span>
+                    <span className="text-foreground/80 font-medium">
+                        {formatDate(createdDate)}
+                    </span>
+                </div>
+                <div className="flex items-center justify-between text-xs">
+                    <span className="text-muted-foreground">Last updated</span>
+                    <span className="text-foreground/80 font-medium">
+                        {formatRelativeTime(chat.updated_at)}
+                    </span>
+                </div>
+                {daysSinceCreated > 0 && (
+                    <div className="flex items-center justify-between text-xs">
+                        <span className="text-muted-foreground">Age</span>
+                        <span className="text-foreground/80 font-medium">
+                            {daysSinceCreated === 1 ? '1 day' : `${daysSinceCreated} days`}
+                        </span>
+                    </div>
+                )}
+            </div>
+
+            {/* Chat ID (subtle) */}
+            <div className="pt-2 border-t border-border/40">
+                <p className="text-[10px] font-mono text-muted-foreground/50 select-all">
+                    {chat.id.slice(0, 8)}...{chat.id.slice(-4)}
+                </p>
+            </div>
+        </div>
+    )
+
     const titleContent = (
         <CursorTooltip
-            content={
-                <div className="space-y-2">
-                    <div className="space-y-0.5">
-                        <p className="font-medium text-foreground text-sm leading-tight">{chat.title || 'Untitled'}</p>
-                        <p className="text-[11px] font-mono text-muted-foreground/60">ID: {getShortId(chat.id)}</p>
-                    </div>
-
-                    <div className="flex flex-wrap gap-1.5">
-                        {chat.pinned && (
-                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-primary/10 text-primary font-medium">
-                                Pinned
-                            </span>
-                        )}
-                        {isArchived && (
-                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-600 dark:text-amber-400 font-medium">
-                                Archived
-                            </span>
-                        )}
-                        {isSelected && (
-                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-green-500/10 text-green-600 dark:text-green-400 font-medium">
-                                Active
-                            </span>
-                        )}
-                    </div>
-
-                    <div className="pt-1 border-t border-border/50 space-y-1">
-                        <p className="text-xs text-muted-foreground">
-                            Updated {formatRelativeTime(chat.updated_at)}
-                        </p>
-                        <p className="text-[10px] text-muted-foreground/70">
-                            {formatFullDate(chat.updated_at)}
-                        </p>
-                    </div>
-                </div>
-            }
+            content={tooltipContent}
             containerClassName="w-full"
         >
             <p className="truncate font-medium">
@@ -405,12 +441,12 @@ export function Sidebar() {
 
     // Get API key status from main process
     const { data: keyStatus } = trpc.settings.getApiKeyStatus.useQuery()
-    const hasChatGPTPlus = useAtomValue(hasChatGPTPlusAtom)
 
     
     // Determine connection status based on provider
+    // NOTE: gemini-advanced disabled
     const isConnected = provider === 'chatgpt-plus' 
-        ? hasChatGPTPlus 
+        ? keyStatus?.hasChatGPTPlus 
         : provider === 'openai' 
             ? keyStatus?.hasOpenAI 
             : provider === 'zai'
@@ -680,19 +716,20 @@ export function Sidebar() {
         <div className="flex flex-col h-full">
             {/* Header / New Chat */}
             <div className={cn(
-                "flex items-center gap-2 px-3",
+                "flex items-center justify-end gap-1 px-3",
                 isMacOS() ? "h-11 pt-1 pl-20" : "h-10 pt-0",
                 "drag-region"
             )}>
                 <Tooltip>
                     <TooltipTrigger asChild>
                         <Button
-                            className="flex-1 justify-start gap-2 h-8 rounded-xl no-drag"
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8 text-muted-foreground hover:text-foreground rounded-xl shrink-0 no-drag"
                             onClick={handleNewChat}
                             disabled={createChat.isPending}
                         >
-                            <IconPlus size={16} />
-                            <span className="truncate">New Chat</span>
+                            <IconPlus size={18} />
                         </Button>
                     </TooltipTrigger>
                     <TooltipContent side="bottom" className="flex items-center gap-2 font-semibold">
@@ -831,6 +868,7 @@ export function Sidebar() {
                     ) : provider === 'zai' ? (
                         <ZaiIcon className="shrink-0 text-amber-500" size={18} />
                     ) : (
+                        // NOTE: gemini-advanced disabled
                         <IconBrain size={18} className="shrink-0" />
                     )}
                     <div className="flex-1 min-w-0 text-left">
@@ -842,11 +880,12 @@ export function Sidebar() {
                                         ? 'OpenAI' 
                                         : provider === 'zai'
                                             ? 'Z.AI'
+                                            // NOTE: gemini-advanced disabled
                                             : 'Anthropic'}
                             </p>
 
                         </div>
-                        <p className="text-xs text-muted-foreground">
+                        <p className="text-[10px] text-muted-foreground leading-none">
                             {isConnected ? 'Connected' : 'Not configured'}
                         </p>
                     </div>
@@ -864,14 +903,30 @@ export function Sidebar() {
                         <DropdownMenuTrigger asChild>
                             <Button
                                 variant="ghost"
-                                className="h-9 w-full justify-start gap-2 px-2 hover:bg-accent/50"
+                                className="h-9 w-full justify-start gap-2 px-2 hover:bg-accent/50 relative"
                             >
-                                <Avatar className="h-6 w-6">
-                                    <AvatarImage src={user?.user_metadata?.avatar_url || user?.user_metadata?.picture} />
-                                    <AvatarFallback className="bg-primary/10">
-                                        {user?.email?.charAt(0).toUpperCase() || <IconUser size={14} />}
-                                    </AvatarFallback>
-                                </Avatar>
+                                <div className="relative">
+                                    <Avatar className="h-6 w-6">
+                                        <AvatarImage src={user?.user_metadata?.avatar_url || user?.user_metadata?.picture} />
+                                        <AvatarFallback className="bg-primary/10">
+                                            {user?.email?.charAt(0).toUpperCase() || <IconUser size={14} />}
+                                        </AvatarFallback>
+                                    </Avatar>
+                                    {isConnected && (
+                                        <div className="absolute -bottom-0.5 -right-0.5 bg-background border border-border rounded-full h-2 w-2 flex items-center justify-center shadow-sm ring-1 ring-background shrink-0 overflow-hidden">
+                                            {provider === 'chatgpt-plus' ? (
+                                                <IconBrandOpenai size={5} className="text-emerald-600" />
+                                            ) : provider === 'openai' ? (
+                                                <IconBrandOpenai size={5} />
+                                            ) : provider === 'zai' ? (
+                                                <ZaiIcon size={5} className="text-amber-500" />
+                                            ) : (
+                                                // NOTE: gemini-advanced disabled
+                                                <IconSparkles size={5} className="text-primary" />
+                                            )}
+                                        </div>
+                                    )}
+                                </div>
                                 <span className="flex-1 text-left truncate text-xs font-medium">
                                     {user?.email || 'Not logged in'}
                                 </span>
@@ -879,7 +934,24 @@ export function Sidebar() {
                             </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="start" side="top" className="w-56">
-                            <DropdownMenuLabel>My Account</DropdownMenuLabel>
+                            <DropdownMenuLabel className="flex items-center justify-between">
+                                <span>My Account</span>
+                                {isConnected && (
+                                    <div className="flex items-center gap-1.5 bg-accent/50 px-2 py-0.5 rounded-full">
+                                        {provider === 'chatgpt-plus' ? (
+                                            <IconBrandOpenai size={10} className="text-emerald-600" />
+                                        ) : provider === 'openai' ? (
+                                            <IconBrandOpenai size={10} />
+                                        ) : provider === 'zai' ? (
+                                            <ZaiIcon size={10} className="text-amber-500" />
+                                        ) : null}
+                                        {/* NOTE: gemini-advanced disabled */}
+                                        <span className="text-[9px] font-bold tracking-tight uppercase">
+                                            {provider === 'chatgpt-plus' ? 'Plus' : provider}
+                                        </span>
+                                    </div>
+                                )}
+                            </DropdownMenuLabel>
                             <DropdownMenuSeparator />
                             <DropdownMenuItem onClick={() => setSettingsOpen(true)} className="justify-between">
                                 <span className="flex items-center">

@@ -35,6 +35,7 @@ import {
     isReasoningAtom,
     allModelsGroupedAtom,
     hasChatGPTPlusAtom,
+    // NOTE: Gemini disabled - hasGeminiAdvancedAtom,
     type ReasoningEffort,
 } from '@/lib/atoms'
 
@@ -69,6 +70,7 @@ export function ChatInput({ value, onChange, onSend, onStop, isLoading, streamin
     const [selectedModel, setSelectedModel] = useAtom(selectedModelAtom)
     const allModelsGrouped = useAtomValue(allModelsGroupedAtom)
     const hasChatGPTPlus = useAtomValue(hasChatGPTPlusAtom)
+    // NOTE: Gemini disabled - const hasGeminiAdvanced = useAtomValue(hasGeminiAdvancedAtom)
     const [reasoningEffort, setReasoningEffort] = useAtom(reasoningEffortAtom)
     const streamingToolCalls = useAtomValue(streamingToolCallsAtom)
     const streamingWebSearches = useAtomValue(streamingWebSearchesAtom)
@@ -495,6 +497,28 @@ export function ChatInput({ value, onChange, onSend, onStop, isLoading, streamin
                                         <div className="h-px bg-border/40 my-1.5 mx-2" />
                                     </>
                                 )}
+
+                                {/* Gemini Advanced models - DISABLED */}
+                                {/* OAuth token incompatible with API endpoint */}
+                                {/* 
+                                {hasGeminiAdvanced && allModelsGrouped['gemini-advanced']?.length > 0 && (
+                                    <>
+                                        <div className="text-[10px] font-bold uppercase text-muted-foreground/50 px-3 py-2 flex items-center gap-1.5">
+                                            <ModelIcon provider="gemini-advanced" size={12} />
+                                            Gemini Advanced
+                                            <span className="ml-auto text-[9px] font-medium text-blue-500 bg-blue-500/10 px-1.5 py-0.5 rounded">Subscription</span>
+                                        </div>
+                                        {allModelsGrouped['gemini-advanced'].map((model) => (
+                                            <SelectItem key={model.id} value={model.id} className="rounded-lg">
+                                                <div className="flex items-center gap-2">
+                                                    <span>{model.name}</span>
+                                                </div>
+                                            </SelectItem>
+                                        ))}
+                                        <div className="h-px bg-border/40 my-1.5 mx-2" />
+                                    </>
+                                )}
+                                */}
                                 
                                 {/* OpenAI API models */}
                                 <div className="text-[10px] font-bold uppercase text-muted-foreground/50 px-3 py-2 flex items-center gap-1.5">
@@ -515,8 +539,8 @@ export function ChatInput({ value, onChange, onSend, onStop, isLoading, streamin
                                         <div className="h-px bg-border/40 my-1.5 mx-2" />
                                         <div className="text-[10px] font-bold uppercase text-muted-foreground/50 px-3 py-2 flex items-center gap-1.5">
                                             <ModelIcon provider="zai" size={12} />
-                                            Z.AI Coding
-                                            <span className="ml-auto text-[9px] font-medium text-amber-500 bg-amber-500/10 px-1.5 py-0.5 rounded">API Key</span>
+                                            Z.AI Subscription
+                                            <span className="ml-auto text-[9px] font-medium text-amber-500 bg-amber-500/10 px-1.5 py-0.5 rounded">Subscription</span>
                                         </div>
                                         {allModelsGrouped.zai.map((model) => (
                                             <SelectItem key={model.id} value={model.id} className="rounded-lg">

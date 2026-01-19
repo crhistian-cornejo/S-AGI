@@ -5,6 +5,8 @@ import { sendToRenderer } from '../../window-manager'
 import { supabase } from '../../supabase/client'
 import { getSecureApiKeyStore } from '../../auth/api-key-store'
 import { getChatGPTAuthManager } from '../../auth'
+// NOTE: Gemini auth disabled - OAuth token incompatible with generativelanguage.googleapis.com
+// import { getChatGPTAuthManager, getGeminiAuthManager } from '../../auth'
 
 import OpenAI from 'openai'
 import type { Responses } from 'openai/resources/responses/responses'
@@ -26,6 +28,10 @@ const activeStreams = new Map<string, AbortController>()
 // Maximum number of agent loop steps
 const MAX_AGENT_STEPS = 15
 
+const DEFAULT_REQUEST_TIMEOUT_MS = 120_000
+const FLEX_REQUEST_TIMEOUT_MS = 900_000
+const RETRY_DELAYS_MS = [500, 1000, 2000]
+
 const ZAI_BASE_URL = 'https://api.z.ai/api/coding/paas/v4'
 const ZAI_SOURCE_HEADER = 'S-AGI-Agent'
 
@@ -36,6 +42,64 @@ function getFallbackTitle(prompt: string) {
     if (!trimmed) return 'New Chat'
     if (trimmed.length <= AUTO_TITLE_MAX_LENGTH) return trimmed
     return `${trimmed.slice(0, AUTO_TITLE_MAX_LENGTH)}...`
+}
+
+function isRetryableError(error: unknown): boolean {
+    const status = (error as any)?.status
+    const code = (error as any)?.code
+    if (typeof status === 'number' && (status === 429 || status >= 500)) return true
+    if (code === 'ETIMEDOUT' || code === 'ECONNRESET' || code === 'EPIPE' || code === 'ENOTFOUND') return true
+    return false
+}
+
+function createRequestSignal(parentSignal: AbortSignal, timeoutMs: number): { signal: AbortSignal; cleanup: () => void } {
+    if (timeoutMs <= 0) {
+        return { signal: parentSignal, cleanup: () => {} }
+    }
+
+    const timeoutController = new AbortController()
+    const timeoutId = setTimeout(() => timeoutController.abort(), timeoutMs)
+
+    let combinedSignal: AbortSignal
+    if (typeof AbortSignal !== 'undefined' && typeof (AbortSignal as any).any === 'function') {
+        combinedSignal = (AbortSignal as any).any([parentSignal, timeoutController.signal])
+    } else {
+        combinedSignal = timeoutController.signal
+        parentSignal.addEventListener('abort', () => timeoutController.abort(), { once: true })
+    }
+
+    const cleanup = () => clearTimeout(timeoutId)
+    combinedSignal.addEventListener('abort', cleanup, { once: true })
+
+    return { signal: combinedSignal, cleanup }
+}
+
+async function withRetry<T>(
+    label: string,
+    parentSignal: AbortSignal,
+    timeoutMs: number,
+    task: (signal: AbortSignal) => Promise<T>
+): Promise<T> {
+    let lastError: unknown
+
+    for (let attempt = 0; attempt <= RETRY_DELAYS_MS.length; attempt += 1) {
+        const { signal, cleanup } = createRequestSignal(parentSignal, timeoutMs)
+        try {
+            return await task(signal)
+        } catch (error) {
+            lastError = error
+            if (!isRetryableError(error) || attempt === RETRY_DELAYS_MS.length) {
+                throw error
+            }
+            const delayMs = RETRY_DELAYS_MS[attempt]
+            log.warn(`[AI] ${label} failed (attempt ${attempt + 1}) - retrying in ${delayMs}ms`) 
+            await new Promise(resolve => setTimeout(resolve, delayMs))
+        } finally {
+            cleanup()
+        }
+    }
+
+    throw lastError
 }
 
 // System prompt for S-AGI agent
@@ -438,6 +502,60 @@ function createPlanModeTools(
 // Union type for all tools
 type ToolParam = Responses.Tool
 
+function buildZaiWebSearchTool(searchContextSize: 'low' | 'medium' | 'high'): ToolParam {
+    const count = searchContextSize === 'low' ? 3 : searchContextSize === 'high' ? 8 : 5
+    return {
+        type: 'web_search',
+        web_search: {
+            enable: 'True',
+            search_engine: 'search-prime',
+            search_result: 'True',
+            count: `${count}`,
+            search_recency_filter: 'noLimit',
+            content_size: searchContextSize
+        }
+    } as unknown as ToolParam
+}
+
+type ZaiWebSearchResult = {
+    title?: string
+    url?: string
+}
+
+function getZaiWebSearchResults(completion: OpenAI.ChatCompletion): ZaiWebSearchResult[] {
+    const rawResults = (completion as any)?.web_search
+    if (!Array.isArray(rawResults)) return []
+
+    return rawResults
+        .map((result: any) => ({
+            title: result.title ?? result.media,
+            url: result.link ?? result.url
+        }))
+        .filter((result: ZaiWebSearchResult) => Boolean(result.url))
+}
+
+function getDomainsFromUrls(urls: string[]): string[] {
+    const domains = new Set<string>()
+    for (const url of urls) {
+        try {
+            domains.add(new URL(url).hostname)
+        } catch {
+            // Ignore invalid URLs
+        }
+    }
+    return Array.from(domains)
+}
+
+function buildZaiWebSearchAnnotations(results: ZaiWebSearchResult[]) {
+    return results.map((result) => ({
+        type: 'url_citation' as const,
+        url: result.url || '',
+        title: result.title,
+        startIndex: 0,
+        endIndex: 0
+    })).filter((annotation) => annotation.url)
+}
+
 /**
  * Build native tools array based on configuration and model support
  * @param modelId - The model ID to check capabilities
@@ -466,6 +584,8 @@ function buildNativeTools(
                 type: 'web_search',
                 search_context_size: searchContextSize
             } as ToolParam)
+        } else if (provider === 'zai') {
+            tools.push(buildZaiWebSearchTool(searchContextSize))
         } else {
             // Standard OpenAI uses 'web_search_preview'
             tools.push({
@@ -591,6 +711,61 @@ function toResponsesMessages(
     return result
 }
 
+/**
+ * Convert internal messages to Chat Completions format
+ */
+function toChatMessages(
+    systemPrompt: string,
+    messages: Array<{ role: 'user' | 'assistant' | 'system'; content: string }>,
+    currentPrompt: string
+): Array<OpenAI.ChatCompletionMessageParam> {
+    const result: Array<OpenAI.ChatCompletionMessageParam> = [
+        { role: 'system', content: systemPrompt }
+    ]
+
+    for (const msg of messages) {
+        if (msg.role === 'user' || msg.role === 'assistant') {
+            result.push({ role: msg.role, content: msg.content })
+        }
+    }
+
+    result.push({ role: 'user', content: currentPrompt })
+
+    return result
+}
+
+function toChatCompletionTools(tools: FunctionToolParam[]): OpenAI.ChatCompletionTool[] {
+    return tools.map((tool) => ({
+        type: 'function' as const,
+        function: {
+            name: tool.name,
+            description: tool.description ?? undefined,
+            parameters: tool.parameters ?? undefined
+        }
+    }))
+}
+
+function toZaiChatCompletionTools(tools: ToolParam[]): Array<OpenAI.ChatCompletionTool | ZaiWebSearchTool> {
+    return tools.flatMap((tool) => {
+        if (tool.type === 'function') {
+            return [{
+                type: 'function' as const,
+                function: {
+                    name: tool.name,
+                    description: tool.description ?? undefined,
+                    parameters: tool.parameters ?? undefined
+                }
+            }]
+        }
+
+        if (tool.type === 'web_search') {
+            return [tool as ZaiWebSearchTool]
+        }
+
+        return []
+    })
+}
+
 // Type for pending tool calls we need to track
 interface PendingToolCall {
     callId: string
@@ -613,6 +788,7 @@ export const aiRouter = router({
             const chatGPTAuth = getChatGPTAuthManager()
             return {
                 availableProviders: ['openai', 'chatgpt-plus', 'zai'] as const,
+                // NOTE: 'gemini-advanced' removed - OAuth incompatible
                 availableModels: AI_MODELS,
                 availableTools: getAllToolNames({
                     modelId: input?.modelId,
@@ -636,6 +812,7 @@ export const aiRouter = router({
             prompt: z.string(),
             mode: z.enum(['plan', 'agent']).default('agent'),
             provider: z.enum(['openai', 'chatgpt-plus', 'zai']).default('openai'),
+            // NOTE: 'gemini-advanced' removed - OAuth incompatible
             apiKey: z.string().optional(), // Optional for chatgpt-plus provider
             tavilyApiKey: z.string().optional(),
             model: z.string().optional(),
@@ -848,6 +1025,38 @@ export const aiRouter = router({
                         })
                         
                         log.info(`[AI] Using ChatGPT Plus provider with account: ${chatGPTAccountId || 'unknown'}`)
+                    
+                    // NOTE: Gemini Advanced DISABLED - OAuth token incompatible with generativelanguage.googleapis.com
+                    // The endpoint requires API key from Google AI Studio, not OAuth token
+                    // OAuth tokens work with cloudcode-pa.googleapis.com but require different API format
+                    /*
+                    } else if (provider === 'gemini-advanced') {
+                        // Gemini Advanced / Google One - use OAuth token with OpenAI-compatible endpoint
+                        const geminiAuth = getGeminiAuthManager()
+                        
+                        if (!geminiAuth.isConnected()) {
+                            throw new Error('Gemini Advanced not connected. Please connect your Google account in Settings.')
+                        }
+                        
+                        // Get a valid token (will refresh if expired)
+                        const accessToken = await geminiAuth.getValidAccessToken()
+                        
+                        if (!accessToken) {
+                            throw new Error('Gemini token not available. Please reconnect.')
+                        }
+                        
+                        // Use Gemini's OpenAI-compatible endpoint with OAuth Bearer token
+                        const GEMINI_OPENAI_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta/openai'
+                        log.info(`[AI] Gemini Advanced: Using OpenAI-compatible endpoint with OAuth Bearer token`)
+                        
+                        client = new OpenAI({
+                            apiKey: 'oauth-placeholder', // Required by SDK but we use Bearer auth
+                            baseURL: GEMINI_OPENAI_BASE_URL,
+                            defaultHeaders: {
+                                'Authorization': `Bearer ${accessToken}`
+                            }
+                        })
+                    */
                     } else if (provider === 'zai') {
                         // Z.AI Coding Plan - OpenAI-compatible API with custom base URL
                         if (!input.apiKey) {
@@ -880,7 +1089,16 @@ export const aiRouter = router({
                         : createFunctionTools(input.chatId, ctx.userId)
                     
                     // Select system prompt based on mode
-                    let systemPrompt = input.mode === 'plan' ? PLAN_MODE_SYSTEM_PROMPT : SYSTEM_PROMPT
+                    // Add current date/time context for accurate temporal awareness
+                    const now = new Date()
+                    const dateContext = `\n\n================================================================================
+CURRENT DATE & TIME
+================================================================================
+Today: ${now.toLocaleDateString('es-ES', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', timeZone: 'America/Lima' })}
+Time: ${now.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Lima' })} (Lima, Peru)
+================================================================================\n`
+                    
+                    let systemPrompt = (input.mode === 'plan' ? PLAN_MODE_SYSTEM_PROMPT : SYSTEM_PROMPT) + dateContext
                     
                     // Build native tools configuration
                     let nativeToolsConfig = input.nativeTools
@@ -1115,6 +1333,11 @@ CRITICAL INSTRUCTIONS FOR DOCUMENT QUERIES:
                         input.images
                     )
 
+                    const chatMessages = (provider === 'zai')
+                        // NOTE: removed || provider === 'gemini-advanced' - disabled
+                        ? toChatMessages(systemPrompt, input.messages || [], input.prompt)
+                        : null
+
                     // Determine reasoning config
                     const reasoningConfig: ReasoningConfig | undefined = modelDef?.supportsReasoning
                         ? input.reasoning
@@ -1131,6 +1354,224 @@ CRITICAL INSTRUCTIONS FOR DOCUMENT QUERIES:
                         promptTokens: 0,
                         completionTokens: 0,
                         reasoningTokens: 0
+                    }
+
+                    const runChatCompletionsAgentLoop = async () => {
+                        if (input.images?.length) {
+                            log.warn(`[AI] ${provider} does not support image inputs yet`)
+                        }
+
+                        const chatTools = provider === 'zai'
+                            ? toZaiChatCompletionTools(allTools)
+                            : toChatCompletionTools(functionTools)
+
+                        while (currentStepNumber < MAX_AGENT_STEPS) {
+                            currentStepNumber++
+                            const stepStartTime = Date.now()
+                            log.info(`[AI] ${provider} step ${currentStepNumber} starting...`)
+
+                            const stream = await withRetry(
+                                `${provider}.chat.completions.create`,
+                                abortController.signal,
+                                0,
+                                (signal) => client.chat.completions.create(
+                                    {
+                                        model: modelId,
+                                        messages: chatMessages || [],
+                                        tools: chatTools.length > 0 ? chatTools : undefined,
+                                        tool_choice: chatTools.length > 0 ? 'auto' : undefined,
+                                        stream: true
+                                    },
+                                    { signal, timeout: DEFAULT_REQUEST_TIMEOUT_MS }
+                                )
+                            )
+
+                            const toolCallMap = new Map<string, { id: string; name: string; args: string }>()
+
+                            for await (const chunk of stream) {
+                                const delta = chunk.choices?.[0]?.delta
+                                if (!delta) continue
+
+                                if (delta.content) {
+                                    fullText += delta.content
+                                    emit({ type: 'text-delta', delta: delta.content })
+                                }
+
+                                const reasoningDelta = (delta as any).reasoning || (delta as any).reasoning_summary || (delta as any).reasoning_content
+                                if (typeof reasoningDelta === 'string' && reasoningDelta.length > 0) {
+                                    fullReasoningSummary += reasoningDelta
+                                    emit({ type: 'reasoning-summary-delta', delta: reasoningDelta, summaryIndex: 0 })
+                                }
+
+                                if (delta.tool_calls) {
+                                    for (const toolCall of delta.tool_calls) {
+                                        const callId = toolCall.id || `${chunk.id}-${toolCall.index ?? toolCallMap.size}`
+                                        if (!toolCallMap.has(callId)) {
+                                            toolCallMap.set(callId, {
+                                                id: callId,
+                                                name: toolCall.function?.name || 'tool',
+                                                args: ''
+                                            })
+                                            emit({
+                                                type: 'tool-call-start',
+                                                toolCallId: callId,
+                                                toolName: toolCall.function?.name || 'tool'
+                                            })
+                                        }
+
+                                        const entry = toolCallMap.get(callId)
+                                        if (!entry) continue
+
+                                        if (toolCall.function?.name) {
+                                            entry.name = toolCall.function.name
+                                        }
+
+                                        if (toolCall.function?.arguments) {
+                                            entry.args += toolCall.function.arguments
+                                            emit({
+                                                type: 'tool-call-delta',
+                                                toolCallId: callId,
+                                                argsDelta: toolCall.function.arguments
+                                            })
+                                        }
+                                    }
+                                }
+                            }
+
+                            const finalCompletion = typeof (stream as any).finalChatCompletion === 'function'
+                                ? await (stream as any).finalChatCompletion()
+                                : null
+                            const completionUsage = finalCompletion?.usage
+                            if (completionUsage) {
+                                usageTotals.promptTokens += completionUsage.prompt_tokens || 0
+                                usageTotals.completionTokens += completionUsage.completion_tokens || 0
+                                usageTotals.reasoningTokens += (completionUsage as any).completion_tokens_details?.reasoning_tokens || 0
+                            }
+
+                            const zaiWebSearchResults = provider === 'zai'
+                                ? getZaiWebSearchResults(finalCompletion as OpenAI.ChatCompletion)
+                                : []
+
+                            if (fullReasoningSummary.length > 0) {
+                                emit({ type: 'reasoning-summary-done', text: fullReasoningSummary, summaryIndex: 0 })
+                            }
+
+                            if (toolCallMap.size === 0) {
+                                if (provider === 'zai' && zaiWebSearchResults.length > 0) {
+                                    const searchId = `zai-web-${currentStepNumber}-${Date.now()}`
+                                    const urls = zaiWebSearchResults.map((result) => result.url || '').filter(Boolean)
+                                    emit({
+                                        type: 'web-search-start',
+                                        searchId,
+                                        query: input.prompt
+                                    })
+                                    emit({
+                                        type: 'web-search-done',
+                                        searchId,
+                                        query: input.prompt,
+                                        domains: getDomainsFromUrls(urls)
+                                    })
+
+                                    const annotations = buildZaiWebSearchAnnotations(zaiWebSearchResults)
+                                    if (annotations.length > 0) {
+                                        emit({ type: 'annotations', annotations })
+                                    }
+                                }
+
+                                emit({ type: 'step-complete', stepNumber: currentStepNumber, hasMoreSteps: false })
+                                log.info(`[AI] ${provider} step ${currentStepNumber} complete in ${Date.now() - stepStartTime}ms`)
+                                break
+                            }
+
+                            const toolCalls = Array.from(toolCallMap.values())
+                            const toolCallPayload = toolCalls.map((toolCall) => ({
+                                id: toolCall.id,
+                                type: 'function' as const,
+                                function: {
+                                    name: toolCall.name,
+                                    arguments: toolCall.args
+                                }
+                            }))
+
+                            chatMessages?.push({
+                                role: 'assistant',
+                                content: null,
+                                tool_calls: toolCallPayload
+                            } as OpenAI.ChatCompletionMessageParam)
+
+                            await Promise.all(toolCalls.map(async (toolCall) => {
+                                let parsedArgs: unknown = {}
+                                try {
+                                    parsedArgs = toolCall.args ? JSON.parse(toolCall.args) : {}
+                                } catch (error) {
+                                    log.warn(`[AI] Failed to parse ${provider} tool args, passing raw string`)
+                                    parsedArgs = { raw: toolCall.args }
+                                }
+
+                                emit({
+                                    type: 'tool-call-done',
+                                    toolCallId: toolCall.id,
+                                    toolName: toolCall.name,
+                                    args: parsedArgs
+                                })
+
+                                try {
+                                    const executor = executors.get(toolCall.name)
+                                    if (executor) {
+                                        const result = await executor(parsedArgs)
+                                        const success = !(result && typeof result === 'object' && 'error' in result)
+                                        emit({
+                                            type: 'tool-result',
+                                            toolCallId: toolCall.id,
+                                            toolName: toolCall.name,
+                                            result,
+                                            success
+                                        })
+
+                                        chatMessages?.push({
+                                            role: 'tool',
+                                            tool_call_id: toolCall.id,
+                                            content: JSON.stringify(result)
+                                        } as OpenAI.ChatCompletionMessageParam)
+                                    }
+                                } catch (err) {
+                                    const errorMsg = err instanceof Error ? err.message : 'Unknown error'
+                                    log.error(`[AI] Tool execution error for ${toolCall.name}:`, err)
+                                    emit({
+                                        type: 'tool-result',
+                                        toolCallId: toolCall.id,
+                                        toolName: toolCall.name,
+                                        result: { error: errorMsg },
+                                        success: false
+                                    })
+
+                                    chatMessages?.push({
+                                        role: 'tool',
+                                        tool_call_id: toolCall.id,
+                                        content: JSON.stringify({ error: errorMsg })
+                                    } as OpenAI.ChatCompletionMessageParam)
+                                }
+                            }))
+
+                            emit({ type: 'step-complete', stepNumber: currentStepNumber, hasMoreSteps: true })
+                        }
+
+                        emit({ type: 'text-done', text: fullText })
+                        emit({
+                            type: 'finish',
+                            usage: {
+                                promptTokens: usageTotals.promptTokens,
+                                completionTokens: usageTotals.completionTokens,
+                                reasoningTokens: usageTotals.reasoningTokens
+                            },
+                            totalSteps: currentStepNumber
+                        })
+                    }
+
+                    if (provider === 'zai') {
+                        // NOTE: removed || provider === 'gemini-advanced' - disabled
+                        await runChatCompletionsAgentLoop()
+                        return
                     }
 
                     // Agent loop
@@ -1210,15 +1651,23 @@ CRITICAL INSTRUCTIONS FOR DOCUMENT QUERIES:
 
                         log.info(`[AI] Stream params: maxOutputTokens=${maxOutputTokens}, truncation=${truncation}, flex=${!!optimization.useFlex}, prompt_cache_key=${promptCacheKey}, prompt_cache_retention=${promptCacheRetention || 'default'}, tool_choice=${shouldForceFileSearch && currentStepNumber === 1 ? 'file_search' : 'auto'}, tools=${toolsForRequest.map((t: any) => t.type).join(', ')}`)
 
+                        const requestTimeoutMs = supportsOpenAiOptimizations && optimization.useFlex
+                            ? FLEX_REQUEST_TIMEOUT_MS
+                            : DEFAULT_REQUEST_TIMEOUT_MS
+
                         // Build request options
                         // Note: ChatGPT Plus auth headers are handled in custom fetch
                         const requestOptions: Parameters<typeof client.responses.stream>[1] = {
-                            signal: abortController.signal,
                             // Increase timeout for flex processing (can be slower)
-                            ...(supportsOpenAiOptimizations && optimization.useFlex && { timeout: 900_000 }) // 15 minutes
+                            timeout: requestTimeoutMs
                         }
 
-                        const stream = client.responses.stream(streamParams, requestOptions)
+                        const stream = await withRetry(
+                            'responses.stream',
+                            abortController.signal,
+                            0,
+                            (signal) => client.responses.stream(streamParams, { ...requestOptions, signal })
+                        )
 
                         pendingToolCalls = []
                         let hasToolCalls = false
@@ -1631,12 +2080,17 @@ CRITICAL INSTRUCTIONS FOR DOCUMENT QUERIES:
 
                 const modelId = input.model || 'gpt-5-nano'
 
-                const response = await client.responses.create({
-                    model: modelId, // Fast model for title generation
-                    input: input.prompt,
-                    instructions: "Generate a short, concise title (max 5 words) for the user's message. Do not use quotes. Just respond with the title, nothing else.",
-                    max_output_tokens: 50
-                })
+                const response = await withRetry(
+                    'responses.create',
+                    new AbortController().signal,
+                    DEFAULT_REQUEST_TIMEOUT_MS,
+                    (signal) => client.responses.create({
+                        model: modelId, // Fast model for title generation
+                        input: input.prompt,
+                        instructions: "Generate a short, concise title (max 5 words) for the user's message. Do not use quotes. Just respond with the title, nothing else.",
+                        max_output_tokens: 50
+                    }, { signal })
+                )
 
                 const candidate = response.output_text?.trim() || ''
                 const title = candidate && candidate !== 'New Chat'

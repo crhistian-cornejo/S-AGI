@@ -1,8 +1,8 @@
 import { useEffect } from 'react'
-import { Provider as JotaiProvider } from 'jotai'
+import { Provider as JotaiProvider, useSetAtom } from 'jotai'
 import { ThemeProvider, useTheme } from 'next-themes'
 import { Toaster } from 'sonner'
-import { TRPCProvider } from './lib/trpc'
+import { TRPCProvider, trpc } from './lib/trpc'
 import { TooltipProvider } from './components/ui/tooltip'
 import { MainLayout } from './features/layout/main-layout'
 import { SettingsDialog } from './features/settings/settings-dialog'
@@ -10,6 +10,12 @@ import { AuthDialog, AuthGuard, OAuthCallbackHandler } from './features/auth'
 import { OnboardingGuard } from './features/onboarding'
 import { VSCodeThemeProvider } from './lib/themes'
 import { appStore } from './lib/stores/jotai-store'
+import {
+    hasChatGPTPlusAtom,
+    chatGPTPlusStatusAtom,
+    hasGeminiAdvancedAtom,
+    geminiAdvancedStatusAtom,
+} from './lib/atoms'
 
 /**
  * Themed Toaster component
@@ -24,6 +30,47 @@ function ThemedToaster() {
             closeButton
         />
     )
+}
+
+/**
+ * Synchronize OAuth connection statuses to Jotai atoms on app load
+ */
+function ConnectionStatusSync() {
+    const setHasChatGPTPlus = useSetAtom(hasChatGPTPlusAtom)
+    const setChatGPTPlusStatus = useSetAtom(chatGPTPlusStatusAtom)
+    const setHasGeminiAdvanced = useSetAtom(hasGeminiAdvancedAtom)
+    const setGeminiAdvancedStatus = useSetAtom(geminiAdvancedStatusAtom)
+
+    // Query connection statuses
+    const { data: chatGPTStatus } = trpc.auth.getChatGPTStatus.useQuery()
+    const { data: geminiStatus } = trpc.auth.getGeminiStatus.useQuery()
+
+    // Sync ChatGPT Plus status
+    useEffect(() => {
+        if (chatGPTStatus) {
+            setHasChatGPTPlus(chatGPTStatus.isConnected)
+            setChatGPTPlusStatus({
+                isConnected: chatGPTStatus.isConnected,
+                email: chatGPTStatus.email ?? undefined,
+                accountId: chatGPTStatus.accountId ?? undefined,
+                connectedAt: chatGPTStatus.connectedAt ?? undefined
+            })
+        }
+    }, [chatGPTStatus, setHasChatGPTPlus, setChatGPTPlusStatus])
+
+    // Sync Gemini Advanced status
+    useEffect(() => {
+        if (geminiStatus) {
+            setHasGeminiAdvanced(geminiStatus.isConnected)
+            setGeminiAdvancedStatus({
+                isConnected: geminiStatus.isConnected,
+                email: geminiStatus.email ?? undefined,
+                connectedAt: geminiStatus.connectedAt ?? undefined
+            })
+        }
+    }, [geminiStatus, setHasGeminiAdvanced, setGeminiAdvancedStatus])
+
+    return null
 }
 
 /**
@@ -47,6 +94,7 @@ export function App() {
             <VSCodeThemeProvider>
                 <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
                     <TRPCProvider>
+                        <ConnectionStatusSync />
                         <TooltipProvider delayDuration={100}>
                             <OAuthCallbackHandler />
                             <div

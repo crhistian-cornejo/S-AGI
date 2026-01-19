@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, nativeTheme, Tray, Menu, nativeImage } from 'electron'
+import { app, BrowserWindow, ipcMain, nativeTheme, Tray, Menu, nativeImage, session, shell } from 'electron'
 import { join } from 'path'
 import { existsSync } from 'fs'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
@@ -115,11 +115,13 @@ function createTrayPopover(): BrowserWindow {
         visualEffectState: 'active',
         webPreferences: {
             preload: join(__dirname, '../preload/index.js'),
-            sandbox: false,
+            sandbox: true,
             contextIsolation: true,
             nodeIntegration: false
         }
     })
+
+    attachNavigationGuards(popover, getRendererOrigins())
 
     // Load the tray popover page
     if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
@@ -171,6 +173,62 @@ function showTrayPopover(): void {
     trayPopover.setPosition(x, y)
     trayPopover.show()
     trayPopover.focus()
+}
+
+function getRendererOrigins(): string[] {
+    if (is.dev && process.env.ELECTRON_RENDERER_URL) {
+        return [new URL(process.env.ELECTRON_RENDERER_URL).origin]
+    }
+    return []
+}
+
+function isAllowedNavigation(url: string, allowedOrigins: string[]): boolean {
+    if (url.startsWith('file://')) return true
+    return allowedOrigins.some(origin => url.startsWith(origin))
+}
+
+function attachNavigationGuards(window: BrowserWindow, allowedOrigins: string[]): void {
+    window.webContents.setWindowOpenHandler(({ url }) => {
+        if (isAllowedNavigation(url, allowedOrigins)) {
+            return { action: 'allow' }
+        }
+        shell.openExternal(url)
+        return { action: 'deny' }
+    })
+
+    window.webContents.on('will-navigate', (event, url) => {
+        if (!isAllowedNavigation(url, allowedOrigins)) {
+            event.preventDefault()
+            shell.openExternal(url)
+        }
+    })
+}
+
+function registerContentSecurityPolicy(): void {
+    const rendererOrigins = getRendererOrigins()
+    const devOrigins = rendererOrigins.join(' ')
+    const scriptSrc = is.dev
+        ? `'self' 'unsafe-eval' 'unsafe-inline' ${devOrigins}`
+        : `'self'`
+
+    const csp = [
+        `default-src 'self' ${devOrigins}`,
+        `script-src ${scriptSrc}`,
+        `style-src 'self' 'unsafe-inline' ${devOrigins}`,
+        `img-src 'self' data: blob: https:`,
+        `font-src 'self' data:`,
+        `connect-src 'self' https: wss: ${devOrigins}`,
+        `media-src 'self' blob: data:`,
+        `object-src 'none'`,
+        `base-uri 'self'`,
+        `frame-ancestors 'none'`
+    ].join('; ')
+
+    session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
+        const responseHeaders = details.responseHeaders || {}
+        responseHeaders['Content-Security-Policy'] = [csp]
+        callback({ responseHeaders })
+    })
 }
 
 function createTray(): void {
@@ -292,7 +350,7 @@ function createWindow(): void {
                 : join(__dirname, '../../public/logo.svg'),
         webPreferences: {
             preload: join(__dirname, '../preload/index.js'),
-            sandbox: false,
+            sandbox: true,
             contextIsolation: true,
             nodeIntegration: false
         }
@@ -300,6 +358,8 @@ function createWindow(): void {
 
     // Register main window for IPC events (streaming, etc.)
     setMainWindow(mainWindow)
+
+    attachNavigationGuards(mainWindow, getRendererOrigins())
 
     // Load the renderer
     if (is.dev && process.env.ELECTRON_RENDERER_URL) {
@@ -433,6 +493,8 @@ app.whenReady().then(() => {
     app.on('browser-window-created', (_, window) => {
         optimizer.watchWindowShortcuts(window)
     })
+
+    registerContentSecurityPolicy()
 
     // Setup tRPC
     setupTRPC()

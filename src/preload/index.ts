@@ -62,6 +62,15 @@ const desktopApi = {
         }
     },
 
+    // Gemini Advanced connected listener (OAuth callback)
+    onGeminiConnected: (callback: (data: { isConnected: boolean }) => void) => {
+        const handler = (_: any, data: any) => callback(data)
+        ipcRenderer.on('gemini:connected', handler)
+        return () => {
+            ipcRenderer.removeListener('gemini:connected', handler)
+        }
+    },
+
     // Tray Popover API
     tray: {
         getRecentItems: () => ipcRenderer.invoke('tray:get-recent-items'),

@@ -36,6 +36,8 @@ export const allModelsGroupedAtom = atom(() => {
         openai: getModelsByProvider('openai'),
         'chatgpt-plus': getModelsByProvider('chatgpt-plus'),
         zai: getModelsByProvider('zai')
+        // NOTE: 'gemini-advanced' removed - OAuth incompatible
+        // 'gemini-advanced': getModelsByProvider('gemini-advanced')
     }
 })
 
@@ -50,8 +52,6 @@ export const currentModelAtom = atom((get): ModelDefinition | undefined => {
 export const hasOpenaiKeyAtom = atom(false)
 export const hasAnthropicKeyAtom = atom(false)
 export const hasZaiKeyAtom = atom(false)
-export const hasChatGPTPlusAtom = atom(false)
-
 // ChatGPT Plus connection info
 export interface ChatGPTPlusStatus {
     isConnected: boolean
@@ -59,7 +59,18 @@ export interface ChatGPTPlusStatus {
     accountId?: string
     connectedAt?: string
 }
+export const hasChatGPTPlusAtom = atom(false)
 export const chatGPTPlusStatusAtom = atom<ChatGPTPlusStatus>({ isConnected: false })
+
+// Gemini Advanced connection info - DISABLED
+// OAuth token incompatible with generativelanguage.googleapis.com
+export interface GeminiAdvancedStatus {
+    isConnected: boolean
+    email?: string
+    connectedAt?: string
+}
+export const hasGeminiAdvancedAtom = atom(false) // Always false - disabled
+export const geminiAdvancedStatusAtom = atom<GeminiAdvancedStatus>({ isConnected: false })
 
 // Legacy atoms for backward compatibility with chat-view
 export const openaiApiKeyAtom = atom<string | null>(null) // Dummy - real keys in safeStorage

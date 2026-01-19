@@ -1,8 +1,10 @@
 import { z } from 'zod'
 import { router, publicProcedure, protectedProcedure } from '../trpc'
 import { getClaudeCodeAuthManager, getChatGPTAuthManager, getZaiAuthManager, CHATGPT_CODEX_MODELS } from '../../auth'
+// NOTE: Gemini auth disabled - OAuth token incompatible with generativelanguage.googleapis.com
+// import { getClaudeCodeAuthManager, getChatGPTAuthManager, getZaiAuthManager, getGeminiAuthManager, CHATGPT_CODEX_MODELS } from '../../auth'
 import { supabase, authStorage } from '../../supabase/client'
-import { BrowserWindow } from 'electron'
+import { BrowserWindow, shell } from 'electron'
 import log from 'electron-log'
 
 export const authRouter = router({
@@ -171,9 +173,15 @@ export const authRouter = router({
                     modal: true,
                     show: true,
                     webPreferences: {
+                        sandbox: true,
                         nodeIntegration: false,
                         contextIsolation: true
                     }
+                })
+
+                authWindow.webContents.setWindowOpenHandler(({ url }) => {
+                    shell.openExternal(url)
+                    return { action: 'deny' }
                 })
 
                 authWindow.loadURL(data.url)
@@ -370,6 +378,36 @@ export const authRouter = router({
     disconnectChatGPT: protectedProcedure.mutation(() => {
         const authManager = getChatGPTAuthManager()
         authManager.disconnect()
+        return { success: true }
+    }),
+
+    // ========== Gemini Advanced / Google One OAuth - DISABLED ==========
+    // OAuth token from Gemini CLI is incompatible with generativelanguage.googleapis.com
+    // Would require Cloud Code Assist API (cloudcode-pa.googleapis.com) with different format
+
+    // Get Gemini connection status - always returns disconnected
+    getGeminiStatus: publicProcedure.query(() => {
+        // const authManager = getGeminiAuthManager()
+        // const credentials = authManager.getCredentials()
+        return {
+            isConnected: false, // DISABLED
+            email: undefined,
+            connectedAt: undefined
+        }
+    }),
+
+    // Start Gemini OAuth flow - disabled
+    connectGemini: protectedProcedure.mutation(async () => {
+        // const authManager = getGeminiAuthManager()
+        // const mainWindow = BrowserWindow.getAllWindows()[0] || null
+        // await authManager.startAuthFlow(mainWindow)
+        throw new Error('Gemini Advanced is currently disabled. OAuth token incompatible with API endpoint.')
+    }),
+
+    // Disconnect from Gemini - no-op
+    disconnectGemini: protectedProcedure.mutation(() => {
+        // const authManager = getGeminiAuthManager()
+        // authManager.disconnect()
         return { success: true }
     })
 })
