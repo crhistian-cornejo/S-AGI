@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { cn } from '@/lib/utils'
-import { IconChevronDown, IconChevronRight, IconPaperclip, IconTool, IconExternalLink } from '@tabler/icons-react'
+import { IconChevronDown, IconChevronRight, IconPaperclip, IconTool } from '@tabler/icons-react'
 import { BrainIcon, CustomTerminalIcon, FileSearchIcon, GlobeIcon, IconSpinner } from './icons'
 
 export interface AgentReasoningAction {
@@ -150,18 +150,9 @@ export function AgentReasoning({
     ? 'Thinking...'
     : `Thought for ${formatThinkingDuration(durationMs)}`
 
-  // Filter to URL citations and deduplicate by URL
-  const urlAnnotations = annotations.filter((a): a is UrlCitationData => a.type === 'url_citation')
-  const uniqueAnnotations = urlAnnotations.reduce((acc, annotation) => {
-    if (!acc.some(a => a.url === annotation.url)) {
-      acc.push(annotation)
-    }
-    return acc
-  }, [] as UrlCitationData[])
-
   return (
     <div className={cn("", className)}>
-      {/* Header row with thinking + stacked sources */}
+      {/* Header row with thinking toggle */}
       <div className="flex items-center gap-3 flex-wrap">
         {/* Thinking toggle button */}
         <button
@@ -190,11 +181,6 @@ export function AgentReasoning({
             )
           )}
         </button>
-
-        {/* Stacked sources - ALWAYS visible in header when available */}
-        {hasAnnotations && uniqueAnnotations.length > 0 && (
-          <StackedSources annotations={uniqueAnnotations} />
-        )}
       </div>
 
       {(isExpanded || isStreaming) && (
@@ -250,25 +236,6 @@ export function AgentReasoning({
   )
 }
 
-/** Helper to get favicon URL for a domain */
-function getFaviconUrl(url: string): string {
-  try {
-    const domain = new URL(url).hostname
-    return `https://www.google.com/s2/favicons?domain=${domain}&sz=16`
-  } catch {
-    return ''
-  }
-}
-
-/** Helper to get domain from URL */
-function getDomain(url: string): string {
-  try {
-    return new URL(url).hostname.replace('www.', '')
-  } catch {
-    return url
-  }
-}
-
 /** Web search item with query and status */
 function WebSearchItem({ webSearch }: { webSearch: WebSearchData }) {
   const isSearching = webSearch.status === 'searching'
@@ -291,119 +258,6 @@ function WebSearchItem({ webSearch }: { webSearch: WebSearchData }) {
       <span className="ml-auto text-[10px] px-1 py-0.5 rounded bg-violet-500/10 text-violet-600 font-medium">
         Native
       </span>
-    </div>
-  )
-}
-
-/** Stacked favicons with source count - like ChatGPT's "29 sources" */
-function StackedSources({ annotations }: { annotations: CitationData[] }) {
-  const [isExpanded, setIsExpanded] = useState(false)
-  
-  // Filter to URL citations only (file citations handled separately in message-list)
-  const urlAnnotations = annotations.filter((a): a is UrlCitationData => a.type === 'url_citation')
-  
-  if (urlAnnotations.length === 0) return null
-  
-  // Get unique domains for stacking (max 4 visible)
-  const uniqueDomains = urlAnnotations.reduce((acc, annotation) => {
-    const domain = getDomain(annotation.url)
-    if (!acc.some(a => getDomain(a.url) === domain)) {
-      acc.push(annotation)
-    }
-    return acc
-  }, [] as UrlCitationData[])
-  
-  const visibleCount = Math.min(4, uniqueDomains.length)
-  const visibleSources = uniqueDomains.slice(0, visibleCount)
-  
-  return (
-    <div className="space-y-2">
-      {/* Stacked header */}
-      <button
-        type="button"
-        onClick={() => setIsExpanded(!isExpanded)}
-        className="flex items-center gap-2 text-xs text-muted-foreground/80 hover:text-muted-foreground transition-colors"
-      >
-        {/* Stacked favicons */}
-        <div className="flex items-center">
-          {visibleSources.map((annotation, index) => {
-            const faviconUrl = getFaviconUrl(annotation.url)
-            return (
-              <div
-                key={`${annotation.url}-${index}`}
-                className="relative rounded-full bg-background border border-border overflow-hidden"
-                style={{ 
-                  marginLeft: index > 0 ? '-6px' : 0,
-                  zIndex: visibleCount - index,
-                  width: 18,
-                  height: 18
-                }}
-              >
-                {faviconUrl ? (
-                  <img
-                    src={faviconUrl}
-                    alt=""
-                    className="w-full h-full object-cover"
-                    onError={(e) => {
-                      // Show fallback globe icon on error
-                      e.currentTarget.style.display = 'none'
-                      const parent = e.currentTarget.parentElement
-                      if (parent) {
-                        parent.classList.add('flex', 'items-center', 'justify-center')
-                        parent.innerHTML = '<svg class="w-3 h-3 text-muted-foreground" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>'
-                      }
-                    }}
-                  />
-                ) : (
-                  <div className="w-full h-full flex items-center justify-center">
-                    <GlobeIcon className="w-3 h-3 text-muted-foreground" />
-                  </div>
-                )}
-              </div>
-            )
-          })}
-        </div>
-        
-        {/* Source count */}
-        <span className="font-medium">
-          {urlAnnotations.length} source{urlAnnotations.length !== 1 ? 's' : ''}
-        </span>
-        
-        {/* Expand indicator */}
-        {isExpanded ? (
-          <IconChevronDown size={12} />
-        ) : (
-          <IconChevronRight size={12} />
-        )}
-      </button>
-      
-      {/* Expanded list */}
-      {isExpanded && (
-        <div className="pl-2 space-y-1 max-h-48 overflow-y-auto">
-          {urlAnnotations.map((annotation, index) => (
-            <a
-              key={`${annotation.url}-${index}`}
-              href={annotation.url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center gap-2 py-1 px-2 rounded-md hover:bg-muted/50 transition-colors group"
-            >
-              <img
-                src={getFaviconUrl(annotation.url)}
-                alt=""
-                className="w-4 h-4 rounded-sm shrink-0"
-                onError={(e) => {
-                  e.currentTarget.style.display = 'none'
-                }}
-              />
-              <span className="text-xs text-muted-foreground group-hover:text-foreground truncate flex-1">
-                {annotation.title || getDomain(annotation.url)}
-              </span>
-              <IconExternalLink size={10} className="opacity-0 group-hover:opacity-60 transition-opacity shrink-0" />
-            </a>
-          ))}
-        </div>
-      )}
     </div>
   )
 }
