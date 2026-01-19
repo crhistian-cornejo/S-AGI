@@ -10,7 +10,7 @@ import OpenAI from 'openai'
 import type { Responses } from 'openai/resources/responses/responses'
 import { OpenAIFileService } from '../../ai/openai-files'
 import { SPREADSHEET_TOOLS, DOCUMENT_TOOLS, PLAN_TOOLS, executeTool } from './tools'
-import type { AIStreamEvent, ReasoningConfig, NativeToolsConfig } from '@shared/ai-types'
+import type { AIStreamEvent, ReasoningConfig, NativeToolsConfig, AIProvider } from '@shared/ai-types'
 import { 
     AI_MODELS, 
     DEFAULT_MODELS, 
@@ -26,7 +26,7 @@ const activeStreams = new Map<string, AbortController>()
 // Maximum number of agent loop steps
 const MAX_AGENT_STEPS = 15
 
-const ZAI_BASE_URL = 'https://api.z.ai/api/coding/paas/v4/v1'
+const ZAI_BASE_URL = 'https://api.z.ai/api/coding/paas/v4'
 const ZAI_SOURCE_HEADER = 'S-AGI-Agent'
 
 const AUTO_TITLE_MAX_LENGTH = 25
@@ -440,10 +440,14 @@ type ToolParam = Responses.Tool
 
 /**
  * Build native tools array based on configuration and model support
+ * @param modelId - The model ID to check capabilities
+ * @param config - Native tools configuration
+ * @param provider - The AI provider (affects tool format)
  */
 function buildNativeTools(
     modelId: string,
-    config?: NativeToolsConfig
+    config?: NativeToolsConfig,
+    provider?: AIProvider
 ): ToolParam[] {
     const model = getModelById(modelId)
     if (!model) return []
@@ -451,12 +455,24 @@ function buildNativeTools(
     const tools: ToolParam[] = []
 
     // Web Search
+    // ChatGPT Plus/Codex uses 'web_search' format, standard OpenAI uses 'web_search_preview'
     if (config?.webSearch !== false && model.supportsNativeWebSearch) {
         const webSearchConfig = typeof config?.webSearch === 'object' ? config.webSearch : {}
-        tools.push({
-            type: 'web_search_preview',
-            search_context_size: webSearchConfig.searchContextSize || 'medium'
-        } as ToolParam)
+        const searchContextSize = webSearchConfig.searchContextSize || 'medium'
+        
+        if (provider === 'chatgpt-plus') {
+            // Codex endpoint uses the newer 'web_search' format
+            tools.push({
+                type: 'web_search',
+                search_context_size: searchContextSize
+            } as ToolParam)
+        } else {
+            // Standard OpenAI uses 'web_search_preview'
+            tools.push({
+                type: 'web_search_preview',
+                search_context_size: searchContextSize
+            } as ToolParam)
+        }
     }
 
     // Code Interpreter
@@ -1079,7 +1095,8 @@ CRITICAL INSTRUCTIONS FOR DOCUMENT QUERIES:
                     
                     log.info(`[AI] Building native tools with config:`, JSON.stringify(nativeToolsConfig, null, 2))
                     
-                    const nativeTools = buildNativeTools(modelId, nativeToolsConfig)
+                    // Pass provider so we use correct tool format (web_search vs web_search_preview)
+                    const nativeTools = buildNativeTools(modelId, nativeToolsConfig, provider)
                     const allTools: ToolParam[] = [...functionTools, ...nativeTools]
                     
                     log.info(`[AI] Tools: ${allTools.length} (${functionTools.length} function, ${nativeTools.length} native)`)
@@ -1148,20 +1165,22 @@ CRITICAL INSTRUCTIONS FOR DOCUMENT QUERIES:
                         // This completely removes web_search from available tools
                         let toolsForRequest = allTools
                         
-                        // ChatGPT Plus/Codex endpoint only supports function tools
-                        // Filter out native tools like web_search_preview, file_search, code_interpreter
+                        // ChatGPT Plus/Codex endpoint supports function tools + web_search
+                        // Filter out unsupported native tools (file_search, code_interpreter)
+                        // but keep web_search (which we already converted from web_search_preview)
                         if (provider === 'chatgpt-plus') {
-                            toolsForRequest = allTools.filter((t: any) => t.type === 'function')
-                            log.info(`[AI] ChatGPT Plus: Filtered to function tools only, count: ${toolsForRequest.length}`)
+                            toolsForRequest = allTools.filter((t: any) => 
+                                t.type === 'function' || t.type === 'web_search'
+                            )
+                            log.info(`[AI] ChatGPT Plus: Filtered to function + web_search tools, count: ${toolsForRequest.length}`)
                         } else if (shouldForceFileSearch && currentStepNumber === 1) {
                             // Filter out web_search_preview to ensure model can ONLY use file_search
-                            toolsForRequest = allTools.filter((t: any) => t.type !== 'web_search_preview')
+                            toolsForRequest = allTools.filter((t: any) => t.type !== 'web_search_preview' && t.type !== 'web_search')
                             log.info(`[AI] Removed web_search from tools, remaining: ${toolsForRequest.map((t: any) => t.type).join(', ')}`)
                         }
 
                         // Stream the response using the official SDK
                         // Note: ChatGPT Plus/Codex endpoint has limited parameter support
-                        const isChatGPTPlus = provider === 'chatgpt-plus'
                         const streamParams: any = {
                             model: modelId,
                             input: inputForRequest,
