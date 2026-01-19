@@ -163,8 +163,8 @@ export const AI_MODELS: Record<string, ModelDefinition> = {
     // ========================================================================
     // Z.AI GLM Models (OpenAI-compatible Coding Plan)
     // ========================================================================
-    'glm-4.7': {
-        id: 'glm-4.7',
+    'GLM-4.7': {
+        id: 'GLM-4.7',
         provider: 'zai',
         name: 'GLM-4.7',
         description: 'Z.AI flagship coding model with deep reasoning',
@@ -172,8 +172,8 @@ export const AI_MODELS: Record<string, ModelDefinition> = {
         supportsReasoning: true,
         defaultReasoningEffort: 'medium'
     },
-    'glm-4.5-air': {
-        id: 'glm-4.5-air',
+    'GLM-4.5-air': {
+        id: 'GLM-4.5-air',
         provider: 'zai',
         name: 'GLM-4.5 Air',
         description: 'Fast Z.AI model for rapid coding tasks',
@@ -190,7 +190,7 @@ export const AI_MODELS: Record<string, ModelDefinition> = {
 export const DEFAULT_MODELS: Record<AIProvider, string> = {
     openai: 'gpt-5-mini',
     'chatgpt-plus': 'gpt-5.1-codex-mini',
-    zai: 'glm-4.7'
+    zai: 'GLM-4.7'
 }
 
 /**
@@ -204,7 +204,18 @@ export function getModelsByProvider(provider: AIProvider): ModelDefinition[] {
  * Get model definition by ID
  */
 export function getModelById(modelId: string): ModelDefinition | undefined {
-    return AI_MODELS[modelId]
+    const direct = AI_MODELS[modelId]
+    if (direct) return direct
+
+    const normalized = modelId.trim()
+    if (normalized.toLowerCase() === 'glm-4.7') {
+        return AI_MODELS['GLM-4.7']
+    }
+    if (normalized.toLowerCase() === 'glm-4.5-air') {
+        return AI_MODELS['GLM-4.5-air']
+    }
+
+    return undefined
 }
 
 /**
