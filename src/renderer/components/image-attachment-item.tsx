@@ -178,14 +178,14 @@ export function ImageAttachmentItem({
                          <span className="text-green-600 font-medium">{formatBytes(compressedSize)}</span>
                        </div>
                      )}
-                     {compressionRatio && compressionRatio > 1.1 && (
-                       <div className="flex items-center justify-between text-xs">
-                         <span className="text-muted-foreground">Saved:</span>
-                         <span className="text-green-600 font-medium">
-                           {formatBytes(originalSize - compressedSize)} ({((1 - compressedSize / originalSize) * 100).toFixed(0)}%)
-                         </span>
-                       </div>
-                     )}
+                      {originalSize && compressedSize && compressionRatio && compressionRatio > 1.1 && (
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="text-muted-foreground">Saved:</span>
+                          <span className="text-green-600 font-medium">
+                            {formatBytes(originalSize - compressedSize)} ({((1 - compressedSize / originalSize) * 100).toFixed(0)}%)
+                          </span>
+                        </div>
+                      )}
                    </div>
                  )}
                </div>

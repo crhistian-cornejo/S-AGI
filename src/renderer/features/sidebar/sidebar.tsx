@@ -1,5 +1,6 @@
 import { useState, useMemo, useRef, useEffect, useCallback } from 'react'
 import { useAtom, useAtomValue, useSetAtom } from 'jotai'
+import { ZaiIcon } from '@/components/icons/model-icons'
 import {
     IconPlus,
     IconMessage,
@@ -27,8 +28,12 @@ import {
     settingsModalOpenAtom,
     sidebarOpenAtom,
     selectedArtifactAtom,
-    artifactPanelOpenAtom
+    artifactPanelOpenAtom,
+    hasChatGPTPlusAtom,
+    undoStackAtom,
+    type UndoItem
 } from '@/lib/atoms'
+
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { CursorTooltip } from '@/components/ui/cursor-tooltip'
@@ -179,27 +184,130 @@ function ChatItem({
     onRestore,
     isArchived
 }: ChatItemProps) {
-    return (
-        // biome-ignore lint/a11y/useSemanticElements: <explanation>
-<div
-            className={cn(
-                'group flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors cursor-pointer',
-                isSelected
-                    ? 'bg-accent text-accent-foreground'
-                    : 'text-foreground/80 hover:bg-accent/50'
-            )}
-            onClick={() => !isEditing && onSelect()}
-            onKeyDown={(e) => {
-                if (e.key === 'Enter' && !isEditing) {
-                    onSelect()
-                }
-            }}
-            role="button"
-            tabIndex={0}
+    const titleContent = (
+        <CursorTooltip
+            content={
+                <div className="space-y-2">
+                    <div className="space-y-0.5">
+                        <p className="font-medium text-foreground text-sm leading-tight">{chat.title || 'Untitled'}</p>
+                        <p className="text-[11px] font-mono text-muted-foreground/60">ID: {getShortId(chat.id)}</p>
+                    </div>
+
+                    <div className="flex flex-wrap gap-1.5">
+                        {chat.pinned && (
+                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-primary/10 text-primary font-medium">
+                                Pinned
+                            </span>
+                        )}
+                        {isArchived && (
+                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-600 dark:text-amber-400 font-medium">
+                                Archived
+                            </span>
+                        )}
+                        {isSelected && (
+                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-green-500/10 text-green-600 dark:text-green-400 font-medium">
+                                Active
+                            </span>
+                        )}
+                    </div>
+
+                    <div className="pt-1 border-t border-border/50 space-y-1">
+                        <p className="text-xs text-muted-foreground">
+                            Updated {formatRelativeTime(chat.updated_at)}
+                        </p>
+                        <p className="text-[10px] text-muted-foreground/70">
+                            {formatFullDate(chat.updated_at)}
+                        </p>
+                    </div>
+                </div>
+            }
+            containerClassName="w-full"
         >
-            <IconMessage size={16} className="shrink-0 opacity-60" />
-            <div className="flex-1 min-w-0">
-                {isEditing ? (
+            <p className="truncate font-medium">
+                {chat.title || 'Untitled'}
+            </p>
+            <p className="text-xs text-muted-foreground truncate">
+                {formatRelativeTime(chat.updated_at)}
+            </p>
+        </CursorTooltip>
+    )
+
+    const actionMenu = (
+        <div className="flex items-center gap-1 shrink-0">
+            {chat.pinned && (
+                <IconPinFilled size={14} className="text-primary" />
+            )}
+            {isArchived && (
+                <IconArchive size={14} className="text-muted-foreground/60" />
+            )}
+            <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                    <button
+                        type="button"
+                        className="opacity-0 group-hover:opacity-100 p-1 hover:bg-accent/50 rounded-md transition-[opacity,transform] active:scale-95"
+                        onClick={(e) => e.stopPropagation()}
+                        aria-label="Chat actions"
+                    >
+                        <IconDots size={14} />
+                    </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-44">
+                    {/* Pin/Unpin - only for non-archived */}
+                    {!isArchived && (
+                        <DropdownMenuItem onClick={onTogglePin}>
+                            {chat.pinned ? (
+                                <>
+                                    <IconPin size={14} className="mr-2" />
+                                    Unpin
+                                </>
+                            ) : (
+                                <>
+                                    <IconPinFilled size={14} className="mr-2" />
+                                    Pin to top
+                                </>
+                            )}
+                        </DropdownMenuItem>
+                    )}
+                    <DropdownMenuItem onClick={onStartRename}>
+                        <IconPencil size={14} className="mr-2" />
+                        Rename
+                    </DropdownMenuItem>
+                    {isArchived ? (
+                        <DropdownMenuItem onClick={onRestore}>
+                            <IconArchiveOff size={14} className="mr-2" />
+                            Restore
+                        </DropdownMenuItem>
+                    ) : (
+                        <DropdownMenuItem onClick={onArchive}>
+                            <IconArchive size={14} className="mr-2" />
+                            Archive
+                        </DropdownMenuItem>
+                    )}
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem
+                        variant="destructive"
+                        onClick={onDelete}
+                    >
+                        <IconTrash size={14} className="mr-2" />
+                        Delete
+                    </DropdownMenuItem>
+                </DropdownMenuContent>
+            </DropdownMenu>
+        </div>
+    )
+
+    if (isEditing) {
+        return (
+            <div
+                className={cn(
+                    'group flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors',
+                    isSelected
+                        ? 'bg-accent text-accent-foreground'
+                        : 'text-foreground/80 hover:bg-accent/50'
+                )}
+            >
+                <IconMessage size={16} className="shrink-0 opacity-60" />
+                <div className="flex-1 min-w-0">
                     <input
                         type="text"
                         value={editingTitle}
@@ -215,119 +323,35 @@ function ChatItem({
                         onBlur={() => onSaveRename(editingTitle)}
                         className="w-full bg-background border border-border rounded px-2 py-0.5 text-sm font-medium focus:outline-none focus:ring-1 focus:ring-primary"
                         onClick={(e) => e.stopPropagation()}
+                        aria-label="Chat title"
+                        name="chat-title"
+                        autoComplete="off"
                     />
-                ) : (
-                    <CursorTooltip
-                        content={
-                            <div className="space-y-2">
-                                <div className="space-y-0.5">
-                                    <p className="font-medium text-foreground text-sm leading-tight">{chat.title || 'Untitled'}</p>
-                                    <p className="text-[11px] font-mono text-muted-foreground/60">ID: {getShortId(chat.id)}</p>
-                                </div>
-
-                                <div className="flex flex-wrap gap-1.5">
-                                    {chat.pinned && (
-                                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-primary/10 text-primary font-medium">
-                                            Pinned
-                                        </span>
-                                    )}
-                                    {isArchived && (
-                                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-600 dark:text-amber-400 font-medium">
-                                            Archived
-                                        </span>
-                                    )}
-                                    {isSelected && (
-                                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-green-500/10 text-green-600 dark:text-green-400 font-medium">
-                                            Active
-                                        </span>
-                                    )}
-                                </div>
-
-                                <div className="pt-1 border-t border-border/50 space-y-1">
-                                    <p className="text-xs text-muted-foreground">
-                                        Updated {formatRelativeTime(chat.updated_at)}
-                                    </p>
-                                    <p className="text-[10px] text-muted-foreground/70">
-                                        {formatFullDate(chat.updated_at)}
-                                    </p>
-                                </div>
-                            </div>
-                        }
-                        containerClassName="w-full"
-                    >
-                        <p className="truncate font-medium">
-                            {chat.title || 'Untitled'}
-                        </p>
-                        <p className="text-xs text-muted-foreground truncate">
-                            {formatRelativeTime(chat.updated_at)}
-                        </p>
-                    </CursorTooltip>
-                )}
-            </div>
-
-            {/* Pin/Archived icons + Actions menu - hidden when editing */}
-            {!isEditing && (
-                <div className="flex items-center gap-1 shrink-0">
-                    {chat.pinned && (
-                        <IconPinFilled size={14} className="text-primary" />
-                    )}
-                    {isArchived && (
-                        <IconArchive size={14} className="text-muted-foreground/60" />
-                    )}
-                    <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                            <button
-                                type="button"
-                                className="opacity-0 group-hover:opacity-100 p-1 hover:bg-accent/50 rounded-md transition-all active:scale-95"
-                                onClick={(e) => e.stopPropagation()}
-                            >
-                                <IconDots size={14} />
-                            </button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end" className="w-44">
-                            {/* Pin/Unpin - only for non-archived */}
-                            {!isArchived && (
-                                <DropdownMenuItem onClick={onTogglePin}>
-                                    {chat.pinned ? (
-                                        <>
-                                            <IconPin size={14} className="mr-2" />
-                                            Unpin
-                                        </>
-                                    ) : (
-                                        <>
-                                            <IconPinFilled size={14} className="mr-2" />
-                                            Pin to top
-                                        </>
-                                    )}
-                                </DropdownMenuItem>
-                            )}
-                            <DropdownMenuItem onClick={onStartRename}>
-                                <IconPencil size={14} className="mr-2" />
-                                Rename
-                            </DropdownMenuItem>
-                            {isArchived ? (
-                                <DropdownMenuItem onClick={onRestore}>
-                                    <IconArchiveOff size={14} className="mr-2" />
-                                    Restore
-                                </DropdownMenuItem>
-                            ) : (
-                                <DropdownMenuItem onClick={onArchive}>
-                                    <IconArchive size={14} className="mr-2" />
-                                    Archive
-                                </DropdownMenuItem>
-                            )}
-                            <DropdownMenuSeparator />
-                            <DropdownMenuItem
-                                variant="destructive"
-                                onClick={onDelete}
-                            >
-                                <IconTrash size={14} className="mr-2" />
-                                Delete
-                            </DropdownMenuItem>
-                        </DropdownMenuContent>
-                    </DropdownMenu>
                 </div>
+            </div>
+        )
+    }
+
+    return (
+        <div
+            className={cn(
+                'group flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors',
+                isSelected
+                    ? 'bg-accent text-accent-foreground'
+                    : 'text-foreground/80 hover:bg-accent/50'
             )}
+        >
+            <button
+                type="button"
+                className="flex flex-1 items-center gap-2 min-w-0 text-left"
+                onClick={onSelect}
+            >
+                <IconMessage size={16} className="shrink-0 opacity-60" />
+                <div className="flex-1 min-w-0">
+                    {titleContent}
+                </div>
+            </button>
+            {actionMenu}
         </div>
     )
 }
@@ -381,7 +405,17 @@ export function Sidebar() {
 
     // Get API key status from main process
     const { data: keyStatus } = trpc.settings.getApiKeyStatus.useQuery()
-    const isConnected = provider === 'openai' ? keyStatus?.hasOpenAI : keyStatus?.hasAnthropic
+    const hasChatGPTPlus = useAtomValue(hasChatGPTPlusAtom)
+
+    
+    // Determine connection status based on provider
+    const isConnected = provider === 'chatgpt-plus' 
+        ? hasChatGPTPlus 
+        : provider === 'openai' 
+            ? keyStatus?.hasOpenAI 
+            : provider === 'zai'
+                ? keyStatus?.hasZai
+                : keyStatus?.hasAnthropic
 
     // Fetch session
     const { data: session } = trpc.auth.getSession.useQuery()
@@ -423,6 +457,44 @@ export function Sidebar() {
 
     const utils = trpc.useUtils()
 
+    const [undoStack, setUndoStack] = useAtom(undoStackAtom)
+
+    const removeUndoItem = useCallback((item: UndoItem) => {
+        setUndoStack((prev) => {
+            const index = prev.findIndex((entry) => entry.timeoutId === item.timeoutId)
+            if (index !== -1) {
+                clearTimeout(prev[index].timeoutId)
+                return [...prev.slice(0, index), ...prev.slice(index + 1)]
+            }
+            return prev
+        })
+    }, [setUndoStack])
+
+    const restoreChat = trpc.chats.restore.useMutation({
+        onSuccess: () => {
+            refetch()
+            refetchArchived()
+            toast.success('Chat restored')
+        }
+    })
+
+    const restoreDeletedChat = trpc.chats.restoreDeleted.useMutation({
+        onSuccess: () => {
+            refetch()
+            refetchArchived()
+            toast.success('Chat restored')
+        }
+    })
+
+    const restoreChatFromUndo = useCallback((item: UndoItem) => {
+        removeUndoItem(item)
+        if (item.action === 'archive') {
+            restoreChat.mutate({ id: item.chatId })
+        } else {
+            restoreDeletedChat.mutate({ id: item.chatId })
+        }
+    }, [removeUndoItem, restoreChat, restoreDeletedChat])
+
     const createChat = trpc.chats.create.useMutation({
         onSuccess: (chat: Chat) => {
             utils.chats.get.invalidate({ id: chat.id })
@@ -437,17 +509,25 @@ export function Sidebar() {
     })
 
     const deleteChat = trpc.chats.delete.useMutation({
-        onSuccess: () => {
+        onSuccess: (_data, variables) => {
             refetch()
             refetchArchived()
+
+            const undoItem: UndoItem = {
+                action: 'delete',
+                chatId: variables.id,
+                timeoutId: setTimeout(() => {
+                    removeUndoItem(undoItem)
+                }, 10000)
+            }
+
+            setUndoStack((prev) => [...prev, undoItem])
+
             // Show undo toast
             toast.success('Chat deleted', {
                 action: {
                     label: 'Undo',
-                    onClick: () => {
-                        // We can't truly undo a delete, but we can show a message
-                        toast.info('Chat permanently deleted')
-                    }
+                    onClick: () => restoreChatFromUndo(undoItem)
                 }
             })
         }
@@ -460,23 +540,41 @@ export function Sidebar() {
             if (selectedChatId === variables.id) {
                 setSelectedChatId(null)
             }
+
+            const undoItem: UndoItem = {
+                action: 'archive',
+                chatId: variables.id,
+                timeoutId: setTimeout(() => {
+                    removeUndoItem(undoItem)
+                }, 10000)
+            }
+
+            setUndoStack((prev) => [...prev, undoItem])
+
             // Show undo toast
             toast.success('Chat archived', {
                 action: {
                     label: 'Undo',
-                    onClick: () => restoreChat.mutate({ id: variables.id })
+                    onClick: () => restoreChatFromUndo(undoItem)
                 }
             })
         }
     })
 
-    const restoreChat = trpc.chats.restore.useMutation({
-        onSuccess: () => {
-            refetch()
-            refetchArchived()
-            toast.success('Chat restored')
+    useEffect(() => {
+        const handleKeyDown = (event: KeyboardEvent) => {
+            if ((event.metaKey || event.ctrlKey) && event.key === 'z' && undoStack.length > 0) {
+                event.preventDefault()
+                const lastItem = undoStack[undoStack.length - 1]
+                if (!lastItem) return
+
+                restoreChatFromUndo(lastItem)
+            }
         }
-    })
+
+        window.addEventListener('keydown', handleKeyDown)
+        return () => window.removeEventListener('keydown', handleKeyDown)
+    }, [undoStack, restoreChatFromUndo])
 
     const togglePin = trpc.chats.togglePin.useMutation({
         onSuccess: (data) => {
@@ -612,6 +710,7 @@ export function Sidebar() {
                             size="icon"
                             className="h-8 w-8 text-muted-foreground hover:text-foreground rounded-xl shrink-0 no-drag"
                             onClick={() => setSidebarOpen(false)}
+                            aria-label="Collapse sidebar"
                         >
                             <IconLayoutSidebarLeftCollapse size={18} />
                         </Button>
@@ -630,10 +729,14 @@ export function Sidebar() {
                 <div className="relative group">
                     <IconSearch size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground group-focus-within:text-primary transition-colors" />
                     <Input
-                        placeholder="Search conversations..."
-                        className="pl-9 h-9 bg-accent/30 border-none rounded-xl text-xs placeholder:text-muted-foreground/50 focus-visible:ring-1 focus-visible:ring-primary/20 transition-all"
+                        placeholder="Search conversations…"
+                        className="pl-9 h-9 bg-accent/30 border-none rounded-xl text-xs placeholder:text-muted-foreground/50 focus-visible:ring-1 focus-visible:ring-primary/20 transition-[box-shadow,background-color]"
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
+                        aria-label="Search conversations"
+                        name="chat-search"
+                        autoComplete="off"
+                        spellCheck={false}
                     />
                 </div>
             </div>
@@ -721,15 +824,28 @@ export function Sidebar() {
                         'hover:bg-accent/50 text-left'
                     )}
                 >
-                    {provider === 'openai' ? (
+                    {provider === 'chatgpt-plus' ? (
+                        <IconBrandOpenai size={18} className="shrink-0 text-emerald-600" />
+                    ) : provider === 'openai' ? (
                         <IconBrandOpenai size={18} className="shrink-0" />
+                    ) : provider === 'zai' ? (
+                        <ZaiIcon className="shrink-0 text-amber-500" size={18} />
                     ) : (
                         <IconBrain size={18} className="shrink-0" />
                     )}
                     <div className="flex-1 min-w-0 text-left">
-                        <p className="font-medium truncate">
-                            {provider === 'openai' ? 'OpenAI' : 'Anthropic'}
-                        </p>
+                        <div className="flex items-center gap-1.5">
+                            <p className="font-medium truncate">
+                                {provider === 'chatgpt-plus' 
+                                    ? 'ChatGPT Plus' 
+                                    : provider === 'openai' 
+                                        ? 'OpenAI' 
+                                        : provider === 'zai'
+                                            ? 'Z.AI'
+                                            : 'Anthropic'}
+                            </p>
+
+                        </div>
                         <p className="text-xs text-muted-foreground">
                             {isConnected ? 'Connected' : 'Not configured'}
                         </p>

@@ -1,5 +1,5 @@
-import { useState, useMemo } from 'react'
-import { useAtom } from 'jotai'
+import { useCallback, useMemo, useState } from 'react'
+import { useAtom, useSetAtom } from 'jotai'
 import {
     IconMessage,
     IconSearch,
@@ -10,7 +10,7 @@ import {
     IconPinFilled
 } from '@tabler/icons-react'
 import { trpc } from '@/lib/trpc'
-import { selectedChatIdAtom } from '@/lib/atoms'
+import { selectedChatIdAtom, undoStackAtom, type UndoItem } from '@/lib/atoms'
 import { Input } from '@/components/ui/input'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import {
@@ -28,6 +28,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { cn, formatRelativeTime } from '@/lib/utils'
 import { RenameChatDialog } from './rename-dialog'
+import { toast } from 'sonner'
 
 interface Chat {
     id: string
@@ -44,6 +45,18 @@ interface HistoryDialogContentProps {
 export function HistoryDialogContent({ onSelect }: HistoryDialogContentProps) {
     const [searchQuery, setSearchQuery] = useState('')
     const [selectedChatId, setSelectedChatId] = useAtom(selectedChatIdAtom)
+    const setUndoStack = useSetAtom(undoStackAtom)
+
+    const removeUndoItem = useCallback((item: UndoItem) => {
+        setUndoStack((prev) => {
+            const index = prev.findIndex((entry) => entry.timeoutId === item.timeoutId)
+            if (index !== -1) {
+                clearTimeout(prev[index].timeoutId)
+                return [...prev.slice(0, index), ...prev.slice(index + 1)]
+            }
+            return prev
+        })
+    }, [setUndoStack])
 
     // Rename state
     const [renameDialogOpen, setRenameDialogOpen] = useState(false)
@@ -52,12 +65,71 @@ export function HistoryDialogContent({ onSelect }: HistoryDialogContentProps) {
     // Fetch chats - include archived chats in history
     const { data: chats, isLoading, refetch } = trpc.chats.list.useQuery({ includeArchived: true })
 
+    const restoreChat = trpc.chats.restore.useMutation({
+        onSuccess: () => {
+            refetch()
+            toast.success('Chat restored')
+        }
+    })
+
+    const restoreDeletedChat = trpc.chats.restoreDeleted.useMutation({
+        onSuccess: () => {
+            refetch()
+            toast.success('Chat restored')
+        }
+    })
+
+    const restoreChatFromUndo = useCallback((item: UndoItem) => {
+        removeUndoItem(item)
+        if (item.action === 'archive') {
+            restoreChat.mutate({ id: item.chatId })
+        } else {
+            restoreDeletedChat.mutate({ id: item.chatId })
+        }
+    }, [removeUndoItem, restoreChat, restoreDeletedChat])
+
     const deleteChat = trpc.chats.delete.useMutation({
-        onSuccess: () => refetch()
+        onSuccess: (_data, variables) => {
+            refetch()
+            const undoItem: UndoItem = {
+                action: 'delete',
+                chatId: variables.id,
+                timeoutId: setTimeout(() => {
+                    removeUndoItem(undoItem)
+                }, 10000)
+            }
+
+            setUndoStack((prev) => [...prev, undoItem])
+
+            toast.success('Chat deleted', {
+                action: {
+                    label: 'Undo',
+                    onClick: () => restoreChatFromUndo(undoItem)
+                }
+            })
+        }
     })
 
     const archiveChat = trpc.chats.archive.useMutation({
-        onSuccess: () => refetch()
+        onSuccess: (_data, variables) => {
+            refetch()
+            const undoItem: UndoItem = {
+                action: 'archive',
+                chatId: variables.id,
+                timeoutId: setTimeout(() => {
+                    removeUndoItem(undoItem)
+                }, 10000)
+            }
+
+            setUndoStack((prev) => [...prev, undoItem])
+
+            toast.success('Chat archived', {
+                action: {
+                    label: 'Undo',
+                    onClick: () => restoreChatFromUndo(undoItem)
+                }
+            })
+        }
     })
 
     // Filter chats based on search query - memoized to avoid recalculation on every render

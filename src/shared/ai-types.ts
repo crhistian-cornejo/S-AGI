@@ -4,7 +4,13 @@ import { z } from 'zod'
 // AI Provider & Model Definitions
 // ============================================================================
 
-export type AIProvider = 'openai'
+/**
+ * Available AI Providers
+ * - 'openai': Standard OpenAI API (requires API key)
+ * - 'chatgpt-plus': ChatGPT Plus/Pro via Codex OAuth (uses subscription)
+ * - 'zai': Z.AI Coding Plan (GLM models)
+ */
+export type AIProvider = 'openai' | 'chatgpt-plus' | 'zai'
 
 /**
  * - 'low': Low reasoning effort (default)
@@ -34,6 +40,8 @@ export interface ModelDefinition {
     supportsReasoning?: boolean
     /** Default reasoning effort for this model */
     defaultReasoningEffort?: ReasoningEffort
+    /** Whether this model is included with subscription (no per-token cost) */
+    includedInSubscription?: boolean
 }
 
 /**
@@ -87,13 +95,102 @@ export const AI_MODELS: Record<string, ModelDefinition> = {
         defaultReasoningEffort: 'low'
     },
 
+    // ========================================================================
+    // ChatGPT Plus/Pro Models (via Codex OAuth - included in subscription)
+    // These models use the ChatGPT subscription, no per-token cost
+    // ========================================================================
+    'gpt-5.1-codex-max': {
+        id: 'gpt-5.1-codex-max',
+        provider: 'chatgpt-plus',
+        name: 'GPT-5.1 Codex Max',
+        description: 'Maximum capability Codex model (ChatGPT Plus)',
+        contextWindow: 256000,
+        supportsImages: true,
+        supportsTools: true,
+        supportsNativeWebSearch: true,
+        supportsCodeInterpreter: true,
+        supportsFileSearch: true,
+        supportsReasoning: true,
+        defaultReasoningEffort: 'high',
+        includedInSubscription: true
+    },
+    'gpt-5.1-codex-mini': {
+        id: 'gpt-5.1-codex-mini',
+        provider: 'chatgpt-plus',
+        name: 'GPT-5.1 Codex Mini',
+        description: 'Efficient Codex model (ChatGPT Plus)',
+        contextWindow: 256000,
+        supportsImages: true,
+        supportsTools: true,
+        supportsNativeWebSearch: true,
+        supportsCodeInterpreter: true,
+        supportsFileSearch: true,
+        supportsReasoning: true,
+        defaultReasoningEffort: 'low',
+        includedInSubscription: true
+    },
+    'gpt-5.2': {
+        id: 'gpt-5.2',
+        provider: 'chatgpt-plus',
+        name: 'GPT-5.2',
+        description: 'Latest GPT model (ChatGPT Plus)',
+        contextWindow: 256000,
+        supportsImages: true,
+        supportsTools: true,
+        supportsNativeWebSearch: true,
+        supportsCodeInterpreter: true,
+        supportsFileSearch: true,
+        supportsReasoning: true,
+        defaultReasoningEffort: 'medium',
+        includedInSubscription: true
+    },
+    'gpt-5.2-codex': {
+        id: 'gpt-5.2-codex',
+        provider: 'chatgpt-plus',
+        name: 'GPT-5.2 Codex',
+        description: 'GPT-5.2 with Codex capabilities (ChatGPT Plus)',
+        contextWindow: 256000,
+        supportsImages: true,
+        supportsTools: true,
+        supportsNativeWebSearch: true,
+        supportsCodeInterpreter: true,
+        supportsFileSearch: true,
+        supportsReasoning: true,
+        defaultReasoningEffort: 'medium',
+        includedInSubscription: true
+    },
+
+    // ========================================================================
+    // Z.AI GLM Models (OpenAI-compatible Coding Plan)
+    // ========================================================================
+    'glm-4.7': {
+        id: 'glm-4.7',
+        provider: 'zai',
+        name: 'GLM-4.7',
+        description: 'Z.AI flagship coding model with deep reasoning',
+        supportsTools: true,
+        supportsReasoning: true,
+        defaultReasoningEffort: 'medium'
+    },
+    'glm-4.5-air': {
+        id: 'glm-4.5-air',
+        provider: 'zai',
+        name: 'GLM-4.5 Air',
+        description: 'Fast Z.AI model for rapid coding tasks',
+        supportsTools: true,
+        supportsReasoning: true,
+        defaultReasoningEffort: 'low'
+    }
+
 } as const
 
 /**
  * Default models per provider
  */
 export const DEFAULT_MODELS: Record<AIProvider, string> = {
-    openai: 'gpt-5-mini'
+    openai: 'gpt-5-mini',
+    'chatgpt-plus': 'gpt-5.1-codex-mini',
+    zai: 'glm-4.7'
 }
 
 /**
@@ -292,12 +389,21 @@ export interface CostOptimizationConfig {
     truncation?: {
         type: 'auto' | 'disabled'
     }
+
+    /**
+     * Prompt caching configuration (improves latency/cost on repeated prefixes)
+     * @see https://platform.openai.com/docs/guides/prompt-caching
+     */
+    promptCacheKey?: string
+    promptCacheRetention?: 'in_memory' | '24h'
 }
 
 export const DEFAULT_COST_OPTIMIZATION_CONFIG: CostOptimizationConfig = {
     maxOutputTokens: undefined, // No limit by default
     useFlex: false, // Standard processing by default
-    truncation: { type: 'auto' } // Auto-truncate for better UX
+    truncation: { type: 'auto' }, // Auto-truncate for better UX
+    promptCacheKey: undefined,
+    promptCacheRetention: undefined
 }
 
 /**
@@ -310,7 +416,7 @@ export type ServiceTier = 'auto' | 'flex'
 // Zod Schemas for Validation
 // ============================================================================
 
-export const AIProviderSchema = z.enum(['openai'])
+export const AIProviderSchema = z.enum(['openai', 'chatgpt-plus', 'zai'])
 
 export const ReasoningEffortSchema = z.enum(['low', 'medium', 'high'])
 
@@ -369,7 +475,16 @@ export const AIChatInputSchema = z.object({
     // New fields for Responses API
     reasoning: ReasoningConfigSchema.optional(),
     nativeTools: NativeToolsConfigSchema.optional(),
-    previousResponseId: z.string().optional()
+    previousResponseId: z.string().optional(),
+    optimization: z.object({
+        maxOutputTokens: z.number().optional(),
+        useFlex: z.boolean().optional(),
+        truncation: z.object({
+            type: z.enum(['auto', 'disabled']).optional()
+        }).optional(),
+        promptCacheKey: z.string().optional(),
+        promptCacheRetention: z.enum(['in_memory', '24h']).optional()
+    }).optional()
 })
 
 export type AIChatInput = z.infer<typeof AIChatInputSchema>

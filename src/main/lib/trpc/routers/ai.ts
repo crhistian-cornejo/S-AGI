@@ -4,6 +4,7 @@ import log from 'electron-log'
 import { sendToRenderer } from '../../window-manager'
 import { supabase } from '../../supabase/client'
 import { getSecureApiKeyStore } from '../../auth/api-key-store'
+import { getChatGPTAuthManager } from '../../auth'
 
 import OpenAI from 'openai'
 import type { Responses } from 'openai/resources/responses/responses'
@@ -24,6 +25,9 @@ const activeStreams = new Map<string, AbortController>()
 
 // Maximum number of agent loop steps
 const MAX_AGENT_STEPS = 15
+
+const ZAI_BASE_URL = 'https://api.z.ai/api/coding/paas/v4/v1'
+const ZAI_SOURCE_HEADER = 'S-AGI-Agent'
 
 const AUTO_TITLE_MAX_LENGTH = 25
 
@@ -590,26 +594,33 @@ export const aiRouter = router({
             }).optional()
         }).optional())
         .query(({ input }) => {
+            const chatGPTAuth = getChatGPTAuthManager()
             return {
-                availableProviders: ['openai'] as const,
+                availableProviders: ['openai', 'chatgpt-plus', 'zai'] as const,
                 availableModels: AI_MODELS,
                 availableTools: getAllToolNames({
                     modelId: input?.modelId,
                     nativeTools: input?.nativeTools
                 }),
-                supportsReasoning: input?.modelId ? getModelById(input.modelId)?.supportsReasoning ?? false : false
+                supportsReasoning: input?.modelId ? getModelById(input.modelId)?.supportsReasoning ?? false : false,
+                // ChatGPT Plus status
+                chatGPTPlus: {
+                    isConnected: chatGPTAuth.isConnected(),
+                    accountId: chatGPTAuth.getAccountId()
+                }
             }
         }),
 
     // Stream chat with AI using OpenAI Responses API
     // Implements Agent Loop with native tools, reasoning, and function calling
+    // Supports both OpenAI API (with key) and ChatGPT Plus (OAuth)
     chat: protectedProcedure
         .input(z.object({
             chatId: z.string().uuid(),
             prompt: z.string(),
             mode: z.enum(['plan', 'agent']).default('agent'),
-            provider: z.enum(['openai']).default('openai'),
-            apiKey: z.string(),
+            provider: z.enum(['openai', 'chatgpt-plus', 'zai']).default('openai'),
+            apiKey: z.string().optional(), // Optional for chatgpt-plus provider
             tavilyApiKey: z.string().optional(),
             model: z.string().optional(),
             messages: z.array(z.object({
@@ -654,7 +665,11 @@ export const aiRouter = router({
                 /** Truncation strategy for context window management */
                 truncation: z.object({
                     type: z.enum(['auto', 'disabled']).optional()
-                }).optional()
+                }).optional(),
+                /** Prompt caching key to improve cache hit rates */
+                promptCacheKey: z.string().optional(),
+                /** Prompt cache retention policy */
+                promptCacheRetention: z.enum(['in_memory', '24h']).optional()
             }).optional()
         }))
         .mutation(async ({ ctx, input }) => {
@@ -687,19 +702,161 @@ export const aiRouter = router({
             const runAgentLoop = async () => {
                 const startTime = Date.now()
                 try {
-                    const modelId = input.model || DEFAULT_MODELS.openai
+                    // Determine provider and model
+                    const provider = input.provider || 'openai'
+                    const modelId = input.model || DEFAULT_MODELS[provider as keyof typeof DEFAULT_MODELS]
                     const modelDef = getModelById(modelId)
                     
-                    log.info(`[AI] Starting Responses API agent loop with ${modelId}`)
+                    log.info(`[AI] Starting Responses API agent loop with ${modelId} (provider: ${provider})`)
                     log.info(`[AI] Reasoning config:`, input.reasoning)
                     if (input.images?.length) {
                         log.info(`[AI] Including ${input.images.length} image(s)`)
                     }
 
-                    // Create OpenAI client
-                    const client = new OpenAI({
-                        apiKey: input.apiKey
-                    })
+                    // Create OpenAI client based on provider
+                    let client: OpenAI
+                    let chatGPTAccountId: string | null = null
+                    
+                    if (provider === 'chatgpt-plus') {
+                        // ChatGPT Plus/Pro - use OAuth token with custom fetch
+                        // Following OpenCode's Codex plugin pattern to bypass Cloudflare
+                        const chatGPTAuth = getChatGPTAuthManager()
+                        
+                        if (!chatGPTAuth.isConnected()) {
+                            throw new Error('ChatGPT Plus not connected. Please connect your ChatGPT Plus subscription in Settings.')
+                        }
+                        
+                        const accessToken = chatGPTAuth.getAccessToken()
+                        chatGPTAccountId = chatGPTAuth.getAccountId()
+                        
+                        if (!accessToken) {
+                            throw new Error('ChatGPT Plus token not available. Please reconnect.')
+                        }
+                        
+                        const codexEndpoint = chatGPTAuth.getInferenceEndpoint()
+                        log.info(`[AI] ChatGPT Plus: Creating client with custom fetch, endpoint: ${codexEndpoint}`)
+                        
+                        // Custom fetch that handles ChatGPT Plus authentication properly
+                        // The SDK's default behavior doesn't work with Cloudflare protection
+                        const codexFetch = async (
+                            requestInput: RequestInfo | URL, 
+                            init?: RequestInit
+                        ): Promise<Response> => {
+                            log.info(`[AI] Codex custom fetch called`)
+                            
+                            const headers = new Headers()
+                            
+                            // Copy existing headers, except Authorization (we'll set our own)
+                            if (init?.headers) {
+                                const headerEntries = init.headers instanceof Headers
+                                    ? Array.from(init.headers.entries())
+                                    : Array.isArray(init.headers)
+                                        ? init.headers
+                                        : Object.entries(init.headers)
+                                
+                                for (const [key, value] of headerEntries) {
+                                    if (key.toLowerCase() !== 'authorization' && value !== undefined) {
+                                        headers.set(key, String(value))
+                                    }
+                                }
+                            }
+                            
+                            // Set OAuth Bearer token
+                            headers.set('Authorization', `Bearer ${accessToken}`)
+                            
+                            // Set ChatGPT Account ID for organization subscriptions
+                            if (chatGPTAccountId) {
+                                headers.set('ChatGPT-Account-Id', chatGPTAccountId)
+                            }
+                            
+                            // Parse the URL
+                            let urlString: string
+                            if (requestInput instanceof URL) {
+                                urlString = requestInput.href
+                            } else if (typeof requestInput === 'string') {
+                                urlString = requestInput
+                            } else {
+                                urlString = requestInput.url
+                            }
+                            
+                            const parsed = new URL(urlString)
+                            
+                            // Rewrite URL to Codex endpoint if it's a responses/chat endpoint
+                            const shouldRewrite = parsed.pathname.includes('/responses') || 
+                                                  parsed.pathname.includes('/chat/completions')
+                            const finalUrl = shouldRewrite ? codexEndpoint : parsed.href
+                            
+                            log.info(`[AI] Codex fetch: ${parsed.pathname} -> ${finalUrl} (rewrite: ${shouldRewrite})`)
+                            
+                            // Log the request body for debugging
+                            if (init?.body) {
+                                try {
+                                    const bodyStr = typeof init.body === 'string' ? init.body : init.body.toString()
+                                    const bodyObj = JSON.parse(bodyStr)
+                                    log.info(`[AI] Codex request body keys: ${Object.keys(bodyObj).join(', ')}`)
+                                    log.info(`[AI] Codex request model: ${bodyObj.model}`)
+                                    if (bodyObj.tools) {
+                                        log.info(`[AI] Codex request tools count: ${bodyObj.tools.length}`)
+                                    }
+                                } catch (e) {
+                                    log.info(`[AI] Codex request body (raw): ${init.body}`)
+                                }
+                            }
+                            
+                            const response = await fetch(finalUrl, {
+                                ...init,
+                                headers
+                            })
+                            
+                            // Log response status for debugging
+                            log.info(`[AI] Codex response status: ${response.status}`)
+                            if (!response.ok) {
+                                const text = await response.text()
+                                log.error(`[AI] Codex error response: ${text.substring(0, 500)}`)
+                                // Re-create response since we consumed the body
+                                return new Response(text, {
+                                    status: response.status,
+                                    statusText: response.statusText,
+                                    headers: response.headers
+                                })
+                            }
+                            
+                            return response
+                        }
+                        
+                        // Create client with custom fetch - use dummy apiKey since we handle auth ourselves
+                        client = new OpenAI({
+                            apiKey: 'codex-oauth', // Dummy key, auth handled by custom fetch
+                            baseURL: 'https://api.openai.com/v1', // Base URL, will be rewritten by fetch
+                            fetch: codexFetch
+                        })
+                        
+                        log.info(`[AI] Using ChatGPT Plus provider with account: ${chatGPTAccountId || 'unknown'}`)
+                    } else if (provider === 'zai') {
+                        // Z.AI Coding Plan - OpenAI-compatible API with custom base URL
+                        if (!input.apiKey) {
+                            throw new Error('Z.AI API key is required')
+                        }
+
+                        client = new OpenAI({
+                            apiKey: input.apiKey,
+                            baseURL: ZAI_BASE_URL,
+                            defaultHeaders: {
+                                'X-ZAI-Source': ZAI_SOURCE_HEADER
+                            }
+                        })
+
+                        log.info('[AI] Using Z.AI provider with Coding Plan endpoint')
+                    } else {
+                        // Standard OpenAI API - use API key
+                        if (!input.apiKey) {
+                            throw new Error('OpenAI API key is required')
+                        }
+                        
+                        client = new OpenAI({
+                            apiKey: input.apiKey
+                        })
+                    }
 
                     // Build tools based on mode
                     const { tools: functionTools, executors } = input.mode === 'plan'
@@ -810,12 +967,16 @@ export const aiRouter = router({
                             let fallbackFiles: Array<{ filename: string; file_size?: number }> = []
                             if (!chatFiles || chatFiles.length === 0) {
                                 try {
-                                    const fileService = new OpenAIFileService({ apiKey: input.apiKey })
-                                    const openaiFiles = await fileService.listVectorStoreFiles(chatData.openai_vector_store_id)
-                                    fallbackFiles = openaiFiles.map(file => ({
-                                        filename: file.filename,
-                                        file_size: file.bytes
-                                    }))
+                                    // Get API key for file service (use input.apiKey for openai, or stored key)
+                                    const fileServiceApiKey = input.apiKey || getSecureApiKeyStore().getOpenAIKey()
+                                    if (fileServiceApiKey) {
+                                        const fileService = new OpenAIFileService({ apiKey: fileServiceApiKey })
+                                        const openaiFiles = await fileService.listVectorStoreFiles(chatData.openai_vector_store_id)
+                                        fallbackFiles = openaiFiles.map(file => ({
+                                            filename: file.filename,
+                                            file_size: file.bytes
+                                        }))
+                                    }
                                 } catch (err) {
                                     log.warn('[AI] Failed to fetch OpenAI file list for knowledge base context:', err)
                                 }
@@ -979,23 +1140,34 @@ CRITICAL INSTRUCTIONS FOR DOCUMENT QUERIES:
                         const optimization = input.optimization || {}
                         const maxOutputTokens = optimization.maxOutputTokens
                         const truncation = optimization.truncation?.type || 'auto'
+                        const promptCacheKey = optimization.promptCacheKey || input.chatId
+                        const promptCacheRetention = optimization.promptCacheRetention
+                        const supportsOpenAiOptimizations = provider === 'openai'
 
                         // Build tools array - ONLY include file_search when forcing it
                         // This completely removes web_search from available tools
                         let toolsForRequest = allTools
-                        if (shouldForceFileSearch && currentStepNumber === 1) {
+                        
+                        // ChatGPT Plus/Codex endpoint only supports function tools
+                        // Filter out native tools like web_search_preview, file_search, code_interpreter
+                        if (provider === 'chatgpt-plus') {
+                            toolsForRequest = allTools.filter((t: any) => t.type === 'function')
+                            log.info(`[AI] ChatGPT Plus: Filtered to function tools only, count: ${toolsForRequest.length}`)
+                        } else if (shouldForceFileSearch && currentStepNumber === 1) {
                             // Filter out web_search_preview to ensure model can ONLY use file_search
                             toolsForRequest = allTools.filter((t: any) => t.type !== 'web_search_preview')
                             log.info(`[AI] Removed web_search from tools, remaining: ${toolsForRequest.map((t: any) => t.type).join(', ')}`)
                         }
 
                         // Stream the response using the official SDK
+                        // Note: ChatGPT Plus/Codex endpoint has limited parameter support
+                        const isChatGPTPlus = provider === 'chatgpt-plus'
                         const streamParams: any = {
                             model: modelId,
                             input: inputForRequest,
                             tools: toolsForRequest.length > 0 ? toolsForRequest : undefined,
                             instructions: systemPrompt,
-                            store: true,
+                            store: supportsOpenAiOptimizations,
                             previous_response_id: currentResponseId,
                             reasoning: reasoningConfig ? {
                                 effort: reasoningConfig.effort,
@@ -1003,9 +1175,13 @@ CRITICAL INSTRUCTIONS FOR DOCUMENT QUERIES:
                             } : undefined,
                             // Cost optimization parameters
                             ...(maxOutputTokens && { max_output_tokens: maxOutputTokens }),
-                            truncation: truncation,
-                            // Use flex processing if requested (50% cost savings)
-                            ...(optimization.useFlex && { service_tier: 'flex' }),
+                            // Truncation - only supported by OpenAI
+                            ...(supportsOpenAiOptimizations && { truncation: truncation }),
+                            // Prompt caching - only supported by OpenAI
+                            ...(supportsOpenAiOptimizations && { prompt_cache_key: promptCacheKey }),
+                            ...(supportsOpenAiOptimizations && promptCacheRetention && { prompt_cache_retention: promptCacheRetention }),
+                            // Use flex processing if requested (50% cost savings) - only for OpenAI
+                            ...(supportsOpenAiOptimizations && optimization.useFlex && { service_tier: 'flex' }),
                             // Force file_search tool when query is about uploaded documents
                             // Only on first step to avoid interfering with tool result handling
                             ...(shouldForceFileSearch && currentStepNumber === 1 && { 
@@ -1013,13 +1189,17 @@ CRITICAL INSTRUCTIONS FOR DOCUMENT QUERIES:
                             })
                         }
 
-                        log.info(`[AI] Stream params: maxOutputTokens=${maxOutputTokens}, truncation=${truncation}, flex=${!!optimization.useFlex}, tool_choice=${shouldForceFileSearch && currentStepNumber === 1 ? 'file_search' : 'auto'}, tools=${toolsForRequest.map((t: any) => t.type).join(', ')}`)
+                        log.info(`[AI] Stream params: maxOutputTokens=${maxOutputTokens}, truncation=${truncation}, flex=${!!optimization.useFlex}, prompt_cache_key=${promptCacheKey}, prompt_cache_retention=${promptCacheRetention || 'default'}, tool_choice=${shouldForceFileSearch && currentStepNumber === 1 ? 'file_search' : 'auto'}, tools=${toolsForRequest.map((t: any) => t.type).join(', ')}`)
 
-                        const stream = client.responses.stream(streamParams, {
+                        // Build request options
+                        // Note: ChatGPT Plus auth headers are handled in custom fetch
+                        const requestOptions: Parameters<typeof client.responses.stream>[1] = {
                             signal: abortController.signal,
                             // Increase timeout for flex processing (can be slower)
-                            ...(optimization.useFlex && { timeout: 900_000 }) // 15 minutes
-                        })
+                            ...(supportsOpenAiOptimizations && optimization.useFlex && { timeout: 900_000 }) // 15 minutes
+                        }
+
+                        const stream = client.responses.stream(streamParams, requestOptions)
 
                         pendingToolCalls = []
                         let hasToolCalls = false

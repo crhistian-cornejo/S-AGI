@@ -68,6 +68,7 @@ async function getRecentItems(): Promise<Array<{
             .select('id, title, updated_at')
             .eq('user_id', session.user.id)
             .eq('archived', false)
+            .is('deleted_at', null)
             .order('updated_at', { ascending: false })
             .limit(10)
 

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useCallback, useState, useMemo } from 'react'
 import { useAtom, useAtomValue, useSetAtom } from 'jotai'
-import { IconSparkles, IconBrandOpenai, IconBrain, IconArrowDown } from '@tabler/icons-react'
+import { IconSparkles, IconBrandOpenai, IconBrain, IconArrowDown, IconBolt } from '@tabler/icons-react'
 import { toast } from 'sonner'
 import {
     selectedChatIdAtom,
@@ -90,7 +90,11 @@ export function ChatView() {
     // Check if API key is configured based on tRPC query
     const isConfigured = provider === 'openai'
         ? keyStatus?.hasOpenAI
-        : keyStatus?.hasAnthropic
+        : provider === 'chatgpt-plus'
+            ? keyStatus?.hasChatGPTPlus
+            : provider === 'zai'
+                ? keyStatus?.hasZai
+                : keyStatus?.hasAnthropic
 
     // Fetch messages for selected chat
     const { data: messages, refetch: refetchMessages, error: messagesError } = trpc.messages.list.useQuery(
@@ -267,22 +271,53 @@ export function ChatView() {
                 utils.messages.list.invalidate({ chatId: chatIdForStream })
             }
 
-            // Get API key from main process
-            const apiKeyResult = provider === 'openai'
-                ? await trpcClient.settings.getOpenAIKey.query()
-                : await trpcClient.settings.getAnthropicKey.query()
-
-            if (!apiKeyResult.key) {
-                setStreamingError('API key not configured')
-                setIsStreaming(false)
-                return
+            // Get API key from main process (only needed for API-key providers, not chatgpt-plus)
+            // ChatGPT Plus uses OAuth - backend handles auth, we just verify connection
+            let apiKey: string | undefined = undefined
+            
+            if (provider === 'chatgpt-plus') {
+                // ChatGPT Plus uses OAuth - no API key needed, backend handles auth
+                // Check if connected via status query
+                const chatGPTStatus = await trpcClient.auth.getChatGPTStatus.query()
+                if (!chatGPTStatus.isConnected) {
+                    setStreamingError('ChatGPT Plus not connected. Please connect in Settings.')
+                    setIsStreaming(false)
+                    return
+                }
+                // No API key needed - backend uses OAuth token directly
+                apiKey = undefined
+            } else if (provider === 'zai') {
+                const result = await trpcClient.settings.getZaiKey.query()
+                if (!result.key) {
+                    setStreamingError('Z.AI API key not configured')
+                    setIsStreaming(false)
+                    return
+                }
+                apiKey = result.key
+            } else if (provider === 'openai') {
+                const result = await trpcClient.settings.getOpenAIKey.query()
+                if (!result.key) {
+                    setStreamingError('OpenAI API key not configured')
+                    setIsStreaming(false)
+                    return
+                }
+                apiKey = result.key
+            } else {
+                // Anthropic or other providers
+                const result = await trpcClient.settings.getAnthropicKey.query()
+                if (!result.key) {
+                    setStreamingError('API key not configured')
+                    setIsStreaming(false)
+                    return
+                }
+                apiKey = result.key
             }
 
             // Get Tavily key for web search (optional)
             const tavilyKeyResult = await trpcClient.settings.getTavilyKey.query()
 
-            if (isFirstMessage) {
-                generateAutoTitle(chatIdForStream, userMessage, apiKeyResult.key, provider)
+            if (isFirstMessage && apiKey) {
+                generateAutoTitle(chatIdForStream, userMessage, apiKey, provider)
             }
 
             // Get conversation history for context
@@ -658,7 +693,7 @@ export function ChatView() {
                     prompt: userMessage,
                     mode,
                     provider,
-                    apiKey: apiKeyResult.key,
+                    apiKey,
                     tavilyApiKey: tavilyKeyResult.key || undefined,
                     model: selectedModel,
                     messages: messageHistory,
@@ -859,7 +894,7 @@ export function ChatView() {
                                 API Key Required
                             </p>
                             <p className="text-muted-foreground mt-1">
-                                Configure your {provider === 'openai' ? 'OpenAI' : 'Anthropic'} API key to start chatting
+                                Configure your {provider === 'openai' ? 'OpenAI' : provider === 'zai' ? 'Z.AI' : 'Anthropic'} API key to start chatting
                             </p>
                             <Button
                                 variant="outline"
@@ -869,6 +904,8 @@ export function ChatView() {
                             >
                                 {provider === 'openai' ? (
                                     <IconBrandOpenai size={16} className="mr-2" />
+                                ) : provider === 'zai' ? (
+                                    <IconBolt size={16} className="mr-2" />
                                 ) : (
                                     <IconBrain size={16} className="mr-2" />
                                 )}

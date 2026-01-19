@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import { router, publicProcedure, protectedProcedure } from '../trpc'
-import { getClaudeCodeAuthManager } from '../../auth'
+import { getClaudeCodeAuthManager, getChatGPTAuthManager, getZaiAuthManager, CHATGPT_CODEX_MODELS } from '../../auth'
 import { supabase, authStorage } from '../../supabase/client'
 import { BrowserWindow } from 'electron'
 import log from 'electron-log'
@@ -92,6 +92,24 @@ export const authRouter = router({
         authStorage.clear()
 
         log.info('[Auth] Sign out successful')
+        return { success: true }
+    }),
+
+    // ========== Z.AI API Key ==========
+
+    // Set Z.AI API key
+    setZaiKey: publicProcedure
+        .input(z.object({ key: z.string().nullable() }))
+        .mutation(({ input }) => {
+            const zaiAuth = getZaiAuthManager()
+            zaiAuth.setApiKey(input.key)
+            return { success: true }
+        }),
+
+    // Clear Z.AI API key
+    clearZaiKey: publicProcedure.mutation(() => {
+        const zaiAuth = getZaiAuthManager()
+        zaiAuth.clear()
         return { success: true }
     }),
 
@@ -300,6 +318,57 @@ export const authRouter = router({
     // Disconnect Claude Code
     disconnectClaudeCode: protectedProcedure.mutation(() => {
         const authManager = getClaudeCodeAuthManager()
+        authManager.disconnect()
+        return { success: true }
+    }),
+
+    // ========== ChatGPT Plus/Pro OAuth (Codex Flow) ==========
+
+    // Get ChatGPT Plus connection status
+    getChatGPTStatus: publicProcedure.query(() => {
+        const authManager = getChatGPTAuthManager()
+        const credentials = authManager.getCredentials()
+        return {
+            isConnected: authManager.isConnected(),
+            email: credentials?.email,
+            connectedAt: credentials?.connectedAt,
+            accountId: credentials?.accountId
+        }
+    }),
+
+    // Get available ChatGPT Codex models
+    getChatGPTModels: publicProcedure.query(() => {
+        return CHATGPT_CODEX_MODELS
+    }),
+
+    // Start ChatGPT Plus OAuth flow with PKCE
+    connectChatGPT: protectedProcedure.mutation(async () => {
+        const authManager = getChatGPTAuthManager()
+        const mainWindow = BrowserWindow.getAllWindows()[0] || null
+        await authManager.startAuthFlow(mainWindow)
+        return { started: true }
+    }),
+
+    // Refresh ChatGPT access token
+    refreshChatGPTToken: publicProcedure.mutation(async () => {
+        const authManager = getChatGPTAuthManager()
+        const success = await authManager.refresh()
+        return { success }
+    }),
+
+    // Get ChatGPT access token (for AI requests)
+    getChatGPTToken: publicProcedure.query(() => {
+        const authManager = getChatGPTAuthManager()
+        return {
+            accessToken: authManager.getAccessToken(),
+            accountId: authManager.getAccountId(),
+            inferenceEndpoint: authManager.getInferenceEndpoint()
+        }
+    }),
+
+    // Disconnect from ChatGPT Plus
+    disconnectChatGPT: protectedProcedure.mutation(() => {
+        const authManager = getChatGPTAuthManager()
         authManager.disconnect()
         return { success: true }
     })

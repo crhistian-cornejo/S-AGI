@@ -29,6 +29,12 @@ export class OpenAIFileService {
         log.info('[OpenAIFileService] Client initialized, vectorStores available:', !!this.client.vectorStores)
     }
 
+    private getVectorStoreFileId(file: unknown): string | null {
+        if (!file || typeof file !== 'object') return null
+        const record = file as { file_id?: unknown }
+        return typeof record.file_id === 'string' ? record.file_id : null
+    }
+
     /**
      * Get or create a vector store for a specific chat
      */
@@ -176,7 +182,8 @@ export class OpenAIFileService {
                 try {
                     const filesIterator = await this.client.vectorStores.files.list(vectorStoreId)
                     for await (const file of filesIterator) {
-                        if (file.file_id === openaiFileId) {
+                        const fileId = this.getVectorStoreFileId(file)
+                        if (fileId && fileId === openaiFileId) {
                             resolvedVectorStoreFileId = file.id
                             break
                         }
@@ -189,7 +196,7 @@ export class OpenAIFileService {
             if (!fileIdToDelete) {
                 try {
                     const vectorStoreFile = await this.client.vectorStores.files.retrieve(resolvedVectorStoreFileId, { vector_store_id: vectorStoreId })
-                    fileIdToDelete = vectorStoreFile.file_id || resolvedVectorStoreFileId
+                    fileIdToDelete = this.getVectorStoreFileId(vectorStoreFile) || resolvedVectorStoreFileId
                 } catch (err) {
                     log.warn('[OpenAIFileService] Could not resolve file_id from vector store:', err)
                 }
@@ -274,7 +281,8 @@ export class OpenAIFileService {
                 try {
                     const filesIterator = await this.client.vectorStores.files.list(vectorStoreId)
                     for await (const file of filesIterator) {
-                        if (file.file_id === fallbackFileId) {
+                        const fileId = this.getVectorStoreFileId(file)
+                        if (fileId && fileId === fallbackFileId) {
                             resolvedVectorStoreFileId = file.id
                             break
                         }

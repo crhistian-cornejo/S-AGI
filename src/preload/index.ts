@@ -53,6 +53,15 @@ const desktopApi = {
         }
     },
 
+    // ChatGPT Plus connected listener (OAuth callback)
+    onChatGPTConnected: (callback: (data: { isConnected: boolean; accountId?: string }) => void) => {
+        const handler = (_: any, data: any) => callback(data)
+        ipcRenderer.on('chatgpt:connected', handler)
+        return () => {
+            ipcRenderer.removeListener('chatgpt:connected', handler)
+        }
+    },
+
     // Tray Popover API
     tray: {
         getRecentItems: () => ipcRenderer.invoke('tray:get-recent-items'),

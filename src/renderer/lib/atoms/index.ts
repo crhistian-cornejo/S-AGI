@@ -33,7 +33,9 @@ export const availableModelsAtom = atom((get) => {
 // Atom to get all models grouped by provider
 export const allModelsGroupedAtom = atom(() => {
     return {
-        openai: getModelsByProvider('openai')
+        openai: getModelsByProvider('openai'),
+        'chatgpt-plus': getModelsByProvider('chatgpt-plus'),
+        zai: getModelsByProvider('zai')
     }
 })
 
@@ -47,6 +49,17 @@ export const currentModelAtom = atom((get): ModelDefinition | undefined => {
 // These atoms track whether keys are configured, not the keys themselves
 export const hasOpenaiKeyAtom = atom(false)
 export const hasAnthropicKeyAtom = atom(false)
+export const hasZaiKeyAtom = atom(false)
+export const hasChatGPTPlusAtom = atom(false)
+
+// ChatGPT Plus connection info
+export interface ChatGPTPlusStatus {
+    isConnected: boolean
+    email?: string
+    accountId?: string
+    connectedAt?: string
+}
+export const chatGPTPlusStatusAtom = atom<ChatGPTPlusStatus>({ isConnected: false })
 
 // Legacy atoms for backward compatibility with chat-view
 export const openaiApiKeyAtom = atom<string | null>(null) // Dummy - real keys in safeStorage
@@ -115,6 +128,15 @@ export const isPlanModeAtom = atomWithStorage<boolean>('agents:isPlanMode', fals
 // Track sub-chats with pending plan approval (plan ready but not yet implemented)
 // Set<subChatId>
 export const pendingPlanApprovalsAtom = atom<Set<string>>(new Set<string>())
+
+// === UNDO STATE ===
+export type UndoItem = {
+    action: 'archive' | 'delete'
+    chatId: string
+    timeoutId: ReturnType<typeof setTimeout>
+}
+
+export const undoStackAtom = atom<UndoItem[]>([])
 
 // === TODO STATE ===
 export interface TodoItem {

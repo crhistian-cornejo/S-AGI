@@ -16,6 +16,7 @@ export const chatsRouter = router({
                     .from('chats')
                     .select('*')
                     .eq('user_id', ctx.userId)
+                    .is('deleted_at', null)
 
                 if (!input?.includeArchived) {
                     query = query.eq('archived', false)
@@ -34,6 +35,7 @@ export const chatsRouter = router({
                             .from('chats')
                             .select('*')
                             .eq('user_id', ctx.userId)
+                            .is('deleted_at', null)
                             .order('updated_at', { ascending: false })
                         
                         const { data: fbData, error: fbError } = await (input?.includeArchived ? fallbackQuery : fallbackQuery.eq('archived', false))
@@ -60,6 +62,7 @@ export const chatsRouter = router({
                     .select('*')
                     .eq('user_id', ctx.userId)
                     .eq('archived', true)
+                    .is('deleted_at', null)
                     .order('updated_at', { ascending: false })
 
                 if (error) {
@@ -82,6 +85,7 @@ export const chatsRouter = router({
                 .select('*')
                 .eq('id', input.id)
                 .eq('user_id', ctx.userId)
+                .is('deleted_at', null)
                 .maybeSingle()
 
             if (error) throw new Error(error.message)
@@ -213,26 +217,53 @@ export const chatsRouter = router({
             return data
         }),
 
-    // Delete a chat permanently
+    // Soft delete a chat (allow undo)
     delete: protectedProcedure
         .input(z.object({ id: z.string().uuid() }))
         .mutation(async ({ ctx, input }) => {
             // Get chat data first for undo capability
-            const { data: chatData } = await supabase
+            const { data: chatData, error: fetchError } = await supabase
                 .from('chats')
                 .select('*')
                 .eq('id', input.id)
                 .eq('user_id', ctx.userId)
                 .single()
 
-            const { error } = await supabase
+            if (fetchError) throw new Error(fetchError.message)
+
+            const { data, error } = await supabase
                 .from('chats')
-                .delete()
+                .update({
+                    deleted_at: new Date().toISOString(),
+                    updated_at: new Date().toISOString()
+                })
                 .eq('id', input.id)
                 .eq('user_id', ctx.userId)
+                .select()
+                .single()
 
             if (error) throw new Error(error.message)
-            log.info('[Chats] Deleted chat:', input.id)
-            return { success: true, deletedChat: chatData }
+            log.info('[Chats] Soft deleted chat:', input.id)
+            return { success: true, deletedChat: data ?? chatData }
+        }),
+
+    // Restore a soft-deleted chat
+    restoreDeleted: protectedProcedure
+        .input(z.object({ id: z.string().uuid() }))
+        .mutation(async ({ ctx, input }) => {
+            const { data, error } = await supabase
+                .from('chats')
+                .update({
+                    deleted_at: null,
+                    updated_at: new Date().toISOString()
+                })
+                .eq('id', input.id)
+                .eq('user_id', ctx.userId)
+                .select()
+                .single()
+
+            if (error) throw new Error(error.message)
+            log.info('[Chats] Restored deleted chat:', input.id)
+            return data
         })
 })
