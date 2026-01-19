@@ -1,47 +1,53 @@
 /**
  * Custom Univer theme that integrates with S-AGI's design system.
- * 
- * This theme uses CSS custom properties to dynamically adapt to
- * the application's light/dark mode.
+ *
+ * This theme uses the full VSCode theme colors to create a comprehensive
+ * Univer theme that matches the application's visual style.
  */
 
 import { defaultTheme } from '@univerjs/design'
 
-/**
- * Helper to convert HSL CSS variable to hex color.
- * Reads from computed styles at runtime.
- */
-function hslToHex(h: number, s: number, l: number): string {
-    l /= 100
-    const a = s * Math.min(l, 1 - l) / 100
-    const f = (n: number) => {
-        const k = (n + h / 30) % 12
-        const color = l - a * Math.max(Math.min(k - 3, 9 - k, 1), -1)
-        return Math.round(255 * color).toString(16).padStart(2, '0')
-    }
-    return `#${f(0)}${f(8)}${f(4)}`
-}
+export type UniverTheme = typeof defaultTheme
 
 /**
- * Parse HSL string (e.g., "217 91% 60%") to hex
+ * VSCode theme colors interface (subset of what we use)
  */
-function parseHslToHex(hslString: string): string {
-    const parts = hslString.trim().split(/\s+/)
-    if (parts.length !== 3) return '#3B82F6' // fallback blue
-    
-    const h = parseFloat(parts[0])
-    const s = parseFloat(parts[1].replace('%', ''))
-    const l = parseFloat(parts[2].replace('%', ''))
-    
-    return hslToHex(h, s, l)
-}
-
-/**
- * Get a CSS variable value from the document
- */
-function getCssVar(name: string): string {
-    if (typeof document === 'undefined') return ''
-    return getComputedStyle(document.documentElement).getPropertyValue(name).trim()
+export interface VSCodeThemeColors {
+    'editor.background'?: string
+    'editor.foreground'?: string
+    'foreground'?: string
+    'sideBar.background'?: string
+    'sideBar.foreground'?: string
+    'sideBar.border'?: string
+    'panel.background'?: string
+    'panel.border'?: string
+    'input.background'?: string
+    'input.border'?: string
+    'input.foreground'?: string
+    'button.background'?: string
+    'button.foreground'?: string
+    'button.secondaryBackground'?: string
+    'button.secondaryForeground'?: string
+    'focusBorder'?: string
+    'textLink.foreground'?: string
+    'textLink.activeForeground'?: string
+    'list.activeSelectionBackground'?: string
+    'list.hoverBackground'?: string
+    'editor.selectionBackground'?: string
+    'editorLineNumber.foreground'?: string
+    'descriptionForeground'?: string
+    'errorForeground'?: string
+    'dropdown.background'?: string
+    'dropdown.foreground'?: string
+    'tab.activeBackground'?: string
+    'tab.inactiveBackground'?: string
+    'tab.inactiveForeground'?: string
+    'terminal.ansiRed'?: string
+    'terminal.ansiGreen'?: string
+    'terminal.ansiYellow'?: string
+    'terminal.ansiBlue'?: string
+    'terminal.ansiMagenta'?: string
+    'terminal.ansiCyan'?: string
 }
 
 /**
@@ -61,29 +67,56 @@ interface ColorPalette {
 }
 
 /**
+ * Normalize hex color (handle 8-char alpha hex and shorthand)
+ */
+function normalizeHex(hex: string): string {
+    hex = hex.replace(/^#/, '')
+
+    // Handle shorthand (3 chars)
+    if (hex.length === 3) {
+        hex = hex.split('').map(c => c + c).join('')
+    }
+
+    // Handle 8-char with alpha - just take the RGB part
+    if (hex.length === 8) {
+        hex = hex.slice(0, 6)
+    }
+
+    return `#${hex}`
+}
+
+/**
+ * Parse RGB values from hex
+ */
+function parseHexToRgb(hex: string): { r: number; g: number; b: number } {
+    hex = normalizeHex(hex).replace('#', '')
+    return {
+        r: parseInt(hex.slice(0, 2), 16),
+        g: parseInt(hex.slice(2, 4), 16),
+        b: parseInt(hex.slice(4, 6), 16),
+    }
+}
+
+/**
  * Generate color palette from a base hex color
  * Creates 50-900 shades like Tailwind
  */
 function generatePalette(baseHex: string): ColorPalette {
-    // Parse the base color
-    const r = parseInt(baseHex.slice(1, 3), 16)
-    const g = parseInt(baseHex.slice(3, 5), 16)
-    const b = parseInt(baseHex.slice(5, 7), 16)
-    
-    // Generate lighter and darker variants
+    const { r, g, b } = parseHexToRgb(baseHex)
+
     const lighten = (color: number, amount: number) => Math.min(255, Math.round(color + (255 - color) * amount))
     const darken = (color: number, amount: number) => Math.max(0, Math.round(color * (1 - amount)))
-    
-    const toHex = (r: number, g: number, b: number) => 
+
+    const toHex = (r: number, g: number, b: number) =>
         `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`
-    
+
     return {
         50: toHex(lighten(r, 0.95), lighten(g, 0.95), lighten(b, 0.95)),
         100: toHex(lighten(r, 0.9), lighten(g, 0.9), lighten(b, 0.9)),
         200: toHex(lighten(r, 0.75), lighten(g, 0.75), lighten(b, 0.75)),
         300: toHex(lighten(r, 0.6), lighten(g, 0.6), lighten(b, 0.6)),
         400: toHex(lighten(r, 0.3), lighten(g, 0.3), lighten(b, 0.3)),
-        500: baseHex,
+        500: normalizeHex(baseHex),
         600: toHex(darken(r, 0.1), darken(g, 0.1), darken(b, 0.1)),
         700: toHex(darken(r, 0.25), darken(g, 0.25), darken(b, 0.25)),
         800: toHex(darken(r, 0.4), darken(g, 0.4), darken(b, 0.4)),
@@ -92,68 +125,174 @@ function generatePalette(baseHex: string): ColorPalette {
 }
 
 /**
- * Create a custom theme based on the current CSS variables.
- * This should be called when initializing Univer to get the current theme colors.
+ * Generate a gray palette based on the theme's background brightness
+ * 
+ * IMPORTANT: For dark mode, the palette is INVERTED so that:
+ * - gray-50 is dark (used for backgrounds)
+ * - gray-900 is light (used for text)
  */
-export function createCustomTheme(): typeof defaultTheme {
-    // Get colors from CSS variables
-    const primaryHsl = getCssVar('--primary')
-    const backgroundHsl = getCssVar('--background')
-    const foregroundHsl = getCssVar('--foreground')
-    
-    const primaryHex = primaryHsl ? parseHslToHex(primaryHsl) : '#3B82F6'
-    const backgroundHex = backgroundHsl ? parseHslToHex(backgroundHsl) : '#FFFFFF'
-    const foregroundHex = foregroundHsl ? parseHslToHex(foregroundHsl) : '#0A0A0A'
-    
-    // Generate primary palette
-    const primaryPalette = generatePalette(primaryHex)
-    
-    // Generate gray palette from background color
-    const grayPalette = generatePalette('#6B7280') // Neutral gray base
-    
-    // Create theme by extending defaultTheme with our colors
-    // 'white' and 'black' control the canvas background and text colors
-    return {
-        ...defaultTheme,
-        white: backgroundHex,  // Canvas/cell background color
-        black: foregroundHex,  // Text color
-        primary: primaryPalette,
-        gray: grayPalette,
+function generateGrayPalette(_backgroundColor: string, isDark: boolean): ColorPalette {
+    if (isDark) {
+        // For dark themes: INVERTED - low numbers are dark, high numbers are light
+        return {
+            50: '#171717',   // darkest - backgrounds
+            100: '#1f1f1f',
+            200: '#262626',
+            300: '#333333',
+            400: '#525252',
+            500: '#737373',  // mid gray
+            600: '#a3a3a3',
+            700: '#d4d4d4',
+            800: '#e5e5e5',
+            900: '#fafafa',  // lightest - text
+        }
+    } else {
+        // For light themes: normal - low numbers are light, high numbers are dark
+        return {
+            50: '#fafafa',   // lightest - backgrounds
+            100: '#f4f4f5',
+            200: '#e4e4e7',
+            300: '#d4d4d8',
+            400: '#a1a1aa',
+            500: '#71717a',  // mid gray
+            600: '#52525b',
+            700: '#3f3f46',
+            800: '#27272a',
+            900: '#18181b',  // darkest - text
+        }
     }
 }
 
 /**
- * Create a dark theme based on the current CSS variables.
+ * Create a complete Univer theme from VSCode theme colors
  */
-export function createDarkTheme(): typeof defaultTheme {
-    // Get colors from CSS variables (dark mode values)
-    const primaryHsl = getCssVar('--primary')
-    const backgroundHsl = getCssVar('--background')
-    const foregroundHsl = getCssVar('--foreground')
-    
-    const primaryHex = primaryHsl ? parseHslToHex(primaryHsl) : '#3B82F6'
-    const backgroundHex = backgroundHsl ? parseHslToHex(backgroundHsl) : '#0A0A0A'
-    const foregroundHex = foregroundHsl ? parseHslToHex(foregroundHsl) : '#FAFAFA'
-    
-    // Generate primary palette
-    const primaryPalette = generatePalette(primaryHex)
-    
-    // Generate gray palette
-    const grayPalette = generatePalette('#6B7280')
-    
+export function createThemeFromVSCodeColors(colors: VSCodeThemeColors, isDark: boolean): typeof defaultTheme {
+    // Extract key colors with fallbacks
+    const backgroundColor = normalizeHex(colors['editor.background'] || (isDark ? '#0a0a0a' : '#ffffff'))
+    const foregroundColor = normalizeHex(colors['editor.foreground'] || colors['foreground'] || (isDark ? '#f4f4f5' : '#0a0a0a'))
+    const primaryColor = normalizeHex(colors['button.background'] || colors['focusBorder'] || '#3B82F6')
+    const linkColor = normalizeHex(colors['textLink.foreground'] || colors['focusBorder'] || primaryColor)
+    const errorColor = normalizeHex(colors['errorForeground'] || colors['terminal.ansiRed'] || '#ef4444')
+    const greenColor = normalizeHex(colors['terminal.ansiGreen'] || '#22c55e')
+    const yellowColor = normalizeHex(colors['terminal.ansiYellow'] || '#eab308')
+    const magentaColor = normalizeHex(colors['terminal.ansiMagenta'] || '#a855f7')
+    const cyanColor = normalizeHex(colors['terminal.ansiCyan'] || '#06b6d4')
+
+    // Generate all palettes
+    const primaryPalette = generatePalette(primaryColor)
+    const grayPalette = generateGrayPalette(backgroundColor, isDark)
+    const bluePalette = generatePalette(linkColor)
+    const greenPalette = generatePalette(greenColor)
+    const redPalette = generatePalette(errorColor)
+    const yellowPalette = generatePalette(yellowColor)
+    const orangePalette = generatePalette('#f97316') // Orange
+    const purplePalette = generatePalette(magentaColor)
+    const pinkPalette = generatePalette('#ec4899')
+    const indigoPalette = generatePalette('#6366f1')
+    const jiqingPalette = generatePalette(cyanColor) // Cyan/Teal for jiqing
+
+    // Loop colors for charts/data visualization
+    const loopColors = {
+        1: primaryColor,
+        2: greenColor,
+        3: yellowColor,
+        4: errorColor,
+        5: magentaColor,
+        6: cyanColor,
+        7: '#f97316', // orange
+        8: '#ec4899', // pink
+        9: '#6366f1', // indigo
+        10: '#84cc16', // lime
+        11: '#14b8a6', // teal
+        12: '#8b5cf6', // violet
+    }
+
+    // Build the complete theme with all required palettes
     return {
         ...defaultTheme,
-        white: backgroundHex,  // Dark canvas background
-        black: foregroundHex,  // Light text for dark mode
+        // Canvas colors
+        white: backgroundColor,
+        black: foregroundColor,
+        // Primary palette (buttons, accents)
         primary: primaryPalette,
+        // Gray palette (backgrounds, borders, muted text)
         gray: grayPalette,
+        // Semantic color palettes
+        blue: bluePalette,
+        green: greenPalette,
+        red: redPalette,
+        yellow: yellowPalette,
+        orange: orangePalette,
+        purple: purplePalette,
+        pink: pinkPalette,
+        indigo: indigoPalette,
+        jiqing: jiqingPalette,
+        'loop-color': loopColors,
     }
+}
+
+// Store the current theme colors for use by initialization functions
+let currentThemeColors: VSCodeThemeColors | null = null
+let currentIsDark: boolean = false
+
+/**
+ * Set the current VSCode theme colors (called by useUniverTheme)
+ */
+export function setCurrentVSCodeThemeColors(colors: VSCodeThemeColors | null, isDark: boolean): void {
+    currentThemeColors = colors
+    currentIsDark = isDark
+}
+
+/**
+ * Get the current VSCode theme colors
+ */
+export function getCurrentVSCodeThemeColors(): { colors: VSCodeThemeColors | null; isDark: boolean } {
+    return { colors: currentThemeColors, isDark: currentIsDark }
+}
+
+/**
+ * Create a custom theme based on the current stored VSCode theme colors.
+ * This should be called when initializing Univer.
+ */
+export function createCustomTheme(): typeof defaultTheme {
+    if (currentThemeColors) {
+        return createThemeFromVSCodeColors(currentThemeColors, currentIsDark)
+    }
+
+    // Fallback: create a default light theme
+    const fallbackColors: VSCodeThemeColors = {
+        'editor.background': '#ffffff',
+        'editor.foreground': '#0a0a0a',
+        'button.background': '#3B82F6',
+        'focusBorder': '#3B82F6',
+        'errorForeground': '#ef4444',
+    }
+    return createThemeFromVSCodeColors(fallbackColors, false)
+}
+
+/**
+ * Create a dark theme based on the current stored VSCode theme colors.
+ */
+export function createDarkTheme(): typeof defaultTheme {
+    if (currentThemeColors) {
+        return createThemeFromVSCodeColors(currentThemeColors, true)
+    }
+
+    // Fallback: create a default dark theme
+    const fallbackColors: VSCodeThemeColors = {
+        'editor.background': '#0a0a0a',
+        'editor.foreground': '#f4f4f5',
+        'button.background': '#3B82F6',
+        'focusBorder': '#3B82F6',
+        'errorForeground': '#ef4444',
+    }
+    return createThemeFromVSCodeColors(fallbackColors, true)
 }
 
 /**
  * Check if dark mode is currently active
  */
 export function isDarkModeActive(): boolean {
-    if (typeof document === 'undefined') return false
+    if (typeof document === 'undefined') return currentIsDark
     return document.documentElement.classList.contains('dark')
 }

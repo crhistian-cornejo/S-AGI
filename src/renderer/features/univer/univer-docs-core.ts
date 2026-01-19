@@ -5,10 +5,16 @@
  * and unmount disposes it completely. No need for complex document switching logic.
  */
 
-import { Univer, LocaleType, LogLevel, merge, DocumentFlavor } from '@univerjs/core'
+import { Univer, LocaleType, LogLevel, merge, DocumentFlavor, ThemeService } from '@univerjs/core'
 import { FUniver } from '@univerjs/core/facade'
 import { UniverDocsPlugin } from '@univerjs/docs'
-import { createCustomTheme, createDarkTheme, isDarkModeActive } from './univer-theme'
+import {
+    createCustomTheme,
+    createDarkTheme,
+    isDarkModeActive,
+    createThemeFromVSCodeColors,
+    type VSCodeThemeColors,
+} from './univer-theme'
 import { UniverDocsUIPlugin } from '@univerjs/docs-ui'
 import { UniverRenderEnginePlugin } from '@univerjs/engine-render'
 import { UniverFormulaEnginePlugin } from '@univerjs/engine-formula'
@@ -33,6 +39,8 @@ import '@univerjs/docs-ui/lib/index.css'
 import '@univerjs/drawing-ui/lib/index.css'
 import '@univerjs/docs-drawing-ui/lib/index.css'
 import '@univerjs/docs-hyper-link-ui/lib/index.css'
+// Custom theme overrides - must be imported AFTER Univer styles
+import './univer-theme-overrides.css'
 
 // Import locales
 import DesignEnUS from '@univerjs/design/locale/en-US'
@@ -320,15 +328,32 @@ export function getDocsInstance(): UniverDocsInstance | null {
 }
 
 /**
- * Toggle dark mode for the Docs instance
+ * Update theme for the Docs instance with full VSCode theme colors
  */
-export function setDocsTheme(isDark: boolean): void {
-    if (docsInstance?.api) {
+export function setDocsTheme(isDark: boolean, themeColors?: VSCodeThemeColors | null): void {
+    if (docsInstance) {
         try {
-            (docsInstance.api as any).toggleDarkMode(isDark)
-            console.log('[UniverDocs] Dark mode toggled:', isDark)
+            // Create theme from VSCode colors if available, otherwise use defaults
+            const nextTheme = themeColors
+                ? createThemeFromVSCodeColors(themeColors, isDark)
+                : isDark
+                    ? createDarkTheme()
+                    : createCustomTheme()
+
+            const themeService = docsInstance.univer.__getInjector().get(ThemeService)
+            themeService.setTheme(nextTheme)
+            themeService.setDarkMode(isDark)
+            ;(docsInstance.api as any).toggleDarkMode(isDark)
+
+            console.log('[UniverDocs] Theme updated:', {
+                isDark,
+                hasVSCodeColors: !!themeColors,
+                primary: nextTheme.primary?.[500],
+                background: nextTheme.white,
+                foreground: nextTheme.black,
+            })
         } catch (e) {
-            console.warn('[UniverDocs] Failed to toggle dark mode:', e)
+            console.warn('[UniverDocs] Failed to update theme:', e)
         }
     }
 }

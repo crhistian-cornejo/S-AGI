@@ -122,7 +122,15 @@ export const messagesRouter = router({
         .input(z.object({
             id: z.string().uuid(),
             content: z.any().optional(),
-            toolCalls: z.any().optional()
+            toolCalls: z.any().optional(),
+            attachments: z.array(z.object({
+                id: z.string(),
+                name: z.string(),
+                size: z.number(),
+                type: z.string(),
+                url: z.string().optional(),
+                preview: z.string().optional()
+            })).optional()
         }))
         .mutation(async ({ ctx, input }) => {
             // First get the message to verify ownership through chat
@@ -153,6 +161,7 @@ export const messagesRouter = router({
 
             if (updates.content !== undefined) updateData.content = updates.content
             if (updates.toolCalls !== undefined) updateData.tool_calls = updates.toolCalls
+            if (updates.attachments !== undefined) updateData.attachments = updates.attachments
 
             const { data, error } = await supabase
                 .from('chat_messages')

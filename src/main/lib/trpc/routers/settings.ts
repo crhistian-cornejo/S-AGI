@@ -2,8 +2,6 @@ import { z } from 'zod'
 import { router, publicProcedure } from '../trpc'
 import { getSecureApiKeyStore } from '../../auth/api-key-store'
 import { getChatGPTAuthManager, getClaudeCodeAuthManager, getZaiAuthManager } from '../../auth'
-// NOTE: Gemini auth disabled - OAuth token incompatible with generativelanguage.googleapis.com
-// import { getChatGPTAuthManager, getClaudeCodeAuthManager, getZaiAuthManager, getGeminiAuthManager } from '../../auth'
 
 /**
  * Settings router for secure API key management and OAuth status
@@ -15,7 +13,6 @@ export const settingsRouter = router({
         const chatGPTAuth = getChatGPTAuthManager()
         const claudeCodeAuth = getClaudeCodeAuthManager()
         const zaiAuth = getZaiAuthManager()
-        // NOTE: Gemini disabled - const geminiAuth = getGeminiAuthManager()
         
         return {
             hasOpenAI: store.hasOpenAIKey(),
@@ -24,8 +21,7 @@ export const settingsRouter = router({
             hasZai: zaiAuth.hasApiKey(),
             // OAuth provider status
             hasChatGPTPlus: chatGPTAuth.isConnected(),
-            hasClaudeCode: claudeCodeAuth.isConnected(),
-            hasGeminiAdvanced: false // DISABLED: geminiAuth.isConnected()
+            hasClaudeCode: claudeCodeAuth.isConnected()
         }
     }),
 

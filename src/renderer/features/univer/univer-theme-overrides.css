@@ -1,0 +1,41 @@
+/**
+ * Univer Theme Overrides
+ * 
+ * MINIMAL CSS - The main theming is done via the Univer theme object 
+ * passed to the constructor (see univer-theme.ts).
+ * 
+ * This file ONLY sets CSS custom properties that Univer uses internally.
+ * NO class selectors that could affect other parts of the app.
+ */
+
+/* ========================================
+   CSS VARIABLES ONLY
+   These map Univer's internal CSS vars to app theme
+   ======================================== */
+
+:root {
+    /* Gray palette - used by Univer for backgrounds, text, borders */
+    --univer-gray-50: hsl(var(--background));
+    --univer-gray-100: hsl(var(--muted));
+    --univer-gray-200: hsl(var(--border));
+    --univer-gray-300: hsl(var(--border));
+    --univer-gray-400: hsl(var(--foreground) / 0.5);
+    --univer-gray-500: hsl(var(--foreground) / 0.6);
+    --univer-gray-600: hsl(var(--foreground) / 0.7);
+    --univer-gray-700: hsl(var(--foreground) / 0.8);
+    --univer-gray-800: hsl(var(--foreground) / 0.9);
+    --univer-gray-900: hsl(var(--foreground));
+    
+    /* Primary colors - used by Univer for accents, selections */
+    --univer-primary-50: hsl(var(--primary) / 0.05);
+    --univer-primary-100: hsl(var(--primary) / 0.1);
+    --univer-primary-200: hsl(var(--primary) / 0.2);
+    --univer-primary-300: hsl(var(--primary) / 0.3);
+    --univer-primary-400: hsl(var(--primary) / 0.6);
+    --univer-primary-500: hsl(var(--primary));
+    --univer-primary-600: hsl(var(--primary) / 0.9);
+    
+    /* White/black - used for canvas backgrounds */
+    --univer-white: hsl(var(--background));
+    --univer-black: hsl(var(--foreground));
+}

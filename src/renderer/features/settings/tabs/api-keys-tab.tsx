@@ -16,7 +16,7 @@ import {
     IconBrandOpenai, 
     IconWorldSearch 
 } from '@tabler/icons-react'
-import { ZaiIcon, GeminiIcon } from '@/components/icons/model-icons'
+import { ZaiIcon } from '@/components/icons/model-icons'
 import { useAtom, useAtomValue, useSetAtom } from 'jotai'
 import { 
     availableModelsAtom, 
@@ -24,9 +24,7 @@ import {
     allModelsGroupedAtom, 
     hasChatGPTPlusAtom, 
     chatGPTPlusStatusAtom, 
-    currentProviderAtom,
-    hasGeminiAdvancedAtom,
-    geminiAdvancedStatusAtom
+    currentProviderAtom
 } from '@/lib/atoms'
 import type { AIProvider } from '@shared/ai-types'
 
@@ -37,15 +35,12 @@ export function ApiKeysTab() {
     const allModelsGrouped = useAtomValue(allModelsGroupedAtom)
     const setHasChatGPTPlus = useSetAtom(hasChatGPTPlusAtom)
     const setChatGPTPlusStatus = useSetAtom(chatGPTPlusStatusAtom)
-    const setHasGeminiAdvanced = useSetAtom(hasGeminiAdvancedAtom)
-    const setGeminiAdvancedStatus = useSetAtom(geminiAdvancedStatusAtom)
     
     const utils = trpc.useUtils()
 
     // Get status queries
     const { data: keyStatus } = trpc.settings.getApiKeyStatus.useQuery()
     const { data: chatGPTStatus } = trpc.auth.getChatGPTStatus.useQuery()
-    const { data: geminiStatus } = trpc.auth.getGeminiStatus.useQuery()
     
     // Sync atoms with queries
     useEffect(() => {
@@ -59,17 +54,6 @@ export function ApiKeysTab() {
             })
         }
     }, [chatGPTStatus, setHasChatGPTPlus, setChatGPTPlusStatus])
-
-    useEffect(() => {
-        if (geminiStatus) {
-            setHasGeminiAdvanced(geminiStatus.isConnected)
-            setGeminiAdvancedStatus({
-                isConnected: geminiStatus.isConnected,
-                email: geminiStatus.email ?? undefined,
-                connectedAt: geminiStatus.connectedAt ?? undefined
-            })
-        }
-    }, [geminiStatus, setHasGeminiAdvanced, setGeminiAdvancedStatus])
 
     // Mutations for API Keys
     const setOpenAIKeyMutation = trpc.settings.setOpenAIKey.useMutation({
@@ -101,7 +85,6 @@ export function ApiKeysTab() {
             toast.success('All credentials cleared')
             utils.settings.getApiKeyStatus.invalidate()
             utils.auth.getChatGPTStatus.invalidate()
-            utils.auth.getGeminiStatus.invalidate()
         },
         onError: (e) => toast.error(e.message)
     })
@@ -121,20 +104,6 @@ export function ApiKeysTab() {
         onError: (e) => toast.error(e.message)
     })
 
-    const connectGeminiMutation = trpc.auth.connectGemini.useMutation({
-        onSuccess: () => toast.info('Opening authorization...'),
-        onError: (e) => toast.error(e.message)
-    })
-
-    // NOTE: Gemini mutations disabled - OAuth incompatible
-    const disconnectGeminiMutation = trpc.auth.disconnectGemini.useMutation({
-        onSuccess: () => {
-            toast.success('Disconnected from Gemini')
-            utils.auth.getGeminiStatus.invalidate()
-            // if (currentProvider === 'gemini-advanced') setCurrentProvider('openai')
-        },
-        onError: (e) => toast.error(e.message)
-    })
 
     // Listen for main process events
     useEffect(() => {
@@ -143,14 +112,8 @@ export function ApiKeysTab() {
             utils.auth.getChatGPTStatus.invalidate()
             toast.success('ChatGPT Connected!')
         })
-        // @ts-ignore
-        const cleanupGM = window.desktopApi?.onGeminiConnected?.(() => {
-            utils.auth.getGeminiStatus.invalidate()
-            toast.success('Gemini Connected!')
-        })
         return () => {
             cleanupCP?.()
-            cleanupGM?.()
         }
     }, [utils])
 
@@ -173,7 +136,7 @@ export function ApiKeysTab() {
             <div className="space-y-2">
                 <h3 className="text-lg font-semibold">AI Settings</h3>
                 <p className="text-sm text-muted-foreground">
-                    Configure your AI providers. Subscription-based providers (Gemini/ChatGPT) use zero credits.
+                    Configure your AI providers. Subscription-based providers use zero credits.
                 </p>
             </div>
 
@@ -194,9 +157,6 @@ export function ApiKeysTab() {
                                 </SelectItem>
                                 <SelectItem value="chatgpt-plus" disabled={!chatGPTStatus?.isConnected}>
                                     <div className="flex items-center gap-2"><IconBrandOpenai size={14} className="text-emerald-500" /><span>ChatGPT Plus</span></div>
-                                </SelectItem>
-                                <SelectItem value="gemini-advanced" disabled={!geminiStatus?.isConnected}>
-                                    <div className="flex items-center gap-2"><GeminiIcon size={14} className="text-blue-500" /><span>Gemini Advanced</span></div>
                                 </SelectItem>
                                 <SelectItem value="zai">
                                     <div className="flex items-center gap-2"><ZaiIcon size={14} className="text-amber-500" /><span>Z.AI Subscription</span></div>

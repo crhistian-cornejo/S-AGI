@@ -36,8 +36,6 @@ export const allModelsGroupedAtom = atom(() => {
         openai: getModelsByProvider('openai'),
         'chatgpt-plus': getModelsByProvider('chatgpt-plus'),
         zai: getModelsByProvider('zai')
-        // NOTE: 'gemini-advanced' removed - OAuth incompatible
-        // 'gemini-advanced': getModelsByProvider('gemini-advanced')
     }
 })
 
@@ -45,6 +43,11 @@ export const allModelsGroupedAtom = atom(() => {
 export const currentModelAtom = atom((get): ModelDefinition | undefined => {
     const modelId = get(selectedModelAtom)
     return AI_MODELS[modelId]
+})
+
+export const supportsReasoningAtom = atom((get) => {
+    const model = get(currentModelAtom)
+    return model?.supportsReasoning ?? false
 })
 
 // === API KEY STATUS (actual keys stored securely in main process) ===

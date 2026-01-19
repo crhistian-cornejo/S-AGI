@@ -460,10 +460,16 @@ export function Sidebar() {
     const user = session?.user
 
     // Fetch chats (includes pinned, ordered correctly)
-    const { data: chats, isLoading, refetch } = trpc.chats.list.useQuery({})
+    const { data: chats, isLoading, refetch } = trpc.chats.list.useQuery({}, {
+        staleTime: 60_000,
+        gcTime: 1000 * 60 * 30
+    })
     
     // Fetch archived chats
-    const { data: archivedChats, refetch: refetchArchived } = trpc.chats.listArchived.useQuery()
+    const { data: archivedChats, refetch: refetchArchived } = trpc.chats.listArchived.useQuery(undefined, {
+        staleTime: 60_000,
+        gcTime: 1000 * 60 * 30
+    })
 
     // Separate pinned and unpinned chats
     const { pinnedChats, recentChats } = useMemo(() => {

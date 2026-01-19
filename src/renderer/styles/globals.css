@@ -188,6 +188,15 @@
     /* Toolbar */
     --univer-toolbar-bg: hsl(var(--background));
     --univer-toolbar-btn-hover-bg: hsl(var(--accent));
+    
+    /* Dropdown/Popover */
+    --univer-popup-bg: hsl(var(--popover));
+    --univer-popup-color: hsl(var(--popover-foreground));
+    --univer-popup-border: hsl(var(--border));
+    --univer-menu-bg: hsl(var(--popover));
+    --univer-menu-color: hsl(var(--popover-foreground));
+    --univer-menu-item-hover-bg: hsl(var(--accent));
+    --univer-menu-item-selected-bg: hsl(var(--primary) / 0.15);
 }
 
 /* Dark mode - Univer CSS variable overrides */
@@ -211,6 +220,15 @@
     
     --univer-toolbar-bg: hsl(var(--background));
     --univer-toolbar-btn-hover-bg: hsl(var(--accent));
+    
+    /* Dropdown/Popover */
+    --univer-popup-bg: hsl(var(--popover));
+    --univer-popup-color: hsl(var(--popover-foreground));
+    --univer-popup-border: hsl(var(--border));
+    --univer-menu-bg: hsl(var(--popover));
+    --univer-menu-color: hsl(var(--popover-foreground));
+    --univer-menu-item-hover-bg: hsl(var(--accent));
+    --univer-menu-item-selected-bg: hsl(var(--primary) / 0.15);
 }
 
 /* Direct style overrides for Univer components */
@@ -232,6 +250,15 @@
 [class*="univer-toolbar"] {
     background-color: hsl(var(--background)) !important;
     border-color: hsl(var(--border)) !important;
+    color: hsl(var(--foreground)) !important;
+}
+
+/* Ensure all icons in toolbar are visible in dark mode */
+.dark .univer-toolbar svg,
+.dark [class*="univer-toolbar"] svg {
+    color: hsl(var(--foreground)) !important;
+    fill: hsl(var(--foreground)) !important;
+    stroke: hsl(var(--foreground)) !important;
 }
 
 /* Formula bar */
@@ -272,6 +299,11 @@
 /* Buttons */
 .univer-button,
 [class*="univer-btn"] {
+    color: hsl(var(--foreground)) !important;
+}
+
+.dark .univer-button,
+.dark [class*="univer-btn"] {
     color: hsl(var(--foreground)) !important;
 }
 

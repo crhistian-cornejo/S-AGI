@@ -5,10 +5,16 @@
  * and unmount disposes it completely. No need for complex workbook switching logic.
  */
 
-import { Univer, LocaleType, LogLevel, merge, UniverInstanceType } from '@univerjs/core'
+import { Univer, LocaleType, LogLevel, merge, UniverInstanceType, ThemeService } from '@univerjs/core'
 import { FUniver } from '@univerjs/core/facade'
 import { UniverDocsPlugin } from '@univerjs/docs'
-import { createCustomTheme, createDarkTheme, isDarkModeActive } from './univer-theme'
+import {
+    createCustomTheme,
+    createDarkTheme,
+    isDarkModeActive,
+    createThemeFromVSCodeColors,
+    type VSCodeThemeColors,
+} from './univer-theme'
 import { UniverDocsUIPlugin } from '@univerjs/docs-ui'
 import { UniverRenderEnginePlugin } from '@univerjs/engine-render'
 import { UniverFormulaEnginePlugin } from '@univerjs/engine-formula'
@@ -52,6 +58,8 @@ import '@univerjs/drawing-ui/lib/index.css'
 import '@univerjs/sheets-drawing-ui/lib/index.css'
 import '@univerjs/sheets-hyper-link-ui/lib/index.css'
 import '@univerjs/find-replace/lib/index.css'
+// Custom theme overrides - must be imported AFTER Univer styles
+import './univer-theme-overrides.css'
 
 // Import locales
 import DesignEnUS from '@univerjs/design/locale/en-US'
@@ -265,15 +273,32 @@ export function getSheetsInstance(): UniverSheetsInstance | null {
 }
 
 /**
- * Toggle dark mode for the Sheets instance
+ * Update theme for the Sheets instance with full VSCode theme colors
  */
-export function setSheetsTheme(isDark: boolean): void {
-    if (sheetsInstance?.api) {
+export function setSheetsTheme(isDark: boolean, themeColors?: VSCodeThemeColors | null): void {
+    if (sheetsInstance) {
         try {
-            (sheetsInstance.api as any).toggleDarkMode(isDark)
-            console.log('[UniverSheets] Dark mode toggled:', isDark)
+            // Create theme from VSCode colors if available, otherwise use defaults
+            const nextTheme = themeColors
+                ? createThemeFromVSCodeColors(themeColors, isDark)
+                : isDark
+                    ? createDarkTheme()
+                    : createCustomTheme()
+
+            const themeService = sheetsInstance.univer.__getInjector().get(ThemeService)
+            themeService.setTheme(nextTheme)
+            themeService.setDarkMode(isDark)
+            ;(sheetsInstance.api as any).toggleDarkMode(isDark)
+
+            console.log('[UniverSheets] Theme updated:', {
+                isDark,
+                hasVSCodeColors: !!themeColors,
+                primary: nextTheme.primary?.[500],
+                background: nextTheme.white,
+                foreground: nextTheme.black,
+            })
         } catch (e) {
-            console.warn('[UniverSheets] Failed to toggle dark mode:', e)
+            console.warn('[UniverSheets] Failed to update theme:', e)
         }
     }
 }

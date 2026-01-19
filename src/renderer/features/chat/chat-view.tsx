@@ -95,13 +95,17 @@ export function ChatView() {
             ? keyStatus?.hasChatGPTPlus
             : provider === 'zai'
                 ? keyStatus?.hasZai
-                // NOTE: gemini-advanced disabled
                 : keyStatus?.hasAnthropic
 
     // Fetch messages for selected chat
     const { data: messages, refetch: refetchMessages, error: messagesError } = trpc.messages.list.useQuery(
         { chatId: selectedChatId! },
-        { enabled: !!selectedChatId, retry: false }
+        {
+            enabled: !!selectedChatId,
+            retry: false,
+            staleTime: 15_000,
+            gcTime: 1000 * 60 * 30
+        }
     )
 
     // Plan mode state
@@ -192,79 +196,74 @@ export function ChatView() {
         setStreamingFileSearches([]) // Clear previous file searches
         setStreamingAnnotations([]) // Clear previous annotations
 
-        // Upload documents to OpenAI Vector Store for file search
-        if (documents && documents.length > 0) {
-            console.log('[ChatView] Uploading', documents.length, 'documents to OpenAI Vector Store...')
-            try {
-                await documentUpload.uploadDocuments(documents)
-                console.log('[ChatView] Documents uploaded successfully')
-            } catch (docError) {
-                const errorMessage = docError instanceof Error ? docError.message : 'Failed to upload documents'
-                console.error('[ChatView] Failed to upload documents:', docError)
-                
-                // If it's a configuration error, notify user and stop
-                if (errorMessage.includes('API key') || errorMessage.includes('not configured')) {
-                    toast.error(errorMessage)
-                    setIsStreaming(false)
-                    return
-                }
-                // For other errors, continue anyway - documents may still be processing
-                toast.warning('Some documents failed to upload. Continuing without them.')
-            }
-        }
-
-        // Upload images to Supabase Storage and prepare attachments
-        let attachments: Array<{
-            id: string
-            name: string
-            size: number
-            type: string
-            url?: string
-            preview?: string
-        }> = []
-
-        if (images && images.length > 0) {
-            console.log('[ChatView] Uploading', images.length, 'images to storage...')
-
-            for (const img of images) {
+        const documentUploadPromise = documents && documents.length > 0
+            ? (async () => {
+                console.log('[ChatView] Uploading', documents.length, 'documents to OpenAI Vector Store...')
                 try {
-                    // Calculate approximate size from base64
-                    const sizeInBytes = Math.round((img.base64Data.length * 3) / 4)
+                    await documentUpload.uploadDocuments(documents)
+                    console.log('[ChatView] Documents uploaded successfully')
+                } catch (docError) {
+                    const errorMessage = docError instanceof Error ? docError.message : 'Failed to upload documents'
+                    console.error('[ChatView] Failed to upload documents:', docError)
 
-                    // Upload to Supabase Storage via tRPC
-                    const uploaded = await trpcClient.messages.uploadFile.mutate({
-                        fileName: img.filename,
-                        fileSize: sizeInBytes,
-                        fileType: img.mediaType,
-                        fileData: img.base64Data
-                    })
-
-                    attachments.push({
-                        id: uploaded.id,
-                        name: uploaded.name,
-                        size: uploaded.size,
-                        type: uploaded.type,
-                        url: uploaded.url
-                    })
-
-                    console.log('[ChatView] Uploaded image:', uploaded.name, '→', uploaded.url)
-                } catch (uploadError) {
-                    console.error('[ChatView] Failed to upload image:', img.filename, uploadError)
-                    // Continue with other images even if one fails
+                    if (errorMessage.includes('API key') || errorMessage.includes('not configured')) {
+                        toast.error(errorMessage)
+                        throw new Error(errorMessage)
+                    }
+                    toast.warning('Some documents failed to upload. Continuing without them.')
                 }
-            }
-        }
+            })()
+            : null
+
+        const imageUploadPromise = images && images.length > 0
+            ? (async () => {
+                console.log('[ChatView] Uploading', images.length, 'images to storage...')
+                const uploadedAttachments: Array<{
+                    id: string
+                    name: string
+                    size: number
+                    type: string
+                    url?: string
+                    preview?: string
+                }> = []
+
+                for (const img of images) {
+                    try {
+                        const sizeInBytes = Math.round((img.base64Data.length * 3) / 4)
+
+                        const uploaded = await trpcClient.messages.uploadFile.mutate({
+                            fileName: img.filename,
+                            fileSize: sizeInBytes,
+                            fileType: img.mediaType,
+                            fileData: img.base64Data
+                        })
+
+                        uploadedAttachments.push({
+                            id: uploaded.id,
+                            name: uploaded.name,
+                            size: uploaded.size,
+                            type: uploaded.type,
+                            url: uploaded.url
+                        })
+
+                        console.log('[ChatView] Uploaded image:', uploaded.name, '→', uploaded.url)
+                    } catch (uploadError) {
+                        console.error('[ChatView] Failed to upload image:', img.filename, uploadError)
+                    }
+                }
+
+                return uploadedAttachments
+            })()
+            : null
 
         const sendWithChatId = async (chatId: string, historySource: typeof messages | undefined) => {
             const chatIdForStream = chatId
             const isFirstMessage = !historySource || historySource.length === 0
 
-            // Add user message to database with attachments
             await addMessage.mutateAsync({
                 chatId: chatIdForStream,
                 role: 'user',
-                content: { type: 'text', text: userMessage },
-                attachments: attachments.length > 0 ? attachments : undefined
+                content: { type: 'text', text: userMessage }
             })
 
             if (chatIdForStream === selectedChatId) {
@@ -729,6 +728,25 @@ export function ChatView() {
 
         try {
             await sendWithChatId(selectedChatId, existingMessages)
+
+            const uploadedAttachments = imageUploadPromise ? await imageUploadPromise : []
+            if (uploadedAttachments.length > 0) {
+                const latestMessages = await trpcClient.messages.list.query({ chatId: selectedChatId })
+                const lastUserMessage = [...latestMessages].reverse().find((msg) => msg.role === 'user')
+
+                if (lastUserMessage?.id) {
+                    await trpcClient.messages.update.mutate({
+                        id: lastUserMessage.id,
+                        attachments: uploadedAttachments
+                    })
+
+                    await refetchMessages()
+                }
+            }
+
+            if (documentUploadPromise) {
+                await documentUploadPromise
+            }
         } catch (error) {
             console.error('Failed to send message:', error)
             const errorMessage = error instanceof Error ? error.message : 'Unknown error'

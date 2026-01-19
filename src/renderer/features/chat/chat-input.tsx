@@ -28,13 +28,13 @@ import {
     currentProviderAtom,
     selectedModelAtom,
     reasoningEffortAtom,
+    supportsReasoningAtom,
     streamingToolCallsAtom,
     streamingWebSearchesAtom,
     streamingFileSearchesAtom,
     streamingReasoningAtom,
     isReasoningAtom,
     allModelsGroupedAtom,
-    hasChatGPTPlusAtom,
     // NOTE: Gemini disabled - hasGeminiAdvancedAtom,
     type ReasoningEffort,
 } from '@/lib/atoms'
@@ -50,6 +50,7 @@ import {
 } from '@/components/ui/tooltip'
 import { ModelIcon } from '@/components/icons/model-icons'
 import { AI_MODELS } from '@shared/ai-types'
+import { trpc } from '@/lib/trpc'
 
 interface ChatInputProps {
     value: string
@@ -69,7 +70,6 @@ export function ChatInput({ value, onChange, onSend, onStop, isLoading, streamin
     const [_provider, setProvider] = useAtom(currentProviderAtom)
     const [selectedModel, setSelectedModel] = useAtom(selectedModelAtom)
     const allModelsGrouped = useAtomValue(allModelsGroupedAtom)
-    const hasChatGPTPlus = useAtomValue(hasChatGPTPlusAtom)
     // NOTE: Gemini disabled - const hasGeminiAdvanced = useAtomValue(hasGeminiAdvancedAtom)
     const [reasoningEffort, setReasoningEffort] = useAtom(reasoningEffortAtom)
     const streamingToolCalls = useAtomValue(streamingToolCallsAtom)
@@ -77,6 +77,10 @@ export function ChatInput({ value, onChange, onSend, onStop, isLoading, streamin
     const streamingFileSearches = useAtomValue(streamingFileSearchesAtom)
     const streamingReasoning = useAtomValue(streamingReasoningAtom)
     const isReasoning = useAtomValue(isReasoningAtom)
+    const supportsReasoning = useAtomValue(supportsReasoningAtom)
+    
+    // Get API key status to filter providers
+    const { data: keyStatus } = trpc.settings.getApiKeyStatus.useQuery()
     
     // Get current model info for display
     const currentModelInfo = AI_MODELS[selectedModel]
@@ -87,11 +91,15 @@ export function ChatInput({ value, onChange, onSend, onStop, isLoading, streamin
     }, [isPlanMode, setMode])
 
     useEffect(() => {
+        if (!supportsReasoning) {
+            setReasoningEffort('low')
+            return
+        }
         const allowedEfforts = new Set(['low', 'medium', 'high'])
         if (!allowedEfforts.has(reasoningEffort)) {
             setReasoningEffort('low')
         }
-    }, [reasoningEffort, setReasoningEffort])
+    }, [reasoningEffort, setReasoningEffort, supportsReasoning])
     
     // Use the new file upload hook
     const {
@@ -480,7 +488,7 @@ export function ChatInput({ value, onChange, onSend, onStop, isLoading, streamin
                             </SelectTrigger>
                             <SelectContent className="rounded-xl shadow-xl border-border/50 min-w-[200px]">
                                 {/* ChatGPT Plus models (show first if connected) */}
-                                {hasChatGPTPlus && allModelsGrouped['chatgpt-plus']?.length > 0 && (
+                                {keyStatus?.hasChatGPTPlus && allModelsGrouped['chatgpt-plus']?.length > 0 && (
                                     <>
                                         <div className="text-[10px] font-bold uppercase text-muted-foreground/50 px-3 py-2 flex items-center gap-1.5">
                                             <ModelIcon provider="chatgpt-plus" size={12} />
@@ -498,44 +506,27 @@ export function ChatInput({ value, onChange, onSend, onStop, isLoading, streamin
                                     </>
                                 )}
 
-                                {/* Gemini Advanced models - DISABLED */}
-                                {/* OAuth token incompatible with API endpoint */}
-                                {/* 
-                                {hasGeminiAdvanced && allModelsGrouped['gemini-advanced']?.length > 0 && (
+                                {/* OpenAI API models - only show if API key is configured */}
+                                {keyStatus?.hasOpenAI && allModelsGrouped.openai?.length > 0 && (
                                     <>
                                         <div className="text-[10px] font-bold uppercase text-muted-foreground/50 px-3 py-2 flex items-center gap-1.5">
-                                            <ModelIcon provider="gemini-advanced" size={12} />
-                                            Gemini Advanced
-                                            <span className="ml-auto text-[9px] font-medium text-blue-500 bg-blue-500/10 px-1.5 py-0.5 rounded">Subscription</span>
+                                            <ModelIcon provider="openai" size={12} />
+                                            OpenAI API
+                                            <span className="ml-auto text-[9px] font-medium text-primary bg-primary/10 px-1.5 py-0.5 rounded">Pay per use</span>
                                         </div>
-                                        {allModelsGrouped['gemini-advanced'].map((model) => (
+                                        {allModelsGrouped.openai.map((model) => (
                                             <SelectItem key={model.id} value={model.id} className="rounded-lg">
                                                 <div className="flex items-center gap-2">
                                                     <span>{model.name}</span>
                                                 </div>
                                             </SelectItem>
                                         ))}
-                                        <div className="h-px bg-border/40 my-1.5 mx-2" />
                                     </>
                                 )}
-                                */}
-                                
-                                {/* OpenAI API models */}
-                                <div className="text-[10px] font-bold uppercase text-muted-foreground/50 px-3 py-2 flex items-center gap-1.5">
-                                    <ModelIcon provider="openai" size={12} />
-                                    OpenAI API
-                                    <span className="ml-auto text-[9px] font-medium text-primary bg-primary/10 px-1.5 py-0.5 rounded">Pay per use</span>
-                                </div>
-                                {allModelsGrouped.openai.map((model) => (
-                                    <SelectItem key={model.id} value={model.id} className="rounded-lg">
-                                        <div className="flex items-center gap-2">
-                                            <span>{model.name}</span>
-                                        </div>
-                                    </SelectItem>
-                                ))}
 
-                                {allModelsGrouped.zai?.length > 0 && (
-                                    <>
+                                {/* Z.AI models - only show if API key is configured */}
+                                 {keyStatus?.hasZai && allModelsGrouped.zai?.length > 0 && (
+                                     <>
                                         <div className="h-px bg-border/40 my-1.5 mx-2" />
                                         <div className="text-[10px] font-bold uppercase text-muted-foreground/50 px-3 py-2 flex items-center gap-1.5">
                                             <ModelIcon provider="zai" size={12} />
@@ -551,26 +542,37 @@ export function ChatInput({ value, onChange, onSend, onStop, isLoading, streamin
                                         ))}
                                     </>
                                 )}
+
+                                {/* Show message if no providers configured */}
+                                {!keyStatus?.hasOpenAI && !keyStatus?.hasZai && !keyStatus?.hasChatGPTPlus && (
+                                    <div className="text-xs text-muted-foreground px-3 py-4 text-center">
+                                        No API keys configured.<br />
+                                        Go to Settings to add one.
+                                    </div>
+                                )}
                             </SelectContent>
                         </Select>
 
-                        <div className="w-px h-3.5 bg-border/40 mx-1" />
-
-                        {/* Reasoning Effort Selector */}
-                        <Select value={reasoningEffort} onValueChange={(v: ReasoningEffort) => setReasoningEffort(v)}>
-                            <SelectTrigger className="h-8 w-auto px-2.5 bg-transparent border-none shadow-none hover:bg-accent/50 gap-1.5 rounded-xl text-xs font-semibold">
-                                <IconBrain size={14} className="transition-colors text-violet-500" />
-                                <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent className="rounded-xl shadow-xl border-border/50 min-w-[140px]">
-                                <div className="text-[10px] font-bold uppercase text-muted-foreground/50 px-3 py-2">
-                                    Reasoning Depth
-                                </div>
-                                <SelectItem value="low" className="rounded-lg cursor-pointer">Low</SelectItem>
-                                <SelectItem value="medium" className="rounded-lg cursor-pointer">Medium</SelectItem>
-                                <SelectItem value="high" className="rounded-lg cursor-pointer">High</SelectItem>
-                            </SelectContent>
-                        </Select>
+                        {supportsReasoning && (
+                            <>
+                                <div className="w-px h-3.5 bg-border/40 mx-1" />
+                                {/* Reasoning Effort Selector */}
+                                <Select value={reasoningEffort} onValueChange={(v: ReasoningEffort) => setReasoningEffort(v)}>
+                                    <SelectTrigger className="h-8 w-auto px-2.5 bg-transparent border-none shadow-none hover:bg-accent/50 gap-1.5 rounded-xl text-xs font-semibold">
+                                        <IconBrain size={14} className="transition-colors text-violet-500" />
+                                        <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent className="rounded-xl shadow-xl border-border/50 min-w-[140px]">
+                                        <div className="text-[10px] font-bold uppercase text-muted-foreground/50 px-3 py-2">
+                                            Reasoning Depth
+                                        </div>
+                                        <SelectItem value="low" className="rounded-lg cursor-pointer">Low</SelectItem>
+                                        <SelectItem value="medium" className="rounded-lg cursor-pointer">Medium</SelectItem>
+                                        <SelectItem value="high" className="rounded-lg cursor-pointer">High</SelectItem>
+                                    </SelectContent>
+                                </Select>
+                            </>
+                        )}
                     </div>
 
                     <div className="flex items-center gap-1">

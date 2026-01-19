@@ -8,10 +8,7 @@ import { z } from 'zod'
  * Available AI Providers
  * - 'openai': Standard OpenAI API (requires API key)
  * - 'chatgpt-plus': ChatGPT Plus/Pro via Codex OAuth (uses subscription)
- * - 'zai': Z.AI Coding Plan (GLM models)
- * 
- * NOTE: gemini-advanced disabled - OAuth token incompatible with generativelanguage.googleapis.com
- * The endpoint requires Cloud Code Assist API format, not OpenAI-compatible
+ * - 'zai': Z.AI Coding Plan (GLM models via OpenAI-compatible endpoint)
  */
 export type AIProvider = 'openai' | 'chatgpt-plus' | 'zai'
 
@@ -188,58 +185,7 @@ export const AI_MODELS: Record<string, ModelDefinition> = {
         supportsReasoning: true,
         defaultReasoningEffort: 'low',
         includedInSubscription: true
-    },
-
-    // ========================================================================
-    // Gemini Advanced Models - DISABLED
-    // OAuth token from Gemini CLI is incompatible with generativelanguage.googleapis.com
-    // Would require Cloud Code Assist API (cloudcode-pa.googleapis.com) with different format
-    // ========================================================================
-    /*
-    'gemini-2.5-pro': {
-        id: 'gemini-2.5-pro',
-        provider: 'gemini-advanced',
-        name: 'Gemini 2.5 Pro',
-        description: 'Most capable Gemini model with 1M context',
-        contextWindow: 1000000,
-        supportsImages: true,
-        supportsTools: true,
-        supportsNativeWebSearch: false,
-        supportsCodeInterpreter: false,
-        supportsFileSearch: false,
-        supportsReasoning: true,
-        defaultReasoningEffort: 'medium',
-        includedInSubscription: true
-    },
-    'gemini-2.5-flash': {
-        id: 'gemini-2.5-flash',
-        provider: 'gemini-advanced',
-        name: 'Gemini 2.5 Flash',
-        description: 'Fast and efficient Gemini model',
-        contextWindow: 1000000,
-        supportsImages: true,
-        supportsTools: true,
-        supportsNativeWebSearch: false,
-        supportsCodeInterpreter: false,
-        supportsFileSearch: false,
-        supportsReasoning: true,
-        defaultReasoningEffort: 'low',
-        includedInSubscription: true
-    },
-    'gemini-2.0-flash': {
-        id: 'gemini-2.0-flash',
-        provider: 'gemini-advanced',
-        name: 'Gemini 2.0 Flash',
-        description: 'Previous generation fast model',
-        contextWindow: 1000000,
-        supportsImages: true,
-        supportsTools: true,
-        supportsNativeWebSearch: false,
-        supportsCodeInterpreter: false,
-        supportsFileSearch: false,
-        includedInSubscription: true
     }
-    */
 } as const
 
 /**
@@ -249,7 +195,6 @@ export const DEFAULT_MODELS: Record<AIProvider, string> = {
     openai: 'gpt-5',
     'chatgpt-plus': 'gpt-5.1-codex-max',
     zai: 'GLM-4.7'
-    // 'gemini-advanced': 'gemini-2.5-pro' // DISABLED
 }
 
 /**
@@ -487,7 +432,6 @@ export type ServiceTier = 'auto' | 'flex'
 // ============================================================================
 
 export const AIProviderSchema = z.enum(['openai', 'chatgpt-plus', 'zai'])
-// NOTE: 'gemini-advanced' removed - OAuth incompatible with endpoint
 
 export const ReasoningEffortSchema = z.enum(['low', 'medium', 'high'])
 

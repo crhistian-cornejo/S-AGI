@@ -502,6 +502,7 @@ function createPlanModeTools(
 // Union type for all tools
 type ToolParam = Responses.Tool
 
+
 function buildZaiWebSearchTool(searchContextSize: 'low' | 'medium' | 'high'): ToolParam {
     const count = searchContextSize === 'low' ? 3 : searchContextSize === 'high' ? 8 : 5
     return {
@@ -597,8 +598,12 @@ function buildNativeTools(
 
     // Code Interpreter
     if (config?.codeInterpreter && model.supportsCodeInterpreter) {
+        const codeConfig = typeof config.codeInterpreter === 'object' ? config.codeInterpreter : {}
         tools.push({
-            type: 'code_interpreter'
+            type: 'code_interpreter',
+            ...(codeConfig.containerType && {
+                container: { type: codeConfig.containerType }
+            })
         } as ToolParam)
     }
 
@@ -745,26 +750,6 @@ function toChatCompletionTools(tools: FunctionToolParam[]): OpenAI.ChatCompletio
     }))
 }
 
-function toZaiChatCompletionTools(tools: ToolParam[]): Array<OpenAI.ChatCompletionTool | ZaiWebSearchTool> {
-    return tools.flatMap((tool) => {
-        if (tool.type === 'function') {
-            return [{
-                type: 'function' as const,
-                function: {
-                    name: tool.name,
-                    description: tool.description ?? undefined,
-                    parameters: tool.parameters ?? undefined
-                }
-            }]
-        }
-
-        if (tool.type === 'web_search') {
-            return [tool as ZaiWebSearchTool]
-        }
-
-        return []
-    })
-}
 
 // Type for pending tool calls we need to track
 interface PendingToolCall {
@@ -786,9 +771,8 @@ export const aiRouter = router({
         }).optional())
         .query(({ input }) => {
             const chatGPTAuth = getChatGPTAuthManager()
-            return {
-                availableProviders: ['openai', 'chatgpt-plus', 'zai'] as const,
-                // NOTE: 'gemini-advanced' removed - OAuth incompatible
+                return {
+                    availableProviders: ['openai', 'chatgpt-plus', 'zai'] as const,
                 availableModels: AI_MODELS,
                 availableTools: getAllToolNames({
                     modelId: input?.modelId,
@@ -812,7 +796,6 @@ export const aiRouter = router({
             prompt: z.string(),
             mode: z.enum(['plan', 'agent']).default('agent'),
             provider: z.enum(['openai', 'chatgpt-plus', 'zai']).default('openai'),
-            // NOTE: 'gemini-advanced' removed - OAuth incompatible
             apiKey: z.string().optional(), // Optional for chatgpt-plus provider
             tavilyApiKey: z.string().optional(),
             model: z.string().optional(),
@@ -1178,6 +1161,45 @@ Time: ${now.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', ti
                         return matchesPattern || mentionsFileContent
                     }
 
+                    const shouldUseWebSearch = (prompt: string): { enabled: boolean; contextSize: 'low' | 'medium' | 'high' } => {
+                        const explicitWebPatterns = [
+                            /\b(internet|web|online|google|buscar\s+en\s+la\s+web|busca\s+en\s+la\s+web|search\s+the\s+web)\b/i,
+                            /\b(source|sources|fuente|fuentes|cita|citation)\b/i,
+                            /\bsite:/i
+                        ]
+
+                        const recencyPatterns = [
+                            /\b(hoy|ayer|esta\s+semana|este\s+mes|este\s+ano|actual|actualidad|reciente|ultimas|ultimos|latest|news|noticias)\b/i,
+                            /\b(precio|cotizacion|stock|acciones|tipo\s+de\s+cambio|usd|dolar|eur|crypto|bitcoin)\b/i,
+                            /\b(clima|weather|pronostico)\b/i,
+                            /\b(resultados|score|marcador|partido|eleccion|elecciones)\b/i
+                        ]
+
+                        const researchPatterns = [
+                            /\b(investiga|investigar|research|comparar|benchmark|analiza\s+fuentes|recopila)\b/i
+                        ]
+
+                        const hasUrl = /(https?:\/\/|www\.)/i.test(prompt)
+                        const wantsWeb = explicitWebPatterns.some((pattern) => pattern.test(prompt))
+                        const wantsRecency = recencyPatterns.some((pattern) => pattern.test(prompt))
+                        const wantsResearch = researchPatterns.some((pattern) => pattern.test(prompt))
+
+                        const enabled = hasUrl || wantsWeb || wantsRecency || wantsResearch
+                        const contextSize: 'low' | 'medium' | 'high' = wantsResearch || prompt.length > 220 ? 'medium' : 'low'
+
+                        log.info('[AI] Web search heuristic analysis:', {
+                            prompt: prompt.substring(0, 100),
+                            enabled,
+                            contextSize,
+                            hasUrl,
+                            wantsWeb,
+                            wantsRecency,
+                            wantsResearch
+                        })
+
+                        return { enabled, contextSize }
+                    }
+
                     // Automatically enable file search if chat has a vector store (Knowledge Base)
                     // This allows the AI to search uploaded documents without explicit frontend request
                     // Following Anthropic/OpenAI best practices for RAG systems
@@ -1302,15 +1324,26 @@ CRITICAL INSTRUCTIONS FOR DOCUMENT QUERIES:
                         }
                     }
 
-                    // CRITICAL: When forcing file_search, completely disable web_search in config
-                    if (shouldForceFileSearch) {
+                    const webSearchDecision = shouldForceFileSearch
+                        ? { enabled: false, contextSize: 'low' as const }
+                        : shouldUseWebSearch(input.prompt)
+
+                    if (webSearchDecision.enabled) {
                         nativeToolsConfig = {
                             ...nativeToolsConfig,
-                            webSearch: false  // Explicitly disable
+                            webSearch: {
+                                ...(typeof nativeToolsConfig?.webSearch === 'object' ? nativeToolsConfig.webSearch : {}),
+                                searchContextSize: webSearchDecision.contextSize
+                            }
                         }
-                        log.info(`[AI] Forcing file_search - set webSearch: false in config`)
+                    } else if (nativeToolsConfig?.webSearch !== false) {
+                        nativeToolsConfig = {
+                            ...nativeToolsConfig,
+                            webSearch: false
+                        }
                     }
-                    
+
+                    log.info(`[AI] Web search decision:`, webSearchDecision)
                     log.info(`[AI] Building native tools with config:`, JSON.stringify(nativeToolsConfig, null, 2))
                     
                     // Pass provider so we use correct tool format (web_search vs web_search_preview)
@@ -1334,7 +1367,6 @@ CRITICAL INSTRUCTIONS FOR DOCUMENT QUERIES:
                     )
 
                     const chatMessages = (provider === 'zai')
-                        // NOTE: removed || provider === 'gemini-advanced' - disabled
                         ? toChatMessages(systemPrompt, input.messages || [], input.prompt)
                         : null
 
@@ -1361,14 +1393,26 @@ CRITICAL INSTRUCTIONS FOR DOCUMENT QUERIES:
                             log.warn(`[AI] ${provider} does not support image inputs yet`)
                         }
 
-                        const chatTools = provider === 'zai'
-                            ? toZaiChatCompletionTools(allTools)
-                            : toChatCompletionTools(functionTools)
-
+                        // When web search is enabled for Z.AI, exclude function tools
+                        // This forces the model to use web_search instead of spreadsheet/doc tools
+                        const isWebSearchMode = provider === 'zai' && webSearchDecision.enabled
+                        const chatFunctionTools = isWebSearchMode ? [] : toChatCompletionTools(functionTools)
+                        
+                        // For Z.AI, we need to pass native tools (like web_search) as-is
+                        // The Chat Completions API accepts both function tools AND native tools
+                        const zaiNativeTools = provider === 'zai' ? nativeTools : []
+                        const chatTools = [...chatFunctionTools, ...zaiNativeTools] as OpenAI.ChatCompletionTool[]
+                        
+                        log.info(`[AI] Chat tools mode: isWebSearchMode=${isWebSearchMode}, functionTools=${chatFunctionTools.length}, nativeTools=${zaiNativeTools.length}, total=${chatTools.length}`)
+ 
                         while (currentStepNumber < MAX_AGENT_STEPS) {
                             currentStepNumber++
                             const stepStartTime = Date.now()
                             log.info(`[AI] ${provider} step ${currentStepNumber} starting...`)
+                            log.info(`[AI] ${provider} request: model=${modelId}, messages=${chatMessages?.length || 0}, tools=${chatTools.length}`)
+                            if (chatMessages && chatMessages.length > 0) {
+                                log.info(`[AI] ${provider} first message role: ${chatMessages[0]?.role}`)
+                            }
 
                             const stream = await withRetry(
                                 `${provider}.chat.completions.create`,
@@ -1383,12 +1427,12 @@ CRITICAL INSTRUCTIONS FOR DOCUMENT QUERIES:
                                         stream: true
                                     },
                                     { signal, timeout: DEFAULT_REQUEST_TIMEOUT_MS }
-                                )
+                                ) as any
                             )
-
+ 
                             const toolCallMap = new Map<string, { id: string; name: string; args: string }>()
-
-                            for await (const chunk of stream) {
+ 
+                            for await (const chunk of stream as any) {
                                 const delta = chunk.choices?.[0]?.delta
                                 if (!delta) continue
 
@@ -1569,7 +1613,8 @@ CRITICAL INSTRUCTIONS FOR DOCUMENT QUERIES:
                     }
 
                     if (provider === 'zai') {
-                        // NOTE: removed || provider === 'gemini-advanced' - disabled
+                        // Z.AI uses Chat Completions API (OpenAI-compatible)
+                        // It doesn't support OpenAI's Responses API
                         await runChatCompletionsAgentLoop()
                         return
                     }
@@ -1662,27 +1707,27 @@ CRITICAL INSTRUCTIONS FOR DOCUMENT QUERIES:
                             timeout: requestTimeoutMs
                         }
 
-                        const stream = await withRetry(
+                        const stream: any = await withRetry(
                             'responses.stream',
                             abortController.signal,
                             0,
-                            (signal) => client.responses.stream(streamParams, { ...requestOptions, signal })
+                            async (signal) => client.responses.stream(streamParams, { ...(requestOptions as any), signal }) as any
                         )
-
+ 
                         pendingToolCalls = []
                         let hasToolCalls = false
-
+ 
                         // Handle stream events
                         stream
-                            .on('response.created', (event) => {
+                            .on('response.created', (event: any) => {
                                 log.info(`[AI] Stream: response.created, id=${event.response.id}`)
                                 currentResponseId = event.response.id
                             })
-                            .on('response.output_text.delta', (event) => {
+                            .on('response.output_text.delta', (event: any) => {
                                 fullText += event.delta
                                 emit({ type: 'text-delta', delta: event.delta })
                             })
-                            .on('response.reasoning_summary_text.delta', (event) => {
+                            .on('response.reasoning_summary_text.delta', (event: any) => {
                                 if (fullReasoningSummary.length === 0) {
                                     log.info(`[AI] Stream: First reasoning delta received`)
                                 }
@@ -1693,7 +1738,7 @@ CRITICAL INSTRUCTIONS FOR DOCUMENT QUERIES:
                                     summaryIndex: event.summary_index
                                 })
                             })
-                            .on('response.reasoning_summary_text.done', (event) => {
+                            .on('response.reasoning_summary_text.done', (event: any) => {
                                 log.info(`[AI] Stream: Reasoning summary done, ${event.text?.length || 0} chars`)
                                 emit({ 
                                     type: 'reasoning-summary-done', 
@@ -1701,23 +1746,19 @@ CRITICAL INSTRUCTIONS FOR DOCUMENT QUERIES:
                                     summaryIndex: event.summary_index
                                 })
                             })
-                            .on('response.output_item.done', (event) => {
-                                // Log the full event for debugging
+                            .on('response.output_item.done', (event: any) => {
                                 log.info(`[AI] output_item.done - type: ${event.item.type}`)
                                 
-                                // Check if this is a function call item
                                 if (event.item.type === 'function_call') {
                                     const functionCall = event.item as Responses.ResponseFunctionToolCall
                                     hasToolCalls = true
                                     
-                                    // Emit tool-call-start first so frontend can track it
                                     emit({
                                         type: 'tool-call-start',
                                         toolCallId: functionCall.call_id,
                                         toolName: functionCall.name
                                     })
                                     
-                                    // Then emit tool-call-done with args
                                     emit({
                                         type: 'tool-call-done',
                                         toolCallId: functionCall.call_id,
@@ -1725,7 +1766,6 @@ CRITICAL INSTRUCTIONS FOR DOCUMENT QUERIES:
                                         args: JSON.parse(functionCall.arguments)
                                     })
                                     
-                                    // Track pending tool call
                                     pendingToolCalls.push({
                                         callId: functionCall.call_id,
                                         name: functionCall.name,
@@ -1733,13 +1773,11 @@ CRITICAL INSTRUCTIONS FOR DOCUMENT QUERIES:
                                     })
                                 }
                                 
-                                // Check if this is a message with annotations (web search citations)
                                 if (event.item.type === 'message') {
                                     const messageItem = event.item as any
                                     log.info(`[AI] Message item done, content count: ${messageItem.content?.length || 0}`)
                                     log.info(`[AI] Message item raw:`, JSON.stringify(messageItem, null, 2))
                                     
-                                    // Annotations can be on multiple content items (type: output_text)
                                     const allAnnotations: any[] = []
                                     for (const content of messageItem.content || []) {
                                         log.info(`[AI] Content item type: ${content?.type}, has annotations: ${!!content?.annotations}, count: ${content?.annotations?.length || 0}`)
@@ -1767,7 +1805,7 @@ CRITICAL INSTRUCTIONS FOR DOCUMENT QUERIES:
                                     }
                                 }
                             })
-                            .on('response.web_search_call.in_progress', (event) => {
+                            .on('response.web_search_call.in_progress', (event: any) => {
                                 const wsEvent = event as any
                                 const { action, query, domains, url } = extractWebSearchDetails(wsEvent)
                                 emit({
@@ -1779,7 +1817,7 @@ CRITICAL INSTRUCTIONS FOR DOCUMENT QUERIES:
                                     url
                                 })
                             })
-                            .on('response.web_search_call.searching', (event) => {
+                            .on('response.web_search_call.searching', (event: any) => {
                                 const wsEvent = event as any
                                 const { action, query, domains, url } = extractWebSearchDetails(wsEvent)
                                 emit({
@@ -1791,7 +1829,7 @@ CRITICAL INSTRUCTIONS FOR DOCUMENT QUERIES:
                                     url
                                 })
                             })
-                            .on('response.web_search_call.completed', (event) => {
+                            .on('response.web_search_call.completed', (event: any) => {
                                 const wsEvent = event as any
                                 log.info(`[AI] Web search completed:`, JSON.stringify(wsEvent, null, 2))
                                 const { action, query, domains, url } = extractWebSearchDetails(wsEvent)
@@ -1804,26 +1842,26 @@ CRITICAL INSTRUCTIONS FOR DOCUMENT QUERIES:
                                     url
                                 })
                             })
-                            .on('response.code_interpreter_call.in_progress', (event) => {
+                            .on('response.code_interpreter_call.in_progress', (event: any) => {
                                 emit({ type: 'code-interpreter-start', executionId: event.item_id })
                             })
-                            .on('response.code_interpreter_call.interpreting', (event) => {
+                            .on('response.code_interpreter_call.interpreting', (event: any) => {
                                 emit({ type: 'code-interpreter-interpreting', executionId: event.item_id })
                             })
-                            .on('response.code_interpreter_call_code.delta', (event) => {
+                            .on('response.code_interpreter_call_code.delta', (event: any) => {
                                 emit({ type: 'code-interpreter-code-delta', executionId: event.item_id, delta: event.delta })
                             })
-                            .on('response.code_interpreter_call_code.done', (event) => {
+                            .on('response.code_interpreter_call_code.done', (event: any) => {
                                 emit({ type: 'code-interpreter-code-done', executionId: event.item_id, code: event.code })
                             })
-                            .on('response.code_interpreter_call.completed', (event) => {
+                            .on('response.code_interpreter_call.completed', (event: any) => {
                                 emit({ type: 'code-interpreter-done', executionId: event.item_id, output: '' })
                             })
-                            .on('response.file_search_call.in_progress', (event) => {
+                            .on('response.file_search_call.in_progress', (event: any) => {
                                 log.info(`[AI] File search in_progress:`, JSON.stringify(event, null, 2))
                                 emit({ type: 'file-search-start', searchId: event.item_id })
                             })
-                            .on('response.file_search_call.searching', (event) => {
+                            .on('response.file_search_call.searching', (event: any) => {
                                 const fsEvent = event as any
                                 log.info(`[AI] File search searching:`, {
                                     itemId: event.item_id,
@@ -1832,9 +1870,8 @@ CRITICAL INSTRUCTIONS FOR DOCUMENT QUERIES:
                                 })
                                 emit({ type: 'file-search-searching', searchId: event.item_id })
                             })
-                            .on('response.file_search_call.completed', (event) => {
+                            .on('response.file_search_call.completed', (event: any) => {
                                 const fsEvent = event as any
-                                // Log detailed results for debugging
                                 log.info(`[AI] File search completed:`, {
                                     itemId: event.item_id,
                                     resultsCount: fsEvent.results?.length || 0,
@@ -1846,10 +1883,10 @@ CRITICAL INSTRUCTIONS FOR DOCUMENT QUERIES:
                                 })
                                 emit({ type: 'file-search-done', searchId: event.item_id, results: fsEvent.results })
                             })
-                            .on('error', (event) => {
+                            .on('error', (event: any) => {
                                 emit({ type: 'error', error: event.message })
                             })
-
+ 
                         // Wait for stream to complete
                         const finalResponse = await stream.finalResponse()
                         const responseUsage = finalResponse.usage
