@@ -165,71 +165,140 @@ export function MainLayout() {
                         {/* Chat area */}
                         <div className="flex-1 flex flex-col min-w-0 overflow-hidden relative pt-10">
                             {!sidebarOpen && (
-                                <div className={cn(
-                                    "absolute left-4 z-[60] flex items-center gap-2 animate-in fade-in slide-in-from-left-4 duration-500 no-drag",
-                                    isMacOS() ? "top-0 h-11 pl-16 pr-2" : "top-2 h-10"
-                                )}>
-                                    <Tooltip>
-                                        <TooltipTrigger asChild>
-                                            <Button
-                                                variant="ghost"
-                                                size="icon"
-                                                className="h-8 w-8 rounded-xl bg-background/60 backdrop-blur-xl border border-border/50 shadow-sm hover:bg-accent hover:scale-110 transition-all active:scale-95 text-primary no-drag"
-                                                onClick={() => setSidebarOpen(true)}
-                                            >
-                                                <IconLayoutSidebarLeftExpand size={18} />
-                                            </Button>
-                                        </TooltipTrigger>
-                                        <TooltipContent side="bottom" className="flex items-center gap-2 font-semibold">
-                                            Open Sidebar
-                                            <kbd className="pointer-events-none inline-flex h-5 select-none items-center gap-1 rounded border bg-muted px-1.5 font-mono text-[10px] font-medium text-muted-foreground opacity-100">
-                                                {navigator.platform.toLowerCase().includes('mac') ? '⌘' : 'Ctrl'} \
-                                            </kbd>
-                                        </TooltipContent>
-                                    </Tooltip>
+                                <>
+                                    {isMacOS() && (
+                                        <div className={cn(
+                                            "absolute z-[60] flex items-center gap-2 animate-in fade-in slide-in-from-left-4 duration-500 no-drag",
+                                            "top-0 h-11 pl-16 pr-2 left-4"
+                                        )}>
+                                            <Tooltip>
+                                                <TooltipTrigger asChild>
+                                                    <Button
+                                                        variant="ghost"
+                                                        size="icon"
+                                                        className="h-8 w-8 rounded-xl bg-background/60 backdrop-blur-xl border border-border/50 shadow-sm hover:bg-accent hover:scale-110 transition-all active:scale-95 text-primary no-drag"
+                                                        onClick={() => setSidebarOpen(true)}
+                                                    >
+                                                        <IconLayoutSidebarLeftExpand size={18} />
+                                                    </Button>
+                                                </TooltipTrigger>
+                                                <TooltipContent side="bottom" className="flex items-center gap-2 font-semibold">
+                                                    Open Sidebar
+                                                    <kbd className="pointer-events-none inline-flex h-5 select-none items-center gap-1 rounded border bg-muted px-1.5 font-mono text-[10px] font-medium text-muted-foreground opacity-100">
+                                                        {navigator.platform.toLowerCase().includes('mac') ? '⌘' : 'Ctrl'} \
+                                                    </kbd>
+                                                </TooltipContent>
+                                            </Tooltip>
 
-                                    <Tooltip>
-                                        <TooltipTrigger asChild>
-                                            <Button
-                                                variant="outline"
-                                                size="icon"
-                                                className="h-8 w-8 rounded-xl bg-background/60 backdrop-blur-xl border-border/50 shadow-sm hover:bg-accent hover:scale-110 transition-all active:scale-95 no-drag"
-                                                onClick={handleNewChat}
-                                                disabled={createChat.isPending}
-                                            >
-                                                <IconPlus size={18} />
-                                            </Button>
-                                        </TooltipTrigger>
-                                        <TooltipContent side="bottom" className="flex items-center gap-2 font-semibold">
-                                            New Chat
-                                            <kbd className="pointer-events-none inline-flex h-5 select-none items-center gap-1 rounded border bg-muted px-1.5 font-mono text-[10px] font-medium text-muted-foreground opacity-100">
-                                                {navigator.platform.toLowerCase().includes('mac') ? '⌘' : 'Ctrl'} N
-                                            </kbd>
-                                        </TooltipContent>
-                                    </Tooltip>
+                                            <Tooltip>
+                                                <TooltipTrigger asChild>
+                                                    <Button
+                                                        variant="outline"
+                                                        size="icon"
+                                                        className="h-8 w-8 rounded-xl bg-background/60 backdrop-blur-xl border-border/50 shadow-sm hover:bg-accent hover:scale-110 transition-all active:scale-95 no-drag"
+                                                        onClick={handleNewChat}
+                                                        disabled={createChat.isPending}
+                                                    >
+                                                        <IconPlus size={18} />
+                                                    </Button>
+                                                </TooltipTrigger>
+                                                <TooltipContent side="bottom" className="flex items-center gap-2 font-semibold">
+                                                    New Chat
+                                                    <kbd className="pointer-events-none inline-flex h-5 select-none items-center gap-1 rounded border bg-muted px-1.5 font-mono text-[10px] font-medium text-muted-foreground opacity-100">
+                                                        {navigator.platform.toLowerCase().includes('mac') ? '⌘' : 'Ctrl'} N
+                                                    </kbd>
+                                                </TooltipContent>
+                                            </Tooltip>
 
-                                    <Dialog open={historyOpen} onOpenChange={setHistoryOpen}>
-                                        <DialogTrigger asChild>
-                                            <div className="inline-flex no-drag">
-                                                <Tooltip>
-                                                    <TooltipTrigger asChild>
-                                                        <Button
-                                                            variant="ghost"
-                                                            size="icon"
-                                                            className="h-8 w-8 rounded-xl bg-background/60 backdrop-blur-xl border border-border/50 shadow-sm hover:bg-accent hover:scale-110 transition-all active:scale-95 no-drag"
-                                                        >
-                                                            <IconHistory size={18} className="text-muted-foreground" />
-                                                        </Button>
-                                                    </TooltipTrigger>
-                                                    <TooltipContent side="bottom">History</TooltipContent>
-                                                </Tooltip>
-                                            </div>
-                                        </DialogTrigger>
-                                        <Suspense fallback={null}>
-                                            <HistoryDialogContent onSelect={() => setHistoryOpen(false)} />
-                                        </Suspense>
-                                    </Dialog>
-                                </div>
+                                            <Dialog open={historyOpen} onOpenChange={setHistoryOpen}>
+                                                <DialogTrigger asChild>
+                                                    <div className="inline-flex no-drag">
+                                                        <Tooltip>
+                                                            <TooltipTrigger asChild>
+                                                                <Button
+                                                                    variant="ghost"
+                                                                    size="icon"
+                                                                    className="h-8 w-8 rounded-xl bg-background/60 backdrop-blur-xl border border-border/50 shadow-sm hover:bg-accent hover:scale-110 transition-all active:scale-95 no-drag"
+                                                                >
+                                                                    <IconHistory size={18} className="text-muted-foreground" />
+                                                                </Button>
+                                                            </TooltipTrigger>
+                                                            <TooltipContent side="bottom">History</TooltipContent>
+                                                        </Tooltip>
+                                                    </div>
+                                                </DialogTrigger>
+                                                <Suspense fallback={null}>
+                                                    <HistoryDialogContent onSelect={() => setHistoryOpen(false)} />
+                                                </Suspense>
+                                            </Dialog>
+                                        </div>
+                                    )}
+
+                                    {!isMacOS() && (
+                                        <div className="absolute left-4 top-12 z-[60] flex flex-col items-center gap-2 no-drag">
+                                            <Tooltip>
+                                                <TooltipTrigger asChild>
+                                                    <Button
+                                                        variant="ghost"
+                                                        size="icon"
+                                                        className="h-8 w-8 rounded-xl bg-background/60 backdrop-blur-xl border border-border/50 shadow-sm hover:bg-accent hover:scale-110 transition-all active:scale-95 text-primary no-drag"
+                                                        onClick={() => setSidebarOpen(true)}
+                                                    >
+                                                        <IconLayoutSidebarLeftExpand size={18} />
+                                                    </Button>
+                                                </TooltipTrigger>
+                                                <TooltipContent side="right" className="flex items-center gap-2 font-semibold">
+                                                    Open Sidebar
+                                                    <kbd className="pointer-events-none inline-flex h-5 select-none items-center gap-1 rounded border bg-muted px-1.5 font-mono text-[10px] font-medium text-muted-foreground opacity-100">
+                                                        Ctrl \
+                                                    </kbd>
+                                                </TooltipContent>
+                                            </Tooltip>
+
+                                            <Tooltip>
+                                                <TooltipTrigger asChild>
+                                                    <Button
+                                                        variant="ghost"
+                                                        size="icon"
+                                                        className="h-8 w-8 rounded-xl bg-background/60 backdrop-blur-xl border-border/50 shadow-sm hover:bg-accent hover:scale-110 transition-all active:scale-95 no-drag"
+                                                        onClick={handleNewChat}
+                                                        disabled={createChat.isPending}
+                                                    >
+                                                        <IconPlus size={18} />
+                                                    </Button>
+                                                </TooltipTrigger>
+                                                <TooltipContent side="right" className="flex items-center gap-2 font-semibold">
+                                                    New Chat
+                                                    <kbd className="pointer-events-none inline-flex h-5 select-none items-center gap-1 rounded border bg-muted px-1.5 font-mono text-[10px] font-medium text-muted-foreground opacity-100">
+                                                        Ctrl N
+                                                    </kbd>
+                                                </TooltipContent>
+                                            </Tooltip>
+
+                                            <Dialog open={historyOpen} onOpenChange={setHistoryOpen}>
+                                                <DialogTrigger asChild>
+                                                    <div className="inline-flex no-drag">
+                                                        <Tooltip>
+                                                            <TooltipTrigger asChild>
+                                                                <Button
+                                                                    variant="ghost"
+                                                                    size="icon"
+                                                                    className="h-8 w-8 rounded-xl bg-background/60 backdrop-blur-xl border border-border/50 shadow-sm hover:bg-accent hover:scale-110 transition-all active:scale-95 no-drag"
+                                                                >
+                                                                    <IconHistory size={18} className="text-muted-foreground" />
+                                                                </Button>
+                                                            </TooltipTrigger>
+                                                            <TooltipContent side="right">History</TooltipContent>
+                                                        </Tooltip>
+                                                    </div>
+                                                </DialogTrigger>
+                                                <Suspense fallback={null}>
+                                                    <HistoryDialogContent onSelect={() => setHistoryOpen(false)} />
+                                                </Suspense>
+                                            </Dialog>
+                                        </div>
+                                    )}
+                                </>
                             )}
                             <ChatView />
                         </div>

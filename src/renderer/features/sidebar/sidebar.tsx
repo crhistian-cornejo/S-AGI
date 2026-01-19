@@ -39,6 +39,7 @@ import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { CursorTooltip } from '@/components/ui/cursor-tooltip'
 import { Input } from '@/components/ui/input'
+import { Logo } from '@/components/ui/logo'
 import { toast } from 'sonner'
 
 import {
@@ -54,7 +55,7 @@ import {
     AvatarImage,
     AvatarFallback
 } from '@/components/ui/avatar'
-import { cn, formatRelativeTime, isMacOS } from '@/lib/utils'
+import { cn, formatRelativeTime, isMacOS, isWindows } from '@/lib/utils'
 
 
 // ============================================================================
@@ -427,10 +428,11 @@ export function Sidebar() {
     const [selectedChatId, setSelectedChatId] = useAtom(selectedChatIdAtom)
     const provider = useAtomValue(currentProviderAtom)
     const setSettingsOpen = useSetAtom(settingsModalOpenAtom)
-    const [, setSidebarOpen] = useAtom(sidebarOpenAtom)
+    const [sidebarOpen, setSidebarOpen] = useAtom(sidebarOpenAtom)
     const setSelectedArtifact = useSetAtom(selectedArtifactAtom)
     const setArtifactPanelOpen = useSetAtom(artifactPanelOpenAtom)
     const [searchQuery, setSearchQuery] = useState('')
+    const showWindowsLogo = isWindows() && sidebarOpen
     const [editingChatId, setEditingChatId] = useState<string | null>(null)
     const [editingTitle, setEditingTitle] = useState('')
     
@@ -716,49 +718,58 @@ export function Sidebar() {
         <div className="flex flex-col h-full">
             {/* Header / New Chat */}
             <div className={cn(
-                "flex items-center justify-end gap-1 px-3",
+                "flex items-center gap-2 px-3",
+                showWindowsLogo ? "justify-between" : "justify-end",
                 isMacOS() ? "h-11 pt-1 pl-20" : "h-10 pt-0",
                 "drag-region"
             )}>
-                <Tooltip>
-                    <TooltipTrigger asChild>
-                        <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-8 w-8 text-muted-foreground hover:text-foreground rounded-xl shrink-0 no-drag"
-                            onClick={handleNewChat}
-                            disabled={createChat.isPending}
-                        >
-                            <IconPlus size={18} />
-                        </Button>
-                    </TooltipTrigger>
-                    <TooltipContent side="bottom" className="flex items-center gap-2 font-semibold">
-                        New Conversation
-                        <kbd className="pointer-events-none inline-flex h-5 select-none items-center gap-1 rounded border bg-muted px-1.5 font-mono text-[10px] font-medium text-muted-foreground opacity-100">
-                            {navigator.platform.toLowerCase().includes('mac') ? '⌘' : 'Ctrl'} N
-                        </kbd>
-                    </TooltipContent>
-                </Tooltip>
+                {showWindowsLogo && (
+                    <div className="flex items-center gap-2 no-drag">
+                        <Logo size={20} />
+                        <span className="text-sm font-semibold text-foreground tracking-tight">S-AGI</span>
+                    </div>
+                )}
+                <div className="flex items-center gap-1">
+                    <Tooltip>
+                        <TooltipTrigger asChild>
+                            <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8 text-muted-foreground hover:text-foreground rounded-xl shrink-0 no-drag"
+                                onClick={handleNewChat}
+                                disabled={createChat.isPending}
+                            >
+                                <IconPlus size={18} />
+                            </Button>
+                        </TooltipTrigger>
+                        <TooltipContent side="bottom" className="flex items-center gap-2 font-semibold">
+                            New Conversation
+                            <kbd className="pointer-events-none inline-flex h-5 select-none items-center gap-1 rounded border bg-muted px-1.5 font-mono text-[10px] font-medium text-muted-foreground opacity-100">
+                                {navigator.platform.toLowerCase().includes('mac') ? '⌘' : 'Ctrl'} N
+                            </kbd>
+                        </TooltipContent>
+                    </Tooltip>
 
-                <Tooltip>
-                    <TooltipTrigger asChild>
-                        <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-8 w-8 text-muted-foreground hover:text-foreground rounded-xl shrink-0 no-drag"
-                            onClick={() => setSidebarOpen(false)}
-                            aria-label="Collapse sidebar"
-                        >
-                            <IconLayoutSidebarLeftCollapse size={18} />
-                        </Button>
-                    </TooltipTrigger>
-                    <TooltipContent side="bottom" className="flex items-center gap-2 font-semibold">
-                        Collapse Sidebar
-                        <kbd className="pointer-events-none inline-flex h-5 select-none items-center gap-1 rounded border bg-muted px-1.5 font-mono text-[10px] font-medium text-muted-foreground opacity-100">
-                            {navigator.platform.toLowerCase().includes('mac') ? '⌘' : 'Ctrl'} \
-                        </kbd>
-                    </TooltipContent>
-                </Tooltip>
+                    <Tooltip>
+                        <TooltipTrigger asChild>
+                            <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8 text-muted-foreground hover:text-foreground rounded-xl shrink-0 no-drag"
+                                onClick={() => setSidebarOpen(false)}
+                                aria-label="Collapse sidebar"
+                            >
+                                <IconLayoutSidebarLeftCollapse size={18} />
+                            </Button>
+                        </TooltipTrigger>
+                        <TooltipContent side="bottom" className="flex items-center gap-2 font-semibold">
+                            Collapse Sidebar
+                            <kbd className="pointer-events-none inline-flex h-5 select-none items-center gap-1 rounded border bg-muted px-1.5 font-mono text-[10px] font-medium text-muted-foreground opacity-100">
+                                {navigator.platform.toLowerCase().includes('mac') ? '⌘' : 'Ctrl'} \
+                            </kbd>
+                        </TooltipContent>
+                    </Tooltip>
+                </div>
             </div>
 
             {/* Search Bar */}

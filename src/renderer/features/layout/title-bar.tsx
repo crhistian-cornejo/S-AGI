@@ -108,6 +108,7 @@ export function TitleBar({ className, noTrafficLightSpace }: TitleBarProps) {
                 <div className="flex items-center gap-2 no-drag ml-2">
                     <Logo size={20} />
                     <span className="text-sm font-semibold text-foreground tracking-tight hidden sm:block">S-AGI</span>
+
                 </div>
             )}
 

@@ -7,10 +7,11 @@
     "author": "S-AGI",
     "main": "out/main/index.js",
     "scripts": {
-        "predev": "lsof -ti:5173 | xargs kill -9 2>/dev/null || true; pkill -9 -f 'Electron.*S-AGI' 2>/dev/null || true",
+        "predev": "node scripts/predev.cjs",
         "dev": "electron-vite dev",
-        "dev:web": "vite --config electron.vite.config.ts",
+        "dev:web": "vite --config vite.config.ts",
         "build": "electron-vite build",
+        "build:web": "vite build --config vite.config.ts",
         "preview": "electron-vite preview",
         "package": "node node_modules/dotenv-cli/cli.js -- electron-builder --dir",
         "package:mac": "node node_modules/dotenv-cli/cli.js -- electron-builder --mac",
