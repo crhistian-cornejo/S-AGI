@@ -12,7 +12,13 @@ export default defineConfig({
         alias: {
             '@': rendererRoot,
             '@shared': resolve(__dirname, 'src/shared')
-        }
+        },
+        // Dedupe redi so all Univer packages share one @wendellhu/redi instance
+        dedupe: ['@wendellhu/redi'],
+    },
+    optimizeDeps: {
+        include: ['@wendellhu/redi'],
+        force: true,
     },
     build: {
         // Build a pure-web bundle separate from Electron's out/main + out/renderer

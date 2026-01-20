@@ -174,17 +174,28 @@ export const AI_MODELS: Record<string, ModelDefinition> = {
         supportsReasoning: true,
         defaultReasoningEffort: 'medium'
     },
-    'GLM-4.5-air': {
-        id: 'GLM-4.5-air',
+    'GLM-4.7-FlashX': {
+        id: 'GLM-4.7-FlashX',
         provider: 'zai',
-        name: 'GLM-4.5 Air',
-        description: 'Fast Z.AI model for rapid coding tasks',
+        name: 'GLM-4.7 FlashX',
+        description: 'Fast Z.AI model with extended context',
+        contextWindow: 128000,
+        supportsTools: true,
+        supportsNativeWebSearch: true,
+        supportsReasoning: true,
+        defaultReasoningEffort: 'low'
+    },
+    'GLM-4.7-Flash': {
+        id: 'GLM-4.7-Flash',
+        provider: 'zai',
+        name: 'GLM-4.7 Flash',
+        description: 'Free ultra-fast Z.AI model for quick tasks',
         contextWindow: 128000,
         supportsTools: true,
         supportsNativeWebSearch: true,
         supportsReasoning: true,
         defaultReasoningEffort: 'low',
-        includedInSubscription: true
+        includedInSubscription: true // Free tier model
     }
 } as const
 
@@ -215,8 +226,11 @@ export function getModelById(modelId: string): ModelDefinition | undefined {
     if (normalized.toLowerCase() === 'glm-4.7') {
         return AI_MODELS['GLM-4.7']
     }
-    if (normalized.toLowerCase() === 'glm-4.5-air') {
-        return AI_MODELS['GLM-4.5-air']
+    if (normalized.toLowerCase() === 'glm-4.7-flashx') {
+        return AI_MODELS['GLM-4.7-FlashX']
+    }
+    if (normalized.toLowerCase() === 'glm-4.7-flash') {
+        return AI_MODELS['GLM-4.7-Flash']
     }
 
     return undefined

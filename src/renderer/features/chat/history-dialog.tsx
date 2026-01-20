@@ -26,7 +26,7 @@ import {
     DropdownMenuSeparator,
     DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { cn, formatRelativeTime } from '@/lib/utils'
+import { cn, formatRelativeTime, isMacOS } from '@/lib/utils'
 import { RenameChatDialog } from './rename-dialog'
 import { toast } from 'sonner'
 
@@ -176,10 +176,13 @@ export function HistoryDialogContent({ onSelect }: HistoryDialogContentProps) {
                         <IconSearch size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
                         <Input
                             placeholder="Search conversations..."
-                            className="pl-9 h-10 bg-accent/20 border-transparent focus:border-primary/20 rounded-xl text-base"
+                            className="pl-9 pr-14 h-10 bg-accent/20 border-transparent focus:border-primary/20 rounded-xl text-base"
                             value={searchQuery}
                             onChange={(e) => setSearchQuery(e.target.value)}
                         />
+                        <kbd className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 inline-flex h-5 select-none items-center gap-0.5 rounded border bg-muted/80 px-1.5 font-mono text-[10px] font-medium text-muted-foreground">
+                            {isMacOS() ? '⌘' : 'Ctrl'} K
+                        </kbd>
                     </div>
                 </DialogHeader>
 

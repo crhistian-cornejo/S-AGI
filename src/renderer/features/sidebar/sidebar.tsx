@@ -784,7 +784,7 @@ export function Sidebar() {
                     <IconSearch size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground group-focus-within:text-primary transition-colors" />
                     <Input
                         placeholder="Search conversations…"
-                        className="pl-9 h-9 bg-accent/30 border-none rounded-xl text-xs placeholder:text-muted-foreground/50 focus-visible:ring-1 focus-visible:ring-primary/20 transition-[box-shadow,background-color]"
+                        className="pl-9 pr-14 h-9 bg-accent/30 border-none rounded-xl text-xs placeholder:text-muted-foreground/50 focus-visible:ring-1 focus-visible:ring-primary/20 transition-[box-shadow,background-color]"
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
                         aria-label="Search conversations"
@@ -792,6 +792,9 @@ export function Sidebar() {
                         autoComplete="off"
                         spellCheck={false}
                     />
+                    <kbd className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 inline-flex h-5 select-none items-center gap-0.5 rounded border bg-muted/80 px-1.5 font-mono text-[10px] font-medium text-muted-foreground">
+                        {isMacOS() ? '⌘' : 'Ctrl'} K
+                    </kbd>
                 </div>
             </div>
 

@@ -39,6 +39,10 @@ interface DesktopApi {
         onRefresh: (callback: () => void) => () => void
         onAction: (action: string, callback: (data?: any) => void) => () => void
     }
+    clipboard: {
+        writeText: (text: string) => Promise<boolean>
+        readText: () => Promise<string>
+    }
 }
 
 // Types for tray popover

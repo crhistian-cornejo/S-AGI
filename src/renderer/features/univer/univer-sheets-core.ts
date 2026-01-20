@@ -21,7 +21,9 @@ import { UniverFormulaEnginePlugin } from '@univerjs/engine-formula'
 import { UniverSheetsPlugin } from '@univerjs/sheets'
 import { UniverSheetsUIPlugin } from '@univerjs/sheets-ui'
 import { UniverSheetsFormulaPlugin } from '@univerjs/sheets-formula'
+import { UniverSheetsFormulaUIPlugin } from '@univerjs/sheets-formula-ui'
 import { UniverSheetsNumfmtPlugin } from '@univerjs/sheets-numfmt'
+import { UniverSheetsNumfmtUIPlugin } from '@univerjs/sheets-numfmt-ui'
 import { UniverUIPlugin } from '@univerjs/ui'
 
 // Drawing plugins for image support
@@ -45,7 +47,9 @@ import '@univerjs/engine-formula/facade'
 import '@univerjs/sheets/facade'
 import '@univerjs/sheets-ui/facade'
 import '@univerjs/sheets-formula/facade'
+import '@univerjs/sheets-formula-ui/facade'
 import '@univerjs/docs-ui/facade'
+import '@univerjs/sheets-numfmt/facade'
 import '@univerjs/sheets-hyper-link-ui/facade'
 import '@univerjs/sheets-find-replace/facade'
 
@@ -133,45 +137,52 @@ export async function initSheetsUniver(container: HTMLElement): Promise<UniverSh
         logLevel: LogLevel.WARN,
     })
     
-    // Register plugins in order - Following Teable's working configuration
-    // https://github.com/teableio/teable/blob/develop/plugins/src/app/sheet-form-view/components/sheet/UniverSheet.tsx
+    // Register plugins in order - Matching @univerjs/preset-sheets-core
+    // This order is critical for correct input handling and initialization
     
-    // 1. Render engine first
-    univer.registerPlugin(UniverRenderEnginePlugin)
-    
-    // 2. UI plugin with container
-    univer.registerPlugin(UniverUIPlugin, {
-        container,
-    })
-    
-    // 3. Docs plugins (required for cell editing)
+    // 1. Docs plugins (Must be first for correct input handling in cells)
     univer.registerPlugin(UniverDocsPlugin, {
         hasScroll: false,
     })
+    
+    // 2. Render engine
+    univer.registerPlugin(UniverRenderEnginePlugin)
+    
+    // 3. UI plugin with container
+    univer.registerPlugin(UniverUIPlugin, {
+        container,
+    })
+
+    // 4. Docs UI
     univer.registerPlugin(UniverDocsUIPlugin)
     
-    // 4. Sheets core
+    // 5. Formula Engine (before Sheets to ensure engine is ready)
+    univer.registerPlugin(UniverFormulaEnginePlugin)
+
+    // 6. Sheets core
     univer.registerPlugin(UniverSheetsPlugin)
     univer.registerPlugin(UniverSheetsUIPlugin)
     
-    // 5. Formula plugins (after sheets)
-    univer.registerPlugin(UniverFormulaEnginePlugin)
-    univer.registerPlugin(UniverSheetsFormulaPlugin)
-    
-    // 6. Additional plugins
+    // 7. Sheets Numfmt
     univer.registerPlugin(UniverSheetsNumfmtPlugin)
+    univer.registerPlugin(UniverSheetsNumfmtUIPlugin)
     
-    // 7. Drawing plugins for image support
+    // 8. Sheets Formula
+    univer.registerPlugin(UniverSheetsFormulaPlugin)
+    univer.registerPlugin(UniverSheetsFormulaUIPlugin)
+    
+    // 9. Additional plugins
+    // Drawing plugins for image support
     univer.registerPlugin(UniverDrawingPlugin)
     univer.registerPlugin(UniverDrawingUIPlugin)
     univer.registerPlugin(UniverSheetsDrawingPlugin)
     univer.registerPlugin(UniverSheetsDrawingUIPlugin)
     
-    // 8. Hyperlink plugins
+    // Hyperlink plugins
     univer.registerPlugin(UniverSheetsHyperLinkPlugin)
     univer.registerPlugin(UniverSheetsHyperLinkUIPlugin)
     
-    // 9. Find & Replace plugins
+    // Find & Replace plugins
     univer.registerPlugin(UniverFindReplacePlugin)
     univer.registerPlugin(UniverSheetsFindReplacePlugin)
     
@@ -259,6 +270,10 @@ export function createWorkbook(univer: Univer, api: FUniver, data?: any, id?: st
     
     // Get the workbook via API
     const workbook = api.getActiveWorkbook()
+    
+    // #region agent log
+    fetch('http://127.0.0.1:7246/ingest/6abe35a7-678e-4166-97f4-5e79730b09e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'univer-sheets-core.ts:274',message:'Workbook created in createWorkbook',data:{hasWorkbook:!!workbook,workbookId:workbook?.getId?.()||workbookId,hasGetId:!!workbook?.getId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
+    // #endregion
     
     console.log('[UniverSheets] Workbook created with ID:', workbook?.getId?.() || workbookId)
     

@@ -55,6 +55,7 @@ export class ChatGPTAuthStore {
 
     /**
      * Load ChatGPT OAuth tokens
+     * Handles empty/corrupt files and invalid JSON without throwing.
      */
     load(): ChatGPTCredentials | null {
         try {
@@ -63,15 +64,39 @@ export class ChatGPTAuthStore {
             }
 
             const data = readFileSync(this.credentialsPath)
-
-            if (!safeStorage.isEncryptionAvailable()) {
-                return JSON.parse(data.toString())
+            if (!data || data.length === 0) {
+                return null
             }
 
-            const decrypted = safeStorage.decryptString(data)
-            return JSON.parse(decrypted)
-        } catch (error) {
-            log.error('[ChatGPTAuth] Failed to load credentials:', error)
+            let raw: string
+            if (!safeStorage.isEncryptionAvailable()) {
+                raw = data.toString()
+            } else {
+                try {
+                    raw = safeStorage.decryptString(data)
+                } catch {
+                    log.warn('[ChatGPTAuth] Failed to decrypt credentials (file may be corrupt or from another app)')
+                    return null
+                }
+            }
+
+            const trimmed = raw.trim()
+            if (!trimmed) {
+                return null
+            }
+
+            const parsed = JSON.parse(trimmed) as ChatGPTCredentials
+            if (!parsed || typeof parsed !== 'object' || !parsed.accessToken) {
+                return null
+            }
+            return parsed
+        } catch (e) {
+            const err = e as Error
+            if (err instanceof SyntaxError || /JSON|Unexpected end/i.test(err.message)) {
+                log.warn('[ChatGPTAuth] Stored credentials are invalid or truncated, ignoring')
+            } else {
+                log.error('[ChatGPTAuth] Failed to load credentials:', err)
+            }
             return null
         }
     }

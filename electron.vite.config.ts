@@ -101,7 +101,15 @@ export default defineConfig({
             alias: {
                 '@': resolve('src/renderer'),
                 '@shared': resolve('src/shared')
-            }
+            },
+            // Dedupe redi so all Univer packages share one @wendellhu/redi instance.
+            // Prevents "Identifier rpc.remote-sync.service already exists" and
+            // "You are loading scripts of redi more than once".
+            dedupe: ['@wendellhu/redi'],
+        },
+        optimizeDeps: {
+            include: ['@wendellhu/redi'],
+            force: true,
         },
         plugins: [react()],
         build: {

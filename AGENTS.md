@@ -203,7 +203,7 @@ await supabase
 | Components | Radix UI, Tabler Icons, Motion |
 | State | Jotai, Zustand, React Query |
 | Backend | tRPC, Supabase |
-| AI | AI SDK v6, Claude Code |
+| AI | OpenAI SDK (Responses API), streaming vía IPC |
 | Spreadsheets | @univerjs/presets |
 | Package Manager | bun |
 

@@ -459,7 +459,11 @@ const PRICING = {
     'gpt-5': { input: 5, output: 15, reasoning: 15 },
     'gpt-5-mini': { input: 0.15, output: 0.6, reasoning: 0.6 },
     'gpt-5-nano': { input: 0.075, output: 0.3, reasoning: 0.3 },
-    'gpt-4o-mini': { input: 0.15, output: 0.6, reasoning: 0 }
+    'gpt-4o-mini': { input: 0.15, output: 0.6, reasoning: 0 },
+    // Z.AI GLM Models pricing
+    'GLM-4.7': { input: 0.6, output: 2.2, reasoning: 0 },
+    'GLM-4.7-FlashX': { input: 0.07, output: 0.4, reasoning: 0 },
+    'GLM-4.7-Flash': { input: 0, output: 0, reasoning: 0 } // Free tier
 } as const
 
 export function estimateCost(

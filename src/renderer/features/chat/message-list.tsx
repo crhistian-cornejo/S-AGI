@@ -1,7 +1,9 @@
 import { memo, useEffect, useRef, useState } from 'react'
 import { IconCheck, IconCopy, IconLoader2, IconPlayerPlay, IconPlayerStop, IconExternalLink, IconWorld, IconFile } from '@tabler/icons-react'
+import { useAtomValue } from 'jotai'
 import { cn } from '@/lib/utils'
 import { trpc } from '@/lib/trpc'
+import { selectedModelAtom } from '@/lib/atoms'
 import { ChatMarkdownRenderer } from '@/components/chat-markdown-renderer'
 import { MessageAttachments } from '@/components/message-attachments'
 import { Button } from '@/components/ui/button'
@@ -29,6 +31,35 @@ import {
 
 // Default context window for calculations (256k for GPT-5)
 const DEFAULT_CONTEXT_WINDOW = 256000
+
+// Pricing per 1M tokens (USD)
+const MODEL_PRICING: Record<string, { input: number; output: number }> = {
+    'gpt-5': { input: 5, output: 15 },
+    'gpt-5-mini': { input: 0.15, output: 0.6 },
+    'gpt-5-nano': { input: 0.075, output: 0.3 },
+    'gpt-4o-mini': { input: 0.15, output: 0.6 },
+    'GLM-4.7': { input: 0.6, output: 2.2 },
+    'GLM-4.7-FlashX': { input: 0.07, output: 0.4 },
+    'GLM-4.7-Flash': { input: 0, output: 0 }
+}
+
+/** Calculate cost based on tokens and model */
+function calculateCost(modelId: string, inputTokens: number, outputTokens: number): number {
+    const pricing = MODEL_PRICING[modelId]
+    if (!pricing) return 0
+    
+    const inputCost = (inputTokens / 1_000_000) * pricing.input
+    const outputCost = (outputTokens / 1_000_000) * pricing.output
+    return inputCost + outputCost
+}
+
+/** Format cost as currency string */
+function formatCost(cost: number): string {
+    if (cost === 0) return 'Free'
+    if (cost < 0.001) return '<$0.001'
+    if (cost < 0.01) return `$${cost.toFixed(4)}`
+    return `$${cost.toFixed(3)}`
+}
 
 /** Context usage ring indicator - shows percentage of context used */
 const ContextUsageRing = memo(function ContextUsageRing({ 
@@ -488,12 +519,16 @@ const MessageItem = memo(function MessageItem({
     const [ttsState, setTtsState] = useState<'idle' | 'loading' | 'playing'>('idle')
     const audioRef = useRef<HTMLAudioElement | null>(null)
     const textToSpeech = trpc.ai.textToSpeech.useMutation()
+    const selectedModel = useAtomValue(selectedModelAtom)
 
     const usage = message.metadata?.usage
     const durationMs = message.metadata?.durationMs
-    const totalTokens = usage?.totalTokens ?? ((usage?.inputTokens || 0) + (usage?.outputTokens || 0))
+    const inputTokens = usage?.inputTokens || 0
+    const outputTokens = usage?.outputTokens || 0
+    const totalTokens = usage?.totalTokens ?? (inputTokens + outputTokens)
     const contextWindow = message.metadata?.contextWindow ?? DEFAULT_CONTEXT_WINDOW
     const hasUsage = totalTokens > 0 || (durationMs !== undefined && durationMs > 0)
+    const cost = calculateCost(selectedModel, inputTokens, outputTokens)
 
     useEffect(() => {
         return () => {
@@ -506,9 +541,20 @@ const MessageItem = memo(function MessageItem({
 
     const handleCopy = async () => {
         if (!content) return
-        await navigator.clipboard.writeText(content)
-        setCopied(true)
-        setTimeout(() => setCopied(false), 2000)
+        
+        try {
+            // Prefer desktop API if available (more reliable in Electron)
+            if (window.desktopApi?.clipboard) {
+                await window.desktopApi.clipboard.writeText(content)
+            } else {
+                await navigator.clipboard.writeText(content)
+            }
+            
+            setCopied(true)
+            setTimeout(() => setCopied(false), 2000)
+        } catch (error) {
+            console.error('[MessageItem] Failed to copy:', error)
+        }
     }
 
     const handleTts = async () => {
@@ -567,8 +613,31 @@ const MessageItem = memo(function MessageItem({
     if (isUser) {
         return (
             <div className="flex flex-col items-end gap-2 group">
-                <div className="max-w-[100%] bg-primary text-primary-foreground rounded-[24px] rounded-br-[4px] px-5 py-3 transition-all hover:bg-primary/90 shadow-sm">
-                    <p className="text-[15px] whitespace-pre-wrap leading-relaxed">{content}</p>
+                <div className="flex flex-col items-end gap-1 group/message w-full">
+                    <div className="max-w-[100%] bg-primary text-primary-foreground rounded-[24px] rounded-br-[4px] px-5 py-3 transition-all hover:bg-primary/90 shadow-sm">
+                        <p className="text-[15px] whitespace-pre-wrap leading-relaxed">{content}</p>
+                    </div>
+
+                    {/* Copy button for user messages - below the bubble */}
+                    <div className="flex items-center gap-1 opacity-0 group-hover/message:opacity-100 transition-opacity">
+                        <Tooltip>
+                            <TooltipTrigger asChild>
+                                <button
+                                    type="button"
+                                    onClick={handleCopy}
+                                    className="p-1.5 rounded-md transition-[background-color,transform] duration-150 ease-out hover:bg-accent text-muted-foreground active:scale-[0.97]"
+                                    aria-label="Copy message"
+                                >
+                                    {copied ? (
+                                        <IconCheck size={16} />
+                                    ) : (
+                                        <IconCopy size={16} />
+                                    )}
+                                </button>
+                            </TooltipTrigger>
+                            <TooltipContent side="top">Copy</TooltipContent>
+                        </Tooltip>
+                    </div>
                 </div>
                 
                 {/* Show attachments for user messages */}
@@ -708,6 +777,12 @@ const MessageItem = memo(function MessageItem({
                                                 </span>
                                             </div>
                                         )}
+                                        <div className="flex justify-between gap-4 pt-1 border-t border-border/50">
+                                            <span className="text-muted-foreground">Cost:</span>
+                                            <span className="font-mono text-foreground">
+                                                {formatCost(cost)}
+                                            </span>
+                                        </div>
                                     </div>
                                 </TooltipContent>
                             </Tooltip>

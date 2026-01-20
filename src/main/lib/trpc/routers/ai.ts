@@ -1,3 +1,4 @@
+import { setMaxListeners } from 'events'
 import { z } from 'zod'
 import { router, protectedProcedure } from '../trpc'
 import log from 'electron-log'
@@ -47,6 +48,16 @@ function getFallbackTitle(prompt: string) {
 function isRetryableError(error: unknown): boolean {
     const status = (error as any)?.status
     const code = (error as any)?.code
+    const message = (error as any)?.message || ''
+    
+    // Z.AI billing errors should NOT be retried (they won't resolve themselves)
+    // Common patterns: "Insufficient balance", "no resource package", "quota exceeded"
+    const isZaiBillingError = status === 429 && /insufficient\s+balance|no\s+resource\s+package|quota\s+exceeded/i.test(message)
+    if (isZaiBillingError) {
+        log.warn('[AI] Z.AI billing error detected - will not retry:', message)
+        return false
+    }
+    
     if (typeof status === 'number' && (status === 429 || status >= 500)) return true
     if (code === 'ETIMEDOUT' || code === 'ECONNRESET' || code === 'EPIPE' || code === 'ENOTFOUND') return true
     return false
@@ -189,6 +200,7 @@ RESPONSE STYLE
 
 - Be concise but helpful
 - Use Markdown formatting for clarity
+- Math: use $...$ (inline) and $$...$$ (block) with LaTeX; never put equations in backticks. Use \int (not f), e^{i\pi} (not e^(iπ)), \infty, \sqrt{}, etc.
 - Explain actions before and after tool use
 - For spreadsheets: always format headers (bold) and set column widths
 - For documents: use clear structure with headings and lists
@@ -662,9 +674,28 @@ function getAllToolNames(options: {
 
 /**
  * Sanitize API error messages to remove sensitive information
+ * and provide user-friendly messages for known error patterns
  */
 function sanitizeApiError(errorText: string): string {
-    return errorText.replace(/sk-[a-zA-Z0-9_-]{20,}/g, '[REDACTED_API_KEY]')
+    // Redact API keys first
+    let sanitized = errorText.replace(/sk-[a-zA-Z0-9_-]{20,}/g, '[REDACTED_API_KEY]')
+    
+    // Z.AI billing/quota errors - provide a helpful message
+    if (/insufficient\s+balance|no\s+resource\s+package/i.test(errorText)) {
+        return 'Z.AI: Insufficient balance or quota exceeded. Try using the free model (GLM-4.7-Flash) or check your Z.AI subscription.'
+    }
+    
+    // Z.AI quota exceeded
+    if (/quota\s+exceeded/i.test(errorText)) {
+        return 'Z.AI: Quota exceeded. Try using the free model (GLM-4.7-Flash) or wait until your quota resets.'
+    }
+    
+    // General rate limit message improvements
+    if (/429|rate\s+limit/i.test(errorText)) {
+        return 'Rate limit exceeded. Please wait a moment and try again.'
+    }
+    
+    return sanitized
 }
 
 // Types for input content
@@ -869,6 +900,9 @@ export const aiRouter = router({
             }
 
             const abortController = new AbortController()
+            // withRetry + createRequestSignal add multiple abort listeners per attempt;
+            // agent loop can retry several times → avoid MaxListenersExceededWarning (default 10)
+            setMaxListeners(24, abortController.signal)
             activeStreams.set(input.chatId, abortController)
 
             const emit = (event: AIStreamEvent) => {

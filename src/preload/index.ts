@@ -91,6 +91,12 @@ const desktopApi = {
                 ipcRenderer.removeListener(channel, listener)
             }
         }
+    },
+    
+    // Clipboard
+    clipboard: {
+        writeText: (text: string) => ipcRenderer.invoke('clipboard:write-text', text),
+        readText: () => ipcRenderer.invoke('clipboard:read-text')
     }
 }
 

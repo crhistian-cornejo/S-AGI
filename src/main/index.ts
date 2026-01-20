@@ -9,8 +9,67 @@ import { supabase } from './lib/supabase/client'
 import { setMainWindow } from './lib/window-manager'
 import log from 'electron-log'
 
-// Disable default menu for faster startup
-Menu.setApplicationMenu(null)
+// Basic menu to enable standard shortcuts like Copy/Paste
+const template: Electron.MenuItemConstructorOptions[] = [
+    ...(process.platform === 'darwin' ? [{
+        label: app.name,
+        submenu: [
+            { role: 'about' } as const,
+            { type: 'separator' } as const,
+            { role: 'services' } as const,
+            { type: 'separator' } as const,
+            { role: 'hide' } as const,
+            { role: 'hideOthers' } as const,
+            { role: 'unhide' } as const,
+            { type: 'separator' } as const,
+            { role: 'quit' } as const
+        ]
+    }] : []),
+    {
+        label: 'Edit',
+        submenu: [
+            { role: 'undo' } as const,
+            { role: 'redo' } as const,
+            { type: 'separator' } as const,
+            { role: 'cut' } as const,
+            { role: 'copy' } as const,
+            { role: 'paste' } as const,
+            { role: 'selectAll' } as const
+        ]
+    },
+    {
+        label: 'View',
+        submenu: [
+            { role: 'reload' } as const,
+            { role: 'forceReload' } as const,
+            { role: 'toggleDevTools' } as const,
+            { type: 'separator' } as const,
+            { role: 'resetZoom' } as const,
+            { role: 'zoomIn' } as const,
+            { role: 'zoomOut' } as const,
+            { type: 'separator' } as const,
+            { role: 'togglefullscreen' } as const
+        ]
+    },
+    {
+        label: 'Window',
+        submenu: [
+            { role: 'minimize' } as const,
+            { role: 'zoom' } as const,
+            ...(process.platform === 'darwin' ? [
+                { type: 'separator' } as const,
+                { role: 'front' } as const,
+                { type: 'separator' } as const,
+                { role: 'window' } as const
+            ] : [
+                { role: 'close' } as const
+            ])
+        ]
+    }
+]
+
+const menu = Menu.buildFromTemplate(template)
+Menu.setApplicationMenu(menu)
 
 // Suppress Chromium autofill console errors (cosmetic, not actual errors)
 app.commandLine.appendSwitch('disable-features', 'AutofillServerCommunication')
@@ -630,6 +689,18 @@ ipcMain.handle('theme:get', () => {
 ipcMain.handle('theme:set', (_, theme: 'system' | 'light' | 'dark') => {
     nativeTheme.themeSource = theme
     return nativeTheme.shouldUseDarkColors
+})
+
+// Clipboard handlers
+ipcMain.handle('clipboard:write-text', (_, text: string) => {
+    const { clipboard } = require('electron')
+    clipboard.writeText(text)
+    return true
+})
+
+ipcMain.handle('clipboard:read-text', () => {
+    const { clipboard } = require('electron')
+    return clipboard.readText()
 })
 
 // Haptic feedback handler (macOS only)

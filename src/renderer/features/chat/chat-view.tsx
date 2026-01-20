@@ -598,6 +598,20 @@ export function ChatView() {
 
                         case 'error': {
                             setStreamingError(event.error)
+                            // Reset streaming state (same as finish, but without saving message)
+                            setIsStreaming(false)
+                            smoothStream.stopStream()
+                            setStreamingToolCalls([])
+                            if (fullReasoning) {
+                                setLastReasoning(fullReasoning)
+                            }
+                            setStreamingReasoning('')
+                            setIsReasoning(false)
+                            setStreamingWebSearches([])
+                            setStreamingFileSearches([])
+                            setStreamingAnnotations([])
+                            cleanupListener?.()
+                            abortRef.current = null
                             break
                         }
 

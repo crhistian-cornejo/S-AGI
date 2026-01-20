@@ -1,8 +1,46 @@
-import { memo, useState, useCallback, useEffect, useMemo, useRef } from 'react'
+import { memo, useState, useCallback, useEffect, useMemo, useRef, type ReactNode } from 'react'
 import * as HoverCard from '@radix-ui/react-hover-card'
+import katex from 'katex'
 import { Streamdown } from 'streamdown'
+import { code } from '@streamdown/code'
+import { createMathPlugin } from '@streamdown/math'
+import { mermaid } from '@streamdown/mermaid'
 import { IconCopy, IconCheck } from '@tabler/icons-react'
 import { cn } from '@/lib/utils'
+
+import 'katex/dist/katex.min.css'
+
+// Inline code that looks like LaTeX (e.g. model put equation in backticks) -> try KaTeX
+const LATEX_LIKE = /\\(int|frac|sqrt|sum|infty|pi|alpha|beta|gamma|theta|sigma|omega|partial|lim|log|cdot|times|pm|leq|geq|neq|approx|rightarrow|leftarrow)\\b|\\^\\{|_\\{|∞|√|∫/
+function getText(children: ReactNode): string {
+    if (typeof children === 'string') return children
+    if (Array.isArray(children)) return children.map(getText).join('')
+    return ''
+}
+function normalizeLatex(s: string): string {
+    return s
+        .replace(/√π/g, '\\sqrt{\\pi}')
+        .replace(/√2/g, '\\sqrt{2}')
+        .replace(/√\(([^)]+)\)/g, '\\sqrt{$1}')
+        .replace(/√(\d+)/g, '\\sqrt{$1}')
+        .replace(/√/g, '\\sqrt{}')
+        .replace(/ί/g, 'i')
+        .replace(/π/g, '\\pi')
+        .replace(/∞/g, '\\infty')
+        .replace(/\^\(([^)]+)\)/g, '^{$1}')
+        .replace(/^f_\{-/, '\\int_{-')
+        .replace(/^f_\{/, '\\int_{')
+}
+function tryRenderLatex(text: string): string | null {
+    if (!text || text.length > 280) return null
+    if (!LATEX_LIKE.test(text)) return null
+    const normalized = normalizeLatex(text)
+    try {
+        return katex.renderToString(normalized, { throwOnError: false, displayMode: false })
+    } catch {
+        return null
+    }
+}
 
 // ============================================================================
 // Code Block Component with Premium Styling
@@ -311,128 +349,125 @@ export const ChatMarkdownRenderer = memo(function ChatMarkdownRenderer({
 }: ChatMarkdownRendererProps) {
     const styles = sizeStyles[size]
 
+    // Memoize plugins object to prevent re-initialization
+    // singleDollarTextMath: true so $...$ works for inline LaTeX (e.g. $e^{i\pi}+1=0$)
+    const plugins = useMemo(
+        () => ({ code, math: createMathPlugin({ singleDollarTextMath: true }), mermaid }),
+        []
+    )
+
     return (
         <div className={cn('max-w-none', className)}>
             <Streamdown
-                mode={isAnimating ? 'streaming' : 'static'}
+                plugins={plugins}
                 isAnimating={isAnimating}
-                shikiTheme={['github-light', 'github-dark']}
-                controls={{
-                    code: true,
-                    table: true,
-                    mermaid: {
-                        download: true,
-                        copy: true,
-                        fullscreen: true,
-                    }
-                }}
                 caret={isAnimating ? 'block' : undefined}
                 components={{
                     // Headings
-                    h1: ({ children, ...props }) => (
+                    h1: ({ children, ...props }: any) => (
                         <h1 className={styles.h1} {...props}>{children}</h1>
                     ),
-                    h2: ({ children, ...props }) => (
+                    h2: ({ children, ...props }: any) => (
                         <h2 className={styles.h2} {...props}>{children}</h2>
                     ),
-                    h3: ({ children, ...props }) => (
+                    h3: ({ children, ...props }: any) => (
                         <h3 className={styles.h3} {...props}>{children}</h3>
                     ),
-                    h4: ({ children, ...props }) => (
+                    h4: ({ children, ...props }: any) => (
                         <h4 className={styles.h3} {...props}>{children}</h4>
                     ),
-                    h5: ({ children, ...props }) => (
+                    h5: ({ children, ...props }: any) => (
                         <h5 className={styles.h3} {...props}>{children}</h5>
                     ),
-                    h6: ({ children, ...props }) => (
+                    h6: ({ children, ...props }: any) => (
                         <h6 className={styles.h3} {...props}>{children}</h6>
                     ),
                     
                     // Paragraphs
-                    p: ({ children, ...props }) => (
+                    p: ({ children, ...props }: any) => (
                         <p className={styles.p} {...props}>{children}</p>
                     ),
                     
                     // Lists
-                    ul: ({ children, ...props }) => (
+                    ul: ({ children, ...props }: any) => (
                         <ul className={styles.ul} {...props}>{children}</ul>
                     ),
-                    ol: ({ children, ...props }) => (
+                    ol: ({ children, ...props }: any) => (
                         <ol className={styles.ol} {...props}>{children}</ol>
                     ),
-                    li: ({ children, ...props }) => (
+                    li: ({ children, ...props }: any) => (
                         <li className={styles.li} {...props}>{children}</li>
                     ),
                     
                     // Links
-                    a: ({ href, children, ...props }) => (
+                    a: ({ href, children, ...props }: any) => (
                         <LinkWithPreview href={href} {...props}>
                             {children}
                         </LinkWithPreview>
                     ),
                     
                     // Text formatting
-                    strong: ({ children, ...props }) => (
+                    strong: ({ children, ...props }: any) => (
                         <strong className="font-semibold text-foreground" {...props}>{children}</strong>
                     ),
-                    em: ({ children, ...props }) => (
+                    em: ({ children, ...props }: any) => (
                         <em className="italic" {...props}>{children}</em>
                     ),
-                    del: ({ children, ...props }) => (
+                    del: ({ children, ...props }: any) => (
                         <del className="line-through text-muted-foreground" {...props}>{children}</del>
                     ),
                     
                     // Blockquotes
-                    blockquote: ({ children, ...props }) => (
+                    blockquote: ({ children, ...props }: any) => (
                         <blockquote className={styles.blockquote} {...props}>{children}</blockquote>
                     ),
                     
                     // Horizontal rule
                     hr: () => <hr className="my-6 border-border/50" />,
                     
-                    // Tables
-                    table: ({ children, ...props }) => (
+                    // Tables - Streamdown handles these with plugins
+                    table: ({ children, ...props }: any) => (
                         <div className="overflow-x-auto my-4 rounded-xl border border-border/40 shadow-sm">
                             <table className="w-full text-sm" {...props}>{children}</table>
                         </div>
                     ),
-                    thead: ({ children, ...props }) => (
+                    thead: ({ children, ...props }: any) => (
                         <thead className="bg-muted/50 border-b border-border/40" {...props}>{children}</thead>
                     ),
-                    tbody: ({ children, ...props }) => (
+                    tbody: ({ children, ...props }: any) => (
                         <tbody className="divide-y divide-border/30" {...props}>{children}</tbody>
                     ),
-                    tr: ({ children, ...props }) => (
+                    tr: ({ children, ...props }: any) => (
                         <tr className="hover:bg-muted/30 transition-colors" {...props}>{children}</tr>
                     ),
-                    th: ({ children, ...props }) => (
+                    th: ({ children, ...props }: any) => (
                         <th className="text-left font-medium px-4 py-2.5 text-foreground" {...props}>{children}</th>
                     ),
-                    td: ({ children, ...props }) => (
+                    td: ({ children, ...props }: any) => (
                         <td className="px-4 py-2.5 text-foreground/80" {...props}>{children}</td>
                     ),
                     
-                    // Code blocks - Let Streamdown handle highlighting, we wrap with CodeBlock
-                    pre: ({ children }) => <CodeBlock>{children}</CodeBlock>,
+                    // Code blocks - Use our custom CodeBlock wrapper
+                    pre: ({ children }: any) => <CodeBlock>{children}</CodeBlock>,
                     
-                    // Inline code - Streamdown passes className with language-xxx for block code
-                    code: ({ children, className, ...props }: any) => {
-                        // Block code has language-xxx class, let it render naturally inside pre
-                        const isBlockCode = className?.includes('language-')
-                        
+                    // Inline code - styled pill; if it looks like LaTeX (e.g. model used backticks), render with KaTeX
+                    code: ({ children, className: codeClassName, ...props }: any) => {
+                        const isBlockCode = codeClassName?.includes('language-')
                         if (isBlockCode) {
-                            // Block code - keep Shiki highlighting, pass through with className
                             return (
-                                <code 
-                                    className={cn(className, "text-[13px] font-mono leading-relaxed whitespace-pre")} 
+                                <code
+                                    className={cn(codeClassName, "text-[13px] font-mono leading-relaxed whitespace-pre")}
                                     {...props}
                                 >
                                     {children}
                                 </code>
                             )
                         }
-                        
-                        // Inline code - styled pill
+                        const raw = getText(children)
+                        const latexHtml = tryRenderLatex(raw)
+                        if (latexHtml) {
+                            return <span className="katex" dangerouslySetInnerHTML={{ __html: latexHtml }} />
+                        }
                         return (
                             <code className={styles.inlineCode} {...props}>
                                 {children}
@@ -441,7 +476,7 @@ export const ChatMarkdownRenderer = memo(function ChatMarkdownRenderer({
                     },
                     
                     // Images
-                    img: ({ src, alt, ...props }) => (
+                    img: ({ src, alt, ...props }: any) => (
                         <img 
                             src={src} 
                             alt={alt} 
