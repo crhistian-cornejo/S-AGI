@@ -117,6 +117,23 @@ const desktopApi = {
         return () => {
             ipcRenderer.removeListener('artifact:update', handler)
         }
+    },
+
+    // UI Navigation listeners (for agent-controlled UI changes)
+    onNavigateTab: (callback: (data: { tab: 'chat' | 'excel' | 'doc' | 'gallery' }) => void) => {
+        const handler = (_: any, data: any) => callback(data)
+        ipcRenderer.on('ui:navigate-tab', handler)
+        return () => {
+            ipcRenderer.removeListener('ui:navigate-tab', handler)
+        }
+    },
+
+    onSelectArtifact: (callback: (data: { artifactId: string; openInFullTab: boolean; targetTab?: string }) => void) => {
+        const handler = (_: any, data: any) => callback(data)
+        ipcRenderer.on('ui:select-artifact', handler)
+        return () => {
+            ipcRenderer.removeListener('ui:select-artifact', handler)
+        }
     }
 }
 

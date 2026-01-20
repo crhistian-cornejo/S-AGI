@@ -50,6 +50,10 @@ export const messagesRouter = router({
             content: z.any(),
             toolCalls: z.any().optional(),
             metadata: z.any().optional(),
+            /** Model used for this message (assistant only). For cost calculation and actions. */
+            modelId: z.string().optional(),
+            /** Display name of the model (e.g. GPT-5.2, GLM-4.7). */
+            modelName: z.string().optional(),
             attachments: z.array(z.object({
                 id: z.string(),
                 name: z.string(),
@@ -90,16 +94,20 @@ export const messagesRouter = router({
                 ...(input.toolCalls ? { tool_calls: input.toolCalls } : {})
             }
 
+            const insertPayload: Record<string, unknown> = {
+                chat_id: input.chatId,
+                user_id: ctx.userId,
+                role: input.role,
+                content: contentText,
+                attachments: input.attachments || [],
+                metadata: Object.keys(metadataPayload).length > 0 ? metadataPayload : undefined
+            }
+            if (input.modelId != null) insertPayload.model_id = input.modelId
+            if (input.modelName != null) insertPayload.model_name = input.modelName
+
             const { data, error } = await supabase
                 .from('chat_messages')
-                .insert({
-                    chat_id: input.chatId,
-                    user_id: ctx.userId,
-                    role: input.role,
-                    content: contentText,
-                    attachments: input.attachments || [],
-                    metadata: Object.keys(metadataPayload).length > 0 ? metadataPayload : undefined
-                })
+                .insert(insertPayload)
                 .select()
                 .maybeSingle()
 

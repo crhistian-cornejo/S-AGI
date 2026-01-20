@@ -244,18 +244,12 @@ export function TitleBar({ className, noTrafficLightSpace }: TitleBarProps) {
                                 variant="ghost"
                                 className="h-8 flex items-center gap-1.5 p-1 hover:bg-accent rounded-lg transition-colors no-drag ml-1 relative"
                             >
-                                <div className="relative">
-                                    <Avatar className="h-6 w-6 border border-border/50">
-                                        <AvatarImage src={user?.user_metadata?.avatar_url || user?.user_metadata?.picture} />
-                                        <AvatarFallback className="bg-primary/10 text-[10px]">
-                                            {user?.email?.charAt(0).toUpperCase() || <OpenAIIcon size={12} className="text-muted-foreground" />}
-                                        </AvatarFallback>
-                                    </Avatar>
-                                    <div className="absolute -bottom-0.5 -right-0.5 bg-background border border-border rounded-full h-2 w-2 flex items-center justify-center shadow-sm ring-1 ring-background shrink-0 overflow-hidden">
-                                        {/* NOTE: gemini-advanced disabled */}
-                                        <providerIcon.icon size={5} className={providerIcon.className} />
-                                    </div>
-                                </div>
+                                <Avatar className="h-6 w-6 border border-border/50">
+                                    <AvatarImage src={user?.user_metadata?.avatar_url || user?.user_metadata?.picture} />
+                                    <AvatarFallback className="bg-primary/10 text-[10px]">
+                                        {user?.email?.charAt(0).toUpperCase() || <OpenAIIcon size={12} className="text-muted-foreground" />}
+                                    </AvatarFallback>
+                                </Avatar>
                                 <IconChevronDown size={12} className="text-muted-foreground opacity-50" />
                             </Button>
                         </DropdownMenuTrigger>

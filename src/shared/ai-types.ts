@@ -13,11 +13,15 @@ import { z } from 'zod'
 export type AIProvider = 'openai' | 'chatgpt-plus' | 'zai'
 
 /**
+ * - 'none': No reasoning (GPT-5.2, lowest latency)
  * - 'low': Low reasoning effort (default)
  * - 'medium': Medium reasoning effort
  * - 'high': High reasoning effort
  */
-export type ReasoningEffort = 'low' | 'medium' | 'high'
+export type ReasoningEffort = 'none' | 'low' | 'medium' | 'high'
+
+/** Instant / Thinking / Auto (solo GPT-5.2) */
+export type ResponseMode = 'instant' | 'thinking' | 'auto'
 
 /** Reasoning summary levels */
 export type ReasoningSummary = 'auto' | 'concise' | 'detailed'
@@ -42,6 +46,10 @@ export interface ModelDefinition {
     defaultReasoningEffort?: ReasoningEffort
     /** Whether this model is included with subscription (no per-token cost) */
     includedInSubscription?: boolean
+    /** When set, model ID to send to the API (e.g. gpt-5.2-openai -> gpt-5.2) */
+    modelIdForApi?: string
+    /** When true, supports ResponseMode: Instant / Thinking / Auto (solo GPT-5.2) */
+    supportsResponseMode?: boolean
 }
 
 /**
@@ -142,7 +150,8 @@ export const AI_MODELS: Record<string, ModelDefinition> = {
         supportsFileSearch: true,
         supportsReasoning: true,
         defaultReasoningEffort: 'medium',
-        includedInSubscription: true
+        includedInSubscription: true,
+        supportsResponseMode: true
     },
     'gpt-5.2-codex': {
         id: 'gpt-5.2-codex',
@@ -158,6 +167,24 @@ export const AI_MODELS: Record<string, ModelDefinition> = {
         supportsReasoning: true,
         defaultReasoningEffort: 'medium',
         includedInSubscription: true
+    },
+
+    // GPT-5.2 vía OpenAI API (pago por uso; precios Standard $1.75/$14 por 1M)
+    'gpt-5.2-openai': {
+        id: 'gpt-5.2-openai',
+        provider: 'openai',
+        name: 'GPT-5.2',
+        description: 'GPT-5.2 via OpenAI API (Instant/Thinking/Auto)',
+        contextWindow: 256000,
+        supportsImages: true,
+        supportsTools: true,
+        supportsNativeWebSearch: true,
+        supportsCodeInterpreter: true,
+        supportsFileSearch: true,
+        supportsReasoning: true,
+        defaultReasoningEffort: 'medium',
+        modelIdForApi: 'gpt-5.2',
+        supportsResponseMode: true
     },
 
     // ========================================================================
@@ -306,7 +333,7 @@ export type AIStreamEvent =
     
     // Step and completion events
     | { type: 'step-complete'; stepNumber: number; hasMoreSteps: boolean }
-    | { type: 'finish'; usage?: { promptTokens: number; completionTokens: number; reasoningTokens?: number }; totalSteps: number }
+    | { type: 'finish'; usage?: { promptTokens: number; completionTokens: number; reasoningTokens?: number }; totalSteps: number; responseId?: string }
     | { type: 'error'; error: string }
 
 // ============================================================================
@@ -505,6 +532,8 @@ export const AIChatInputSchema = z.object({
     reasoning: ReasoningConfigSchema.optional(),
     nativeTools: NativeToolsConfigSchema.optional(),
     previousResponseId: z.string().optional(),
+    /** Instant / Thinking / Auto (solo GPT-5.2) */
+    responseMode: z.enum(['instant', 'thinking', 'auto']).optional(),
     optimization: z.object({
         maxOutputTokens: z.number().optional(),
         useFlex: z.boolean().optional(),

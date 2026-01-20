@@ -167,13 +167,19 @@ export function ApiKeysTab() {
                     <div className="space-y-2">
                         <Label>Model</Label>
                         <Select value={selectedModel} onValueChange={setSelectedModel}>
-                            <SelectTrigger><SelectValue /></SelectTrigger>
+                            <SelectTrigger className="max-w-[220px] [&>span]:min-w-0 [&>span]:truncate">
+                                <span className="truncate">
+                                    {availableModels.find(m => m.id === selectedModel)?.name ?? selectedModel ?? 'Model'}
+                                </span>
+                            </SelectTrigger>
                             <SelectContent>
                                 {availableModels.map(m => (
                                     <SelectItem key={m.id} value={m.id}>
-                                        <div className="flex flex-col">
+                                        <div className="flex flex-col gap-0.5 py-0.5">
                                             <span>{m.name}</span>
-                                            {m.description && <span className="text-xs text-muted-foreground">{m.description}</span>}
+                                            {m.description && (
+                                                <span className="text-[11px] text-muted-foreground">{m.description}</span>
+                                            )}
                                         </div>
                                     </SelectItem>
                                 ))}

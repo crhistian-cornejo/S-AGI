@@ -32,30 +32,85 @@ export const artifactsRouter = router({
             return data
         }),
 
+    // List standalone artifacts (not associated with any chat)
+    listStandalone: protectedProcedure
+        .input(z.object({
+            type: ArtifactTypeSchema.optional()
+        }).optional())
+        .query(async ({ ctx, input }) => {
+            let query = supabase
+                .from('artifacts')
+                .select('id, chat_id, user_id, type, name, content, created_at, updated_at')
+                .eq('user_id', ctx.userId)
+                .is('chat_id', null)
+                .order('updated_at', { ascending: false })
+
+            if (input?.type) {
+                query = query.eq('type', input.type)
+            }
+
+            const { data, error } = await query
+
+            if (error) throw new Error(error.message)
+            return data
+        }),
+
+    // List all user artifacts (both chat-associated and standalone)
+    listAll: protectedProcedure
+        .input(z.object({
+            type: ArtifactTypeSchema.optional(),
+            limit: z.number().min(1).max(100).optional()
+        }).optional())
+        .query(async ({ ctx, input }) => {
+            let query = supabase
+                .from('artifacts')
+                .select('id, chat_id, user_id, type, name, content, created_at, updated_at')
+                .or(`user_id.eq.${ctx.userId},chat_id.in.(select id from chats where user_id = '${ctx.userId}')`)
+                .order('updated_at', { ascending: false })
+
+            if (input?.type) {
+                query = query.eq('type', input.type)
+            }
+
+            if (input?.limit) {
+                query = query.limit(input.limit)
+            }
+
+            const { data, error } = await query
+
+            if (error) throw new Error(error.message)
+            return data
+        }),
+
     // Get a single artifact
     get: protectedProcedure
         .input(z.object({ id: z.string().uuid() }))
         .query(async ({ ctx, input }) => {
+            // First try to get artifact with chat join
             const { data: artifact, error } = await supabase
                 .from('artifacts')
-                .select('*, chats!inner(user_id)')
+                .select('*, chats(user_id)')
                 .eq('id', input.id)
                 .single()
 
             if (error) throw new Error(error.message)
-            
-            // Verify ownership through chat
-            if (artifact.chats.user_id !== ctx.userId) {
+
+            // Check ownership: direct user_id or via chat
+            const hasDirectOwnership = artifact.user_id === ctx.userId
+            const chatData = Array.isArray(artifact.chats) ? artifact.chats[0] : artifact.chats
+            const hasChatOwnership = chatData?.user_id === ctx.userId
+
+            if (!hasDirectOwnership && !hasChatOwnership) {
                 throw new Error('Access denied')
             }
 
             return artifact
         }),
 
-    // Create an artifact
+    // Create an artifact (with or without chat association)
     create: protectedProcedure
         .input(z.object({
-            chatId: z.string().uuid(),
+            chatId: z.string().uuid().optional(), // Now optional!
             messageId: z.string().uuid().optional(),
             type: ArtifactTypeSchema,
             name: z.string(),
@@ -63,22 +118,25 @@ export const artifactsRouter = router({
             univerData: z.any().optional()
         }))
         .mutation(async ({ ctx, input }) => {
-            // Verify chat ownership
-            const { data: chat } = await supabase
-                .from('chats')
-                .select('id')
-                .eq('id', input.chatId)
-                .eq('user_id', ctx.userId)
-                .single()
+            // If chatId provided, verify chat ownership
+            if (input.chatId) {
+                const { data: chat } = await supabase
+                    .from('chats')
+                    .select('id')
+                    .eq('id', input.chatId)
+                    .eq('user_id', ctx.userId)
+                    .single()
 
-            if (!chat) {
-                throw new Error('Chat not found or access denied')
+                if (!chat) {
+                    throw new Error('Chat not found or access denied')
+                }
             }
 
             const { data, error } = await supabase
                 .from('artifacts')
                 .insert({
-                    chat_id: input.chatId,
+                    chat_id: input.chatId || null,
+                    user_id: ctx.userId, // Always set user_id for direct ownership
                     message_id: input.messageId,
                     type: input.type,
                     name: input.name,
@@ -101,10 +159,10 @@ export const artifactsRouter = router({
             univerData: z.any().optional()
         }))
         .mutation(async ({ ctx, input }) => {
-            // Verify ownership through chat join
+            // Verify ownership (direct or via chat)
             const { data: artifact } = await supabase
                 .from('artifacts')
-                .select('id, chat_id')
+                .select('id, chat_id, user_id, chats(user_id)')
                 .eq('id', input.id)
                 .single()
 
@@ -112,14 +170,12 @@ export const artifactsRouter = router({
                 throw new Error('Artifact not found')
             }
 
-            const { data: chat } = await supabase
-                .from('chats')
-                .select('id')
-                .eq('id', artifact.chat_id)
-                .eq('user_id', ctx.userId)
-                .single()
+            // Check ownership: direct user_id or via chat
+            const hasDirectOwnership = artifact.user_id === ctx.userId
+            const chatData = Array.isArray(artifact.chats) ? artifact.chats[0] : artifact.chats
+            const hasChatOwnership = chatData?.user_id === ctx.userId
 
-            if (!chat) {
+            if (!hasDirectOwnership && !hasChatOwnership) {
                 throw new Error('Access denied')
             }
 
@@ -147,10 +203,10 @@ export const artifactsRouter = router({
     delete: protectedProcedure
         .input(z.object({ id: z.string().uuid() }))
         .mutation(async ({ ctx, input }) => {
-            // Verify ownership through chat join
+            // Verify ownership (direct or via chat)
             const { data: artifact } = await supabase
                 .from('artifacts')
-                .select('id, chat_id')
+                .select('id, chat_id, user_id, chats(user_id)')
                 .eq('id', input.id)
                 .single()
 
@@ -158,14 +214,12 @@ export const artifactsRouter = router({
                 throw new Error('Artifact not found')
             }
 
-            const { data: chat } = await supabase
-                .from('chats')
-                .select('id')
-                .eq('id', artifact.chat_id)
-                .eq('user_id', ctx.userId)
-                .single()
+            // Check ownership: direct user_id or via chat
+            const hasDirectOwnership = artifact.user_id === ctx.userId
+            const chatData = Array.isArray(artifact.chats) ? artifact.chats[0] : artifact.chats
+            const hasChatOwnership = chatData?.user_id === ctx.userId
 
-            if (!chat) {
+            if (!hasDirectOwnership && !hasChatOwnership) {
                 throw new Error('Access denied')
             }
 
@@ -185,10 +239,10 @@ export const artifactsRouter = router({
             univerData: z.any()
         }))
         .mutation(async ({ ctx, input }) => {
-            // Verify ownership through chat join
+            // Verify ownership (direct or via chat)
             const { data: artifact } = await supabase
                 .from('artifacts')
-                .select('id, chat_id')
+                .select('id, chat_id, user_id, chats(user_id)')
                 .eq('id', input.id)
                 .single()
 
@@ -196,14 +250,12 @@ export const artifactsRouter = router({
                 throw new Error('Artifact not found')
             }
 
-            const { data: chat } = await supabase
-                .from('chats')
-                .select('id')
-                .eq('id', artifact.chat_id)
-                .eq('user_id', ctx.userId)
-                .single()
+            // Check ownership: direct user_id or via chat
+            const hasDirectOwnership = artifact.user_id === ctx.userId
+            const chatData = Array.isArray(artifact.chats) ? artifact.chats[0] : artifact.chats
+            const hasChatOwnership = chatData?.user_id === ctx.userId
 
-            if (!chat) {
+            if (!hasDirectOwnership && !hasChatOwnership) {
                 throw new Error('Access denied')
             }
 

@@ -25,6 +25,31 @@ function notifyArtifactUpdate(artifactId: string, univerData: any, type: 'spread
     log.info(`[Tools] Sent live update for ${type}: ${artifactId}`)
 }
 
+// Helper: Get artifact with ownership check (supports both direct and chat-based ownership)
+async function getArtifactWithOwnership(artifactId: string, userId: string) {
+    const { data: artifact, error } = await supabase
+        .from('artifacts')
+        .select('*, chats(user_id)')
+        .eq('id', artifactId)
+        .single()
+
+    if (error || !artifact) {
+        throw new Error('Artifact not found')
+    }
+
+    // Check ownership: direct user_id OR via chat
+    // Note: Supabase may return chats as array or single object depending on types
+    const hasDirectOwnership = artifact.user_id === userId
+    const chatData = Array.isArray(artifact.chats) ? artifact.chats[0] : artifact.chats
+    const hasChatOwnership = chatData?.user_id === userId
+
+    if (!hasDirectOwnership && !hasChatOwnership) {
+        throw new Error('Access denied')
+    }
+
+    return artifact
+}
+
 // Helper: Create Univer workbook data structure
 function createUniverWorkbook(name: string, columns: string[], rows: any[][] = []): any {
     const sheetId = 'sheet1'
@@ -677,11 +702,35 @@ export const IMAGE_TOOLS = {
     }
 }
 
+// UI Navigation Tools - Allow agent to control the application UI
+export const UI_NAVIGATION_TOOLS = {
+    navigate_to_tab: {
+        description: 'Navigate to a specific tab in the application. Use this to show the user your work in the appropriate view.',
+        inputSchema: z.object({
+            tab: z.enum(['chat', 'excel', 'doc', 'gallery']).describe('The tab to navigate to: "chat" for conversations, "excel" for spreadsheets, "doc" for documents, "gallery" for generated images')
+        })
+    },
+    select_artifact: {
+        description: 'Select an existing artifact to view or continue editing. The artifact will be displayed in the appropriate panel.',
+        inputSchema: z.object({
+            artifactId: z.string().describe('ID of the artifact to select'),
+            openInFullTab: z.boolean().optional().describe('If true, opens the artifact in full tab view instead of side panel. Default: false')
+        })
+    },
+    get_ui_context: {
+        description: 'Get the current UI state including active tab, selected artifact, and available artifacts. Use this to understand the current context before making UI changes.',
+        inputSchema: z.object({
+            includeArtifactList: z.boolean().optional().describe('If true, includes list of all artifacts for current chat. Default: false')
+        })
+    }
+}
+
 // Combined tools object for API exposure
 export const ALL_TOOLS = {
     ...SPREADSHEET_TOOLS,
     ...DOCUMENT_TOOLS,
-    ...IMAGE_TOOLS
+    ...IMAGE_TOOLS,
+    ...UI_NAVIGATION_TOOLS
 }
 
 // Plan mode tools - used when mode='plan' to create execution plans
@@ -698,12 +747,12 @@ export const PLAN_TOOLS = {
 async function executeCreateSpreadsheet(
     args: z.infer<typeof SPREADSHEET_TOOLS.create_spreadsheet.inputSchema>,
     chatId: string,
-    _userId: string
+    userId: string
 ): Promise<{ artifactId: string; message: string }> {
     const { name, columns, rows: rowsJson } = args
-    
-    log.info(`[Tools] executeCreateSpreadsheet called with name="${name}", columns=${columns.length}, rowsJson length=${rowsJson?.length || 0}`)
-    
+
+    log.info(`[Tools] executeCreateSpreadsheet called with name="${name}", columns=${columns.length}, rowsJson length=${rowsJson?.length || 0}, chatId=${chatId}, userId=${userId}`)
+
     // Parse rows from JSON string if provided
     let parsedRows: any[][] = []
     if (rowsJson) {
@@ -719,14 +768,15 @@ async function executeCreateSpreadsheet(
             parsedRows = []
         }
     }
-    
+
     const univerData = createUniverWorkbook(name, columns, parsedRows)
     log.info(`[Tools] Created univerData with cellData keys: ${Object.keys(univerData.sheets.sheet1.cellData).join(', ')}`)
-    
+
     const { data: artifact, error } = await supabase
         .from('artifacts')
         .insert({
             chat_id: chatId,
+            user_id: userId, // Always set user_id for direct ownership
             type: 'spreadsheet',
             name,
             content: { columnCount: columns.length, rowCount: parsedRows.length },
@@ -736,7 +786,7 @@ async function executeCreateSpreadsheet(
         .single()
 
     if (error) throw new Error(`Failed to create spreadsheet: ${error.message}`)
-    
+
     log.info(`[Tools] Created spreadsheet artifact: ${artifact.id}`)
     return { artifactId: artifact.id, message: `Created spreadsheet "${name}" with ${columns.length} columns and ${parsedRows.length} rows` }
 }
@@ -746,16 +796,9 @@ async function executeUpdateCells(
     userId: string
 ): Promise<{ artifactId: string; message: string }> {
     const { artifactId, updates } = args
-    
-    // Get artifact with ownership check
-    const { data: artifact, error } = await supabase
-        .from('artifacts')
-        .select('*, chats!inner(user_id)')
-        .eq('id', artifactId)
-        .single()
 
-    if (error || !artifact) throw new Error('Spreadsheet not found')
-    if (artifact.chats.user_id !== userId) throw new Error('Access denied')
+    // Get artifact with ownership check (supports standalone and chat-based)
+    const artifact = await getArtifactWithOwnership(artifactId, userId)
 
     const univerData = artifact.univer_data
     const sheetId = Object.keys(univerData.sheets)[0]
@@ -785,15 +828,9 @@ async function executeInsertFormula(
     userId: string
 ): Promise<{ artifactId: string; message: string }> {
     const { artifactId, cell, formula } = args
-    
-    const { data: artifact, error } = await supabase
-        .from('artifacts')
-        .select('*, chats!inner(user_id)')
-        .eq('id', artifactId)
-        .single()
 
-    if (error || !artifact) throw new Error('Spreadsheet not found')
-    if (artifact.chats.user_id !== userId) throw new Error('Access denied')
+    // Get artifact with ownership check (supports standalone and chat-based)
+    const artifact = await getArtifactWithOwnership(artifactId, userId)
 
     const { row, col } = parseCellReference(cell)
     const univerData = artifact.univer_data
@@ -853,15 +890,9 @@ async function executeFormatCells(
     userId: string
 ): Promise<{ artifactId: string; message: string }> {
     const { artifactId, range, format } = args
-    
-    const { data: artifact, error } = await supabase
-        .from('artifacts')
-        .select('*, chats!inner(user_id)')
-        .eq('id', artifactId)
-        .single()
 
-    if (error || !artifact) throw new Error('Spreadsheet not found')
-    if (artifact.chats.user_id !== userId) throw new Error('Access denied')
+    // Get artifact with ownership check (supports standalone and chat-based)
+    const artifact = await getArtifactWithOwnership(artifactId, userId)
 
     // Parse range (e.g., "A1:B5")
     const [startCell, endCell] = range.split(':')
@@ -942,15 +973,9 @@ async function executeAddRow(
     userId: string
 ): Promise<{ artifactId: string; message: string; newRowIndex: number }> {
     const { artifactId, values, position } = args
-    
-    const { data: artifact, error } = await supabase
-        .from('artifacts')
-        .select('*, chats!inner(user_id)')
-        .eq('id', artifactId)
-        .single()
 
-    if (error || !artifact) throw new Error('Spreadsheet not found')
-    if (artifact.chats.user_id !== userId) throw new Error('Access denied')
+    // Get artifact with ownership check (supports standalone and chat-based)
+    const artifact = await getArtifactWithOwnership(artifactId, userId)
 
     const univerData = artifact.univer_data
     const sheetId = Object.keys(univerData.sheets)[0]
@@ -1000,15 +1025,9 @@ async function executeGetSummary(
     userId: string
 ): Promise<{ summary: string; headers: string[]; rowCount: number; sampleData: any[][] }> {
     const { artifactId, maxRows } = args
-    
-    const { data: artifact, error } = await supabase
-        .from('artifacts')
-        .select('*, chats!inner(user_id)')
-        .eq('id', artifactId)
-        .single()
 
-    if (error || !artifact) throw new Error('Spreadsheet not found')
-    if (artifact.chats.user_id !== userId) throw new Error('Access denied')
+    // Get artifact with ownership check (supports standalone and chat-based)
+    const artifact = await getArtifactWithOwnership(artifactId, userId)
 
     const univerData = artifact.univer_data
     const sheetId = Object.keys(univerData.sheets)[0]
@@ -1052,14 +1071,8 @@ async function executeMergeCells(
 ): Promise<{ artifactId: string; message: string }> {
     const { artifactId, range } = args
     
-    const { data: artifact, error } = await supabase
-        .from('artifacts')
-        .select('*, chats!inner(user_id)')
-        .eq('id', artifactId)
-        .single()
-
-    if (error || !artifact) throw new Error('Spreadsheet not found')
-    if (artifact.chats.user_id !== userId) throw new Error('Access denied')
+    // Get artifact with ownership check (supports standalone and chat-based)
+    const artifact = await getArtifactWithOwnership(artifactId, userId)
 
     const [startCell, endCell] = range.split(':')
     const start = parseCellReference(startCell)
@@ -1100,14 +1113,8 @@ async function executeSetColumnWidth(
 ): Promise<{ artifactId: string; message: string }> {
     const { artifactId, columns, width } = args
     
-    const { data: artifact, error } = await supabase
-        .from('artifacts')
-        .select('*, chats!inner(user_id)')
-        .eq('id', artifactId)
-        .single()
-
-    if (error || !artifact) throw new Error('Spreadsheet not found')
-    if (artifact.chats.user_id !== userId) throw new Error('Access denied')
+    // Get artifact with ownership check (supports standalone and chat-based)
+    const artifact = await getArtifactWithOwnership(artifactId, userId)
 
     const univerData = artifact.univer_data
     const sheetId = Object.keys(univerData.sheets)[0]
@@ -1143,14 +1150,8 @@ async function executeSetRowHeight(
 ): Promise<{ artifactId: string; message: string }> {
     const { artifactId, rows, height } = args
     
-    const { data: artifact, error } = await supabase
-        .from('artifacts')
-        .select('*, chats!inner(user_id)')
-        .eq('id', artifactId)
-        .single()
-
-    if (error || !artifact) throw new Error('Spreadsheet not found')
-    if (artifact.chats.user_id !== userId) throw new Error('Access denied')
+    // Get artifact with ownership check (supports standalone and chat-based)
+    const artifact = await getArtifactWithOwnership(artifactId, userId)
 
     const univerData = artifact.univer_data
     const sheetId = Object.keys(univerData.sheets)[0]
@@ -1186,14 +1187,8 @@ async function executeDeleteRow(
 ): Promise<{ artifactId: string; message: string }> {
     const { artifactId, rows } = args
     
-    const { data: artifact, error } = await supabase
-        .from('artifacts')
-        .select('*, chats!inner(user_id)')
-        .eq('id', artifactId)
-        .single()
-
-    if (error || !artifact) throw new Error('Spreadsheet not found')
-    if (artifact.chats.user_id !== userId) throw new Error('Access denied')
+    // Get artifact with ownership check (supports standalone and chat-based)
+    const artifact = await getArtifactWithOwnership(artifactId, userId)
 
     const univerData = artifact.univer_data
     const sheetId = Object.keys(univerData.sheets)[0]
@@ -1243,14 +1238,8 @@ async function executeSortRange(
 ): Promise<{ artifactId: string; message: string; sortedRowCount: number }> {
     const { artifactId, range, sortBy } = args
     
-    const { data: artifact, error } = await supabase
-        .from('artifacts')
-        .select('*, chats!inner(user_id)')
-        .eq('id', artifactId)
-        .single()
-
-    if (error || !artifact) throw new Error('Spreadsheet not found')
-    if (artifact.chats.user_id !== userId) throw new Error('Access denied')
+    // Get artifact with ownership check (supports standalone and chat-based)
+    const artifact = await getArtifactWithOwnership(artifactId, userId)
 
     const univerData = artifact.univer_data
     const sheetId = Object.keys(univerData.sheets)[0]
@@ -1343,14 +1332,8 @@ async function executeFilterData(
 ): Promise<{ artifactId: string; message: string; matchingRows: number[]; totalMatches: number }> {
     const { artifactId, conditions, logic } = args
     
-    const { data: artifact, error } = await supabase
-        .from('artifacts')
-        .select('*, chats!inner(user_id)')
-        .eq('id', artifactId)
-        .single()
-
-    if (error || !artifact) throw new Error('Spreadsheet not found')
-    if (artifact.chats.user_id !== userId) throw new Error('Access denied')
+    // Get artifact with ownership check (supports standalone and chat-based)
+    const artifact = await getArtifactWithOwnership(artifactId, userId)
 
     const univerData = artifact.univer_data
     const sheetId = Object.keys(univerData.sheets)[0]
@@ -1437,14 +1420,8 @@ async function executeConditionalFormat(
 ): Promise<{ artifactId: string; message: string }> {
     const { artifactId, range, rule } = args
     
-    const { data: artifact, error } = await supabase
-        .from('artifacts')
-        .select('*, chats!inner(user_id)')
-        .eq('id', artifactId)
-        .single()
-
-    if (error || !artifact) throw new Error('Spreadsheet not found')
-    if (artifact.chats.user_id !== userId) throw new Error('Access denied')
+    // Get artifact with ownership check (supports standalone and chat-based)
+    const artifact = await getArtifactWithOwnership(artifactId, userId)
 
     const [startCell, endCell] = range.split(':')
     const start = parseCellReference(startCell)
@@ -1560,14 +1537,8 @@ async function executeInsertImage(
 ): Promise<{ artifactId: string; message: string; imageId: string }> {
     const { artifactId, cell, source, size } = args
     
-    const { data: artifact, error } = await supabase
-        .from('artifacts')
-        .select('*, chats!inner(user_id)')
-        .eq('id', artifactId)
-        .single()
-
-    if (error || !artifact) throw new Error('Spreadsheet not found')
-    if (artifact.chats.user_id !== userId) throw new Error('Access denied')
+    // Get artifact with ownership check (supports standalone and chat-based)
+    const artifact = await getArtifactWithOwnership(artifactId, userId)
 
     const { row, col } = parseCellReference(cell)
 
@@ -1671,14 +1642,8 @@ async function executeCopyRange(
 ): Promise<{ artifactId: string; message: string; copiedCells: number }> {
     const { artifactId, sourceRange, destinationCell } = args
     
-    const { data: artifact, error } = await supabase
-        .from('artifacts')
-        .select('*, chats!inner(user_id)')
-        .eq('id', artifactId)
-        .single()
-
-    if (error || !artifact) throw new Error('Spreadsheet not found')
-    if (artifact.chats.user_id !== userId) throw new Error('Access denied')
+    // Get artifact with ownership check (supports standalone and chat-based)
+    const artifact = await getArtifactWithOwnership(artifactId, userId)
 
     const univerData = artifact.univer_data
     const sheetId = Object.keys(univerData.sheets)[0]
@@ -1743,14 +1708,8 @@ async function executeMoveRange(
 ): Promise<{ artifactId: string; message: string; movedCells: number }> {
     const { artifactId, sourceRange, destinationCell } = args
     
-    const { data: artifact, error } = await supabase
-        .from('artifacts')
-        .select('*, chats!inner(user_id)')
-        .eq('id', artifactId)
-        .single()
-
-    if (error || !artifact) throw new Error('Spreadsheet not found')
-    if (artifact.chats.user_id !== userId) throw new Error('Access denied')
+    // Get artifact with ownership check (supports standalone and chat-based)
+    const artifact = await getArtifactWithOwnership(artifactId, userId)
 
     const univerData = artifact.univer_data
     const sheetId = Object.keys(univerData.sheets)[0]
@@ -1828,14 +1787,8 @@ async function executeFindReplace(
 ): Promise<{ artifactId: string; message: string; replacementsCount: number; cellsAffected: string[] }> {
     const { artifactId, find, replace, range, matchCase, matchEntireCell } = args
     
-    const { data: artifact, error } = await supabase
-        .from('artifacts')
-        .select('*, chats!inner(user_id)')
-        .eq('id', artifactId)
-        .single()
-
-    if (error || !artifact) throw new Error('Spreadsheet not found')
-    if (artifact.chats.user_id !== userId) throw new Error('Access denied')
+    // Get artifact with ownership check (supports standalone and chat-based)
+    const artifact = await getArtifactWithOwnership(artifactId, userId)
 
     const univerData = artifact.univer_data
     const sheetId = Object.keys(univerData.sheets)[0]
@@ -1919,14 +1872,8 @@ async function executeFreezePanes(
 ): Promise<{ artifactId: string; message: string }> {
     const { artifactId, rows, columns } = args
     
-    const { data: artifact, error } = await supabase
-        .from('artifacts')
-        .select('*, chats!inner(user_id)')
-        .eq('id', artifactId)
-        .single()
-
-    if (error || !artifact) throw new Error('Spreadsheet not found')
-    if (artifact.chats.user_id !== userId) throw new Error('Access denied')
+    // Get artifact with ownership check (supports standalone and chat-based)
+    const artifact = await getArtifactWithOwnership(artifactId, userId)
 
     const univerData = artifact.univer_data
     const sheetId = Object.keys(univerData.sheets)[0]
@@ -1977,14 +1924,8 @@ async function executeAutoFill(
 ): Promise<{ artifactId: string; message: string; filledCells: number }> {
     const { artifactId, sourceRange, fillRange } = args
     
-    const { data: artifact, error } = await supabase
-        .from('artifacts')
-        .select('*, chats!inner(user_id)')
-        .eq('id', artifactId)
-        .single()
-
-    if (error || !artifact) throw new Error('Spreadsheet not found')
-    if (artifact.chats.user_id !== userId) throw new Error('Access denied')
+    // Get artifact with ownership check (supports standalone and chat-based)
+    const artifact = await getArtifactWithOwnership(artifactId, userId)
 
     const univerData = artifact.univer_data
     const sheetId = Object.keys(univerData.sheets)[0]
@@ -2086,14 +2027,8 @@ async function executeClearRange(
 ): Promise<{ artifactId: string; message: string; clearedCells: number }> {
     const { artifactId, range, clearType } = args
     
-    const { data: artifact, error } = await supabase
-        .from('artifacts')
-        .select('*, chats!inner(user_id)')
-        .eq('id', artifactId)
-        .single()
-
-    if (error || !artifact) throw new Error('Spreadsheet not found')
-    if (artifact.chats.user_id !== userId) throw new Error('Access denied')
+    // Get artifact with ownership check (supports standalone and chat-based)
+    const artifact = await getArtifactWithOwnership(artifactId, userId)
 
     const univerData = artifact.univer_data
     const sheetId = Object.keys(univerData.sheets)[0]
@@ -2149,14 +2084,8 @@ async function executeInsertColumn(
 ): Promise<{ artifactId: string; message: string }> {
     const { artifactId, column, count = 1, values } = args
     
-    const { data: artifact, error } = await supabase
-        .from('artifacts')
-        .select('*, chats!inner(user_id)')
-        .eq('id', artifactId)
-        .single()
-
-    if (error || !artifact) throw new Error('Spreadsheet not found')
-    if (artifact.chats.user_id !== userId) throw new Error('Access denied')
+    // Get artifact with ownership check (supports standalone and chat-based)
+    const artifact = await getArtifactWithOwnership(artifactId, userId)
 
     const univerData = artifact.univer_data
     const sheetId = Object.keys(univerData.sheets)[0]
@@ -2233,14 +2162,8 @@ async function executeDeleteColumn(
 ): Promise<{ artifactId: string; message: string }> {
     const { artifactId, columns } = args
     
-    const { data: artifact, error } = await supabase
-        .from('artifacts')
-        .select('*, chats!inner(user_id)')
-        .eq('id', artifactId)
-        .single()
-
-    if (error || !artifact) throw new Error('Spreadsheet not found')
-    if (artifact.chats.user_id !== userId) throw new Error('Access denied')
+    // Get artifact with ownership check (supports standalone and chat-based)
+    const artifact = await getArtifactWithOwnership(artifactId, userId)
 
     const univerData = artifact.univer_data
     const sheetId = Object.keys(univerData.sheets)[0]
@@ -2291,14 +2214,8 @@ async function executeDuplicateRow(
 ): Promise<{ artifactId: string; message: string; newRowIndices: number[] }> {
     const { artifactId, row, count = 1 } = args
     
-    const { data: artifact, error } = await supabase
-        .from('artifacts')
-        .select('*, chats!inner(user_id)')
-        .eq('id', artifactId)
-        .single()
-
-    if (error || !artifact) throw new Error('Spreadsheet not found')
-    if (artifact.chats.user_id !== userId) throw new Error('Access denied')
+    // Get artifact with ownership check (supports standalone and chat-based)
+    const artifact = await getArtifactWithOwnership(artifactId, userId)
 
     const univerData = artifact.univer_data
     const sheetId = Object.keys(univerData.sheets)[0]
@@ -2362,14 +2279,8 @@ async function executeInsertRow(
 ): Promise<{ artifactId: string; message: string }> {
     const { artifactId, row, count = 1 } = args
     
-    const { data: artifact, error } = await supabase
-        .from('artifacts')
-        .select('*, chats!inner(user_id)')
-        .eq('id', artifactId)
-        .single()
-
-    if (error || !artifact) throw new Error('Spreadsheet not found')
-    if (artifact.chats.user_id !== userId) throw new Error('Access denied')
+    // Get artifact with ownership check (supports standalone and chat-based)
+    const artifact = await getArtifactWithOwnership(artifactId, userId)
 
     const univerData = artifact.univer_data
     const sheetId = Object.keys(univerData.sheets)[0]
@@ -2413,14 +2324,8 @@ async function executeRenameSheet(
 ): Promise<{ artifactId: string; message: string }> {
     const { artifactId, sheetId: targetSheetId, newName } = args
     
-    const { data: artifact, error } = await supabase
-        .from('artifacts')
-        .select('*, chats!inner(user_id)')
-        .eq('id', artifactId)
-        .single()
-
-    if (error || !artifact) throw new Error('Spreadsheet not found')
-    if (artifact.chats.user_id !== userId) throw new Error('Access denied')
+    // Get artifact with ownership check (supports standalone and chat-based)
+    const artifact = await getArtifactWithOwnership(artifactId, userId)
 
     const univerData = artifact.univer_data
     const sheetId = targetSheetId || Object.keys(univerData.sheets)[0]
@@ -2450,14 +2355,8 @@ async function executeAddSheet(
 ): Promise<{ artifactId: string; message: string; sheetId: string }> {
     const { artifactId, name, columns } = args
     
-    const { data: artifact, error } = await supabase
-        .from('artifacts')
-        .select('*, chats!inner(user_id)')
-        .eq('id', artifactId)
-        .single()
-
-    if (error || !artifact) throw new Error('Spreadsheet not found')
-    if (artifact.chats.user_id !== userId) throw new Error('Access denied')
+    // Get artifact with ownership check (supports standalone and chat-based)
+    const artifact = await getArtifactWithOwnership(artifactId, userId)
 
     const univerData = artifact.univer_data
     const newSheetId = `sheet_${Date.now()}`
@@ -2510,14 +2409,8 @@ async function executeDataValidation(
 ): Promise<{ artifactId: string; message: string }> {
     const { artifactId, range, validationType, rule } = args
     
-    const { data: artifact, error } = await supabase
-        .from('artifacts')
-        .select('*, chats!inner(user_id)')
-        .eq('id', artifactId)
-        .single()
-
-    if (error || !artifact) throw new Error('Spreadsheet not found')
-    if (artifact.chats.user_id !== userId) throw new Error('Access denied')
+    // Get artifact with ownership check (supports standalone and chat-based)
+    const artifact = await getArtifactWithOwnership(artifactId, userId)
 
     const univerData = artifact.univer_data
     const sheetId = Object.keys(univerData.sheets)[0]
@@ -2603,14 +2496,8 @@ async function executeAddComment(
 ): Promise<{ artifactId: string; message: string }> {
     const { artifactId, cell, comment, author } = args
     
-    const { data: artifact, error } = await supabase
-        .from('artifacts')
-        .select('*, chats!inner(user_id)')
-        .eq('id', artifactId)
-        .single()
-
-    if (error || !artifact) throw new Error('Spreadsheet not found')
-    if (artifact.chats.user_id !== userId) throw new Error('Access denied')
+    // Get artifact with ownership check (supports standalone and chat-based)
+    const artifact = await getArtifactWithOwnership(artifactId, userId)
 
     const univerData = artifact.univer_data
     const sheetId = Object.keys(univerData.sheets)[0]
@@ -2654,14 +2541,8 @@ async function executeProtectRange(
 ): Promise<{ artifactId: string; message: string }> {
     const { artifactId, range, description } = args
     
-    const { data: artifact, error } = await supabase
-        .from('artifacts')
-        .select('*, chats!inner(user_id)')
-        .eq('id', artifactId)
-        .single()
-
-    if (error || !artifact) throw new Error('Spreadsheet not found')
-    if (artifact.chats.user_id !== userId) throw new Error('Access denied')
+    // Get artifact with ownership check (supports standalone and chat-based)
+    const artifact = await getArtifactWithOwnership(artifactId, userId)
 
     const univerData = artifact.univer_data
     const sheetId = Object.keys(univerData.sheets)[0]
@@ -2701,14 +2582,8 @@ async function executeSetPrintArea(
 ): Promise<{ artifactId: string; message: string }> {
     const { artifactId, range } = args
     
-    const { data: artifact, error } = await supabase
-        .from('artifacts')
-        .select('*, chats!inner(user_id)')
-        .eq('id', artifactId)
-        .single()
-
-    if (error || !artifact) throw new Error('Spreadsheet not found')
-    if (artifact.chats.user_id !== userId) throw new Error('Access denied')
+    // Get artifact with ownership check (supports standalone and chat-based)
+    const artifact = await getArtifactWithOwnership(artifactId, userId)
 
     const univerData = artifact.univer_data
     const sheetId = Object.keys(univerData.sheets)[0]
@@ -2742,14 +2617,8 @@ async function executeGetCellValue(
 ): Promise<{ artifactId: string; cell: string; value: any; formula?: string; hasFormatting: boolean }> {
     const { artifactId, cell } = args
     
-    const { data: artifact, error } = await supabase
-        .from('artifacts')
-        .select('*, chats!inner(user_id)')
-        .eq('id', artifactId)
-        .single()
-
-    if (error || !artifact) throw new Error('Spreadsheet not found')
-    if (artifact.chats.user_id !== userId) throw new Error('Access denied')
+    // Get artifact with ownership check (supports standalone and chat-based)
+    const artifact = await getArtifactWithOwnership(artifactId, userId)
 
     const univerData = artifact.univer_data
     const sheetId = Object.keys(univerData.sheets)[0]
@@ -2773,14 +2642,8 @@ async function executeGetRangeValues(
 ): Promise<{ artifactId: string; range: string; values: any[][]; rowCount: number; colCount: number }> {
     const { artifactId, range, includeFormulas } = args
     
-    const { data: artifact, error } = await supabase
-        .from('artifacts')
-        .select('*, chats!inner(user_id)')
-        .eq('id', artifactId)
-        .single()
-
-    if (error || !artifact) throw new Error('Spreadsheet not found')
-    if (artifact.chats.user_id !== userId) throw new Error('Access denied')
+    // Get artifact with ownership check (supports standalone and chat-based)
+    const artifact = await getArtifactWithOwnership(artifactId, userId)
 
     const univerData = artifact.univer_data
     const sheetId = Object.keys(univerData.sheets)[0]
@@ -2817,14 +2680,8 @@ async function executeTransposeRange(
 ): Promise<{ artifactId: string; message: string; newRange: string }> {
     const { artifactId, sourceRange, destinationCell } = args
     
-    const { data: artifact, error } = await supabase
-        .from('artifacts')
-        .select('*, chats!inner(user_id)')
-        .eq('id', artifactId)
-        .single()
-
-    if (error || !artifact) throw new Error('Spreadsheet not found')
-    if (artifact.chats.user_id !== userId) throw new Error('Access denied')
+    // Get artifact with ownership check (supports standalone and chat-based)
+    const artifact = await getArtifactWithOwnership(artifactId, userId)
 
     const univerData = artifact.univer_data
     const sheetId = Object.keys(univerData.sheets)[0]
@@ -2886,14 +2743,8 @@ async function executeCalculateRange(
 ): Promise<{ artifactId: string; range: string; sum: number; average: number; min: number; max: number; count: number; numericCount: number }> {
     const { artifactId, range } = args
     
-    const { data: artifact, error } = await supabase
-        .from('artifacts')
-        .select('*, chats!inner(user_id)')
-        .eq('id', artifactId)
-        .single()
-
-    if (error || !artifact) throw new Error('Spreadsheet not found')
-    if (artifact.chats.user_id !== userId) throw new Error('Access denied')
+    // Get artifact with ownership check (supports standalone and chat-based)
+    const artifact = await getArtifactWithOwnership(artifactId, userId)
 
     const univerData = artifact.univer_data
     const sheetId = Object.keys(univerData.sheets)[0]
@@ -2938,14 +2789,8 @@ async function executeExportToCsv(
 ): Promise<{ artifactId: string; csv: string; rowCount: number; colCount: number }> {
     const { artifactId, range, delimiter = ',', includeHeaders = true } = args
     
-    const { data: artifact, error } = await supabase
-        .from('artifacts')
-        .select('*, chats!inner(user_id)')
-        .eq('id', artifactId)
-        .single()
-
-    if (error || !artifact) throw new Error('Spreadsheet not found')
-    if (artifact.chats.user_id !== userId) throw new Error('Access denied')
+    // Get artifact with ownership check (supports standalone and chat-based)
+    const artifact = await getArtifactWithOwnership(artifactId, userId)
 
     const univerData = artifact.univer_data
     const sheetId = Object.keys(univerData.sheets)[0]
@@ -3013,14 +2858,8 @@ async function executeRemoveDuplicates(
 ): Promise<{ artifactId: string; message: string; duplicatesRemoved: number; remainingRows: number }> {
     const { artifactId, range, columns } = args
     
-    const { data: artifact, error } = await supabase
-        .from('artifacts')
-        .select('*, chats!inner(user_id)')
-        .eq('id', artifactId)
-        .single()
-
-    if (error || !artifact) throw new Error('Spreadsheet not found')
-    if (artifact.chats.user_id !== userId) throw new Error('Access denied')
+    // Get artifact with ownership check (supports standalone and chat-based)
+    const artifact = await getArtifactWithOwnership(artifactId, userId)
 
     const univerData = artifact.univer_data
     const sheetId = Object.keys(univerData.sheets)[0]
@@ -3099,14 +2938,8 @@ async function executeApplyNumberFormat(
 ): Promise<{ artifactId: string; message: string }> {
     const { artifactId, range, format, customPattern } = args
     
-    const { data: artifact, error } = await supabase
-        .from('artifacts')
-        .select('*, chats!inner(user_id)')
-        .eq('id', artifactId)
-        .single()
-
-    if (error || !artifact) throw new Error('Spreadsheet not found')
-    if (artifact.chats.user_id !== userId) throw new Error('Access denied')
+    // Get artifact with ownership check (supports standalone and chat-based)
+    const artifact = await getArtifactWithOwnership(artifactId, userId)
 
     const univerData = artifact.univer_data
     const sheetId = Object.keys(univerData.sheets)[0]
@@ -3160,14 +2993,8 @@ async function executeCreateNamedRange(
 ): Promise<{ artifactId: string; message: string }> {
     const { artifactId, name, range } = args
     
-    const { data: artifact, error } = await supabase
-        .from('artifacts')
-        .select('*, chats!inner(user_id)')
-        .eq('id', artifactId)
-        .single()
-
-    if (error || !artifact) throw new Error('Spreadsheet not found')
-    if (artifact.chats.user_id !== userId) throw new Error('Access denied')
+    // Get artifact with ownership check (supports standalone and chat-based)
+    const artifact = await getArtifactWithOwnership(artifactId, userId)
 
     const univerData = artifact.univer_data
     const sheetId = Object.keys(univerData.sheets)[0]
@@ -3207,16 +3034,17 @@ async function executeCreateNamedRange(
 async function executeCreateDocument(
     args: z.infer<typeof DOCUMENT_TOOLS.create_document.inputSchema>,
     chatId: string,
-    _userId: string
+    userId: string
 ): Promise<{ artifactId: string; message: string }> {
     const { title, content } = args
-    
+
     const univerData = createUniverDocument(title, content || '')
-    
+
     const { data: artifact, error } = await supabase
         .from('artifacts')
         .insert({
             chat_id: chatId,
+            user_id: userId, // Always set user_id for direct ownership
             type: 'document',
             name: title,
             content: { title, characterCount: content?.length || 0 },
@@ -3226,7 +3054,7 @@ async function executeCreateDocument(
         .single()
 
     if (error) throw new Error(`Failed to create document: ${error.message}`)
-    
+
     log.info(`[Tools] Created document artifact: ${artifact.id}`)
     return { artifactId: artifact.id, message: `Created document "${title}"` }
 }
@@ -3237,14 +3065,8 @@ async function executeInsertText(
 ): Promise<{ artifactId: string; message: string }> {
     const { artifactId, text, position } = args
     
-    const { data: artifact, error } = await supabase
-        .from('artifacts')
-        .select('*, chats!inner(user_id)')
-        .eq('id', artifactId)
-        .single()
-
-    if (error || !artifact) throw new Error('Document not found')
-    if (artifact.chats.user_id !== userId) throw new Error('Access denied')
+    // Get artifact with ownership check (supports standalone and chat-based)
+    const artifact = await getArtifactWithOwnership(artifactId, userId)
 
     const univerData = artifact.univer_data
     const body = univerData.body as { dataStream: string; paragraphs: Array<{ startIndex: number }> }
@@ -3285,14 +3107,8 @@ async function executeReplaceDocumentContent(
 ): Promise<{ artifactId: string; message: string }> {
     const { artifactId, content } = args
     
-    const { data: artifact, error } = await supabase
-        .from('artifacts')
-        .select('*, chats!inner(user_id)')
-        .eq('id', artifactId)
-        .single()
-
-    if (error || !artifact) throw new Error('Document not found')
-    if (artifact.chats.user_id !== userId) throw new Error('Access denied')
+    // Get artifact with ownership check (supports standalone and chat-based)
+    const artifact = await getArtifactWithOwnership(artifactId, userId)
 
     // Create new document body from content
     const lines = content.split('\n')
@@ -3337,14 +3153,8 @@ async function executeGetDocumentContent(
 ): Promise<{ artifactId: string; content: string; title: string }> {
     const { artifactId } = args
     
-    const { data: artifact, error } = await supabase
-        .from('artifacts')
-        .select('*, chats!inner(user_id)')
-        .eq('id', artifactId)
-        .single()
-
-    if (error || !artifact) throw new Error('Document not found')
-    if (artifact.chats.user_id !== userId) throw new Error('Access denied')
+    // Get artifact with ownership check (supports standalone and chat-based)
+    const artifact = await getArtifactWithOwnership(artifactId, userId)
 
     const univerData = artifact.univer_data
     const body = univerData.body as { dataStream: string }
@@ -3365,14 +3175,8 @@ async function executeFormatDocumentText(
 ): Promise<{ artifactId: string; message: string }> {
     const { artifactId, startIndex, endIndex, formatting } = args
     
-    const { data: artifact, error } = await supabase
-        .from('artifacts')
-        .select('*, chats!inner(user_id)')
-        .eq('id', artifactId)
-        .single()
-
-    if (error || !artifact) throw new Error('Document not found')
-    if (artifact.chats.user_id !== userId) throw new Error('Access denied')
+    // Get artifact with ownership check (supports standalone and chat-based)
+    const artifact = await getArtifactWithOwnership(artifactId, userId)
 
     const univerData = artifact.univer_data
     const body = univerData.body as { 
@@ -3427,14 +3231,8 @@ async function executeAddHeading(
 ): Promise<{ artifactId: string; message: string }> {
     const { artifactId, text, level, position } = args
     
-    const { data: artifact, error } = await supabase
-        .from('artifacts')
-        .select('*, chats!inner(user_id)')
-        .eq('id', artifactId)
-        .single()
-
-    if (error || !artifact) throw new Error('Document not found')
-    if (artifact.chats.user_id !== userId) throw new Error('Access denied')
+    // Get artifact with ownership check (supports standalone and chat-based)
+    const artifact = await getArtifactWithOwnership(artifactId, userId)
 
     const univerData = artifact.univer_data
     const body = univerData.body as { 
@@ -3535,14 +3333,8 @@ async function executeAddBulletList(
 ): Promise<{ artifactId: string; message: string }> {
     const { artifactId, items, position } = args
     
-    const { data: artifact, error } = await supabase
-        .from('artifacts')
-        .select('*, chats!inner(user_id)')
-        .eq('id', artifactId)
-        .single()
-
-    if (error || !artifact) throw new Error('Document not found')
-    if (artifact.chats.user_id !== userId) throw new Error('Access denied')
+    // Get artifact with ownership check (supports standalone and chat-based)
+    const artifact = await getArtifactWithOwnership(artifactId, userId)
 
     const univerData = artifact.univer_data
     const body = univerData.body as { 
@@ -3607,14 +3399,8 @@ async function executeAddNumberedList(
 ): Promise<{ artifactId: string; message: string }> {
     const { artifactId, items, position } = args
     
-    const { data: artifact, error } = await supabase
-        .from('artifacts')
-        .select('*, chats!inner(user_id)')
-        .eq('id', artifactId)
-        .single()
-
-    if (error || !artifact) throw new Error('Document not found')
-    if (artifact.chats.user_id !== userId) throw new Error('Access denied')
+    // Get artifact with ownership check (supports standalone and chat-based)
+    const artifact = await getArtifactWithOwnership(artifactId, userId)
 
     const univerData = artifact.univer_data
     const body = univerData.body as { 
@@ -3683,14 +3469,8 @@ async function executeAddTable(
 ): Promise<{ artifactId: string; message: string }> {
     const { artifactId, headers, rows: rowsJson, position } = args
     
-    const { data: artifact, error } = await supabase
-        .from('artifacts')
-        .select('*, chats!inner(user_id)')
-        .eq('id', artifactId)
-        .single()
-
-    if (error || !artifact) throw new Error('Document not found')
-    if (artifact.chats.user_id !== userId) throw new Error('Access denied')
+    // Get artifact with ownership check (supports standalone and chat-based)
+    const artifact = await getArtifactWithOwnership(artifactId, userId)
 
     // Parse rows from JSON
     let parsedRows: string[][] = []
@@ -3759,14 +3539,8 @@ async function executeAddLink(
 ): Promise<{ artifactId: string; message: string }> {
     const { artifactId, text, url, position } = args
     
-    const { data: artifact, error } = await supabase
-        .from('artifacts')
-        .select('*, chats!inner(user_id)')
-        .eq('id', artifactId)
-        .single()
-
-    if (error || !artifact) throw new Error('Document not found')
-    if (artifact.chats.user_id !== userId) throw new Error('Access denied')
+    // Get artifact with ownership check (supports standalone and chat-based)
+    const artifact = await getArtifactWithOwnership(artifactId, userId)
 
     const univerData = artifact.univer_data
     const body = univerData.body as { 
@@ -3839,14 +3613,8 @@ async function executeAddHorizontalRule(
 ): Promise<{ artifactId: string; message: string }> {
     const { artifactId, position } = args
     
-    const { data: artifact, error } = await supabase
-        .from('artifacts')
-        .select('*, chats!inner(user_id)')
-        .eq('id', artifactId)
-        .single()
-
-    if (error || !artifact) throw new Error('Document not found')
-    if (artifact.chats.user_id !== userId) throw new Error('Access denied')
+    // Get artifact with ownership check (supports standalone and chat-based)
+    const artifact = await getArtifactWithOwnership(artifactId, userId)
 
     const univerData = artifact.univer_data
     const body = univerData.body as { 
@@ -3897,14 +3665,8 @@ async function executeAddCodeBlock(
 ): Promise<{ artifactId: string; message: string }> {
     const { artifactId, code, language, position } = args
     
-    const { data: artifact, error } = await supabase
-        .from('artifacts')
-        .select('*, chats!inner(user_id)')
-        .eq('id', artifactId)
-        .single()
-
-    if (error || !artifact) throw new Error('Document not found')
-    if (artifact.chats.user_id !== userId) throw new Error('Access denied')
+    // Get artifact with ownership check (supports standalone and chat-based)
+    const artifact = await getArtifactWithOwnership(artifactId, userId)
 
     const univerData = artifact.univer_data
     const body = univerData.body as { 
@@ -3986,14 +3748,8 @@ async function executeAddQuote(
 ): Promise<{ artifactId: string; message: string }> {
     const { artifactId, text, author, position } = args
     
-    const { data: artifact, error } = await supabase
-        .from('artifacts')
-        .select('*, chats!inner(user_id)')
-        .eq('id', artifactId)
-        .single()
-
-    if (error || !artifact) throw new Error('Document not found')
-    if (artifact.chats.user_id !== userId) throw new Error('Access denied')
+    // Get artifact with ownership check (supports standalone and chat-based)
+    const artifact = await getArtifactWithOwnership(artifactId, userId)
 
     const univerData = artifact.univer_data
     const body = univerData.body as { 
@@ -4071,14 +3827,8 @@ async function executeFindReplaceDocument(
 ): Promise<{ artifactId: string; message: string; replacementsCount: number }> {
     const { artifactId, find, replace, matchCase } = args
     
-    const { data: artifact, error } = await supabase
-        .from('artifacts')
-        .select('*, chats!inner(user_id)')
-        .eq('id', artifactId)
-        .single()
-
-    if (error || !artifact) throw new Error('Document not found')
-    if (artifact.chats.user_id !== userId) throw new Error('Access denied')
+    // Get artifact with ownership check (supports standalone and chat-based)
+    const artifact = await getArtifactWithOwnership(artifactId, userId)
 
     const univerData = artifact.univer_data
     const body = univerData.body as { 
@@ -4407,6 +4157,152 @@ async function executeEditImage(
         prompt,
         size: size || 'auto',
         quality: quality || 'auto'
+    }
+}
+
+// ============================================================================
+// UI NAVIGATION TOOL EXECUTORS
+// ============================================================================
+
+/**
+ * Navigate to a specific tab in the application
+ */
+function executeNavigateToTab(
+    args: z.infer<typeof UI_NAVIGATION_TOOLS.navigate_to_tab.inputSchema>
+): { success: boolean; message: string; tab: string } {
+    const { tab } = args
+
+    log.info(`[Tools] Navigating to tab: ${tab}`)
+
+    // Send IPC event to renderer to change tab
+    sendToRenderer('ui:navigate-tab', { tab })
+
+    const tabNames: Record<string, string> = {
+        chat: 'Chat',
+        excel: 'Spreadsheet',
+        doc: 'Document',
+        gallery: 'Gallery'
+    }
+
+    return {
+        success: true,
+        message: `Navigated to ${tabNames[tab]} tab`,
+        tab
+    }
+}
+
+/**
+ * Select an existing artifact to view or edit
+ */
+async function executeSelectArtifact(
+    args: z.infer<typeof UI_NAVIGATION_TOOLS.select_artifact.inputSchema>,
+    userId: string
+): Promise<{ success: boolean; message: string; artifact?: { id: string; name: string; type: string } }> {
+    const { artifactId, openInFullTab } = args
+
+    log.info(`[Tools] Selecting artifact: ${artifactId}, openInFullTab: ${openInFullTab}`)
+
+    // Verify artifact exists and user has access (supports standalone and chat-based)
+    const { data: artifact, error } = await supabase
+        .from('artifacts')
+        .select('id, name, type, chat_id, user_id, chats(user_id)')
+        .eq('id', artifactId)
+        .single()
+
+    if (error || !artifact) {
+        log.warn(`[Tools] Artifact not found: ${artifactId}`)
+        return {
+            success: false,
+            message: `Artifact not found: ${artifactId}`
+        }
+    }
+
+    // Check ownership: direct user_id OR via chat
+    const hasDirectOwnership = artifact.user_id === userId
+    const chatData = Array.isArray(artifact.chats) ? artifact.chats[0] : artifact.chats
+    const hasChatOwnership = chatData?.user_id === userId
+    if (!hasDirectOwnership && !hasChatOwnership) {
+        log.warn(`[Tools] Access denied to artifact: ${artifactId}`)
+        return {
+            success: false,
+            message: 'Access denied to this artifact'
+        }
+    }
+
+    // Determine which tab to use
+    let targetTab: string | undefined
+    if (openInFullTab) {
+        targetTab = artifact.type === 'spreadsheet' ? 'excel' : artifact.type === 'document' ? 'doc' : undefined
+    }
+
+    // Send IPC event to renderer to select artifact
+    sendToRenderer('ui:select-artifact', {
+        artifactId,
+        openInFullTab: openInFullTab ?? false,
+        targetTab
+    })
+
+    log.info(`[Tools] Selected artifact: ${artifact.name} (${artifact.type})`)
+
+    return {
+        success: true,
+        message: `Selected artifact: ${artifact.name}`,
+        artifact: {
+            id: artifact.id,
+            name: artifact.name,
+            type: artifact.type
+        }
+    }
+}
+
+/**
+ * Get the current UI context including active tab and selected artifact
+ */
+async function executeGetUiContext(
+    args: z.infer<typeof UI_NAVIGATION_TOOLS.get_ui_context.inputSchema>,
+    chatId: string,
+    userId: string
+): Promise<{
+    success: boolean
+    context: {
+        chatId: string
+        artifactList?: Array<{ id: string; name: string; type: string; updatedAt: string }>
+    }
+    message: string
+}> {
+    const { includeArtifactList } = args
+
+    log.info(`[Tools] Getting UI context, includeArtifactList: ${includeArtifactList}`)
+
+    const context: {
+        chatId: string
+        artifactList?: Array<{ id: string; name: string; type: string; updatedAt: string }>
+    } = {
+        chatId
+    }
+
+    // Optionally include list of artifacts for this chat
+    if (includeArtifactList) {
+        const { data: artifacts, error } = await supabase
+            .from('artifacts')
+            .select('id, name, type, updated_at')
+            .eq('chat_id', chatId)
+            .order('updated_at', { ascending: false })
+
+        if (!error && artifacts) {
+            context.artifactList = artifacts.map(a => ({
+                id: a.id,
+                name: a.name,
+                type: a.type,
+                updatedAt: a.updated_at
+            }))
+        }
+    }
+
+    return {
+        success: true,
+        context,
+        message: `UI context retrieved${includeArtifactList ? ` with ${context.artifactList?.length ?? 0} artifacts` : ''}`
     }
 }
 
@@ -4751,6 +4647,25 @@ export async function executeTool(
                 chatId,
                 userId,
                 context
+            )
+
+        // UI Navigation tools
+        case 'navigate_to_tab':
+            return executeNavigateToTab(
+                UI_NAVIGATION_TOOLS.navigate_to_tab.inputSchema.parse(args)
+            )
+
+        case 'select_artifact':
+            return executeSelectArtifact(
+                UI_NAVIGATION_TOOLS.select_artifact.inputSchema.parse(args),
+                userId
+            )
+
+        case 'get_ui_context':
+            return executeGetUiContext(
+                UI_NAVIGATION_TOOLS.get_ui_context.inputSchema.parse(args),
+                chatId,
+                userId
             )
 
         // Plan mode tools

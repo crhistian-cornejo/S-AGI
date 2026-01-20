@@ -4,6 +4,7 @@ import { AnimatedLogo } from './animated-logo'
 import { TextShimmer } from '@/components/ui/text-shimmer'
 import {
     IconArrowUp,
+    IconBolt,
     IconPlayerStop,
     IconPaperclip,
     IconBrain,
@@ -33,6 +34,7 @@ import {
     currentProviderAtom,
     selectedModelAtom,
     reasoningEffortAtom,
+    responseModeAtom,
     supportsReasoningAtom,
     streamingToolCallsAtom,
     streamingWebSearchesAtom,
@@ -79,6 +81,7 @@ export function ChatInput({ value, onChange, onSend, onStop, isLoading, streamin
     const allModelsGrouped = useAtomValue(allModelsGroupedAtom)
     // NOTE: Gemini disabled - const hasGeminiAdvanced = useAtomValue(hasGeminiAdvancedAtom)
     const [reasoningEffort, setReasoningEffort] = useAtom(reasoningEffortAtom)
+    const [responseMode, setResponseMode] = useAtom(responseModeAtom)
     const streamingToolCalls = useAtomValue(streamingToolCallsAtom)
     const streamingWebSearches = useAtomValue(streamingWebSearchesAtom)
     const streamingFileSearches = useAtomValue(streamingFileSearchesAtom)
@@ -91,6 +94,7 @@ export function ChatInput({ value, onChange, onSend, onStop, isLoading, streamin
     
     // Get current model info for display
     const currentModelInfo = AI_MODELS[selectedModel]
+    const supportsResponseMode = !!(currentModelInfo as { supportsResponseMode?: boolean } | undefined)?.supportsResponseMode
 
     // Sync isPlanMode with mode
     useEffect(() => {
@@ -140,6 +144,17 @@ export function ChatInput({ value, onChange, onSend, onStop, isLoading, streamin
     }, [])
 
     const handleKeyDown = (e: React.KeyboardEvent) => {
+        // Ctrl+Tab: cycle ResponseMode (Instant→Thinking→Auto) o Reasoning (Low→Medium→High)
+        if (e.key === 'Tab' && e.ctrlKey) {
+            if (supportsResponseMode) {
+                e.preventDefault()
+                setResponseMode((prev) => ({ instant: 'thinking', thinking: 'auto', auto: 'instant' }[prev]))
+            } else if (supportsReasoning) {
+                e.preventDefault()
+                setReasoningEffort((prev) => ({ low: 'medium', medium: 'high', high: 'low' }[prev]))
+            }
+            return
+        }
         // Shift+Tab to toggle Plan/Agent mode
         if (e.key === 'Tab' && e.shiftKey) {
             e.preventDefault()
@@ -489,9 +504,14 @@ export function ChatInput({ value, onChange, onSend, onStop, isLoading, streamin
 
                         {/* Model Selector with Icons */}
                         <Select value={selectedModel} onValueChange={handleModelChange}>
-                            <SelectTrigger className="h-8 w-auto px-2.5 bg-transparent border-none shadow-none hover:bg-accent/50 gap-1.5 rounded-xl text-xs font-semibold">
-                                <ModelIcon provider={currentModelInfo?.provider || 'openai'} size={14} className="text-muted-foreground" />
-                                <SelectValue>{currentModelInfo?.name || selectedModel}</SelectValue>
+                            <SelectTrigger
+                                className="h-8 w-auto max-w-[160px] px-2.5 bg-transparent border-none shadow-none hover:bg-accent/50 gap-1.5 rounded-xl text-[11px] font-semibold tracking-tight"
+                                title={currentModelInfo?.description}
+                            >
+                                <ModelIcon provider={currentModelInfo?.provider || 'openai'} size={14} className="shrink-0 text-muted-foreground" />
+                                <span className="min-w-0 truncate">
+                                    <SelectValue>{currentModelInfo?.name || selectedModel}</SelectValue>
+                                </span>
                             </SelectTrigger>
                             <SelectContent className="rounded-xl shadow-xl border-border/50 min-w-[200px]">
                                 {/* ChatGPT Plus models (show first if connected) */}
@@ -560,14 +580,52 @@ export function ChatInput({ value, onChange, onSend, onStop, isLoading, streamin
                             </SelectContent>
                         </Select>
 
-                        {supportsReasoning && (
+                        {/* ResponseMode (Instant/Thinking/Auto) — solo GPT-5.2; mismo estilo UI que Reasoning; reemplaza selector de effort */}
+                        {supportsResponseMode && (
                             <>
                                 <div className="w-px h-3.5 bg-border/40 mx-1" />
-                                {/* Reasoning Effort – 3 niveles con puntos */}
                                 <Tooltip>
                                     <TooltipTrigger asChild>
                                         <div className="flex items-center gap-2 px-2.5 py-1.5 rounded-xl hover:bg-accent/50 min-w-0">
-                                            <IconBrain size={14} className="text-foreground shrink-0" />
+                                            <IconBolt size={14} className="text-foreground shrink-0" aria-hidden />
+                                            <div className="flex items-center gap-0.5">
+                                                {(['instant', 'thinking', 'auto'] as const).map((m) => (
+                                                    <button
+                                                        key={m}
+                                                        type="button"
+                                                        onClick={() => setResponseMode(m)}
+                                                        className={cn(
+                                                            "w-1.5 h-1.5 rounded-full border-0 p-0 transition-all cursor-pointer shrink-0",
+                                                            responseMode === m ? "bg-primary" : "bg-muted-foreground/40 hover:bg-muted-foreground/60"
+                                                        )}
+                                                        aria-label={m === 'instant' ? 'Instant' : m === 'thinking' ? 'Thinking' : 'Auto'}
+                                                    />
+                                                ))}
+                                            </div>
+                                            <span className="text-xs font-semibold capitalize shrink-0 text-muted-foreground">
+                                                {responseMode === 'instant' ? 'Instant' : responseMode === 'thinking' ? 'Thinking' : 'Auto'}
+                                            </span>
+                                        </div>
+                                    </TooltipTrigger>
+                                    <TooltipContent className="flex flex-col gap-1.5">
+                                        <p>Modo: {responseMode === 'instant' ? 'Instant' : responseMode === 'thinking' ? 'Thinking' : 'Auto'} (velocidad vs calidad)</p>
+                                        <p className="text-xs text-muted-foreground">Instant→rápido, Thinking→2 pasos, Auto→elige por heurísticas. El effort se fija por modo.</p>
+                                        <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                                            Cycle <kbd className="pointer-events-none inline-flex h-5 select-none items-center gap-1 rounded border bg-muted px-1.5 font-mono text-[10px] font-medium text-muted-foreground">{isMacOS() ? '⌃' : 'Ctrl'} Tab</kbd>
+                                        </p>
+                                    </TooltipContent>
+                                </Tooltip>
+                            </>
+                        )}
+
+                        {/* Reasoning Effort (Low/Medium/High) — solo cuando NO hay ResponseMode; en 5.2 el effort lo fija el modo */}
+                        {supportsReasoning && !supportsResponseMode && (
+                            <>
+                                <div className="w-px h-3.5 bg-border/40 mx-1" />
+                                <Tooltip>
+                                    <TooltipTrigger asChild>
+                                        <div className="flex items-center gap-2 px-2.5 py-1.5 rounded-xl hover:bg-accent/50 min-w-0">
+                                            <IconBrain size={14} className="text-foreground shrink-0" aria-hidden />
                                             <div className="flex flex-col gap-0.5">
                                                 {(['low', 'medium', 'high'] as const).map((level) => (
                                                     <button
@@ -576,9 +634,7 @@ export function ChatInput({ value, onChange, onSend, onStop, isLoading, streamin
                                                         onClick={() => setReasoningEffort(level)}
                                                         className={cn(
                                                             "w-1.5 h-1.5 rounded-full border-0 p-0 transition-all cursor-pointer shrink-0",
-                                                            reasoningEffort === level
-                                                                ? "bg-primary"
-                                                                : "bg-muted-foreground/40 hover:bg-muted-foreground/60"
+                                                            reasoningEffort === level ? "bg-primary" : "bg-muted-foreground/40 hover:bg-muted-foreground/60"
                                                         )}
                                                         aria-label={`${level} reasoning`}
                                                     />
@@ -592,10 +648,7 @@ export function ChatInput({ value, onChange, onSend, onStop, isLoading, streamin
                                     <TooltipContent className="flex flex-col gap-1.5">
                                         <p>Reasoning depth: {reasoningEffort === 'low' ? 'Low' : reasoningEffort === 'medium' ? 'Medium' : 'High'}</p>
                                         <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                                            Cycle
-                                            <kbd className="pointer-events-none inline-flex h-5 select-none items-center gap-1 rounded border bg-muted px-1.5 font-mono text-[10px] font-medium text-muted-foreground">
-                                                {isMacOS() ? '⌃' : 'Ctrl'} Tab
-                                            </kbd>
+                                            Cycle <kbd className="pointer-events-none inline-flex h-5 select-none items-center gap-1 rounded border bg-muted px-1.5 font-mono text-[10px] font-medium text-muted-foreground">{isMacOS() ? '⌃' : 'Ctrl'} Tab</kbd>
                                         </p>
                                     </TooltipContent>
                                 </Tooltip>

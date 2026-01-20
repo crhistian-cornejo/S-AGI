@@ -4,8 +4,27 @@ import { getClaudeCodeAuthManager, getChatGPTAuthManager, getZaiAuthManager, CHA
 // NOTE: Gemini auth disabled - OAuth token incompatible with generativelanguage.googleapis.com
 // import { getClaudeCodeAuthManager, getChatGPTAuthManager, getZaiAuthManager, getGeminiAuthManager, CHATGPT_CODEX_MODELS } from '../../auth'
 import { supabase, authStorage } from '../../supabase/client'
+import { getMainWindow, sendToRenderer } from '../../window-manager'
 import { BrowserWindow, shell } from 'electron'
 import log from 'electron-log'
+
+/** Parse access_token and refresh_token from a Supabase OAuth callback URL (hash or query). */
+function parseOAuthTokensFromUrl(url: string): { access_token: string; refresh_token: string } | null {
+    const hashIdx = url.indexOf('#')
+    const queryIdx = url.indexOf('?')
+    let params: URLSearchParams
+    if (hashIdx !== -1) {
+        params = new URLSearchParams(url.substring(hashIdx + 1))
+    } else if (queryIdx !== -1) {
+        params = new URLSearchParams(url.substring(queryIdx + 1))
+    } else {
+        return null
+    }
+    const access_token = params.get('access_token')
+    const refresh_token = params.get('refresh_token')
+    if (access_token && refresh_token) return { access_token, refresh_token }
+    return null
+}
 
 export const authRouter = router({
     // ========== Supabase User Auth ==========
@@ -139,14 +158,12 @@ export const authRouter = router({
         }))
         .mutation(async ({ input }) => {
             log.info('[Auth] Starting OAuth flow for:', input.provider)
-            
-            // Get the current renderer URL for redirect
-            const mainWindow = BrowserWindow.getAllWindows()[0]
+
+            const mainWindow = getMainWindow()
             const currentUrl = mainWindow?.webContents.getURL()
-            // Extract base URL (e.g., http://localhost:5173)
             const baseUrl = currentUrl ? new URL(currentUrl).origin : 'http://localhost:5173'
-            const redirectTo = baseUrl // Redirect to root, OAuthCallbackHandler will capture the hash
-            
+            const redirectTo = baseUrl
+
             log.info('[Auth] Using redirect URL:', redirectTo)
             
             const { data, error } = await supabase.auth.signInWithOAuth({
@@ -169,7 +186,7 @@ export const authRouter = router({
                 const authWindow = new BrowserWindow({
                     width: 500,
                     height: 700,
-                    parent: mainWindow,
+                    parent: mainWindow ?? undefined,
                     modal: true,
                     show: true,
                     webPreferences: {
@@ -186,54 +203,43 @@ export const authRouter = router({
 
                 authWindow.loadURL(data.url)
 
-                // Listen for navigation to capture the redirect with tokens
-                authWindow.webContents.on('will-redirect', (event, url) => {
-                    log.info('[Auth] OAuth redirect to:', url)
-                    
-                    // Check if this is our redirect URL with tokens
-                    if (url.startsWith(baseUrl) && url.includes('access_token')) {
-                        event.preventDefault()
-                        
-                        // Extract hash from URL
-                        const urlObj = new URL(url.replace('#', '?')) // Convert hash to query for easier parsing
-                        const access_token = urlObj.searchParams.get('access_token')
-                        const refresh_token = urlObj.searchParams.get('refresh_token')
-                        
-                        if (access_token && refresh_token) {
-                            // Send tokens to main window
-                            mainWindow?.webContents.send('auth:oauth-tokens', {
-                                access_token,
-                                refresh_token
-                            })
-                        }
-                        
-                        authWindow.close()
+                let tokensHandled = false
+
+                function tryHandleOAuthCallback(url: string): boolean {
+                    if (tokensHandled) return true
+                    if (!url.startsWith(baseUrl) || !url.includes('access_token')) return false
+                    const tokens = parseOAuthTokensFromUrl(url)
+                    if (!tokens) {
+                        log.warn('[Auth] OAuth callback URL missing access_token or refresh_token')
+                        return false
                     }
+                    tokensHandled = true
+                    log.info('[Auth] OAuth tokens extracted, sending to main window')
+                    sendToRenderer('auth:oauth-tokens', { access_token: tokens.access_token, refresh_token: tokens.refresh_token })
+                    return true
+                }
+
+                function finishAndClose(event?: { preventDefault: () => void }) {
+                    event?.preventDefault()
+                    if (!authWindow.isDestroyed()) authWindow.close()
+                }
+
+                // will-redirect: server 302 to our URL (Supabase HTTP redirect)
+                authWindow.webContents.on('will-redirect', (event, url) => {
+                    log.info('[Auth] OAuth will-redirect to:', url.slice(0, 100) + (url.length > 100 ? '...' : ''))
+                    if (tryHandleOAuthCallback(url)) finishAndClose(event)
                 })
 
-                // Also handle did-navigate for hash fragments
+                // will-navigate: client-side redirect (e.g. Supabase callback page JS: location.href = ...)
+                authWindow.webContents.on('will-navigate', (event, url) => {
+                    log.info('[Auth] OAuth will-navigate to:', url.slice(0, 100) + (url.length > 100 ? '...' : ''))
+                    if (tryHandleOAuthCallback(url)) finishAndClose(event)
+                })
+
+                // did-navigate: fallback when redirect wasn't prevented (e.g. preventDefault failed or event order)
                 authWindow.webContents.on('did-navigate', (_event, url) => {
-                    log.info('[Auth] OAuth navigated to:', url)
-                    
-                    if (url.startsWith(baseUrl) && url.includes('access_token')) {
-                        // Extract hash from URL
-                        const hashIndex = url.indexOf('#')
-                        if (hashIndex !== -1) {
-                            const hash = url.substring(hashIndex + 1)
-                            const params = new URLSearchParams(hash)
-                            const access_token = params.get('access_token')
-                            const refresh_token = params.get('refresh_token')
-                            
-                            if (access_token && refresh_token) {
-                                mainWindow?.webContents.send('auth:oauth-tokens', {
-                                    access_token,
-                                    refresh_token
-                                })
-                            }
-                        }
-                        
-                        authWindow.close()
-                    }
+                    log.info('[Auth] OAuth did-navigate to:', url.slice(0, 100) + (url.length > 100 ? '...' : ''))
+                    if (tryHandleOAuthCallback(url)) finishAndClose()
                 })
             }
 

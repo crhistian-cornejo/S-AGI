@@ -49,18 +49,8 @@ export function AuthDialog() {
 
     const signIn = trpc.auth.signIn.useMutation({
         onSuccess: async (data) => {
-            if (data.session) {
-                // Also set the session in the renderer's local supabase client
-                const { supabase } = await import('@/lib/supabase')
-                await supabase.auth.setSession({
-                    access_token: data.session.access_token,
-                    refresh_token: data.session.refresh_token
-                })
-
-                // Synchronize with main process (redundant but safe)
-                window.desktopApi?.setSession(data.session)
-            }
-
+            // Session is already set in main process via tRPC - main process is the source of truth.
+            // Do NOT set session in renderer's local Supabase client to avoid refresh token conflicts.
             toast.success('Signed in successfully!')
             setOpen(false)
             resetForm()
@@ -105,18 +95,8 @@ export function AuthDialog() {
 
     const exchangeCode = trpc.auth.exchangeCodeForSession.useMutation({
         onSuccess: async (data) => {
-            if (data.session) {
-                // Also set the session in the renderer's local supabase client
-                const { supabase } = await import('@/lib/supabase')
-                await supabase.auth.setSession({
-                    access_token: data.session.access_token,
-                    refresh_token: data.session.refresh_token
-                })
-
-                // Synchronize with main process (redundant but safe)
-                window.desktopApi?.setSession(data.session)
-            }
-
+            // Session is already set in main process via tRPC - main process is the source of truth.
+            // Do NOT set session in renderer's local Supabase client to avoid refresh token conflicts.
             toast.success('Signed in with Google!')
             setOpen(false)
             resetForm()

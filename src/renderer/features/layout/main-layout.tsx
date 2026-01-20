@@ -116,6 +116,50 @@ export function MainLayout() {
         }
     }, [handleNewChat, setActiveTab, setSelectedArtifact, setSelectedChatId, setSettingsOpen])
 
+    // Global Listeners for Agent-controlled UI Navigation
+    useEffect(() => {
+        const api = window.desktopApi
+        if (!api) return
+
+        const cleanups: Array<() => void> = []
+
+        // Listen for tab navigation from agent
+        if (api.onNavigateTab) {
+            cleanups.push(api.onNavigateTab((data) => {
+                console.log('[MainLayout] Agent navigating to tab:', data.tab)
+                setActiveTab(data.tab)
+            }))
+        }
+
+        // Listen for artifact selection from agent
+        if (api.onSelectArtifact) {
+            cleanups.push(api.onSelectArtifact(async (data) => {
+                console.log('[MainLayout] Agent selecting artifact:', data.artifactId)
+
+                // Fetch artifact data and set it
+                try {
+                    const artifact = await utils.artifacts.get.fetch({ id: data.artifactId })
+                    if (artifact) {
+                        setSelectedArtifact(artifact)
+
+                        // Navigate to appropriate tab if requested
+                        if (data.openInFullTab && data.targetTab) {
+                            setActiveTab(data.targetTab as 'excel' | 'doc')
+                        }
+                    }
+                } catch (err) {
+                    console.error('[MainLayout] Failed to fetch artifact:', err)
+                }
+            }))
+        }
+
+        return () => {
+            for (const cleanup of cleanups) {
+                cleanup()
+            }
+        }
+    }, [setActiveTab, setSelectedArtifact, utils.artifacts.get])
+
     // Global Shortcuts - disabled when Univer tabs are active to avoid input conflicts
     const isUniverTabActive = activeTab === 'excel' || activeTab === 'doc'
     
@@ -147,7 +191,7 @@ export function MainLayout() {
         e.preventDefault()
         if (!supportsReasoning) return
         setReasoningEffort((prev) => ({ low: 'medium', medium: 'high', high: 'low' }[prev]))
-    }, { preventDefault: true, enabled: !isUniverTabActive })
+    }, { preventDefault: true, enableOnFormTags: true, enabled: !isUniverTabActive })
 
     return (
         <div className="h-screen w-screen bg-background relative overflow-hidden">

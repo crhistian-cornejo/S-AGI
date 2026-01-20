@@ -61,6 +61,9 @@ export interface DesktopApi {
     sendMessage: (message: string) => Promise<{ success: boolean }>
   }
   onArtifactUpdate: (callback: (data: { artifactId: string; univerData: any; type: 'spreadsheet' | 'document' }) => void) => () => void
+  // UI Navigation (agent-controlled)
+  onNavigateTab: (callback: (data: { tab: 'chat' | 'excel' | 'doc' | 'gallery' }) => void) => () => void
+  onSelectArtifact: (callback: (data: { artifactId: string; openInFullTab: boolean; targetTab?: string }) => void) => () => void
 }
 
 declare global {

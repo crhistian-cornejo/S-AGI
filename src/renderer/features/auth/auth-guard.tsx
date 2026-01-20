@@ -21,26 +21,10 @@ export function AuthGuard({ children }: AuthGuardProps) {
         refetchOnWindowFocus: true
     })
 
-    // Synchronize session with Main process
-    useEffect(() => {
-        if (session) {
-            window.desktopApi?.setSession(session)
-        }
-    }, [session])
-
-    // Initial check: if we have a local session, sync it to Main process immediately
-    useEffect(() => {
-        const syncInitialSession = async () => {
-            const { supabase } = await import('@/lib/supabase')
-            const { data: { session: localSession } } = await supabase.auth.getSession()
-            if (localSession) {
-                console.log('[AuthGuard] Syncing initial local session to Main')
-                await window.desktopApi?.setSession(localSession)
-                utils.auth.getSession.invalidate()
-            }
-        }
-        syncInitialSession()
-    }, [])
+    // NOTE: Session synchronization is handled by the main process via encrypted storage.
+    // The renderer should NOT try to sync its localStorage session to main, as this causes
+    // race conditions with refresh tokens ("refresh_token_already_used" error).
+    // The main process is the single source of truth for authentication.
 
     const signInWithOAuth = trpc.auth.signInWithOAuth.useMutation({
         onSuccess: () => {

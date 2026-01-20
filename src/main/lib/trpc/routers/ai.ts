@@ -45,6 +45,16 @@ function getFallbackTitle(prompt: string) {
     return `${trimmed.slice(0, AUTO_TITLE_MAX_LENGTH)}...`
 }
 
+/** Heurísticas para ResponseMode Auto: elige 'thinking' o 'instant'. */
+function pickModeAuto(text: string, _hasImages?: boolean): 'instant' | 'thinking' {
+    const t = text.toLowerCase()
+    const long = text.length > 800
+    const complex = ['arquitect', 'diseñ', 'seguridad', 'optim', 'debug', 'cálcul', 'contrato', 'plan', 'detallado', 'paso a paso', 'con ejemplos'].some(k => t.includes(k))
+    // Note: images don't need thinking mode, just more output tokens (handled separately)
+    // Spreadsheet/table keywords also don't need thinking - just output tokens
+    return (long || complex) ? 'thinking' : 'instant'
+}
+
 function isRetryableError(error: unknown): boolean {
     const status = (error as any)?.status
     const code = (error as any)?.code
@@ -118,14 +128,63 @@ async function withRetry<T>(
 // Keep the static parts at the beginning for maximum cache hits
 // @see https://platform.openai.com/docs/guides/prompt-caching
 const SYSTEM_PROMPT = `# S-AGI System Instructions
-Version: 1.0.0
-Role: AI assistant for spreadsheet creation, document writing, and web research
+Version: 2.0.0
+Role: AI assistant for spreadsheet creation, document writing, image generation, and web research
 
 ================================================================================
 CORE IDENTITY
 ================================================================================
 
-You are S-AGI, a specialized AI assistant designed to help users create, edit, and analyze spreadsheets and documents. You have access to powerful native tools and custom spreadsheet/document operations.
+You are S-AGI, a specialized AI assistant designed to help users create, edit, and analyze spreadsheets and documents. You have access to powerful native tools, custom spreadsheet/document operations, UI navigation controls, and image generation capabilities. You can also see and analyze images uploaded by users.
+
+================================================================================
+MULTIMODAL CAPABILITIES
+================================================================================
+
+### Image Understanding
+You can see and analyze images uploaded by users. When a user uploads an image:
+
+**Tables & Data in Images:**
+- If you see a table, data grid, or structured information in an image, AUTOMATICALLY extract all visible data
+- Create a spreadsheet using create_spreadsheet with the extracted data
+- Apply appropriate formatting (bold headers, alignment, borders)
+- Navigate to the Excel tab so the user can see the result
+
+**Charts & Graphs:**
+- Describe the chart type, data trends, and key insights
+- Offer to recreate the underlying data in a spreadsheet
+
+**Screenshots & UI:**
+- Analyze and describe what you see
+- Extract any text or data visible
+
+**General Images:**
+- Describe the content and offer relevant actions
+
+### Image Generation (GPT Image 1.5)
+- generate_image: Create images from text descriptions
+- edit_image: Modify existing images using AI
+- Supports transparent backgrounds, various sizes, and quality levels
+
+================================================================================
+UI NAVIGATION TOOLS
+================================================================================
+
+You can control the application UI to provide a seamless experience:
+
+- navigate_to_tab: Switch between tabs (chat, excel, doc, gallery)
+  * Use after creating content to show it to the user
+  * Example: After creating a spreadsheet, navigate to 'excel' tab
+
+- select_artifact: Select an existing artifact to view or edit
+  * Opens the artifact in the side panel or full tab
+  * Use to continue editing previous work
+
+- get_ui_context: Get current UI state
+  * Returns active chat, selected artifact, available artifacts
+  * Use to understand context before taking actions
+
+**IMPORTANT: After creating a spreadsheet or document, consider navigating to the appropriate tab so the user can immediately see and interact with their content.**
 
 ================================================================================
 NATIVE TOOLS (Built-in OpenAI Capabilities)
@@ -193,6 +252,8 @@ WORKFLOW GUIDELINES
 3. **Code → Visualize**: Use code interpreter for analysis, then format results
 4. **Context First**: Always use get_spreadsheet_summary or get_document_content before modifications
 5. **Parallel Execution**: When possible, batch related operations together
+6. **Image → Spreadsheet**: When user uploads image with table data, extract and create spreadsheet automatically
+7. **Navigate After Creation**: Use navigate_to_tab to show users their created content
 
 ================================================================================
 RESPONSE STYLE
@@ -200,7 +261,7 @@ RESPONSE STYLE
 
 - Be concise but helpful
 - Use Markdown formatting for clarity
-- Math: use $...$ (inline) and $$...$$ (block) with LaTeX; never put equations in backticks. Use \int (not f), e^{i\pi} (not e^(iπ)), \infty, \sqrt{}, etc.
+- Math: use $...$ (inline) and $$...$$ (block) with LaTeX; never put equations in backticks. Use \\int (not f), e^{i\\pi} (not e^(iπ)), \\infty, \\sqrt{}, etc.
 - Explain actions before and after tool use
 - For spreadsheets: always format headers (bold) and set column widths
 - For documents: use clear structure with headings and lists
@@ -801,6 +862,7 @@ interface PendingToolCall {
     callId: string
     name: string
     arguments: string
+    parsedArgs?: unknown // Pre-parsed args to avoid re-parsing
 }
 
 export const aiRouter = router({
@@ -877,6 +939,8 @@ export const aiRouter = router({
                 ]).optional()
             }).optional(),
             previousResponseId: z.string().optional(),
+            /** Instant / Thinking / Auto (solo GPT-5.2) */
+            responseMode: z.enum(['instant', 'thinking', 'auto']).optional(),
             // Cost optimization options
             optimization: z.object({
                 /** Maximum output tokens (controls response length and cost) */
@@ -934,11 +998,18 @@ export const aiRouter = router({
                     const provider = input.provider || 'openai'
                     const modelId = input.model || DEFAULT_MODELS[provider as keyof typeof DEFAULT_MODELS]
                     const modelDef = getModelById(modelId)
+                    const apiModelId = (modelDef as { modelIdForApi?: string } | undefined)?.modelIdForApi || modelId
+                    const supportsResponseMode = !!(modelDef as { supportsResponseMode?: boolean } | undefined)?.supportsResponseMode
+                    const hasImages = !!(input.images && input.images.length > 0)
+                    const chosenMode: 'instant' | 'thinking' | null = (supportsResponseMode && (provider === 'openai' || provider === 'chatgpt-plus') && input.responseMode)
+                        ? (input.responseMode === 'auto' ? pickModeAuto(input.prompt, hasImages) : input.responseMode)
+                        : null
+                    if (chosenMode) log.info(`[AI] ResponseMode: ${input.responseMode} -> chosen: ${chosenMode}`)
                     
                     log.info(`[AI] Starting Responses API agent loop with ${modelId} (provider: ${provider})`)
                     log.info(`[AI] Reasoning config:`, input.reasoning)
-                    if (input.images?.length) {
-                        log.info(`[AI] Including ${input.images.length} image(s)`)
+                    if (hasImages) {
+                        log.info(`[AI] Including ${input.images?.length} image(s)`)
                     }
 
                     // Create OpenAI client based on provider
@@ -1422,6 +1493,28 @@ CRITICAL INSTRUCTIONS FOR DOCUMENT QUERIES:
                         log.info(`[AI] Native tools detail:`, JSON.stringify(nativeTools, null, 2))
                     }
 
+                    // ResponseMode Thinking: paso 1 — plan (solo openai/chatgpt-plus)
+                    let planText = ''
+                    if (chosenMode === 'thinking' && (provider === 'openai' || provider === 'chatgpt-plus')) {
+                        try {
+                            const planRes = await client.responses.create({
+                                model: apiModelId,
+                                input: toResponsesMessages(input.messages || [], input.prompt, input.images),
+                                instructions: systemPrompt + '\n\n[Este paso únicamente] Extrae requerimientos, riesgos y un plan en bullets. Responde solo con eso.',
+                                reasoning: { effort: 'low', summary: 'auto' },
+                                max_output_tokens: 250,
+                                store: false
+                            } as any)
+                            planText = (planRes as { output_text?: string }).output_text || ''
+                            log.info(`[AI] Plan step OK, ${planText.length} chars`)
+                        } catch (e) {
+                            log.warn('[AI] Plan step failed, continuing without plan', e)
+                        }
+                    }
+                    const effectiveInstructions = planText
+                        ? systemPrompt + '\n\nPLAN:\n' + planText + '\n\nUsa este plan. Checklist: precisión, supuestos explícitos, pasos concretos.'
+                        : systemPrompt
+
                     // Build messages
                     const messages = toResponsesMessages(
                         input.messages || [],
@@ -1433,10 +1526,12 @@ CRITICAL INSTRUCTIONS FOR DOCUMENT QUERIES:
                         ? toChatMessages(systemPrompt, input.messages || [], input.prompt)
                         : null
 
-                    // Determine reasoning config
-                    const reasoningConfig: ReasoningConfig | undefined = modelDef?.supportsReasoning
-                        ? input.reasoning
-                        : undefined
+                    // Determine reasoning config (ResponseMode override para GPT-5.2)
+                    const reasoningConfig: ReasoningConfig | undefined = chosenMode === 'instant'
+                        ? { effort: 'none', summary: 'auto' }
+                        : chosenMode === 'thinking'
+                            ? { effort: 'high', summary: 'auto' }
+                            : (modelDef?.supportsReasoning ? input.reasoning : undefined)
                     
                     log.info(`[AI] Final reasoning config:`, reasoningConfig)
 
@@ -1494,8 +1589,10 @@ CRITICAL INSTRUCTIONS FOR DOCUMENT QUERIES:
                             )
  
                             const toolCallMap = new Map<string, { id: string; name: string; args: string }>()
- 
+                            let lastChunk: any = null
+
                             for await (const chunk of stream as any) {
+                                lastChunk = chunk
                                 const delta = chunk.choices?.[0]?.delta
                                 if (!delta) continue
 
@@ -1553,6 +1650,12 @@ CRITICAL INSTRUCTIONS FOR DOCUMENT QUERIES:
                                 usageTotals.promptTokens += completionUsage.prompt_tokens || 0
                                 usageTotals.completionTokens += completionUsage.completion_tokens || 0
                                 usageTotals.reasoningTokens += (completionUsage as any).completion_tokens_details?.reasoning_tokens || 0
+                            }
+                            // Fallback: usage en el último chunk (común en Chat Completions streaming)
+                            if (usageTotals.promptTokens === 0 && usageTotals.completionTokens === 0 && lastChunk?.usage) {
+                                usageTotals.promptTokens = lastChunk.usage.prompt_tokens || 0
+                                usageTotals.completionTokens = lastChunk.usage.completion_tokens || 0
+                                usageTotals.reasoningTokens = (lastChunk.usage as any).completion_tokens_details?.reasoning_tokens || 0
                             }
 
                             const zaiWebSearchResults = provider === 'zai'
@@ -1702,9 +1805,21 @@ CRITICAL INSTRUCTIONS FOR DOCUMENT QUERIES:
                             inputForRequest = messages
                         }
 
-                        // Build optimization options
+                        // Build optimization options (ResponseMode override para Instant/Thinking)
                         const optimization = input.optimization || {}
-                        const maxOutputTokens = optimization.maxOutputTokens
+                        // When images are present, we need more tokens for tool calls (spreadsheet data can be large)
+                        // instant: 350 (text only), thinking: 1400, with images: 8000 minimum
+                        let maxOutputTokens: number | undefined
+                        if (hasImages) {
+                            // Images typically mean spreadsheet/table extraction which needs lots of tokens
+                            maxOutputTokens = Math.max(8000, optimization.maxOutputTokens || 8000)
+                        } else if (chosenMode === 'instant') {
+                            maxOutputTokens = 350
+                        } else if (chosenMode === 'thinking') {
+                            maxOutputTokens = 1400
+                        } else {
+                            maxOutputTokens = optimization.maxOutputTokens
+                        }
                         const truncation = optimization.truncation?.type || 'auto'
                         const promptCacheKey = optimization.promptCacheKey || input.chatId
                         const promptCacheRetention = optimization.promptCacheRetention
@@ -1731,10 +1846,10 @@ CRITICAL INSTRUCTIONS FOR DOCUMENT QUERIES:
                         // Stream the response using the official SDK
                         // Note: ChatGPT Plus/Codex endpoint has limited parameter support
                         const streamParams: any = {
-                            model: modelId,
+                            model: apiModelId,
                             input: inputForRequest,
                             tools: toolsForRequest.length > 0 ? toolsForRequest : undefined,
-                            instructions: systemPrompt,
+                            instructions: effectiveInstructions,
                             store: supportsOpenAiOptimizations,
                             previous_response_id: currentResponseId,
                             reasoning: reasoningConfig ? {
@@ -1822,17 +1937,29 @@ CRITICAL INSTRUCTIONS FOR DOCUMENT QUERIES:
                                         toolName: functionCall.name
                                     })
                                     
+                                    // Safely parse arguments - may be truncated if response hit max_output_tokens
+                                    let parsedArgs: unknown = {}
+                                    try {
+                                        parsedArgs = functionCall.arguments ? JSON.parse(functionCall.arguments) : {}
+                                    } catch (parseError) {
+                                        log.error(`[AI] Failed to parse function_call arguments for ${functionCall.name}: ${parseError instanceof Error ? parseError.message : 'Unknown error'}`)
+                                        log.warn(`[AI] Raw arguments (first 500 chars): ${functionCall.arguments?.slice(0, 500)}`)
+                                        // Use raw string wrapped so tool can handle gracefully
+                                        parsedArgs = { _parseError: true, raw: functionCall.arguments }
+                                    }
+                                    
                                     emit({
                                         type: 'tool-call-done',
                                         toolCallId: functionCall.call_id,
                                         toolName: functionCall.name,
-                                        args: JSON.parse(functionCall.arguments)
+                                        args: parsedArgs
                                     })
                                     
                                     pendingToolCalls.push({
                                         callId: functionCall.call_id,
                                         name: functionCall.name,
-                                        arguments: functionCall.arguments
+                                        arguments: functionCall.arguments,
+                                        parsedArgs // Store parsed args to avoid re-parsing
                                     })
                                 }
                                 
@@ -2043,7 +2170,32 @@ CRITICAL INSTRUCTIONS FOR DOCUMENT QUERIES:
                                 try {
                                     const executor = executors.get(toolCall.name)
                                     if (executor) {
-                                        const args = JSON.parse(toolCall.arguments)
+                                        // Use pre-parsed args if available, otherwise try to parse
+                                        let args = toolCall.parsedArgs
+                                        if (args === undefined) {
+                                            try {
+                                                args = JSON.parse(toolCall.arguments)
+                                            } catch (parseError) {
+                                                log.error(`[AI] Failed to parse tool call arguments for ${toolCall.name}: ${parseError instanceof Error ? parseError.message : 'Unknown error'}`)
+                                                args = { _parseError: true, raw: toolCall.arguments }
+                                            }
+                                        }
+                                        
+                                        // Check if args had parse error
+                                        if (args && typeof args === 'object' && '_parseError' in args) {
+                                            const errorMsg = `Failed to parse tool arguments: response may have been truncated due to max_output_tokens limit`
+                                            log.error(`[AI] Tool ${toolCall.name} received malformed arguments`)
+                                            toolCall.arguments = JSON.stringify({ error: errorMsg, success: false })
+                                            emit({
+                                                type: 'tool-result',
+                                                toolCallId: toolCall.callId,
+                                                toolName: toolCall.name,
+                                                result: { error: errorMsg },
+                                                success: false
+                                            })
+                                            return
+                                        }
+                                        
                                         const result = await executor(args)
                                         
                                         // Update the tool call with the result for next iteration
@@ -2090,9 +2242,11 @@ CRITICAL INSTRUCTIONS FOR DOCUMENT QUERIES:
                             completionTokens: usageTotals.completionTokens,
                             reasoningTokens: usageTotals.reasoningTokens
                         },
-                        totalSteps: currentStepNumber
+                        totalSteps: currentStepNumber,
+                        // For OpenAI/Responses API: pass to next turn via previous_response_id (store: true)
+                        responseId: currentResponseId ?? undefined
                     })
-                    log.info(`[AI] Agent loop finished in ${Date.now() - startTime}ms, totalSteps=${currentStepNumber}`)
+                    log.info(`[AI] Agent loop finished in ${Date.now() - startTime}ms, totalSteps=${currentStepNumber}, responseId=${currentResponseId ?? 'none'}`)
 
                 } catch (error) {
                     if (error instanceof Error && error.name === 'AbortError') {
@@ -2168,10 +2322,14 @@ CRITICAL INSTRUCTIONS FOR DOCUMENT QUERIES:
                     // Note: We don't emit text-delta with markdown image because
                     // the AgentImageGeneration component renders the image from tool-result
                     
-                    // Emit finish
+                    // Emit finish (image API no devuelve tokens; usar 0 para que la UI muestre estructura)
                     const duration = Date.now() - startTime
                     log.info(`[AI] Direct image generation completed in ${duration}ms`)
-                    emit({ type: 'finish', totalSteps: 1 })
+                    emit({
+                        type: 'finish',
+                        totalSteps: 1,
+                        usage: { promptTokens: 0, completionTokens: 0, reasoningTokens: 0 }
+                    })
 
                 } catch (error) {
                     log.error(`[AI] Direct image generation error:`, error)

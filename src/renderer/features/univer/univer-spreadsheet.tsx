@@ -1,7 +1,9 @@
 import * as React from 'react'
+import { useAtom } from 'jotai'
 import { trpc } from '@/lib/trpc'
 import { initSheetsUniver, createWorkbook, disposeSheetsUniver, getSheetsInstanceVersion, getSheetsInstance } from './univer-sheets-core'
 import { UniverInstanceType } from '@univerjs/core'
+import { artifactSnapshotCacheAtom, type ArtifactSnapshot } from '@/lib/atoms'
 
 interface UniverSpreadsheetProps {
     artifactId?: string
@@ -11,6 +13,7 @@ interface UniverSpreadsheetProps {
 export interface UniverSpreadsheetRef {
     save: () => Promise<void>
     getSnapshot: () => any | null
+    markDirty: () => void
 }
 
 export const UniverSpreadsheet = React.forwardRef<UniverSpreadsheetRef, UniverSpreadsheetProps>(({
@@ -23,6 +26,10 @@ export const UniverSpreadsheet = React.forwardRef<UniverSpreadsheetRef, UniverSp
     const [isSaving, setIsSaving] = React.useState(false)
     const workbookRef = React.useRef<any>(null)
     const versionRef = React.useRef<number>(-1)
+    const isDirtyRef = React.useRef(false)
+
+    // Snapshot cache for persistence across tab switches
+    const [snapshotCache, setSnapshotCache] = useAtom(artifactSnapshotCacheAtom)
 
     // Generate a stable instance ID
     const instanceIdRef = React.useRef<string>(`spreadsheet-${Date.now()}`)
@@ -31,15 +38,27 @@ export const UniverSpreadsheet = React.forwardRef<UniverSpreadsheetRef, UniverSp
     // Use artifact ID for data purposes
     const effectiveDataId = artifactId ?? instanceId
 
+    // Check if we have a cached snapshot that's newer than the DB data
+    const getCachedOrDbData = React.useCallback(() => {
+        if (!artifactId) return data
+        const cached = snapshotCache[artifactId]
+        if (cached && cached.isDirty) {
+            console.log('[UniverSpreadsheet] Using cached snapshot (dirty)', artifactId)
+            return cached.univerData
+        }
+        return data
+    }, [artifactId, data, snapshotCache])
+
     // Debug: log received data
     React.useEffect(() => {
         console.log('[UniverSpreadsheet] Mounted with data:', {
             artifactId,
             hasData: !!data,
+            hasCachedData: artifactId ? !!snapshotCache[artifactId] : false,
             dataKeys: data ? Object.keys(data) : [],
             sheetsKeys: data?.sheets ? Object.keys(data.sheets) : [],
         })
-    }, [artifactId, data])
+    }, [artifactId, data, snapshotCache])
 
 
     // Save mutation
@@ -65,15 +84,30 @@ export const UniverSpreadsheet = React.forwardRef<UniverSpreadsheetRef, UniverSp
         }
     }, [artifactId, isSaving, saveSnapshot])
 
+    // Mark as dirty when user makes changes
+    const markDirty = React.useCallback(() => {
+        isDirtyRef.current = true
+    }, [])
+
     React.useImperativeHandle(ref, () => ({
         save: handleSave,
-        getSnapshot: () => workbookRef.current?.save?.() ?? null
+        getSnapshot: () => workbookRef.current?.save?.() ?? null,
+        markDirty
     }))
 
     // Store data in a ref to avoid re-initialization on every render
     // Only the initial data matters - subsequent changes should use Univer's API
-    const initialDataRef = React.useRef(data)
+    // Use cached data if available and dirty
+    const effectiveData = getCachedOrDbData()
+    const initialDataRef = React.useRef(effectiveData)
     const isInitializedRef = React.useRef(false)
+
+    // Update initialDataRef when effectiveData changes (for remounts)
+    React.useEffect(() => {
+        if (!isInitializedRef.current) {
+            initialDataRef.current = effectiveData
+        }
+    }, [effectiveData])
 
     // Initialize Univer on mount, dispose on unmount
     // Only depends on effectiveDataId to avoid unnecessary re-initialization
@@ -166,15 +200,45 @@ export const UniverSpreadsheet = React.forwardRef<UniverSpreadsheetRef, UniverSp
 
         initUniver()
 
-        // Cleanup on unmount - defer dispose with version check
+        // Cleanup on unmount - save to cache and defer dispose
         return () => {
             mounted = false
+
+            // AUTOGUARDADO: Save current state to cache before unmounting
+            if (workbookRef.current && artifactId) {
+                try {
+                    const snapshot = workbookRef.current.save()
+                    if (snapshot) {
+                        // Always cache the current state - even if not "dirty" to preserve user position
+                        const cacheEntry: ArtifactSnapshot = {
+                            univerData: snapshot,
+                            timestamp: Date.now(),
+                            isDirty: isDirtyRef.current
+                        }
+                        setSnapshotCache(prev => ({
+                            ...prev,
+                            [artifactId]: cacheEntry
+                        }))
+                        console.log('[UniverSpreadsheet] Cached snapshot on unmount:', artifactId, 'isDirty:', isDirtyRef.current)
+
+                        // If dirty, also trigger async save to DB
+                        if (isDirtyRef.current) {
+                            saveSnapshot.mutate({ id: artifactId, univerData: snapshot })
+                            console.log('[UniverSpreadsheet] Triggered async save to DB')
+                        }
+                    }
+                } catch (err) {
+                    console.error('[UniverSpreadsheet] Failed to cache snapshot:', err)
+                }
+            }
+
             workbookRef.current = null
             isInitializedRef.current = false
-            
+            isDirtyRef.current = false
+
             // Capture version at cleanup time
             const version = versionRef.current
-            
+
             // Defer the dispose to next tick to avoid "synchronously unmount during render" error
             // Version check ensures we don't dispose a newer instance
             setTimeout(() => {
@@ -187,7 +251,31 @@ export const UniverSpreadsheet = React.forwardRef<UniverSpreadsheetRef, UniverSp
                 }
             }, 0)
         }
-    }, [effectiveDataId])
+    }, [effectiveDataId, artifactId, setSnapshotCache, saveSnapshot])
+
+    // Track user edits to mark as dirty (for autoguardado)
+    React.useEffect(() => {
+        if (!artifactId) return
+
+        // Mark dirty on any keyboard input in the container
+        const container = containerRef.current
+        if (!container) return
+
+        const handleInput = () => {
+            isDirtyRef.current = true
+        }
+
+        // Listen for various edit events
+        container.addEventListener('input', handleInput)
+        container.addEventListener('keydown', handleInput)
+        container.addEventListener('paste', handleInput)
+
+        return () => {
+            container.removeEventListener('input', handleInput)
+            container.removeEventListener('keydown', handleInput)
+            container.removeEventListener('paste', handleInput)
+        }
+    }, [artifactId, isLoading])
 
     // Listen for live artifact updates from AI tools
     React.useEffect(() => {

@@ -14,6 +14,7 @@ import {
     imageAspectRatioAtom,
     ASPECT_RATIO_TO_SIZE,
     selectedModelAtom,
+    responseModeAtom,
     streamingToolCallsAtom,
     streamingErrorAtom,
     selectedArtifactAtom,
@@ -70,6 +71,7 @@ export function ChatView() {
     const [isReasoning, setIsReasoning] = useAtom(isReasoningAtom)
     const [lastReasoning, setLastReasoning] = useAtom(lastReasoningAtom)
     const reasoningEffort = useAtomValue(reasoningEffortAtom)
+    const responseMode = useAtomValue(responseModeAtom)
 
     // Web search state (for OpenAI native web search)
     const [streamingWebSearches, setStreamingWebSearches] = useAtom(streamingWebSearchesAtom)
@@ -636,14 +638,13 @@ export function ChatView() {
 
                         case 'finish': {
                             const durationMs = Date.now() - streamStartedAt
-                            const usage = event.usage
-                                ? {
-                                    inputTokens: event.usage.promptTokens || 0,
-                                    outputTokens: event.usage.completionTokens || 0,
-                                    reasoningTokens: event.usage.reasoningTokens || 0,
-                                    totalTokens: (event.usage.promptTokens || 0) + (event.usage.completionTokens || 0)
-                                }
-                                : undefined
+                            const rawUsage = event.usage
+                            const usage = {
+                                inputTokens: rawUsage?.promptTokens || 0,
+                                outputTokens: rawUsage?.completionTokens || 0,
+                                reasoningTokens: rawUsage?.reasoningTokens || 0,
+                                totalTokens: (rawUsage?.promptTokens || 0) + (rawUsage?.completionTokens || 0) + (rawUsage?.reasoningTokens || 0)
+                            }
                             const contextWindow = AI_MODELS[selectedModel]?.contextWindow
 
                             // Save assistant message to database
@@ -665,13 +666,15 @@ export function ChatView() {
                                     }
                                 })
 
+                                const modelName = AI_MODELS[selectedModel]?.name ?? selectedModel
                                 const actions = [
-                                    actionCounts.attachments > 0 ? { type: 'attachments', count: actionCounts.attachments } : null,
-                                    actionCounts.webSearch > 0 ? { type: 'web-search', count: actionCounts.webSearch } : null,
-                                    actionCounts.fileSearch > 0 ? { type: 'file-search', count: actionCounts.fileSearch } : null,
-                                    actionCounts.codeInterpreter > 0 ? { type: 'code-interpreter', count: actionCounts.codeInterpreter } : null,
-                                    toolCallsArray.length > 0 ? { type: 'tool', count: toolCallsArray.length } : null
-                                ].filter(Boolean) as Array<{ type: 'attachments' | 'web-search' | 'file-search' | 'code-interpreter' | 'tool'; count: number }>
+                                    actionCounts.attachments > 0 ? { type: 'attachments' as const, count: actionCounts.attachments } : null,
+                                    actionCounts.webSearch > 0 ? { type: 'web-search' as const, count: actionCounts.webSearch } : null,
+                                    actionCounts.fileSearch > 0 ? { type: 'file-search' as const, count: actionCounts.fileSearch } : null,
+                                    actionCounts.codeInterpreter > 0 ? { type: 'code-interpreter' as const, count: actionCounts.codeInterpreter } : null,
+                                    toolCallsArray.length > 0 ? { type: 'tool' as const, count: toolCallsArray.length } : null,
+                                    { type: 'model' as const, modelId: selectedModel, modelName }
+                                ].filter(Boolean) as Array<{ type: 'attachments' | 'web-search' | 'file-search' | 'code-interpreter' | 'tool'; count: number } | { type: 'model'; modelId: string; modelName: string }>
 
                                 console.log('[ChatView] Saving message with tool calls:', JSON.stringify(toolCallsArray, null, 2))
 
@@ -680,13 +683,19 @@ export function ChatView() {
                                     role: 'assistant',
                                     content: { type: 'text', text: fullText },
                                     toolCalls: toolCallsArray.length > 0 ? toolCallsArray : undefined,
+                                    modelId: selectedModel,
+                                    modelName,
                                     metadata: {
                                         usage,
                                         contextWindow: contextWindow || undefined,
                                         durationMs,
                                         reasoning: fullReasoning || undefined,
                                         actions: actions.length > 0 ? actions : undefined,
-                                        annotations: collectedAnnotations.length > 0 ? collectedAnnotations : undefined
+                                        annotations: collectedAnnotations.length > 0 ? collectedAnnotations : undefined,
+                                        ...(event.responseId && { openaiResponseId: event.responseId }),
+                                        // Fallback por si las columnas model_id/model_name no existen o fallan
+                                        ...(selectedModel && { model_id: selectedModel }),
+                                        ...(modelName && { model_name: modelName })
                                     }
                                 })
 
@@ -735,6 +744,12 @@ export function ChatView() {
                     mediaType: img.mediaType,
                 }))
 
+                // Responses API (OpenAI, ChatGPT Plus): pass last response id to chain context (store: true + previous_response_id)
+                const lastAssistant = [...(historySource || [])].reverse().find((m: { role: string }) => m.role === 'assistant') as { metadata?: { openaiResponseId?: string } } | undefined
+                const previousResponseId = (provider === 'openai' || provider === 'chatgpt-plus') && lastAssistant?.metadata?.openaiResponseId
+                    ? lastAssistant.metadata.openaiResponseId
+                    : undefined
+
                 await chatMutation.mutateAsync({
                     chatId: chatIdForStream,
                     prompt: userMessage,
@@ -745,6 +760,9 @@ export function ChatView() {
                     model: selectedModel,
                     messages: messageHistory,
                     images: imageContent && imageContent.length > 0 ? imageContent : undefined,
+                    previousResponseId,
+                    /** Instant / Thinking / Auto (solo GPT-5.2) — el backend ignora si el modelo no lo soporta */
+                    responseMode,
                     // Always pass reasoning configuration
                     reasoning: {
                         effort: reasoningEffort,

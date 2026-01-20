@@ -17,11 +17,14 @@ function createSupabaseClient(): SupabaseClient {
         })
     }
 
+    // IMPORTANT: Auth is handled by the main process (encrypted storage).
+    // The renderer should NOT manage auth sessions to avoid refresh token conflicts.
+    // Disable autoRefreshToken and persistSession - use tRPC auth.getSession instead.
     return createClient(supabaseUrl, supabaseAnonKey, {
         auth: {
-            autoRefreshToken: true,
-            persistSession: true,
-            storage: localStorage
+            autoRefreshToken: false,
+            persistSession: false,
+            detectSessionInUrl: false
         }
     })
 }

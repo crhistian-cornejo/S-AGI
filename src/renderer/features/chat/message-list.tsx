@@ -4,6 +4,8 @@ import { useAtomValue } from 'jotai'
 import { cn } from '@/lib/utils'
 import { trpc } from '@/lib/trpc'
 import { selectedModelAtom } from '@/lib/atoms'
+import { getModelById } from '@shared/ai-types'
+import { ModelIcon } from '@/components/icons/model-icons'
 import { ChatMarkdownRenderer } from '@/components/chat-markdown-renderer'
 import { MessageAttachments } from '@/components/message-attachments'
 import { Button } from '@/components/ui/button'
@@ -38,11 +40,12 @@ const DEFAULT_CONTEXT_WINDOW = 256000
 // Z.AI: https://docs.z.ai/guides/overview/pricing
 // ChatGPT Plus/Codex: included in subscription, no per-token charge
 const MODEL_PRICING: Record<string, { input: number; output: number }> = {
-    // OpenAI API
+    // OpenAI API (Standard $/1M: platform.openai.com/docs/pricing)
     'gpt-5': { input: 1.25, output: 10 },
     'gpt-5-mini': { input: 0.25, output: 2 },
     'gpt-5-nano': { input: 0.05, output: 0.4 },
     'gpt-4o-mini': { input: 0.15, output: 0.6 },
+    'gpt-5.2-openai': { input: 1.75, output: 14 },
     // ChatGPT Plus / Codex (included in subscription)
     'gpt-5.1-codex-max': { input: 0, output: 0 },
     'gpt-5.1-codex-mini': { input: 0, output: 0 },
@@ -54,13 +57,13 @@ const MODEL_PRICING: Record<string, { input: number; output: number }> = {
     'GLM-4.7-Flash': { input: 0, output: 0 }
 }
 
-/** Calculate cost based on tokens and model */
-function calculateCost(modelId: string, inputTokens: number, outputTokens: number): number {
+/** Calculate cost based on tokens and model. Reasoning tokens are billed as output. */
+function calculateCost(modelId: string, inputTokens: number, outputTokens: number, reasoningTokens?: number): number {
     const pricing = MODEL_PRICING[modelId]
     if (!pricing) return 0
-    
     const inputCost = (inputTokens / 1_000_000) * pricing.input
-    const outputCost = (outputTokens / 1_000_000) * pricing.output
+    const effOutput = (outputTokens || 0) + (reasoningTokens || 0)
+    const outputCost = (effOutput / 1_000_000) * pricing.output
     return inputCost + outputCost
 }
 
@@ -313,6 +316,10 @@ interface Message {
     id: string
     role: 'user' | 'assistant' | 'system' | 'tool'
     content: unknown
+    /** Model id used for this message (assistant). For cost and model pill. */
+    model_id?: string | null
+    /** Display name of the model (e.g. GPT-5.2). */
+    model_name?: string | null
     tool_calls?: Array<{
         id: string
         name: string
@@ -329,10 +336,15 @@ interface Message {
         durationMs?: number
         reasoning?: string
         contextWindow?: number
+        /** Legacy: model id/name may also be in metadata before model_id/model_name columns existed. */
+        model_id?: string
+        model_name?: string
         actions?: Array<{
-            type: 'attachments' | 'web-search' | 'file-search' | 'code-interpreter' | 'tool'
+            type: 'attachments' | 'web-search' | 'file-search' | 'code-interpreter' | 'tool' | 'model'
             count?: number
             label?: string
+            modelId?: string
+            modelName?: string
         }>
         annotations?: Array<
             | { type: 'url_citation'; url: string; title?: string; startIndex: number; endIndex: number }
@@ -506,13 +518,19 @@ export const MessageList = memo(function MessageList({
                 </div>
             )}
 
-            {/* Initial Loading / Thinking State */}
+            {/* Initial Loading / Thinking State - shows while waiting for first response chunk */}
             {isLoading && !streamingText && !streamingReasoning && (!streamingToolCalls || streamingToolCalls.length === 0) && (!streamingWebSearches || streamingWebSearches.length === 0) && (!streamingFileSearches || streamingFileSearches.length === 0) && (
-                <div className="flex gap-4 animate-in fade-in duration-500">
+                <div className="flex gap-4 animate-in fade-in duration-300">
                     <AssistantAvatar />
-                    <div className="flex-1 space-y-3 pt-2">
-                        <div className="h-4 w-[85%] rounded-lg animate-shimmer" />
-                        <div className="h-4 w-[60%] rounded-lg animate-shimmer" />
+                    <div className="flex-1 pt-1">
+                        <div className="flex items-center gap-2 text-muted-foreground">
+                            <div className="flex gap-1">
+                                <span className="w-1.5 h-1.5 rounded-full bg-current animate-bounce" style={{ animationDelay: '0ms' }} />
+                                <span className="w-1.5 h-1.5 rounded-full bg-current animate-bounce" style={{ animationDelay: '150ms' }} />
+                                <span className="w-1.5 h-1.5 rounded-full bg-current animate-bounce" style={{ animationDelay: '300ms' }} />
+                            </div>
+                            <span className="text-sm">Thinking...</span>
+                        </div>
                     </div>
                 </div>
             )}
@@ -542,10 +560,17 @@ const MessageItem = memo(function MessageItem({
     const durationMs = message.metadata?.durationMs
     const inputTokens = usage?.inputTokens || 0
     const outputTokens = usage?.outputTokens || 0
-    const totalTokens = usage?.totalTokens ?? (inputTokens + outputTokens)
+    const reasoningTokens = usage?.reasoningTokens || 0
+    const totalTokens = usage?.totalTokens ?? (inputTokens + outputTokens + reasoningTokens)
     const contextWindow = message.metadata?.contextWindow ?? DEFAULT_CONTEXT_WINDOW
     const hasUsage = totalTokens > 0 || (durationMs !== undefined && durationMs > 0)
-    const cost = calculateCost(selectedModel, inputTokens, outputTokens)
+    /** Prefer stored model so cost does not change when user switches model. */
+    const modelIdForCost = message.model_id ?? message.metadata?.model_id ?? selectedModel
+    const cost = calculateCost(modelIdForCost, inputTokens, outputTokens, reasoningTokens)
+    const modelId = message.model_id ?? message.metadata?.model_id
+    const modelName = message.model_name ?? message.metadata?.model_name ?? modelId
+    /** Solo dos providers: OpenAI (openai+chatgpt-plus) o Z.AI */
+    const modelProvider = getModelById(modelId || '')?.provider === 'zai' ? 'zai' : 'openai'
 
     useEffect(() => {
         return () => {
@@ -760,6 +785,21 @@ const MessageItem = memo(function MessageItem({
                             {message.metadata?.annotations && message.metadata.annotations.length > 0 && (
                                 <SourcesIndicator annotations={message.metadata.annotations} />
                             )}
+                            {/* Model used for this response (OpenAI or Z.AI icon + name) — basis for cost calculation */}
+                            {(modelId || modelName) && (
+                                <Tooltip>
+                                    <TooltipTrigger asChild>
+                                        <span
+                                            className="h-5 px-1.5 flex items-center gap-1.5 text-[10px] rounded-md text-muted-foreground/70 font-medium"
+                                            aria-label={`Model: ${modelName}`}
+                                        >
+                                            <ModelIcon provider={modelProvider} size={12} className="shrink-0" />
+                                            <span className="truncate max-w-[120px]">{modelName}</span>
+                                        </span>
+                                    </TooltipTrigger>
+                                    <TooltipContent side="top">Model used: {modelName}</TooltipContent>
+                                </Tooltip>
+                            )}
                         </div>
                         {hasUsage && (
                             <Tooltip>
@@ -774,6 +814,12 @@ const MessageItem = memo(function MessageItem({
                                 </TooltipTrigger>
                                 <TooltipContent side="top" align="end" className="text-xs">
                                     <div className="space-y-1">
+                                        {(modelId || modelName) && (
+                                            <div className="flex justify-between gap-4">
+                                                <span className="text-muted-foreground">Model:</span>
+                                                <span className="font-mono text-foreground">{modelName}</span>
+                                            </div>
+                                        )}
                                         <div className="flex justify-between gap-4">
                                             <span className="text-muted-foreground">Tokens:</span>
                                             <span className="font-mono text-foreground">

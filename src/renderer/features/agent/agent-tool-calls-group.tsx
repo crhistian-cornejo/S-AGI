@@ -33,15 +33,24 @@ interface GroupedToolCall {
 }
 
 // Convert ToolCall to ToolPart for registry functions
+// Cache for parsed tool args to avoid re-parsing on every render
+const parsedArgsCache = new WeakMap<ToolCall, Record<string, unknown>>()
+
 function toToolPart(tc: ToolCall): ToolPart {
   let parsedInput: Record<string, unknown> = {}
   let parsedOutput: Record<string, unknown> = {}
   
-  try {
-    if (tc.args) {
-      parsedInput = typeof tc.args === 'string' ? JSON.parse(tc.args) : tc.args
-    }
-  } catch { /* ignore */ }
+  // Use cached parsed args if available
+  if (parsedArgsCache.has(tc)) {
+    parsedInput = parsedArgsCache.get(tc)!
+  } else {
+    try {
+      if (tc.args) {
+        parsedInput = typeof tc.args === 'string' ? JSON.parse(tc.args) : tc.args
+        parsedArgsCache.set(tc, parsedInput)
+      }
+    } catch { /* ignore */ }
+  }
   
   if (tc.result && typeof tc.result === 'object') {
     parsedOutput = tc.result as Record<string, unknown>

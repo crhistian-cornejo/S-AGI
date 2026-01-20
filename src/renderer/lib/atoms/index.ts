@@ -2,7 +2,9 @@ import { atom } from 'jotai'
 import { atomWithStorage } from 'jotai/utils'
 import type { Chat, Artifact } from '@shared/types'
 import { AI_MODELS, DEFAULT_MODELS, getModelsByProvider } from '@shared/ai-types'
-import type { AIProvider, ModelDefinition } from '@shared/ai-types'
+import type { AIProvider, ModelDefinition, ResponseMode } from '@shared/ai-types'
+
+export type { ResponseMode }
 
 // === SIDEBAR STATE ===
 export const sidebarOpenAtom = atomWithStorage('sidebar-open', true)
@@ -17,6 +19,29 @@ export const selectedArtifactIdAtom = atom<string | null>(null)
 export const selectedArtifactAtom = atom<Artifact | null>(null)
 export const artifactPanelOpenAtom = atomWithStorage('artifact-panel-open', true)
 export const artifactPanelWidthAtom = atomWithStorage('artifact-panel-width', 500)
+
+// === ARTIFACT SNAPSHOT CACHE ===
+// Cache for unsaved artifact changes - prevents data loss on tab switch
+export interface ArtifactSnapshot {
+    univerData: unknown
+    timestamp: number
+    isDirty: boolean
+}
+export const artifactSnapshotCacheAtom = atom<Record<string, ArtifactSnapshot>>({})
+
+// Helper atom to get/set individual artifact snapshots
+export const getArtifactSnapshotAtom = (artifactId: string) => atom(
+    (get) => get(artifactSnapshotCacheAtom)[artifactId] ?? null,
+    (get, set, snapshot: ArtifactSnapshot | null) => {
+        const cache = get(artifactSnapshotCacheAtom)
+        if (snapshot) {
+            set(artifactSnapshotCacheAtom, { ...cache, [artifactId]: snapshot })
+        } else {
+            const { [artifactId]: _, ...rest } = cache
+            set(artifactSnapshotCacheAtom, rest)
+        }
+    }
+)
 
 // === AI STATE ===
 export const isStreamingAtom = atom(false)
@@ -232,6 +257,9 @@ export const lastReasoningAtom = atom('')
 // Matches OpenAI SDK ReasoningEffort: 'low' | 'medium' | 'high'
 export type ReasoningEffort = 'low' | 'medium' | 'high'
 export const reasoningEffortAtom = atomWithStorage<ReasoningEffort>('reasoning-effort', 'low')
+
+// ResponseMode: Instant / Thinking / Auto (solo GPT-5.2)
+export const responseModeAtom = atomWithStorage<ResponseMode>('response-mode', 'auto')
 
 // === WEB SEARCH STATE (for native OpenAI web search) ===
 export interface WebSearchInfo {

@@ -2,11 +2,15 @@ import { useState } from 'react'
 import { cn } from '@/lib/utils'
 import { IconChevronDown, IconChevronRight, IconPaperclip, IconTool } from '@tabler/icons-react'
 import { BrainIcon, CustomTerminalIcon, FileSearchIcon, GlobeIcon, IconSpinner } from './icons'
+import { getModelById } from '@shared/ai-types'
+import { OpenAIIcon, ZaiIcon } from '@/components/icons/model-icons'
 
 export interface AgentReasoningAction {
-  type: 'attachments' | 'web-search' | 'file-search' | 'code-interpreter' | 'tool'
+  type: 'attachments' | 'web-search' | 'file-search' | 'code-interpreter' | 'tool' | 'model'
   count?: number
   label?: string
+  modelId?: string
+  modelName?: string
 }
 
 /** Web search info with query and sources */
@@ -85,6 +89,7 @@ function formatThinkingDuration(ms?: number) {
 
 function getActionLabel(action: AgentReasoningAction) {
   if (action.label) return action.label
+  if (action.type === 'model') return action.modelName || action.modelId || 'Model'
   const count = action.count ?? 1
   switch (action.type) {
     case 'attachments':
@@ -114,6 +119,10 @@ function getActionIcon(action: AgentReasoningAction) {
       return CustomTerminalIcon
     case 'tool':
       return IconTool
+    case 'model': {
+      const p = getModelById(action.modelId || '')?.provider
+      return p === 'zai' ? ZaiIcon : OpenAIIcon
+    }
     default:
       return BrainIcon
   }

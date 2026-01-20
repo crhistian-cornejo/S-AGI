@@ -983,28 +983,12 @@ export function Sidebar() {
                                 variant="ghost"
                                 className="h-9 w-full justify-start gap-2 px-2 hover:bg-accent/50 relative"
                             >
-                                <div className="relative">
-                                    <Avatar className="h-6 w-6">
-                                        <AvatarImage src={user?.user_metadata?.avatar_url || user?.user_metadata?.picture} />
-                                        <AvatarFallback className="bg-primary/10">
-                                            {user?.email?.charAt(0).toUpperCase() || <IconUser size={14} />}
-                                        </AvatarFallback>
-                                    </Avatar>
-                                    {isConnected && (
-                                        <div className="absolute -bottom-0.5 -right-0.5 bg-background border border-border rounded-full h-2 w-2 flex items-center justify-center shadow-sm ring-1 ring-background shrink-0 overflow-hidden">
-                                            {provider === 'chatgpt-plus' ? (
-                                                <IconBrandOpenai size={5} className="text-emerald-600" />
-                                            ) : provider === 'openai' ? (
-                                                <IconBrandOpenai size={5} />
-                                            ) : provider === 'zai' ? (
-                                                <ZaiIcon size={5} className="text-amber-500" />
-                                            ) : (
-                                                // NOTE: gemini-advanced disabled
-                                                <IconSparkles size={5} className="text-primary" />
-                                            )}
-                                        </div>
-                                    )}
-                                </div>
+                                <Avatar className="h-6 w-6">
+                                    <AvatarImage src={user?.user_metadata?.avatar_url || user?.user_metadata?.picture} />
+                                    <AvatarFallback className="bg-primary/10">
+                                        {user?.email?.charAt(0).toUpperCase() || <IconUser size={14} />}
+                                    </AvatarFallback>
+                                </Avatar>
                                 <span className="flex-1 text-left truncate text-xs font-medium">
                                     {user?.email || 'Not logged in'}
                                 </span>
