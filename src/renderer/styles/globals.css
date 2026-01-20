@@ -400,10 +400,12 @@
 
 /* ==========================================================================
    Z-Index Hierarchy
-   Ensures app modals/dialogs are above Univer components
+   Univer toolbar/sheets-ui uses z-index 1001; dialogs must be above it.
+   App modals (Radix) and toasts sit above Univer.
    ========================================================================== */
 
-/* Univer floating elements - keep them below app modals */
+/* Univer floating elements - above sheet toolbar (univer-z-[1001]) so
+   e.g. Number Format / Currency dialog and Select dropdowns are not clipped */
 .univer-popup,
 .univer-dropdown,
 .univer-tooltip,
@@ -412,33 +414,44 @@
 [class*="univer-dropdown"],
 [class*="univer-sidebar"],
 [class*="univer-float"],
-[class*="univer-panel"] {
-    z-index: 40 !important;
+[class*="univer-panel"],
+[class*="univer-dialog"],
+[class*="univer-modal"],
+[class*="univer-select"] {
+    z-index: 1100 !important;
 }
 
-/* Univer context menus */
+/* @univerjs/design: Select, Tooltip, Popover (univer-z-[1080/1081]) must sit
+   above the parent Number Format dropdown (1100) so the currency selector and
+   tooltips open on top instead of behind. */
+[class*="univer-z-[1080]"],
+[class*="univer-z-[1081]"] {
+    z-index: 1115 !important;
+}
+
+/* Univer context menus - same layer as other Univer overlays */
 .univer-context-menu,
 [class*="univer-context-menu"] {
-    z-index: 45 !important;
+    z-index: 1105 !important;
 }
 
-/* App dialogs/modals - must be above Univer */
+/* App dialogs/modals - above Univer overlays (1100) */
 [role="dialog"],
 [data-radix-dialog-content],
 [data-radix-alert-dialog-content],
 [data-radix-popper-content-wrapper] {
-    z-index: 50 !important;
+    z-index: 1200 !important;
 }
 
 /* Dialog overlay */
 [data-radix-dialog-overlay],
 [data-radix-alert-dialog-overlay] {
-    z-index: 49 !important;
+    z-index: 1199 !important;
 }
 
 /* Toasts/notifications - highest priority */
 [data-sonner-toaster] {
-    z-index: 100 !important;
+    z-index: 1300 !important;
 }
 
 /* ==========================================================================

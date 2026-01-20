@@ -15,7 +15,13 @@ import {
     chatGPTPlusStatusAtom,
     hasGeminiAdvancedAtom,
     geminiAdvancedStatusAtom,
+    selectedChatIdAtom,
+    selectedArtifactAtom,
+    artifactPanelOpenAtom,
+    sidebarOpenAtom,
+    activeTabAtom
 } from './lib/atoms'
+import { toast } from 'sonner'
 
 /**
  * Themed Toaster component
@@ -74,6 +80,64 @@ function ConnectionStatusSync() {
 }
 
 /**
+ * Quick Prompt Handler - Creates a new chat from the floating Quick Prompt window
+ */
+function QuickPromptHandler() {
+    const setSelectedChatId = useSetAtom(selectedChatIdAtom)
+    const setSelectedArtifact = useSetAtom(selectedArtifactAtom)
+    const setArtifactPanelOpen = useSetAtom(artifactPanelOpenAtom)
+    const setSidebarOpen = useSetAtom(sidebarOpenAtom)
+    const setActiveTab = useSetAtom(activeTabAtom)
+
+    const createChat = trpc.chats.create.useMutation({
+        onSuccess: (chat) => {
+            setSelectedChatId(chat.id)
+            setSelectedArtifact(null)
+            setArtifactPanelOpen(false)
+            setSidebarOpen(true)
+            setActiveTab('chat')
+            toast.success('New chat created')
+        },
+        onError: (error) => {
+            toast.error('Failed to create chat: ' + error.message)
+        }
+    })
+
+    const sendMessage = trpc.messages.add.useMutation({
+        onSuccess: () => {
+            toast.success('Message sent')
+        },
+        onError: (error: unknown) => {
+            toast.error('Failed to send message: ' + (error as Error).message)
+        }
+    })
+
+    useEffect(() => {
+        const handler = (_event: Event, message: string) => {
+            console.log('[QuickPrompt] Received message to create chat:', message.substring(0, 50) + '...')
+
+            createChat.mutate({ title: message.slice(0, 50) + (message.length > 50 ? '...' : '') }, {
+                onSuccess: (chat) => {
+                    sendMessage.mutate({
+                        chatId: chat.id,
+                        role: 'user',
+                        content: message,
+                        attachments: []
+                    })
+                }
+            })
+        }
+
+        window.addEventListener('quick-prompt:create-chat', handler as EventListener)
+        return () => {
+            window.removeEventListener('quick-prompt:create-chat', handler as EventListener)
+        }
+    }, [createChat, sendMessage])
+
+    return null
+}
+
+/**
  * Main App component with all providers
  */
 export function App() {
@@ -95,6 +159,7 @@ export function App() {
                 <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
                     <TRPCProvider>
                         <ConnectionStatusSync />
+                        <QuickPromptHandler />
                         <TooltipProvider delayDuration={100}>
                             <OAuthCallbackHandler />
                             <div

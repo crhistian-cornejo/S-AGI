@@ -43,6 +43,17 @@ interface DesktopApi {
         writeText: (text: string) => Promise<boolean>
         readText: () => Promise<string>
     }
+    quickPrompt: {
+        sendMessage: (message: string) => Promise<{ success: boolean }>
+    }
+    onArtifactUpdate: (callback: (data: ArtifactUpdateEvent) => void) => () => void
+}
+
+// Artifact live update event from main process
+interface ArtifactUpdateEvent {
+    artifactId: string
+    univerData: any
+    type: 'spreadsheet' | 'document'
 }
 
 // Types for tray popover

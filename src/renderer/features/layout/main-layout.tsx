@@ -1,4 +1,4 @@
-import { useState, lazy, Suspense, useEffect, useCallback } from 'react'
+import { lazy, Suspense, useEffect, useCallback } from 'react'
 import {
     IconPlus,
     IconLayoutSidebarLeftExpand,
@@ -12,7 +12,8 @@ import {
     selectedChatIdAtom,
     activeTabAtom,
     shortcutsDialogOpenAtom,
-    settingsModalOpenAtom
+    settingsModalOpenAtom,
+    commandKOpenAtom,
 } from '@/lib/atoms'
 import { Sidebar } from '@/features/sidebar/sidebar'
 import { ChatView } from '@/features/chat/chat-view'
@@ -21,8 +22,8 @@ import { cn, isMacOS } from '@/lib/utils'
 import { useAtom, useSetAtom, useAtomValue } from 'jotai'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { Button } from '@/components/ui/button'
-import { Dialog, DialogTrigger } from '@/components/ui/dialog'
 import { ShortcutsDialog } from '@/features/help/shortcuts-dialog'
+import { CommandKDialog } from '@/features/chat/command-k-dialog'
 import { useHotkeys } from 'react-hotkeys-hook'
 import { useUniverTheme } from '@/features/univer/use-univer-theme'
 
@@ -30,7 +31,6 @@ import { useUniverTheme } from '@/features/univer/use-univer-theme'
 const ArtifactPanel = lazy(() => import('@/features/artifacts/artifact-panel').then(m => ({ default: m.ArtifactPanel })))
 const UniverSpreadsheet = lazy(() => import('@/features/univer/univer-spreadsheet').then(m => ({ default: m.UniverSpreadsheet })))
 const UniverDocument = lazy(() => import('@/features/univer/univer-document').then(m => ({ default: m.UniverDocument })))
-const HistoryDialogContent = lazy(() => import('@/features/chat/history-dialog').then(m => ({ default: m.HistoryDialogContent })))
 
 // Loading fallback for lazy components
 function PanelLoadingFallback() {
@@ -50,8 +50,8 @@ export function MainLayout() {
     const [, setShortcutsOpen] = useAtom(shortcutsDialogOpenAtom)
     const setSettingsOpen = useSetAtom(settingsModalOpenAtom)
     const setSelectedArtifact = useSetAtom(selectedArtifactAtom)
+    const setCommandKOpen = useSetAtom(commandKOpenAtom)
     const utils = trpc.useUtils()
-    const [historyOpen, setHistoryOpen] = useState(false)
 
     // Sync Univer theme with app dark/light mode
     useUniverTheme()
@@ -134,6 +134,10 @@ export function MainLayout() {
         preventDefault: true,
         enabled: !isUniverTabActive
     })
+    useHotkeys('meta+k, ctrl+k', (e) => {
+        e.preventDefault()
+        setCommandKOpen(true)
+    }, { preventDefault: true, enabled: !isUniverTabActive })
 
     return (
         <div className="h-screen w-screen bg-background relative overflow-hidden">
@@ -145,6 +149,7 @@ export function MainLayout() {
                 noTrafficLightSpace={sidebarOpen}
             />
             <ShortcutsDialog />
+            <CommandKDialog />
 
             <div className="flex h-full w-full overflow-hidden relative">
                 {/* Chat Tab - conditionally rendered because it doesn't have Univer conflicts */}
@@ -210,27 +215,24 @@ export function MainLayout() {
                                                 </TooltipContent>
                                             </Tooltip>
 
-                                            <Dialog open={historyOpen} onOpenChange={setHistoryOpen}>
-                                                <DialogTrigger asChild>
-                                                    <div className="inline-flex no-drag">
-                                                        <Tooltip>
-                                                            <TooltipTrigger asChild>
-                                                                <Button
-                                                                    variant="ghost"
-                                                                    size="icon"
-                                                                    className="h-8 w-8 rounded-xl bg-background/60 backdrop-blur-xl border border-border/50 shadow-sm hover:bg-accent hover:scale-110 transition-all active:scale-95 no-drag"
-                                                                >
-                                                                    <IconHistory size={18} className="text-muted-foreground" />
-                                                                </Button>
-                                                            </TooltipTrigger>
-                                                            <TooltipContent side="bottom">History</TooltipContent>
-                                                        </Tooltip>
-                                                    </div>
-                                                </DialogTrigger>
-                                                <Suspense fallback={null}>
-                                                    <HistoryDialogContent onSelect={() => setHistoryOpen(false)} />
-                                                </Suspense>
-                                            </Dialog>
+                                            <Tooltip>
+                                                <TooltipTrigger asChild>
+                                                    <Button
+                                                        variant="ghost"
+                                                        size="icon"
+                                                        className="h-8 w-8 rounded-xl bg-background/60 backdrop-blur-xl border border-border/50 shadow-sm hover:bg-accent hover:scale-110 transition-all active:scale-95 no-drag"
+                                                        onClick={() => setCommandKOpen(true)}
+                                                    >
+                                                        <IconHistory size={18} className="text-muted-foreground" />
+                                                    </Button>
+                                                </TooltipTrigger>
+                                                <TooltipContent side="bottom" className="flex items-center gap-2 font-semibold">
+                                                    Search chats
+                                                    <kbd className="pointer-events-none inline-flex h-5 select-none items-center gap-1 rounded border bg-muted px-1.5 font-mono text-[10px] font-medium text-muted-foreground opacity-100">
+                                                        {navigator.platform.toLowerCase().includes('mac') ? '⌘' : 'Ctrl'} K
+                                                    </kbd>
+                                                </TooltipContent>
+                                            </Tooltip>
                                         </div>
                                     )}
 
@@ -275,27 +277,24 @@ export function MainLayout() {
                                                 </TooltipContent>
                                             </Tooltip>
 
-                                            <Dialog open={historyOpen} onOpenChange={setHistoryOpen}>
-                                                <DialogTrigger asChild>
-                                                    <div className="inline-flex no-drag">
-                                                        <Tooltip>
-                                                            <TooltipTrigger asChild>
-                                                                <Button
-                                                                    variant="ghost"
-                                                                    size="icon"
-                                                                    className="h-8 w-8 rounded-xl bg-background/60 backdrop-blur-xl border border-border/50 shadow-sm hover:bg-accent hover:scale-110 transition-all active:scale-95 no-drag"
-                                                                >
-                                                                    <IconHistory size={18} className="text-muted-foreground" />
-                                                                </Button>
-                                                            </TooltipTrigger>
-                                                            <TooltipContent side="right">History</TooltipContent>
-                                                        </Tooltip>
-                                                    </div>
-                                                </DialogTrigger>
-                                                <Suspense fallback={null}>
-                                                    <HistoryDialogContent onSelect={() => setHistoryOpen(false)} />
-                                                </Suspense>
-                                            </Dialog>
+                                            <Tooltip>
+                                                <TooltipTrigger asChild>
+                                                    <Button
+                                                        variant="ghost"
+                                                        size="icon"
+                                                        className="h-8 w-8 rounded-xl bg-background/60 backdrop-blur-xl border border-border/50 shadow-sm hover:bg-accent hover:scale-110 transition-all active:scale-95 no-drag"
+                                                        onClick={() => setCommandKOpen(true)}
+                                                    >
+                                                        <IconHistory size={18} className="text-muted-foreground" />
+                                                    </Button>
+                                                </TooltipTrigger>
+                                                <TooltipContent side="right" className="flex items-center gap-2 font-semibold">
+                                                    Search chats
+                                                    <kbd className="pointer-events-none inline-flex h-5 select-none items-center gap-1 rounded border bg-muted px-1.5 font-mono text-[10px] font-medium text-muted-foreground opacity-100">
+                                                        Ctrl K
+                                                    </kbd>
+                                                </TooltipContent>
+                                            </Tooltip>
                                         </div>
                                     )}
                                 </>

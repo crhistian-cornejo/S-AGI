@@ -55,6 +55,10 @@ export interface DesktopApi {
     writeText: (text: string) => Promise<void>
     readText: () => Promise<string>
   }
+  quickPrompt: {
+    sendMessage: (message: string) => Promise<{ success: boolean }>
+  }
+  onArtifactUpdate: (callback: (data: { artifactId: string; univerData: any; type: 'spreadsheet' | 'document' }) => void) => () => void
 }
 
 declare global {

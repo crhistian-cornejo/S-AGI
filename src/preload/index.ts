@@ -97,6 +97,20 @@ const desktopApi = {
     clipboard: {
         writeText: (text: string) => ipcRenderer.invoke('clipboard:write-text', text),
         readText: () => ipcRenderer.invoke('clipboard:read-text')
+    },
+
+    // Quick Prompt
+    quickPrompt: {
+        sendMessage: (message: string) => ipcRenderer.invoke('quick-prompt:send', message)
+    },
+
+    // Artifact live updates listener (for real-time sync when AI modifies artifacts)
+    onArtifactUpdate: (callback: (data: { artifactId: string; univerData: any; type: 'spreadsheet' | 'document' }) => void) => {
+        const handler = (_: any, data: any) => callback(data)
+        ipcRenderer.on('artifact:update', handler)
+        return () => {
+            ipcRenderer.removeListener('artifact:update', handler)
+        }
     }
 }
 

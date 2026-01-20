@@ -40,6 +40,19 @@ import { UniverSheetsHyperLinkUIPlugin } from '@univerjs/sheets-hyper-link-ui'
 import { UniverFindReplacePlugin } from '@univerjs/find-replace'
 import { UniverSheetsFindReplacePlugin } from '@univerjs/sheets-find-replace'
 
+// Sort & Filter plugins
+import { UniverSheetsSortPlugin } from '@univerjs/sheets-sort'
+import { UniverSheetsFilterPlugin } from '@univerjs/sheets-filter'
+import { UniverSheetsFilterUIPlugin } from '@univerjs/sheets-filter-ui'
+
+// Conditional Formatting plugins
+import { UniverSheetsConditionalFormattingPlugin } from '@univerjs/sheets-conditional-formatting'
+import { UniverSheetsConditionalFormattingUIPlugin } from '@univerjs/sheets-conditional-formatting-ui'
+
+// Data Validation plugins
+import { UniverSheetsDataValidationPlugin } from '@univerjs/sheets-data-validation'
+import { UniverSheetsDataValidationUIPlugin } from '@univerjs/sheets-data-validation-ui'
+
 // Import facade extensions - ORDER MATTERS!
 // These extend the FUniver API with methods for each plugin
 import '@univerjs/ui/facade'
@@ -52,6 +65,10 @@ import '@univerjs/docs-ui/facade'
 import '@univerjs/sheets-numfmt/facade'
 import '@univerjs/sheets-hyper-link-ui/facade'
 import '@univerjs/sheets-find-replace/facade'
+import '@univerjs/sheets-sort/facade'
+import '@univerjs/sheets-filter/facade'
+import '@univerjs/sheets-conditional-formatting/facade'
+import '@univerjs/sheets-data-validation/facade'
 
 // Import styles
 import '@univerjs/design/lib/index.css'
@@ -62,6 +79,9 @@ import '@univerjs/drawing-ui/lib/index.css'
 import '@univerjs/sheets-drawing-ui/lib/index.css'
 import '@univerjs/sheets-hyper-link-ui/lib/index.css'
 import '@univerjs/find-replace/lib/index.css'
+import '@univerjs/sheets-filter-ui/lib/index.css'
+import '@univerjs/sheets-conditional-formatting-ui/lib/index.css'
+import '@univerjs/sheets-data-validation-ui/lib/index.css'
 // Custom theme overrides - must be imported AFTER Univer styles
 import './univer-theme-overrides.css'
 
@@ -75,6 +95,11 @@ import SheetsDrawingUIEnUS from '@univerjs/sheets-drawing-ui/locale/en-US'
 import SheetsHyperLinkUIEnUS from '@univerjs/sheets-hyper-link-ui/locale/en-US'
 import FindReplaceEnUS from '@univerjs/find-replace/locale/en-US'
 import SheetsFindReplaceEnUS from '@univerjs/sheets-find-replace/locale/en-US'
+import SheetsSortEnUS from '@univerjs/sheets-sort/locale/en-US'
+import SheetsFilterUIEnUS from '@univerjs/sheets-filter-ui/locale/en-US'
+import SheetsConditionalFormattingUIEnUS from '@univerjs/sheets-conditional-formatting-ui/locale/en-US'
+import SheetsDataValidationUIEnUS from '@univerjs/sheets-data-validation-ui/locale/en-US'
+import SheetsNumfmtUIEnUS from '@univerjs/sheets-numfmt-ui/locale/en-US'
 
 export interface UniverSheetsInstance {
     univer: Univer
@@ -121,6 +146,11 @@ export async function initSheetsUniver(container: HTMLElement): Promise<UniverSh
         SheetsHyperLinkUIEnUS,
         FindReplaceEnUS,
         SheetsFindReplaceEnUS,
+        SheetsSortEnUS,
+        SheetsFilterUIEnUS,
+        SheetsConditionalFormattingUIEnUS,
+        SheetsDataValidationUIEnUS,
+        SheetsNumfmtUIEnUS,
     )
     
     // Create theme based on current CSS variables and dark mode
@@ -185,6 +215,21 @@ export async function initSheetsUniver(container: HTMLElement): Promise<UniverSh
     // Find & Replace plugins
     univer.registerPlugin(UniverFindReplacePlugin)
     univer.registerPlugin(UniverSheetsFindReplacePlugin)
+    
+    // Sort plugin (headless - no UI, sorting is done via facade API)
+    univer.registerPlugin(UniverSheetsSortPlugin)
+    
+    // Filter plugins (enables auto-filter dropdowns on columns)
+    univer.registerPlugin(UniverSheetsFilterPlugin)
+    univer.registerPlugin(UniverSheetsFilterUIPlugin)
+    
+    // Conditional Formatting plugins (color scales, data bars, icon sets)
+    univer.registerPlugin(UniverSheetsConditionalFormattingPlugin)
+    univer.registerPlugin(UniverSheetsConditionalFormattingUIPlugin)
+    
+    // Data Validation plugins (dropdowns, input validation rules)
+    univer.registerPlugin(UniverSheetsDataValidationPlugin)
+    univer.registerPlugin(UniverSheetsDataValidationUIPlugin)
     
     const api = FUniver.newAPI(univer)
     
@@ -270,11 +315,7 @@ export function createWorkbook(univer: Univer, api: FUniver, data?: any, id?: st
     
     // Get the workbook via API
     const workbook = api.getActiveWorkbook()
-    
-    // #region agent log
-    fetch('http://127.0.0.1:7246/ingest/6abe35a7-678e-4166-97f4-5e79730b09e3',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'univer-sheets-core.ts:274',message:'Workbook created in createWorkbook',data:{hasWorkbook:!!workbook,workbookId:workbook?.getId?.()||workbookId,hasGetId:!!workbook?.getId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
-    // #endregion
-    
+
     console.log('[UniverSheets] Workbook created with ID:', workbook?.getId?.() || workbookId)
     
     return workbook

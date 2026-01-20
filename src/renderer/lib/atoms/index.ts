@@ -250,6 +250,9 @@ export const settingsActiveTabAtom = atom<SettingsTab>('account')
 // === HELP & SHORTCUTS ===
 export const shortcutsDialogOpenAtom = atom(false)
 
+// === COMMAND K / QUICK SEARCH ===
+export const commandKOpenAtom = atom(false)
+
 // === AUTH STATE ===
 export const authDialogOpenAtom = atom(false)
 export const authDialogModeAtom = atom<'signin' | 'signup'>('signin')

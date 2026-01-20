@@ -100,7 +100,13 @@ export default defineConfig({
         resolve: {
             alias: {
                 '@': resolve('src/renderer'),
-                '@shared': resolve('src/shared')
+                '@shared': resolve('src/shared'),
+                // Subpaths of numfmt must resolve to the real package (facade, etc.)
+                '@univerjs/sheets-numfmt/facade': resolve(__dirname, 'node_modules/@univerjs/sheets-numfmt/lib/es/facade.js'),
+                // Real package for the patch (avoids circular alias; TS: see tsconfig paths)
+                '@univerjs/sheets-numfmt$real': resolve(__dirname, 'node_modules/@univerjs/sheets-numfmt'),
+                // Main entry: extended currency symbols (PEN, MX$, R$, etc.)
+                '@univerjs/sheets-numfmt': resolve(__dirname, 'src/renderer/features/univer/numfmt-currency-patch.ts'),
             },
             // Dedupe redi so all Univer packages share one @wendellhu/redi instance.
             // Prevents "Identifier rpc.remote-sync.service already exists" and

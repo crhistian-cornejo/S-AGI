@@ -32,12 +32,22 @@ import {
 // Default context window for calculations (256k for GPT-5)
 const DEFAULT_CONTEXT_WINDOW = 256000
 
-// Pricing per 1M tokens (USD)
+// Pricing per 1M tokens (USD) — from official APIs
+// OpenAI: https://platform.openai.com/docs/pricing | https://openai.com/api/pricing/
+// Z.AI: https://docs.z.ai/guides/overview/pricing
+// ChatGPT Plus/Codex: included in subscription, no per-token charge
 const MODEL_PRICING: Record<string, { input: number; output: number }> = {
-    'gpt-5': { input: 5, output: 15 },
-    'gpt-5-mini': { input: 0.15, output: 0.6 },
-    'gpt-5-nano': { input: 0.075, output: 0.3 },
+    // OpenAI API
+    'gpt-5': { input: 1.25, output: 10 },
+    'gpt-5-mini': { input: 0.25, output: 2 },
+    'gpt-5-nano': { input: 0.05, output: 0.4 },
     'gpt-4o-mini': { input: 0.15, output: 0.6 },
+    // ChatGPT Plus / Codex (included in subscription)
+    'gpt-5.1-codex-max': { input: 0, output: 0 },
+    'gpt-5.1-codex-mini': { input: 0, output: 0 },
+    'gpt-5.2': { input: 0, output: 0 },
+    'gpt-5.2-codex': { input: 0, output: 0 },
+    // Z.AI (GLM)
     'GLM-4.7': { input: 0.6, output: 2.2 },
     'GLM-4.7-FlashX': { input: 0.07, output: 0.4 },
     'GLM-4.7-Flash': { input: 0, output: 0 }

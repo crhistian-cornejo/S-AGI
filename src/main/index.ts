@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, nativeTheme, Tray, Menu, nativeImage, session, shell } from 'electron'
+import { app, BrowserWindow, ipcMain, nativeTheme, Tray, Menu, nativeImage, session, shell, globalShortcut } from 'electron'
 import { join } from 'path'
 import { existsSync } from 'fs'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
@@ -77,6 +77,7 @@ app.commandLine.appendSwitch('disable-features', 'AutofillServerCommunication')
 let mainWindow: BrowserWindow | null = null
 let tray: Tray | null = null
 let trayPopover: BrowserWindow | null = null
+let quickPromptWindow: BrowserWindow | null = null
 
 // Get recent items from database (artifacts and chats)
 async function getRecentItems(): Promise<Array<{
@@ -196,6 +197,64 @@ function createTrayPopover(): BrowserWindow {
 
     log.info('[Tray] Popover window created')
     return popover
+}
+
+// ═══ QUICK PROMPT WINDOW (ChatGPT-style floating input) ═══
+function createQuickPromptWindow(): BrowserWindow {
+    const win = new BrowserWindow({
+        width: 640,
+        height: 80,
+        show: false,
+        frame: false,
+        resizable: false,
+        minimizable: false,
+        maximizable: false,
+        closable: true,
+        alwaysOnTop: true,
+        skipTaskbar: true,
+        transparent: true,
+        hasShadow: true,
+        focusable: true,
+        webPreferences: {
+            preload: join(__dirname, '../preload/index.js'),
+            sandbox: true,
+            contextIsolation: true,
+            nodeIntegration: false
+        }
+    })
+
+    attachNavigationGuards(win, getRendererOrigins())
+
+    if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
+        win.loadURL(`${process.env['ELECTRON_RENDERER_URL']}/quick-prompt.html`)
+    } else {
+        win.loadFile(join(__dirname, '../renderer/quick-prompt.html'))
+    }
+
+    win.on('blur', () => {
+        win.hide()
+    })
+
+    log.info('[QuickPrompt] Window created')
+    return win
+}
+
+function showQuickPromptWindow(): void {
+    if (!quickPromptWindow) {
+        quickPromptWindow = createQuickPromptWindow()
+    }
+
+    const { screen } = require('electron')
+    const display = screen.getDisplayNearestPoint(screen.getCursorScreenPoint())
+
+    const x = Math.round(display.workArea.x + (display.workArea.width / 2) - 320)
+    const y = display.workArea.y + display.workArea.height - 120
+
+    quickPromptWindow.setPosition(x, y)
+    quickPromptWindow.show()
+    quickPromptWindow.focus()
+
+    log.info('[QuickPrompt] Window shown at', { x, y })
 }
 
 // Position and show popover near tray icon
@@ -564,6 +623,18 @@ app.whenReady().then(() => {
     // Create Tray
     createTray()
 
+    // ═══ GLOBAL SHORTCUT: "Quick Prompt" (Alt+Space) ═══
+    // Opens a floating input window for quick AI queries
+    const quickOpenAccelerator = 'Alt+Space'
+    const registered = globalShortcut.register(quickOpenAccelerator, () => {
+        showQuickPromptWindow()
+    })
+    if (!registered) {
+        log.warn('[App] Global shortcut', quickOpenAccelerator, 'could not be registered (may be in use by another app)')
+    } else {
+        log.info('[App] Global shortcut', quickOpenAccelerator, 'registered for Quick Prompt')
+    }
+
     app.on('activate', () => {
         // macOS: Re-create or restore window when dock icon is clicked
         if (BrowserWindow.getAllWindows().length === 0) {
@@ -588,7 +659,15 @@ app.on('window-all-closed', () => {
 // Graceful shutdown - Clean up resources before quitting
 app.on('before-quit', () => {
     log.info('[App] Before quit - cleaning up resources...')
-    
+
+    globalShortcut.unregisterAll()
+
+    // Destroy quick prompt window
+    if (quickPromptWindow && !quickPromptWindow.isDestroyed()) {
+        quickPromptWindow.destroy()
+        quickPromptWindow = null
+    }
+
     // Destroy tray popover (check if not already destroyed)
     if (trayPopover && !trayPopover.isDestroyed()) {
         trayPopover.destroy()
@@ -734,6 +813,19 @@ ipcMain.handle('haptic:perform', (_, type: string) => {
 // Tray Popover IPC handlers
 ipcMain.handle('tray:get-recent-items', async () => {
     return await getRecentItems()
+})
+
+// ═══ QUICK PROMPT IPC HANDLER ═══
+ipcMain.handle('quick-prompt:send', async (_, message: string) => {
+    log.info('[QuickPrompt] Received message:', message.substring(0, 50) + '...')
+
+    if (mainWindow) {
+        mainWindow.show()
+        mainWindow.focus()
+        mainWindow.webContents.send('quick-prompt:create-chat', message)
+    }
+
+    return { success: true }
 })
 
 ipcMain.handle('tray:action', async (_, data: { action: string; [key: string]: unknown }) => {

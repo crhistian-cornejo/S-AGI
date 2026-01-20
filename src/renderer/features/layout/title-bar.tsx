@@ -4,7 +4,8 @@ import {
     selectedArtifactAtom,
     activeTabAtom,
     settingsModalOpenAtom,
-    currentProviderAtom
+    currentProviderAtom,
+    sidebarOpenAtom
 } from '@/lib/atoms'
 import { trpc } from '@/lib/trpc'
 import {
@@ -28,15 +29,13 @@ import {
     IconMessageChatbot,
     IconTable,
     IconFileText,
-    IconUser,
     IconSettings,
     IconLogout,
-    IconChevronDown,
-    IconBrandOpenai
+    IconChevronDown
 } from '@tabler/icons-react'
 import { Button } from '@/components/ui/button'
 import { Logo } from '@/components/ui/logo'
-import { ZaiIcon } from '@/components/icons/model-icons'
+import { ZaiIcon, OpenAIIcon } from '@/components/icons/model-icons'
 // NOTE: Gemini disabled - import { ZaiIcon, GeminiIcon } from '@/components/icons/model-icons'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn, isMacOS, isElectron } from '@/lib/utils'
@@ -72,6 +71,7 @@ export function TitleBar({ className, noTrafficLightSpace }: TitleBarProps) {
 
     // Get current provider and connection status
     const provider = useAtomValue(currentProviderAtom)
+    const sidebarOpen = useAtomValue(sidebarOpenAtom)
     const { data: keyStatus } = trpc.settings.getApiKeyStatus.useQuery()
 
     const isConnected = provider === 'chatgpt-plus' 
@@ -84,14 +84,12 @@ export function TitleBar({ className, noTrafficLightSpace }: TitleBarProps) {
                 : false
 
     const providerIcon = (() => {
-        if (!isConnected) return { icon: IconUser, className: "text-muted-foreground" }
+        if (!isConnected) return { icon: OpenAIIcon, className: "text-muted-foreground" }
         switch (provider) {
-            case 'chatgpt-plus': return { icon: IconBrandOpenai, className: "text-emerald-600" }
-            case 'openai': return { icon: IconBrandOpenai, className: "" }
+            case 'chatgpt-plus': return { icon: OpenAIIcon, className: "text-emerald-600" }
+            case 'openai': return { icon: OpenAIIcon, className: "" }
             case 'zai': return { icon: ZaiIcon, className: "text-amber-500" }
-            // NOTE: gemini-advanced disabled
-            // case 'gemini-advanced': return { icon: GeminiIcon, className: "" }
-            default: return { icon: IconUser, className: "text-muted-foreground" }
+            default: return { icon: OpenAIIcon, className: "text-muted-foreground" }
         }
     })()
 
@@ -225,7 +223,7 @@ export function TitleBar({ className, noTrafficLightSpace }: TitleBarProps) {
                 )}
 
                 {/* MacOS Profile Trigger - Pegado al borde derecho */}
-                {showTrafficLights && (
+                {showTrafficLights && !sidebarOpen && (
                     <DropdownMenu>
                         <DropdownMenuTrigger asChild>
                             <Button
@@ -236,7 +234,7 @@ export function TitleBar({ className, noTrafficLightSpace }: TitleBarProps) {
                                     <Avatar className="h-6 w-6 border border-border/50">
                                         <AvatarImage src={user?.user_metadata?.avatar_url || user?.user_metadata?.picture} />
                                         <AvatarFallback className="bg-primary/10 text-[10px]">
-                                            {user?.email?.charAt(0).toUpperCase() || <IconUser size={12} />}
+                                            {user?.email?.charAt(0).toUpperCase() || <OpenAIIcon size={12} className="text-muted-foreground" />}
                                         </AvatarFallback>
                                     </Avatar>
                                     <div className="absolute -bottom-0.5 -right-0.5 bg-background border border-border rounded-full h-2 w-2 flex items-center justify-center shadow-sm ring-1 ring-background shrink-0 overflow-hidden">
