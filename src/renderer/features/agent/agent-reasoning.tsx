@@ -215,7 +215,7 @@ export function AgentReasoning({
               className={cn(
                 "border-l-2 border-border/40 pl-3",
                 "text-xs text-muted-foreground/80 leading-relaxed",
-                "font-mono whitespace-pre-wrap",
+                "font-mono whitespace-pre-wrap break-words min-w-0 max-w-full",
                 isExpanded ? "max-h-64 overflow-y-auto" : "max-h-20 overflow-hidden"
               )}
             >

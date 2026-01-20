@@ -78,6 +78,7 @@ let mainWindow: BrowserWindow | null = null
 let tray: Tray | null = null
 let trayPopover: BrowserWindow | null = null
 let quickPromptWindow: BrowserWindow | null = null
+let quickPromptShownAt = 0
 
 // Get recent items from database (artifacts and chats)
 async function getRecentItems(): Promise<Array<{
@@ -232,6 +233,8 @@ function createQuickPromptWindow(): BrowserWindow {
     }
 
     win.on('blur', () => {
+        // Evitar ocultar por un blur espurio al abrir (p. ej. Windows)
+        if (Date.now() - quickPromptShownAt < 500) return
         win.hide()
     })
 
@@ -240,7 +243,7 @@ function createQuickPromptWindow(): BrowserWindow {
 }
 
 function showQuickPromptWindow(): void {
-    if (!quickPromptWindow) {
+    if (!quickPromptWindow || quickPromptWindow.isDestroyed()) {
         quickPromptWindow = createQuickPromptWindow()
     }
 
@@ -251,6 +254,8 @@ function showQuickPromptWindow(): void {
     const y = display.workArea.y + display.workArea.height - 120
 
     quickPromptWindow.setPosition(x, y)
+    quickPromptShownAt = Date.now()
+    quickPromptWindow.setAlwaysOnTop(true, 'pop-up-menu')
     quickPromptWindow.show()
     quickPromptWindow.focus()
 
@@ -491,10 +496,8 @@ function createWindow(): void {
         mainWindow?.show()
     })
 
-    // Open devtools in development
-    if (is.dev) {
-        mainWindow.webContents.openDevTools({ mode: 'detach' })
-    }
+    // DevTools: use View > Toggle DevTools (Ctrl+Shift+I). No auto-open to avoid
+    // Chromium console noise (language-mismatch, Autofill.enable, etc.).
 }
 
 
@@ -623,17 +626,18 @@ app.whenReady().then(() => {
     // Create Tray
     createTray()
 
-    // ═══ GLOBAL SHORTCUT: "Quick Prompt" (Alt+Space) ═══
-    // Opens a floating input window for quick AI queries
-    const quickOpenAccelerator = 'Alt+Space'
-    const registered = globalShortcut.register(quickOpenAccelerator, () => {
+    // ═══ GLOBAL SHORTCUT: "Quick Prompt" (Win+Alt+Space; fallback Ctrl+Shift+Space) ═══
+    // Abre la barra flotante para escribir un prompt. Win+Alt+Space puede estar reservado
+    // por el sistema o Raycast; Ctrl+Shift+Space como respaldo (Ctrl+Alt+Space = Claude).
+    const onQuickPrompt = () => {
         showQuickPromptWindow()
-    })
-    if (!registered) {
-        log.warn('[App] Global shortcut', quickOpenAccelerator, 'could not be registered (may be in use by another app)')
-    } else {
-        log.info('[App] Global shortcut', quickOpenAccelerator, 'registered for Quick Prompt')
     }
+    const r1 = globalShortcut.register('Super+Alt+Space', onQuickPrompt)
+    const r2 = globalShortcut.register('Control+Shift+Space', onQuickPrompt)
+    if (!r1) log.warn('[App] Win+Alt+Space no registrado (p. ej. en uso por el sistema). Prueba Ctrl+Shift+Space.')
+    else log.info('[App] Quick Prompt: Win+Alt+Space')
+    if (!r2) log.warn('[App] Ctrl+Shift+Space no registrado.')
+    else log.info('[App] Quick Prompt (fallback): Ctrl+Shift+Space')
 
     app.on('activate', () => {
         // macOS: Re-create or restore window when dock icon is clicked

@@ -1,12 +1,11 @@
 import { useState, useRef, useEffect } from 'react'
-import { IconSend, IconSparkles } from '@tabler/icons-react'
-import { Button } from '@/components/ui/button'
+import { IconSparkles } from '@tabler/icons-react'
 import './quick-prompt.css'
 
 export function QuickPrompt() {
     const [message, setMessage] = useState('')
     const [isSending, setIsSending] = useState(false)
-    const inputRef = useRef<HTMLTextAreaElement>(null)
+    const inputRef = useRef<HTMLInputElement>(null)
 
     useEffect(() => {
         setTimeout(() => {
@@ -41,26 +40,18 @@ export function QuickPrompt() {
         <div className="quick-prompt-container">
             <div className="quick-prompt-content">
                 <div className="quick-prompt-icon">
-                    <IconSparkles size={16} />
+                    <IconSparkles size={18} stroke={2} />
                 </div>
-                <textarea
+                <input
                     ref={inputRef}
+                    type="text"
                     className="quick-prompt-input"
-                    placeholder="Ask anything..."
+                    placeholder="¿En qué puedo ayudarte hoy?"
                     value={message}
                     onChange={(e) => setMessage(e.target.value)}
                     onKeyDown={handleKeyDown}
-                    rows={1}
                     disabled={isSending}
                 />
-                <Button
-                    size="icon"
-                    className="quick-prompt-send"
-                    onClick={handleSubmit}
-                    disabled={!message.trim() || isSending}
-                >
-                    <IconSend size={14} />
-                </Button>
             </div>
         </div>
     )

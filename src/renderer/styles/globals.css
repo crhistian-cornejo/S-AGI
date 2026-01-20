@@ -497,6 +497,13 @@ html:not(.dark) .shiki span {
     animation: caret-blink 1s step-end infinite;
 }
 
+/* Chat prose: links and long text adapt to container width */
+.prose-container {
+    min-width: 0;
+    max-width: 100%;
+    overflow-wrap: break-word;
+}
+
 /* Better list styling */
 .prose ul > li::marker,
 ul.list-disc > li::marker {

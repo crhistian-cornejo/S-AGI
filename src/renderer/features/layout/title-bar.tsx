@@ -38,7 +38,7 @@ import { Logo } from '@/components/ui/logo'
 import { ZaiIcon, OpenAIIcon } from '@/components/icons/model-icons'
 // NOTE: Gemini disabled - import { ZaiIcon, GeminiIcon } from '@/components/icons/model-icons'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
-import { cn, isMacOS, isElectron } from '@/lib/utils'
+import { cn, isMacOS, isElectron, isWindows } from '@/lib/utils'
 
 export interface TitleBarProps {
     className?: string
@@ -101,12 +101,11 @@ export function TitleBar({ className, noTrafficLightSpace }: TitleBarProps) {
                 className
             )}
         >
-            {/* Left content - only on non-macOS */}
-            {!showTrafficLights && (
+            {/* Left content - only on non-macOS; en Windows se oculta cuando el sidebar está expandido */}
+            {!showTrafficLights && (!isWindows() || !sidebarOpen) && (
                 <div className="flex items-center gap-2 no-drag ml-2">
                     <Logo size={20} />
                     <span className="text-sm font-semibold text-foreground tracking-tight hidden sm:block">S-AGI</span>
-
                 </div>
             )}
 

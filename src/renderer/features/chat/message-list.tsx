@@ -632,7 +632,7 @@ const MessageItem = memo(function MessageItem({
             <div className="flex flex-col items-end gap-2 group">
                 <div className="flex flex-col items-end gap-1 group/message w-full">
                     <div className="max-w-[100%] bg-primary text-primary-foreground rounded-[24px] rounded-br-[4px] px-5 py-3 transition-all hover:bg-primary/90 shadow-sm">
-                        <p className="text-[15px] whitespace-pre-wrap leading-relaxed">{content}</p>
+                        <p className="text-[15px] whitespace-pre-wrap leading-relaxed break-words">{content}</p>
                     </div>
 
                     {/* Copy button for user messages - below the bubble */}

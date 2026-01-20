@@ -22,7 +22,10 @@ import {
     IconChevronDown,
     IconChevronRight,
     IconSparkles,
-    IconPhoto
+    IconPhoto,
+    IconCode,
+    IconTable,
+    IconFileText
 } from '@tabler/icons-react'
 import { trpc } from '@/lib/trpc'
 import {
@@ -57,6 +60,7 @@ import {
     AvatarImage,
     AvatarFallback
 } from '@/components/ui/avatar'
+import { Separator } from '@/components/ui/separator'
 import { cn, formatRelativeTime, isMacOS, isWindows } from '@/lib/utils'
 
 
@@ -137,6 +141,7 @@ interface Chat {
     created_at: string
     archived: boolean
     pinned?: boolean
+    meta?: { spreadsheets: number; documents: number; hasCode: boolean; hasImages: boolean }
 }
 
 // ============================================================================
@@ -223,6 +228,36 @@ function ChatItem({
                     </span>
                 )}
             </div>
+
+            {/* Contains: code, artifacts, images — estilo neutro, sin mucho color */}
+            {chat.meta && (chat.meta.hasCode || chat.meta.spreadsheets > 0 || chat.meta.documents > 0 || chat.meta.hasImages) && (
+                <div className="flex flex-wrap gap-1.5">
+                    {chat.meta.hasCode && (
+                        <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-muted/60 text-muted-foreground border border-border/40 inline-flex items-center gap-1">
+                            <IconCode size={10} />
+                            Code
+                        </span>
+                    )}
+                    {chat.meta.spreadsheets > 0 && (
+                        <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-muted/60 text-muted-foreground border border-border/40 inline-flex items-center gap-1">
+                            <IconTable size={10} />
+                            {chat.meta.spreadsheets === 1 ? 'Spreadsheet' : `${chat.meta.spreadsheets} spreadsheets`}
+                        </span>
+                    )}
+                    {chat.meta.documents > 0 && (
+                        <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-muted/60 text-muted-foreground border border-border/40 inline-flex items-center gap-1">
+                            <IconFileText size={10} />
+                            {chat.meta.documents === 1 ? 'Document' : `${chat.meta.documents} documents`}
+                        </span>
+                    )}
+                    {chat.meta.hasImages && (
+                        <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-muted/60 text-muted-foreground border border-border/40 inline-flex items-center gap-1">
+                            <IconPhoto size={10} />
+                            Images
+                        </span>
+                    )}
+                </div>
+            )}
 
             {/* Timestamps */}
             <div className="pt-2 border-t border-border/40 space-y-1.5">
@@ -728,7 +763,7 @@ export function Sidebar() {
         <div className="flex flex-col h-full">
             {/* Header / New Chat */}
             <div className={cn(
-                "flex items-center gap-2 px-3",
+                "flex items-center gap-2 px-4",
                 showWindowsLogo ? "justify-between" : "justify-end",
                 isMacOS() ? "h-11 pt-1 pl-20" : "h-10 pt-0",
                 "drag-region"
@@ -783,7 +818,7 @@ export function Sidebar() {
             </div>
 
             {/* Search Bar */}
-            <div className="px-3 pb-2">
+            <div className="px-4 pb-2">
                 <div className="relative group">
                     <IconSearch size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground group-focus-within:text-primary transition-colors" />
                     <Input
@@ -803,7 +838,7 @@ export function Sidebar() {
             </div>
 
             {/* Navigation Items */}
-            <div className="px-2 pb-2 space-y-1">
+            <div className="px-4 pb-2 space-y-1">
                 <button
                     type="button"
                     onClick={() => setActiveTab('gallery')}
@@ -819,9 +854,11 @@ export function Sidebar() {
                 </button>
             </div>
 
+            <Separator className="my-1 opacity-40" />
+
             {/* Chat list with fade scroll effect */}
-            <FadeScrollArea className="flex-1 px-2">
-                <div className="pb-4">
+            <FadeScrollArea className="flex-1 pl-4 pr-0">
+                <div className="pb-4 pr-4">
                     {isLoading ? (
                         <div className="flex items-center justify-center py-8">
                             <div className="h-5 w-5 animate-spin rounded-full border-2 border-primary border-t-transparent" />
@@ -892,7 +929,7 @@ export function Sidebar() {
             </FadeScrollArea>
 
             {/* Footer */}
-            <div className="p-3 border-t border-border space-y-3">
+            <div className="px-4 py-3 border-t border-border space-y-3">
                 {/* AI Provider Status */}
                 <button
                     type="button"

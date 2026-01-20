@@ -81,6 +81,7 @@ const GENERAL_SHORTCUTS: Shortcut[] = [
 const CHAT_SHORTCUTS: Shortcut[] = [
     { label: 'New Chat', keys: ['cmd', 'N'] },
     { label: 'Search chats', keys: ['cmd', 'K'] },
+    { label: 'Cycle reasoning depth (thinking)', keys: ['ctrl', 'Tab'] },
     { label: 'Focus Input', keys: ['/'] },
     { label: 'Stop Generation', keys: ['Esc'] },
 ]

@@ -43,9 +43,7 @@
     justify-content: center;
     width: 28px;
     height: 28px;
-    background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
-    border-radius: 8px;
-    color: white;
+    color: #f97316;
     flex-shrink: 0;
 }
 
@@ -54,46 +52,13 @@
     background: transparent;
     border: none;
     outline: none;
-    color: #fff;
+    color: #e5e5e5;
     font-size: 14px;
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-    resize: none;
-    min-height: 20px;
-    max-height: 120px;
-    line-height: 20px;
     padding: 4px 0;
+    min-width: 0;
 }
 
 .quick-prompt-input::placeholder {
-    color: rgba(255, 255, 255, 0.4);
-}
-
-.quick-prompt-send {
-    width: 28px;
-    height: 28px;
-    border-radius: 8px;
-    background: rgba(255, 255, 255, 0.1);
-    border: none;
-    color: rgba(255, 255, 255, 0.5);
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    transition: all 0.15s ease;
-    flex-shrink: 0;
-}
-
-.quick-prompt-send:hover:not(:disabled) {
-    background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
-    color: white;
-}
-
-.quick-prompt-send:disabled {
-    opacity: 0.3;
-    cursor: not-allowed;
-}
-
-.quick-prompt-send svg {
-    width: 14px;
-    height: 14px;
+    color: rgba(255, 255, 255, 0.45);
 }

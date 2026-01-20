@@ -122,7 +122,8 @@ export default defineConfig({
             rollupOptions: {
                 input: {
                     index: resolve(__dirname, 'src/renderer/index.html'),
-                    'tray-popover': resolve(__dirname, 'src/renderer/tray-popover.html')
+                    'tray-popover': resolve(__dirname, 'src/renderer/tray-popover.html'),
+                    'quick-prompt': resolve(__dirname, 'src/renderer/quick-prompt.html')
                 }
             }
         }

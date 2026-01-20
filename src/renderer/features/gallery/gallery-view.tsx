@@ -1,11 +1,14 @@
 "use client";
 
 import React, { useState } from "react";
+import { useAtom, useSetAtom } from 'jotai'
+import { sidebarOpenAtom, activeTabAtom, commandKOpenAtom } from '@/lib/atoms'
 import { trpc } from '@/lib/trpc'
 import { motion, AnimatePresence } from 'motion/react'
-import { IconPhoto, IconDownload, IconExternalLink, IconRefresh, IconX } from '@tabler/icons-react'
+import { IconPhoto, IconDownload, IconExternalLink, IconRefresh, IconX, IconLayoutSidebarLeftExpand, IconPlus, IconHistory } from '@tabler/icons-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 
 // --- Focus Card Component (User Style) ---
 export const Card = React.memo(
@@ -84,6 +87,9 @@ export function GalleryView() {
     const { data: images, isLoading, refetch, isFetching } = trpc.gallery.list.useQuery()
     const [hovered, setHovered] = useState<number | null>(null);
     const [selectedImage, setSelectedImage] = useState<string | null>(null)
+    const [sidebarOpen, setSidebarOpen] = useAtom(sidebarOpenAtom)
+    const [, setActiveTab] = useAtom(activeTabAtom)
+    const setCommandKOpen = useSetAtom(commandKOpenAtom)
 
     if (isLoading) {
         return (
@@ -128,25 +134,79 @@ export function GalleryView() {
     return (
         <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden bg-background">
             {/* Header */}
-            <div className="h-14 border-b border-border/50 flex items-center justify-between px-6 shrink-0">
-                <div className="flex items-center gap-2">
-                    <IconPhoto className="text-primary" size={20} />
-                    <h2 className="font-semibold tracking-tight">Gallery</h2>
-                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-primary/10 text-primary font-bold uppercase tracking-wider ml-2">
-                        {images.length} items
-                    </span>
+            <div className="h-14 border-b border-border/50 flex items-center px-4 shrink-0 gap-2">
+                {/* Botón sidebar toggle cuando está cerrado */}
+                {!sidebarOpen && (
+                    <Tooltip>
+                        <TooltipTrigger asChild>
+                            <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8 rounded-lg shrink-0"
+                                onClick={() => setSidebarOpen(true)}
+                            >
+                                <IconLayoutSidebarLeftExpand size={18} />
+                            </Button>
+                        </TooltipTrigger>
+                        <TooltipContent side="bottom">Open Sidebar</TooltipContent>
+                    </Tooltip>
+                )}
+                
+                <IconPhoto className="text-primary shrink-0" size={20} />
+                <h2 className="font-semibold tracking-tight shrink-0">Gallery</h2>
+                <span className="text-[10px] px-2 py-0.5 rounded-full bg-primary/10 text-primary font-bold uppercase tracking-wider shrink-0">
+                    {images.length} items
+                </span>
+                
+                <div className="w-px h-6 bg-border shrink-0 mx-1" />
+                
+                {/* Acciones */}
+                <div className="flex items-center gap-1 shrink-0">
+                    <Tooltip>
+                        <TooltipTrigger asChild>
+                            <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8 rounded-lg"
+                                onClick={() => setActiveTab('chat')}
+                            >
+                                <IconPlus size={18} />
+                            </Button>
+                        </TooltipTrigger>
+                        <TooltipContent side="bottom">New Chat</TooltipContent>
+                    </Tooltip>
+                    
+                    <Tooltip>
+                        <TooltipTrigger asChild>
+                            <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8 rounded-lg"
+                                onClick={() => setCommandKOpen(true)}
+                            >
+                                <IconHistory size={18} />
+                            </Button>
+                        </TooltipTrigger>
+                        <TooltipContent side="bottom">Search chats</TooltipContent>
+                    </Tooltip>
                 </div>
-                <div className="flex items-center gap-2">
-                    <Button 
-                        variant="ghost" 
-                        size="icon" 
-                        onClick={() => refetch()} 
-                        disabled={isFetching}
-                        className="h-8 w-8 rounded-lg"
-                    >
-                        <IconRefresh size={16} className={cn(isFetching && "animate-spin")} />
-                    </Button>
-                </div>
+                
+                <div className="flex-1" />
+                
+                <Tooltip>
+                    <TooltipTrigger asChild>
+                        <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => refetch()} 
+                            disabled={isFetching}
+                            className="h-8 w-8 rounded-lg"
+                        >
+                            <IconRefresh size={18} className={cn(isFetching && "animate-spin")} />
+                        </Button>
+                    </TooltipTrigger>
+                    <TooltipContent side="bottom">Refresh</TooltipContent>
+                </Tooltip>
             </div>
 
             {/* Bento-styled grid using user's FocusCards logic */}

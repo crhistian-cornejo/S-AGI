@@ -14,6 +14,8 @@ import {
     shortcutsDialogOpenAtom,
     settingsModalOpenAtom,
     commandKOpenAtom,
+    reasoningEffortAtom,
+    supportsReasoningAtom,
 } from '@/lib/atoms'
 import { Sidebar } from '@/features/sidebar/sidebar'
 import { ChatView } from '@/features/chat/chat-view'
@@ -52,6 +54,8 @@ export function MainLayout() {
     const setSettingsOpen = useSetAtom(settingsModalOpenAtom)
     const setSelectedArtifact = useSetAtom(selectedArtifactAtom)
     const setCommandKOpen = useSetAtom(commandKOpenAtom)
+    const setReasoningEffort = useSetAtom(reasoningEffortAtom)
+    const supportsReasoning = useAtomValue(supportsReasoningAtom)
     const utils = trpc.useUtils()
 
     // Sync Univer theme with app dark/light mode
@@ -138,6 +142,11 @@ export function MainLayout() {
     useHotkeys('meta+k, ctrl+k', (e) => {
         e.preventDefault()
         setCommandKOpen(true)
+    }, { preventDefault: true, enabled: !isUniverTabActive })
+    useHotkeys('ctrl+tab', (e) => {
+        e.preventDefault()
+        if (!supportsReasoning) return
+        setReasoningEffort((prev) => ({ low: 'medium', medium: 'high', high: 'low' }[prev]))
     }, { preventDefault: true, enabled: !isUniverTabActive })
 
     return (
@@ -237,7 +246,7 @@ export function MainLayout() {
                                         </div>
                                     )}
 
-                                    {!isMacOS() && (
+                                    {!isMacOS() && !sidebarOpen && activeTab === 'chat' && (
                                         <div className="absolute left-4 top-12 z-[60] flex flex-col items-center gap-2 no-drag">
                                             <Tooltip>
                                                 <TooltipTrigger asChild>

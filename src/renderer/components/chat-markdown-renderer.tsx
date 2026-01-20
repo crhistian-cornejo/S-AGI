@@ -5,7 +5,7 @@ import { Streamdown } from 'streamdown'
 import { code } from '@streamdown/code'
 import { createMathPlugin } from '@streamdown/math'
 import { mermaid } from '@streamdown/mermaid'
-import { IconCopy, IconCheck } from '@tabler/icons-react'
+import { IconCopy, IconCheck, IconExternalLink } from '@tabler/icons-react'
 import { cn } from '@/lib/utils'
 
 import 'katex/dist/katex.min.css'
@@ -122,12 +122,21 @@ function isExternalLink(href?: string) {
     return Boolean(href && (href.startsWith('http://') || href.startsWith('https://')))
 }
 
-function getDomain(url: string) {
+function getDomain(url: string): string {
     try {
-        return new URL(url).hostname.replace('www.', '')
+        return new URL(url).hostname.replace(/^www\./, '')
     } catch {
-        return url
+        return url.length > 40 ? url.slice(0, 37) + '…' : url
     }
+}
+
+/** Si el texto del enlace es la URL completa o parece una URL, usamos etiqueta corta (dominio) */
+function shouldUseShortLabel(href: string | undefined, linkText: string): boolean {
+    if (!href || !linkText || linkText.length < 15) return false
+    if (linkText === href) return true
+    if (/^https?:\/\//i.test(linkText)) return true
+    if (linkText.length > 45 && /[./]/.test(linkText)) return true
+    return false
 }
 
 function getPreviewUrl(url: string) {
@@ -169,6 +178,10 @@ function LinkWithPreview({ href, children, ...props }: React.AnchorHTMLAttribute
     const triggerRef = useRef<HTMLAnchorElement>(null)
     const isVisible = useVisibility(triggerRef)
 
+    const linkText = getText(children)
+    const useShort = isExternalLink(href) && shouldUseShortLabel(href, linkText)
+    const display = useShort && href ? getDomain(href) : children
+
     const previewUrl = useMemo(() => (href ? getPreviewUrl(href) : ''), [href])
 
     useEffect(() => {
@@ -202,16 +215,29 @@ function LinkWithPreview({ href, children, ...props }: React.AnchorHTMLAttribute
         setHasError(true)
     }, [href])
 
+    const linkClass = 'text-primary underline underline-offset-2 hover:text-primary/80 transition-colors inline-flex items-center gap-1'
+    const linkClassLong = linkClass + ' break-all'
+
+    const anchorContent = useShort ? (
+        <span className="inline-flex items-center gap-1">
+            <IconExternalLink size={12} className="shrink-0 opacity-75" />
+            {display}
+        </span>
+    ) : (
+        display
+    )
+
     if (!isExternalLink(href)) {
         return (
             <a
                 href={href}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="text-primary underline underline-offset-2 hover:text-primary/80 transition-colors"
+                className={useShort ? linkClass : linkClassLong}
+                title={href}
                 {...props}
             >
-                {children}
+                {anchorContent}
             </a>
         )
     }
@@ -224,10 +250,11 @@ function LinkWithPreview({ href, children, ...props }: React.AnchorHTMLAttribute
                     href={href}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="text-primary underline underline-offset-2 hover:text-primary/80 transition-colors"
+                    className={useShort ? linkClass : linkClassLong}
+                    title={href}
                     {...props}
                 >
-                    {children}
+                    {anchorContent}
                 </a>
             </HoverCard.Trigger>
             <HoverCard.Portal>
@@ -357,7 +384,7 @@ export const ChatMarkdownRenderer = memo(function ChatMarkdownRenderer({
     )
 
     return (
-        <div className={cn('max-w-none', className)}>
+        <div className={cn('max-w-none break-words', className)}>
             <Streamdown
                 plugins={plugins}
                 isAnimating={isAnimating}

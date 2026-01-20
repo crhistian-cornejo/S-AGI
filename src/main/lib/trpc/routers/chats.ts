@@ -3,6 +3,52 @@ import { z } from 'zod'
 import { router, protectedProcedure } from '../trpc'
 import { supabase } from '../../supabase/client'
 
+async function enrichWithMeta<T extends { id: string }>(
+    chats: T[]
+): Promise<(T & { meta: { spreadsheets: number; documents: number; hasCode: boolean; hasImages: boolean } })[]> {
+    if (!chats.length) return chats as (T & { meta: { spreadsheets: number; documents: number; hasCode: boolean; hasImages: boolean } })[]
+    const ids = chats.map((c) => c.id)
+
+    const [artifactsRes, codeRes, messagesRes] = await Promise.all([
+        supabase.from('artifacts').select('chat_id, type').in('chat_id', ids),
+        supabase.from('chat_messages').select('chat_id').in('chat_id', ids).ilike('content', '%```%'),
+        supabase.from('chat_messages').select('chat_id, metadata').in('chat_id', ids).limit(2000)
+    ])
+
+    const artMap: Record<string, { spreadsheets: number; documents: number }> = {}
+    for (const id of ids) artMap[id] = { spreadsheets: 0, documents: 0 }
+    for (const row of artifactsRes.data || []) {
+        const cur = artMap[row.chat_id]
+        if (cur) {
+            if (row.type === 'spreadsheet') cur.spreadsheets += 1
+            else if (row.type === 'document') cur.documents += 1
+        }
+    }
+
+    const codeSet = new Set<string>()
+    for (const row of codeRes.data || []) codeSet.add(row.chat_id)
+
+    const imageSet = new Set<string>()
+    for (const row of messagesRes.data || []) {
+        try {
+            const tc = (row.metadata as { tool_calls?: { name?: string }[] })?.tool_calls || []
+            if (tc.some((t) => t?.name === 'generate_image' || t?.name === 'edit_image')) imageSet.add(row.chat_id)
+        } catch {
+            /* ignore */
+        }
+    }
+
+    return chats.map((c) => ({
+        ...c,
+        meta: {
+            spreadsheets: artMap[c.id]?.spreadsheets ?? 0,
+            documents: artMap[c.id]?.documents ?? 0,
+            hasCode: codeSet.has(c.id),
+            hasImages: imageSet.has(c.id)
+        }
+    }))
+}
+
 export const chatsRouter = router({
     // List all non-archived chats for current user (pinned first, then by updated_at)
     list: protectedProcedure
@@ -40,13 +86,13 @@ export const chatsRouter = router({
                         
                         const { data: fbData, error: fbError } = await (input?.includeArchived ? fallbackQuery : fallbackQuery.eq('archived', false))
                         if (fbError) throw new Error(fbError.message)
-                        return fbData || []
+                        return enrichWithMeta(fbData || [])
                     }
                     
                     log.error('[Chats] List error:', error)
                     throw new Error(error.message)
                 }
-                return data || []
+                return enrichWithMeta(data || [])
             } catch (err) {
                 log.error('[Chats] List exception:', err)
                 return []
@@ -69,7 +115,7 @@ export const chatsRouter = router({
                     log.error('[Chats] List archived error:', error)
                     throw new Error(error.message)
                 }
-                return data || []
+                return enrichWithMeta(data || [])
             } catch (err) {
                 log.error('[Chats] List archived exception:', err)
                 return []

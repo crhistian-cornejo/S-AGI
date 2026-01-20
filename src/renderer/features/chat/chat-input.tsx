@@ -46,7 +46,7 @@ import {
 
 import { useFileUpload } from '@/lib/use-file-upload'
 import { getDocumentAcceptTypes } from '@/lib/use-document-upload'
-import { cn } from '@/lib/utils'
+import { cn, isMacOS } from '@/lib/utils'
 import {
     Tooltip,
     TooltipContent,
@@ -563,21 +563,42 @@ export function ChatInput({ value, onChange, onSend, onStop, isLoading, streamin
                         {supportsReasoning && (
                             <>
                                 <div className="w-px h-3.5 bg-border/40 mx-1" />
-                                {/* Reasoning Effort Selector */}
-                                <Select value={reasoningEffort} onValueChange={(v: ReasoningEffort) => setReasoningEffort(v)}>
-                                    <SelectTrigger className="h-8 w-auto px-2.5 bg-transparent border-none shadow-none hover:bg-accent/50 gap-1.5 rounded-xl text-xs font-semibold">
-                                        <IconBrain size={14} className="transition-colors text-violet-500" />
-                                        <SelectValue />
-                                    </SelectTrigger>
-                                    <SelectContent className="rounded-xl shadow-xl border-border/50 min-w-[140px]">
-                                        <div className="text-[10px] font-bold uppercase text-muted-foreground/50 px-3 py-2">
-                                            Reasoning Depth
+                                {/* Reasoning Effort – 3 niveles con puntos */}
+                                <Tooltip>
+                                    <TooltipTrigger asChild>
+                                        <div className="flex items-center gap-2 px-2.5 py-1.5 rounded-xl hover:bg-accent/50 min-w-0">
+                                            <IconBrain size={14} className="text-foreground shrink-0" />
+                                            <div className="flex flex-col gap-0.5">
+                                                {(['low', 'medium', 'high'] as const).map((level) => (
+                                                    <button
+                                                        key={level}
+                                                        type="button"
+                                                        onClick={() => setReasoningEffort(level)}
+                                                        className={cn(
+                                                            "w-1.5 h-1.5 rounded-full border-0 p-0 transition-all cursor-pointer shrink-0",
+                                                            reasoningEffort === level
+                                                                ? "bg-primary"
+                                                                : "bg-muted-foreground/40 hover:bg-muted-foreground/60"
+                                                        )}
+                                                        aria-label={`${level} reasoning`}
+                                                    />
+                                                ))}
+                                            </div>
+                                            <span className="text-xs font-semibold capitalize shrink-0">
+                                                {reasoningEffort}
+                                            </span>
                                         </div>
-                                        <SelectItem value="low" className="rounded-lg cursor-pointer">Low</SelectItem>
-                                        <SelectItem value="medium" className="rounded-lg cursor-pointer">Medium</SelectItem>
-                                        <SelectItem value="high" className="rounded-lg cursor-pointer">High</SelectItem>
-                                    </SelectContent>
-                                </Select>
+                                    </TooltipTrigger>
+                                    <TooltipContent className="flex flex-col gap-1.5">
+                                        <p>Reasoning depth: {reasoningEffort === 'low' ? 'Low' : reasoningEffort === 'medium' ? 'Medium' : 'High'}</p>
+                                        <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                                            Cycle
+                                            <kbd className="pointer-events-none inline-flex h-5 select-none items-center gap-1 rounded border bg-muted px-1.5 font-mono text-[10px] font-medium text-muted-foreground">
+                                                {isMacOS() ? '⌃' : 'Ctrl'} Tab
+                                            </kbd>
+                                        </p>
+                                    </TooltipContent>
+                                </Tooltip>
                             </>
                         )}
                     </div>
