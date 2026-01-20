@@ -2,10 +2,10 @@ import { useAtom } from 'jotai'
 import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { AnimatePresence, motion } from 'motion/react'
-import { IconX, IconUser, IconPalette, IconKey, IconBug } from '@tabler/icons-react'
+import { IconX, IconUser, IconPalette, IconKey, IconBug, IconAdjustmentsHorizontal } from '@tabler/icons-react'
 import { cn } from '@/lib/utils'
 import { settingsModalOpenAtom, settingsActiveTabAtom, type SettingsTab } from '@/lib/atoms'
-import { AccountTab, AppearanceTab, ApiKeysTab, DebugTab } from './tabs'
+import { AccountTab, AppearanceTab, ApiKeysTab, DebugTab, AdvancedTab } from './tabs'
 
 // Check if we're in development mode
 const isDevelopment = import.meta.env.MODE === 'development'
@@ -36,6 +36,12 @@ const ALL_TABS: TabConfig[] = [
         icon: IconPalette,
         description: 'Theme settings'
     },
+    {
+        id: 'advanced',
+        label: 'Advanced',
+        icon: IconAdjustmentsHorizontal,
+        description: 'Advanced AI behavior and system settings'
+    },
     // Debug tab - only shown in development
     ...(isDevelopment
         ? [
@@ -59,6 +65,7 @@ function TabButton({ tab, isActive, onClick }: TabButtonProps) {
     const Icon = tab.icon
     return (
         <button
+            type="button"
             onClick={onClick}
             className={cn(
                 'inline-flex items-center whitespace-nowrap ring-offset-background transition-all',
@@ -116,6 +123,8 @@ export function SettingsDialog() {
                 return <ApiKeysTab />
             case 'appearance':
                 return <AppearanceTab />
+            case 'advanced':
+                return <AdvancedTab />
             case 'debug':
                 return isDevelopment ? <DebugTab /> : null
             default:

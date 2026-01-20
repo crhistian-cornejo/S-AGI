@@ -22,16 +22,16 @@ import {
     AvatarFallback
 } from '@/components/ui/avatar'
 import {
-    IconMinus,
-    IconSquare,
-    IconX,
-    IconLayoutSidebarRightCollapse,
     IconMessageChatbot,
     IconTable,
     IconFileText,
     IconSettings,
     IconLogout,
-    IconChevronDown
+    IconChevronDown,
+    IconLayoutSidebarRightCollapse,
+    IconMinus,
+    IconSquare,
+    IconX
 } from '@tabler/icons-react'
 import { Button } from '@/components/ui/button'
 import { Logo } from '@/components/ui/logo'

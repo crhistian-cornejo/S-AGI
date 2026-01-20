@@ -17,6 +17,7 @@ import {
 } from '@/lib/atoms'
 import { Sidebar } from '@/features/sidebar/sidebar'
 import { ChatView } from '@/features/chat/chat-view'
+import { GalleryView } from '@/features/gallery/gallery-view'
 import { TitleBar } from './title-bar'
 import { cn, isMacOS } from '@/lib/utils'
 import { useAtom, useSetAtom, useAtomValue } from 'jotai'
@@ -152,8 +153,8 @@ export function MainLayout() {
             <CommandKDialog />
 
             <div className="flex h-full w-full overflow-hidden relative">
-                {/* Chat Tab - conditionally rendered because it doesn't have Univer conflicts */}
-                {activeTab === 'chat' && (
+                {/* Sidebar & Main Content (Chat / Gallery) */}
+                {(activeTab === 'chat' || activeTab === 'gallery') && (
                     <>
                         {/* Sidebar */}
                         <div
@@ -167,7 +168,7 @@ export function MainLayout() {
                             </div>
                         </div>
 
-                        {/* Chat area */}
+                        {/* Content area */}
                         <div className="flex-1 flex flex-col min-w-0 overflow-hidden relative pt-10">
                             {!sidebarOpen && (
                                 <>
@@ -262,7 +263,7 @@ export function MainLayout() {
                                                     <Button
                                                         variant="ghost"
                                                         size="icon"
-                                                        className="h-8 w-8 rounded-xl bg-background/60 backdrop-blur-xl border-border/50 shadow-sm hover:bg-accent hover:scale-110 transition-all active:scale-95 no-drag"
+                                                        className="h-8 w-8 rounded-xl bg-background/60 backdrop-blur-xl border border-border/50 shadow-sm hover:bg-accent hover:scale-110 transition-all active:scale-95 no-drag"
                                                         onClick={handleNewChat}
                                                         disabled={createChat.isPending}
                                                     >
@@ -299,22 +300,25 @@ export function MainLayout() {
                                     )}
                                 </>
                             )}
-                            <ChatView />
+                            
+                            {activeTab === 'chat' ? <ChatView /> : <GalleryView />}
                         </div>
 
-                        {/* Artifact panel */}
-                        <div
-                            className={cn(
-                                'h-full border-l border-border bg-background transition-all duration-300 ease-in-out overflow-hidden shrink-0 pt-10',
-                                (selectedArtifact && artifactPanelOpen) ? 'w-[600px]' : 'w-0 border-l-0'
-                            )}
-                        >
-                            <div className="w-[600px] h-full">
-                                <Suspense fallback={<PanelLoadingFallback />}>
-                                    <ArtifactPanel />
-                                </Suspense>
+                        {/* Artifact panel - only in Chat */}
+                        {activeTab === 'chat' && (
+                            <div
+                                className={cn(
+                                    'h-full border-l border-border bg-background transition-all duration-300 ease-in-out overflow-hidden shrink-0 pt-10',
+                                    (selectedArtifact && artifactPanelOpen) ? 'w-[600px]' : 'w-0 border-l-0'
+                                )}
+                            >
+                                <div className="w-[600px] h-full">
+                                    <Suspense fallback={<PanelLoadingFallback />}>
+                                        <ArtifactPanel />
+                                    </Suspense>
+                                </div>
                             </div>
-                        </div>
+                        )}
                     </>
                 )}
 

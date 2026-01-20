@@ -5,12 +5,15 @@ import { TextShimmer } from '@/components/ui/text-shimmer'
 import {
     IconArrowUp,
     IconPlayerStop,
-    IconAt,
     IconPaperclip,
     IconBrain,
     IconFileUpload,
     IconListCheck,
     IconSparkles,
+    IconPhoto,
+    IconRectangle,
+    IconRectangleVertical,
+    IconSquare,
 } from '@tabler/icons-react'
 import { Button } from '@/components/ui/button'
 import { ImageAttachmentItem } from '@/components/image-attachment-item'
@@ -25,6 +28,8 @@ import {
 import {
     chatModeAtom,
     isPlanModeAtom,
+    isImageGenerationModeAtom,
+    imageAspectRatioAtom,
     currentProviderAtom,
     selectedModelAtom,
     reasoningEffortAtom,
@@ -67,6 +72,8 @@ export function ChatInput({ value, onChange, onSend, onStop, isLoading, streamin
     const docInputRef = useRef<HTMLInputElement>(null)
     const [, setMode] = useAtom(chatModeAtom)
     const [isPlanMode, setIsPlanMode] = useAtom(isPlanModeAtom)
+    const [isImageMode, setIsImageMode] = useAtom(isImageGenerationModeAtom)
+    const [imageAspectRatio, setImageAspectRatio] = useAtom(imageAspectRatioAtom)
     const [_provider, setProvider] = useAtom(currentProviderAtom)
     const [selectedModel, setSelectedModel] = useAtom(selectedModelAtom)
     const allModelsGrouped = useAtomValue(allModelsGroupedAtom)
@@ -432,7 +439,7 @@ export function ChatInput({ value, onChange, onSend, onStop, isLoading, streamin
                     onChange={(e) => onChange(e.target.value)}
                     onKeyDown={handleKeyDown}
                     onPaste={handlePaste}
-                    placeholder="@ for context"
+                    placeholder={isImageMode ? "Describe the image you want to generate..." : "Type a message..."}
                     className="w-full bg-transparent resize-none outline-none text-[15px] leading-relaxed min-h-[60px] max-h-[400px] pt-2 pb-2 px-3 placeholder:text-muted-foreground/40 transition-all font-normal"
                     rows={1}
                     disabled={isLoading}
@@ -626,16 +633,86 @@ export function ChatInput({ value, onChange, onSend, onStop, isLoading, streamin
                                     </TooltipContent>
                                 </Tooltip>
 
+                                {/* Image Generation Toggle */}
                                 <Tooltip>
                                     <TooltipTrigger asChild>
-                                        <Button type="button" variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground/40 hover:text-foreground hover:bg-accent/50 rounded-xl">
-                                            <IconAt size={18} />
+                                        <Button 
+                                            type="button"
+                                            variant="ghost" 
+                                            size="icon" 
+                                            className={cn(
+                                                "h-8 w-8 rounded-xl transition-all",
+                                                isImageMode 
+                                                    ? "bg-primary text-primary-foreground hover:bg-primary/90" 
+                                                    : "text-muted-foreground/40 hover:text-foreground hover:bg-accent/50"
+                                            )}
+                                            onClick={() => setIsImageMode(!isImageMode)}
+                                            disabled={isLoading}
+                                        >
+                                            <IconPhoto size={18} />
                                         </Button>
                                     </TooltipTrigger>
                                     <TooltipContent>
-                                        <p>Mention context</p>
+                                        <p>{isImageMode ? 'Image mode ON' : 'Generate image'}</p>
                                     </TooltipContent>
                                 </Tooltip>
+
+                                {/* Aspect Ratio Selector - visible only in image mode */}
+                                {isImageMode && (
+                                    <div className="flex items-center bg-muted/50 rounded-lg p-0.5 animate-in fade-in slide-in-from-left-2 duration-200">
+                                        <Tooltip>
+                                            <TooltipTrigger asChild>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setImageAspectRatio('square')}
+                                                    className={cn(
+                                                        "h-7 w-7 rounded-md flex items-center justify-center transition-all",
+                                                        imageAspectRatio === 'square'
+                                                            ? "bg-background shadow-sm text-foreground"
+                                                            : "text-muted-foreground hover:text-foreground"
+                                                    )}
+                                                >
+                                                    <IconSquare size={14} />
+                                                </button>
+                                            </TooltipTrigger>
+                                            <TooltipContent><p>Square (1:1)</p></TooltipContent>
+                                        </Tooltip>
+                                        <Tooltip>
+                                            <TooltipTrigger asChild>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setImageAspectRatio('landscape')}
+                                                    className={cn(
+                                                        "h-7 w-7 rounded-md flex items-center justify-center transition-all",
+                                                        imageAspectRatio === 'landscape'
+                                                            ? "bg-background shadow-sm text-foreground"
+                                                            : "text-muted-foreground hover:text-foreground"
+                                                    )}
+                                                >
+                                                    <IconRectangle size={14} />
+                                                </button>
+                                            </TooltipTrigger>
+                                            <TooltipContent><p>Landscape (3:2)</p></TooltipContent>
+                                        </Tooltip>
+                                        <Tooltip>
+                                            <TooltipTrigger asChild>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setImageAspectRatio('portrait')}
+                                                    className={cn(
+                                                        "h-7 w-7 rounded-md flex items-center justify-center transition-all",
+                                                        imageAspectRatio === 'portrait'
+                                                            ? "bg-background shadow-sm text-foreground"
+                                                            : "text-muted-foreground hover:text-foreground"
+                                                    )}
+                                                >
+                                                    <IconRectangleVertical size={14} />
+                                                </button>
+                                            </TooltipTrigger>
+                                            <TooltipContent><p>Portrait (2:3)</p></TooltipContent>
+                                        </Tooltip>
+                                    </div>
+                                )}
                             </div>
                         </TooltipProvider>
 

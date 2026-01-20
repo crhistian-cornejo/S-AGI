@@ -4,6 +4,7 @@ import { cn } from "@/lib/utils"
 import { AgentToolRegistry, getToolStatus, type ToolPart } from "./agent-tool-registry"
 import { TextShimmer } from "@/components/ui/text-shimmer"
 import { Button } from "@/components/ui/button"
+import { AgentGeneratedImage } from "./agent-generated-image"
 
 interface ToolCall {
   id: string
@@ -86,6 +87,28 @@ function isArtifactTool(name: string): boolean {
   return name === 'create_spreadsheet' || name === 'create_document'
 }
 
+// Check if tool generates images
+function isImageTool(name: string): boolean {
+  return name === 'generate_image' || name === 'edit_image'
+}
+
+// Extract image data from tool call result
+function getImageData(tc: ToolCall): { imageUrl: string; prompt: string; size?: string; quality?: string } | undefined {
+  if (tc.result && typeof tc.result === 'object' && 'imageUrl' in tc.result) {
+    const result = tc.result as { imageUrl?: unknown; prompt?: unknown; size?: unknown; quality?: unknown }
+    const imageUrl = result.imageUrl
+    if (typeof imageUrl === 'string' && imageUrl) {
+      return {
+        imageUrl,
+        prompt: typeof result.prompt === 'string' ? result.prompt : 'Generated image',
+        size: typeof result.size === 'string' ? result.size : undefined,
+        quality: typeof result.quality === 'string' ? result.quality : undefined
+      }
+    }
+  }
+  return undefined
+}
+
 // Group tool calls by type
 function groupToolCalls(toolCalls: ToolCall[]): GroupedToolCall[] {
   const groups = new Map<string, GroupedToolCall>()
@@ -146,55 +169,72 @@ const ToolCallRow = memo(function ToolCallRow({
   const artifactId = getArtifactId(tc)
   const showViewArtifact = isArtifactTool(tc.name) && artifactId && isSuccess
   
+  // Check for generated image
+  const imageData = isImageTool(tc.name) && isSuccess ? getImageData(tc) : undefined
+  
   return (
-    <div className={cn(
-      "flex items-center gap-2 py-1.5 px-3",
-      showBorder && "border-b border-border/30"
-    )}>
-      {/* Status icon */}
-      <div className="w-4 h-4 flex items-center justify-center shrink-0">
-        {isPending ? (
-          <IconLoader2 size={14} className="text-muted-foreground animate-spin" />
-        ) : isError ? (
-          <IconX size={14} className="text-destructive" />
-        ) : (
-          <IconCheck size={14} className="text-emerald-500" />
-        )}
-      </div>
-      
-      {/* Content */}
-      <div className="flex-1 min-w-0 flex items-center gap-2">
-        <span className={cn(
-          "text-xs font-medium truncate",
-          isPending ? "text-foreground" : "text-muted-foreground"
-        )}>
+    <div className={cn(showBorder && !imageData && "border-b border-border/30")}>
+      <div className="flex items-center gap-2 py-1.5 px-3">
+        {/* Status icon */}
+        <div className="w-4 h-4 flex items-center justify-center shrink-0">
           {isPending ? (
-            <TextShimmer as="span" duration={1.2} className="text-xs">
-              {title}
-            </TextShimmer>
-          ) : title}
-        </span>
-        {subtitle && (
-          <span className="text-xs text-muted-foreground/50 truncate">
-            {subtitle}
+            <IconLoader2 size={14} className="text-muted-foreground animate-spin" />
+          ) : isError ? (
+            <IconX size={14} className="text-destructive" />
+          ) : (
+            <IconCheck size={14} className="text-emerald-500" />
+          )}
+        </div>
+        
+        {/* Content */}
+        <div className="flex-1 min-w-0 flex items-center gap-2">
+          <span className={cn(
+            "text-xs font-medium truncate",
+            isPending ? "text-foreground" : "text-muted-foreground"
+          )}>
+            {isPending ? (
+              <TextShimmer as="span" duration={1.2} className="text-xs">
+                {title}
+              </TextShimmer>
+            ) : title}
           </span>
+          {subtitle && (
+            <span className="text-xs text-muted-foreground/50 truncate">
+              {subtitle}
+            </span>
+          )}
+        </div>
+        
+        {/* View Artifact button */}
+        {showViewArtifact && onViewArtifact && (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-6 px-2 text-xs text-muted-foreground hover:text-foreground"
+            onClick={(e) => {
+              e.stopPropagation()
+              onViewArtifact(artifactId)
+            }}
+          >
+            <IconEye size={14} className="mr-1" />
+            View
+          </Button>
         )}
       </div>
       
-      {/* View Artifact button */}
-      {showViewArtifact && onViewArtifact && (
-        <Button
-          variant="ghost"
-          size="sm"
-          className="h-6 px-2 text-xs text-muted-foreground hover:text-foreground"
-          onClick={(e) => {
-            e.stopPropagation()
-            onViewArtifact(artifactId)
-          }}
-        >
-          <IconEye size={14} className="mr-1" />
-          View
-        </Button>
+      {/* Generated image inline */}
+      {imageData && (
+        <div className={cn(
+          "px-3 pb-3",
+          showBorder && "border-b border-border/30"
+        )}>
+          <AgentGeneratedImage
+            imageUrl={imageData.imageUrl}
+            prompt={imageData.prompt}
+            size={imageData.size}
+            quality={imageData.quality}
+          />
+        </div>
       )}
     </div>
   )
@@ -228,9 +268,21 @@ const GroupRow = memo(function GroupRow({
   const Icon = group.icon
   const showViewArtifact = isArtifactTool(group.name) && group.artifactId && allSuccess
   
+  // For image tools, collect all generated images to show inline
+  const isImageGroup = isImageTool(group.name)
+  const completedImages = isImageGroup 
+    ? group.calls
+        .filter(tc => {
+          const part = toToolPart(tc)
+          return getToolStatus(part, chatStatus).isSuccess
+        })
+        .map(tc => getImageData(tc))
+        .filter((data): data is NonNullable<typeof data> => data !== undefined)
+    : []
+  
   // All groups are expandable (even single items)
   return (
-    <div className={cn(showBorder && "border-b border-border/30")}>
+    <div className={cn(showBorder && completedImages.length === 0 && "border-b border-border/30")}>
       <div
         role="button"
         tabIndex={0}
@@ -311,6 +363,24 @@ const GroupRow = memo(function GroupRow({
               chatStatus={chatStatus}
               showBorder={idx < group.calls.length - 1}
               onViewArtifact={onViewArtifact}
+            />
+          ))}
+        </div>
+      )}
+      
+      {/* Generated images shown inline (outside of collapsible) */}
+      {completedImages.length > 0 && !isExpanded && (
+        <div className={cn(
+          "px-3 pb-3 pt-1 space-y-3",
+          showBorder && "border-b border-border/30"
+        )}>
+          {completedImages.map((imgData, idx) => (
+            <AgentGeneratedImage
+              key={`${imgData.imageUrl}-${idx}`}
+              imageUrl={imgData.imageUrl}
+              prompt={imgData.prompt}
+              size={imgData.size}
+              quality={imgData.quality}
             />
           ))}
         </div>

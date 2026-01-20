@@ -1,17 +1,20 @@
 "use client"
 
 import { useState } from "react"
-import { useSetAtom } from "jotai"
+import { useSetAtom, useAtom } from "jotai"
+import { useTheme } from "next-themes"
 import { motion, AnimatePresence } from "motion/react"
-import { IconRocket, IconCheck, IconKey, IconArrowRight, IconShieldCheck, IconLoader2, IconEye, IconEyeOff } from "@tabler/icons-react"
+import { IconRocket, IconCheck, IconKey, IconArrowRight, IconShieldCheck, IconLoader2, IconEye, IconEyeOff, IconPalette, IconMoon, IconSun, IconDeviceDesktop } from "@tabler/icons-react"
 import { Logo } from "@/components/ui/logo"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { onboardingCompletedAtom, settingsActiveTabAtom, settingsModalOpenAtom } from "@/lib/atoms"
+import { cn } from "@/lib/utils"
+import { onboardingCompletedAtom, settingsActiveTabAtom, settingsModalOpenAtom, themeAtom, selectedFullThemeIdAtom, fullThemeDataAtom } from "@/lib/atoms"
+import { BUILTIN_THEMES } from "@/lib/themes/builtin-themes"
 import { trpc } from "@/lib/trpc"
 import { toast } from "sonner"
 
-type OnboardingStep = "welcome" | "api-keys" | "ready"
+type OnboardingStep = "welcome" | "theme" | "api-keys" | "ready"
 
 export function OnboardingPage() {
   const [step, setStep] = useState<OnboardingStep>("welcome")
@@ -20,8 +23,15 @@ export function OnboardingPage() {
 
   const handleNext = () => {
     setDirection(1)
-    if (step === "welcome") setStep("api-keys")
+    if (step === "welcome") setStep("theme")
+    else if (step === "theme") setStep("api-keys")
     else if (step === "api-keys") setStep("ready")
+  }
+
+  const handleBack = () => {
+    setDirection(-1)
+    if (step === "theme") setStep("welcome")
+    else if (step === "api-keys") setStep("theme")
   }
 
   const handleComplete = () => {
@@ -42,8 +52,11 @@ export function OnboardingPage() {
                 {step === "welcome" && (
                     <WelcomeStep key="welcome" onNext={handleNext} />
                 )}
+                {step === "theme" && (
+                    <ThemeStep key="theme" onNext={handleNext} onBack={handleBack} />
+                )}
                 {step === "api-keys" && (
-                    <ApiKeysStep key="api-keys" onNext={handleNext} />
+                    <ApiKeysStep key="api-keys" onNext={handleNext} onBack={handleBack} />
                 )}
                 {step === "ready" && (
                     <ReadyStep key="ready" onComplete={handleComplete} />
@@ -131,7 +144,165 @@ function WelcomeStep({ onNext }: { onNext: () => void }) {
     )
 }
 
-function ApiKeysStep({ onNext }: { onNext: () => void }) {
+function ThemePreview({ theme }: { theme: any }) {
+    const bgColor = theme?.colors?.['editor.background'] || '#1a1a1a'
+    const accentColor = theme?.colors?.['focusBorder'] || theme?.colors?.['button.background'] || theme?.colors?.['textLink.foreground'] || '#0034FF'
+    const isDark = theme.type === 'dark'
+
+    return (
+        <div
+            className="w-8 h-6 rounded-sm flex items-center justify-center gap-1 shrink-0 font-bold text-[10px]"
+            style={{
+                backgroundColor: bgColor,
+                boxShadow: 'inset 0 0 0 0.5px rgba(128, 128, 128, 0.2)',
+            }}
+        >
+            <div
+                className="w-1.5 h-1.5 rounded-full"
+                style={{ backgroundColor: accentColor }}
+            />
+            <span style={{ color: isDark ? '#fff' : '#000', opacity: 0.8 }}>Aa</span>
+        </div>
+    )
+}
+
+function ThemeStep({ onNext, onBack }: { onNext: () => void; onBack: () => void }) {
+    const [theme, setJotaiTheme] = useAtom(themeAtom)
+    const [selectedThemeId, setSelectedThemeId] = useAtom(selectedFullThemeIdAtom)
+    const setFullThemeData = useSetAtom(fullThemeDataAtom)
+    const { setTheme } = useTheme()
+
+    const handleThemeChange = (newTheme: 'light' | 'dark' | 'system') => {
+        setJotaiTheme(newTheme)
+        setTheme(newTheme)
+        if (newTheme === 'system') {
+            setSelectedThemeId(null)
+            setFullThemeData(null)
+        } else {
+            // Pick default theme for the selected mode if current one doesn't match
+            const currentThemeObj = BUILTIN_THEMES.find(t => t.id === selectedThemeId)
+            if (!currentThemeObj || currentThemeObj.type !== newTheme) {
+                const defaultId = newTheme === 'dark' ? 'sagi-dark' : 'sagi-light'
+                handleSpecificThemeChange(defaultId)
+            }
+        }
+    }
+
+    const handleSpecificThemeChange = (themeId: string) => {
+        const themeObj = BUILTIN_THEMES.find(t => t.id === themeId)
+        if (themeObj) {
+            setSelectedThemeId(themeId)
+            setFullThemeData(themeObj)
+            setJotaiTheme(themeObj.type)
+            setTheme(themeObj.type)
+        }
+    }
+
+    const filteredThemes = theme === 'system' 
+        ? [] 
+        : BUILTIN_THEMES.filter(t => t.type === theme)
+
+    return (
+        <motion.div 
+            initial={{ opacity: 0, x: 50 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: -50 }}
+            transition={{ duration: 0.4 }}
+            className="space-y-8"
+        >
+            <div className="text-center space-y-2">
+                <div className="w-12 h-12 mx-auto rounded-2xl bg-primary/10 flex items-center justify-center mb-4">
+                    <IconPalette className="w-6 h-6 text-primary" />
+                </div>
+                <h2 className="text-2xl font-bold tracking-tight">Choose your style</h2>
+                <p className="text-muted-foreground">
+                    Select a theme that fits your workspace.
+                </p>
+            </div>
+
+            <div className="space-y-6">
+                <div className="grid grid-cols-3 gap-3">
+                    <ThemeButton 
+                        active={theme === 'light'} 
+                        onClick={() => handleThemeChange('light')} 
+                        icon={<IconSun size={20} />} 
+                        label="Light" 
+                    />
+                    <ThemeButton 
+                        active={theme === 'dark'} 
+                        onClick={() => handleThemeChange('dark')} 
+                        icon={<IconMoon size={20} />} 
+                        label="Dark" 
+                    />
+                    <ThemeButton 
+                        active={theme === 'system'} 
+                        onClick={() => handleThemeChange('system')} 
+                        icon={<IconDeviceDesktop size={20} />} 
+                        label="System" 
+                    />
+                </div>
+
+                <AnimatePresence mode="popLayout">
+                    {filteredThemes.length > 0 && (
+                        <motion.div
+                            initial={{ opacity: 0, y: 10 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            exit={{ opacity: 0, y: 10 }}
+                            className="grid grid-cols-2 gap-2 mt-4 max-h-[200px] overflow-y-auto pr-2 scrollbar-thin"
+                        >
+                            {filteredThemes.map((t) => (
+                                <button
+                                    key={t.id}
+                                    type="button"
+                                    onClick={() => handleSpecificThemeChange(t.id)}
+                                    className={cn(
+                                        "flex items-center gap-3 p-2.5 rounded-xl border transition-all text-left group",
+                                        selectedThemeId === t.id
+                                            ? "border-primary bg-primary/5 text-primary"
+                                            : "border-border/40 bg-secondary/20 text-muted-foreground hover:border-border hover:bg-secondary/40"
+                                    )}
+                                >
+                                    <ThemePreview theme={t} />
+                                    <span className="text-[11px] font-medium truncate">{t.name}</span>
+                                    {selectedThemeId === t.id && <IconCheck size={12} className="ml-auto" />}
+                                </button>
+                            ))}
+                        </motion.div>
+                    )}
+                </AnimatePresence>
+            </div>
+
+            <div className="space-y-3 pt-4">
+                <Button onClick={onNext} size="lg" className="w-full h-11">
+                    Continue
+                </Button>
+                <Button variant="ghost" onClick={onBack} className="w-full h-11 text-muted-foreground font-normal">
+                    Go Back
+                </Button>
+            </div>
+        </motion.div>
+    )
+}
+
+function ThemeButton({ active, onClick, icon, label }: { active: boolean, onClick: () => void, icon: React.ReactNode, label: string }) {
+    return (
+        <button
+            type="button"
+            onClick={onClick}
+            className={cn(
+                "flex flex-col items-center gap-3 p-4 rounded-2xl border-2 transition-all duration-200",
+                active 
+                    ? "border-primary bg-primary/5 text-primary shadow-sm" 
+                    : "border-border/50 bg-secondary/30 text-muted-foreground hover:border-border hover:bg-secondary/50"
+            )}
+        >
+            {icon}
+            <span className="text-xs font-medium">{label}</span>
+        </button>
+    )
+}
+
+function ApiKeysStep({ onNext, onBack }: { onNext: () => void; onBack: () => void }) {
     const [openaiKey, setOpenaiKey] = useState("")
     const [showKey, setShowKey] = useState(false)
     const utils = trpc.useUtils()
@@ -255,13 +426,22 @@ function ApiKeysStep({ onNext }: { onNext: () => void }) {
                     )}
                 </Button>
                 
-                <Button
-                    variant="ghost" 
-                    onClick={handleSkip}
-                    className="w-full h-11 hover:bg-transparent hover:underline text-muted-foreground font-normal"
-                >
-                    {keyStatus?.hasOpenAI ? "Continue" : "Skip for now"}
-                </Button>
+                <div className="flex gap-2">
+                    <Button
+                        variant="ghost" 
+                        onClick={onBack}
+                        className="flex-1 h-11 text-muted-foreground font-normal"
+                    >
+                        Back
+                    </Button>
+                    <Button
+                        variant="ghost" 
+                        onClick={handleSkip}
+                        className="flex-1 h-11 hover:bg-transparent hover:underline text-muted-foreground font-normal"
+                    >
+                        {keyStatus?.hasOpenAI ? "Continue" : "Skip for now"}
+                    </Button>
+                </div>
             </div>
         </motion.div>
     )

@@ -29,6 +29,7 @@ export {
   CodeIcon,
   FileSearchIcon,
   TableIcon,
+  ImageIcon,
 } from './icons'
 
 // Tool-specific components
@@ -59,3 +60,7 @@ export type { AgentReasoningProps, AgentReasoningAction, WebSearchData, UrlCitat
 export { AgentTodoTool } from './agent-todo-tool'
 export { AgentExitPlanModeTool } from './agent-exit-plan-mode-tool'
 export { AgentToolCallsGroup } from './agent-tool-calls-group'
+
+// Image generation components
+export { AgentGeneratedImage } from './agent-generated-image'
+export { AgentImageGeneration } from './agent-image-generation'

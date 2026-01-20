@@ -11,6 +11,7 @@ import { authRouter } from './routers/auth'
 import { settingsRouter } from './routers/settings'
 import { toolsRouter } from './routers/tools'
 import { filesRouter } from './routers/files'
+import { galleryRouter } from './routers/gallery'
 
 // Main app router
 export const appRouter = router({
@@ -21,7 +22,8 @@ export const appRouter = router({
     auth: authRouter,
     settings: settingsRouter,
     tools: toolsRouter,
-    files: filesRouter
+    files: filesRouter,
+    gallery: galleryRouter
 })
 
 // Export type for client

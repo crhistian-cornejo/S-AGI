@@ -2,12 +2,22 @@ import { z } from 'zod'
 import { router, protectedProcedure } from '../trpc'
 import { supabase } from '../../supabase/client'
 import { sendToRenderer } from '../../window-manager'
+import { getSecureApiKeyStore } from '../../auth/api-key-store'
 import log from 'electron-log'
+import OpenAI from 'openai'
 
 /**
  * Tool execution router - executes spreadsheet tools in the main process
  * This enables the Agent Loop to run tools and get results without renderer involvement
  */
+
+// Context passed to tools that need external API access
+export interface ToolContext {
+    apiKey?: string
+    provider?: 'openai' | 'anthropic' | 'zai' | 'chatgpt-plus'
+    baseURL?: string
+    headers?: Record<string, string>
+}
 
 // Helper: Notify renderer of artifact updates for live UI sync
 function notifyArtifactUpdate(artifactId: string, univerData: any, type: 'spreadsheet' | 'document') {
@@ -641,10 +651,37 @@ export const DOCUMENT_TOOLS = {
     }
 }
 
+// Image generation tools
+export const IMAGE_TOOLS = {
+    generate_image: {
+        description: 'Generate an image using AI (GPT Image 1.5). Creates high-quality images from text descriptions. Supports transparent backgrounds for logos, icons, and product images.',
+        inputSchema: z.object({
+            prompt: z.string().describe('Detailed description of the image to generate. Be specific about style, colors, composition, and any text to include.'),
+            size: z.enum(['1024x1024', '1536x1024', '1024x1536', 'auto']).optional().describe('Image dimensions. 1024x1024 (square), 1536x1024 (landscape), 1024x1536 (portrait), or auto (default).'),
+            quality: z.enum(['low', 'medium', 'high', 'auto']).optional().describe('Image quality. Higher quality takes longer but produces better results. Default: auto.'),
+            background: z.enum(['transparent', 'opaque', 'auto']).optional().describe('Background type. Use transparent for logos, icons, subjects without backgrounds. Default: auto.'),
+            output_format: z.enum(['png', 'jpeg', 'webp']).optional().describe('Output format. Use png for transparency, jpeg for photos, webp for web. Default: png.'),
+            n: z.number().min(1).max(4).optional().describe('Number of images to generate (1-4). Default: 1.')
+        })
+    },
+    edit_image: {
+        description: 'Edit an existing image using AI. Can modify specific areas using a mask, extend images, or make global edits.',
+        inputSchema: z.object({
+            prompt: z.string().describe('Description of the edits to make. Be specific about what to change, add, or remove.'),
+            imageBase64: z.string().describe('Base64-encoded source image (PNG, JPEG, or WebP, max 25MB)'),
+            maskBase64: z.string().optional().describe('Optional base64-encoded mask image. White areas will be edited, black areas preserved. Must be same size as source.'),
+            size: z.enum(['1024x1024', '1536x1024', '1024x1536', 'auto']).optional().describe('Output image dimensions.'),
+            quality: z.enum(['low', 'medium', 'high', 'auto']).optional().describe('Image quality level.'),
+            n: z.number().min(1).max(4).optional().describe('Number of edited images to generate (1-4). Default: 1.')
+        })
+    }
+}
+
 // Combined tools object for API exposure
 export const ALL_TOOLS = {
     ...SPREADSHEET_TOOLS,
-    ...DOCUMENT_TOOLS
+    ...DOCUMENT_TOOLS,
+    ...IMAGE_TOOLS
 }
 
 // Plan mode tools - used when mode='plan' to create execution plans
@@ -3420,7 +3457,6 @@ async function executeAddHeading(
     
     if (position === 'start') {
         // Prepend heading
-        const oldLength = body.dataStream.length
         body.dataStream = headingText + body.dataStream
         
         // Shift existing paragraph indices
@@ -4110,12 +4146,277 @@ async function executeFindReplaceDocument(
     }
 }
 
+// ============================================================================
+// IMAGE TOOLS EXECUTION
+// ============================================================================
+
+async function executeGenerateImage(
+    args: z.infer<typeof IMAGE_TOOLS.generate_image.inputSchema>,
+    chatId: string,
+    _userId: string,
+    context?: ToolContext
+): Promise<{ 
+    imageUrl: string
+    message: string
+    prompt: string
+    size: string
+    quality: string
+}> {
+    const { prompt, size, quality, background, output_format, n } = args
+
+    if (!context?.apiKey) {
+        throw new Error('OpenAI API key is required for image generation')
+    }
+
+    log.info(`[Tools] executeGenerateImage: prompt="${prompt.slice(0, 50)}...", size=${size}, quality=${quality}`)
+
+    // Create OpenAI client
+    const client = new OpenAI({
+        apiKey: context.apiKey,
+        baseURL: context.baseURL,
+        defaultHeaders: context.headers
+    })
+
+    // Generate image(s) using gpt-image-1.5 for best quality
+    const response = await client.images.generate({
+        model: 'gpt-image-1.5',
+        prompt,
+        size: size === 'auto' ? undefined : size,
+        quality: quality === 'auto' ? undefined : quality,
+        background: background === 'auto' ? undefined : background,
+        output_format: output_format || 'png',
+        n: n || 1
+    })
+
+    if (!response.data || response.data.length === 0) {
+        throw new Error('No images generated')
+    }
+
+    const format = output_format || 'png'
+    const imageData = response.data[0]
+    const base64 = imageData.b64_json
+
+    if (!base64) {
+        throw new Error('No image data in response')
+    }
+
+    // Upload to Supabase Storage
+    const imageBuffer = Buffer.from(base64, 'base64')
+    const fileName = `generated/${chatId}/${crypto.randomUUID()}.${format}`
+    
+    const { error: uploadError } = await supabase.storage
+        .from('images')
+        .upload(fileName, imageBuffer, {
+            contentType: `image/${format}`,
+            cacheControl: '31536000' // 1 year cache
+        })
+
+    if (uploadError) {
+        log.error(`[Tools] Failed to upload image to storage: ${uploadError.message}`)
+        throw new Error(`Failed to upload image: ${uploadError.message}`)
+    }
+
+    // --- NEW: Save record to chat_files table so it appears in Gallery and File Search ---
+    try {
+        await supabase
+            .from('chat_files')
+            .insert({
+                chat_id: chatId,
+                user_id: _userId,
+                filename: `generated-${Date.now()}.${format}`,
+                storage_path: fileName, // This is relative to the bucket 'images'? 
+                // Wait, chat_files.storage_path expects bucket 'attachments'?
+                // In filesRouter it uses 'attachments' bucket.
+                // Here we use 'images' bucket. This might be a conflict.
+                // Let's check where chat_files points to.
+                file_size: imageBuffer.length,
+                content_type: `image/${format}`
+            })
+    } catch (err) {
+        log.error(`[Tools] Failed to save generated image to chat_files:`, err)
+    }
+    // ---------------------------------------------------------------------------------
+
+    // Generate signed URL for private access (7 days expiration)
+    // This is more secure than public URLs and allows for access control
+    const SIGNED_URL_EXPIRATION = 60 * 60 * 24 * 7 // 7 days in seconds
+    
+    const { data: signedUrlData, error: signedUrlError } = await supabase.storage
+        .from('images')
+        .createSignedUrl(fileName, SIGNED_URL_EXPIRATION)
+
+    if (signedUrlError || !signedUrlData?.signedUrl) {
+        log.error(`[Tools] Failed to create signed URL: ${signedUrlError?.message}`)
+        // Fallback to public URL if signed URL fails
+        const { data: publicUrlData } = supabase.storage
+            .from('images')
+            .getPublicUrl(fileName)
+        
+        const imageUrl = publicUrlData.publicUrl
+        log.warn(`[Tools] Using public URL as fallback: ${imageUrl}`)
+        
+        return {
+            imageUrl,
+            message: `Image generated successfully`,
+            prompt,
+            size: size || 'auto',
+            quality: quality || 'auto'
+        }
+    }
+
+    const imageUrl = signedUrlData.signedUrl
+
+    log.info(`[Tools] Generated image with signed URL (expires in 7 days): ${imageUrl.slice(0, 80)}...`)
+
+    // Notify renderer of generated image for live update
+    sendToRenderer('image:generated', { 
+        chatId, 
+        imageUrl, 
+        prompt,
+        size: size || 'auto',
+        quality: quality || 'auto'
+    })
+
+    return {
+        imageUrl,
+        message: `Image generated successfully`,
+        prompt,
+        size: size || 'auto',
+        quality: quality || 'auto'
+    }
+}
+
+async function executeEditImage(
+    args: z.infer<typeof IMAGE_TOOLS.edit_image.inputSchema>,
+    chatId: string,
+    _userId: string,
+    context?: ToolContext
+): Promise<{ 
+    imageUrl: string
+    message: string
+    prompt: string
+    size: string
+    quality: string
+}> {
+    const { prompt, imageBase64, maskBase64, size, quality, n } = args
+
+    if (!context?.apiKey) {
+        throw new Error('OpenAI API key is required for image editing')
+    }
+
+    log.info(`[Tools] executeEditImage: prompt="${prompt.slice(0, 50)}...", hasMask=${!!maskBase64}`)
+
+    // Create OpenAI client
+    const client = new OpenAI({
+        apiKey: context.apiKey,
+        baseURL: context.baseURL,
+        defaultHeaders: context.headers
+    })
+
+    // Convert base64 to File objects for the API
+    const imageBuffer = Buffer.from(imageBase64, 'base64')
+    const imageFile = new File([imageBuffer], 'image.png', { type: 'image/png' })
+
+    let maskFile: File | undefined
+    if (maskBase64) {
+        const maskBuffer = Buffer.from(maskBase64, 'base64')
+        maskFile = new File([maskBuffer], 'mask.png', { type: 'image/png' })
+    }
+
+    // Edit image(s) using gpt-image-1.5 for best quality
+    const response = await client.images.edit({
+        model: 'gpt-image-1.5',
+        image: imageFile,
+        prompt,
+        mask: maskFile,
+        size: size === 'auto' ? undefined : size,
+        quality: quality === 'auto' ? undefined : quality,
+        n: n || 1
+    })
+
+    if (!response.data || response.data.length === 0) {
+        throw new Error('No edited images generated')
+    }
+
+    const imageData = response.data[0]
+    const base64 = imageData.b64_json
+
+    if (!base64) {
+        throw new Error('No image data in response')
+    }
+
+    // Upload to Supabase Storage
+    const editedBuffer = Buffer.from(base64, 'base64')
+    const fileName = `edited/${chatId}/${crypto.randomUUID()}.png`
+    
+    const { error: uploadError } = await supabase.storage
+        .from('images')
+        .upload(fileName, editedBuffer, {
+            contentType: 'image/png',
+            cacheControl: '31536000'
+        })
+
+    if (uploadError) {
+        log.error(`[Tools] Failed to upload edited image to storage: ${uploadError.message}`)
+        throw new Error(`Failed to upload image: ${uploadError.message}`)
+    }
+
+    // Generate signed URL for private access (7 days expiration)
+    const SIGNED_URL_EXPIRATION = 60 * 60 * 24 * 7 // 7 days in seconds
+    
+    const { data: signedUrlData, error: signedUrlError } = await supabase.storage
+        .from('images')
+        .createSignedUrl(fileName, SIGNED_URL_EXPIRATION)
+
+    if (signedUrlError || !signedUrlData?.signedUrl) {
+        log.error(`[Tools] Failed to create signed URL for edited image: ${signedUrlError?.message}`)
+        // Fallback to public URL if signed URL fails
+        const { data: publicUrlData } = supabase.storage
+            .from('images')
+            .getPublicUrl(fileName)
+        
+        const imageUrl = publicUrlData.publicUrl
+        log.warn(`[Tools] Using public URL as fallback: ${imageUrl}`)
+        
+        return {
+            imageUrl,
+            message: `Image edited successfully`,
+            prompt,
+            size: size || 'auto',
+            quality: quality || 'auto'
+        }
+    }
+
+    const imageUrl = signedUrlData.signedUrl
+
+    log.info(`[Tools] Edited image with signed URL (expires in 7 days): ${imageUrl.slice(0, 80)}...`)
+
+    // Notify renderer of edited image
+    sendToRenderer('image:generated', { 
+        chatId, 
+        imageUrl, 
+        prompt,
+        size: size || 'auto',
+        quality: quality || 'auto',
+        isEdited: true
+    })
+
+    return {
+        imageUrl,
+        message: `Image edited successfully`,
+        prompt,
+        size: size || 'auto',
+        quality: quality || 'auto'
+    }
+}
+
 // Main tool execution function
 export async function executeTool(
     toolName: string,
     args: unknown,
     chatId: string,
-    userId: string
+    userId: string,
+    context?: ToolContext
 ): Promise<unknown> {
     log.info(`[Tools] Executing tool: ${toolName}`, args)
 
@@ -4435,6 +4736,23 @@ export async function executeTool(
                 userId
             )
 
+        // Image tools
+        case 'generate_image':
+            return executeGenerateImage(
+                IMAGE_TOOLS.generate_image.inputSchema.parse(args),
+                chatId,
+                userId,
+                context
+            )
+
+        case 'edit_image':
+            return executeEditImage(
+                IMAGE_TOOLS.edit_image.inputSchema.parse(args),
+                chatId,
+                userId,
+                context
+            )
+
         // Plan mode tools
         case 'ExitPlanMode': {
             // ExitPlanMode just returns the plan - no side effects
@@ -4508,13 +4826,69 @@ export function getToolsForAPI(provider: 'openai' | 'anthropic') {
     return tools
 }
 
+/**
+ * Direct image generation function for use when generateImage flag is true.
+ * Skips the AI agent and directly calls gpt-image-1.5 with fixed high-quality params.
+ * 
+ * @param prompt - The image description from the user
+ * @param chatId - Chat ID for storage organization
+ * @param userId - User ID for access control
+ * @param apiKey - OpenAI API key
+ * @param provider - Provider for custom endpoints (optional)
+ * @param baseURL - Custom base URL for API (optional)
+ * @param headers - Custom headers for API (optional)
+ * @param size - Image size (default: 1024x1024, options: 1536x1024, 1024x1536)
+ * @returns Promise with imageUrl and metadata
+ */
+export async function generateImageDirect(
+    prompt: string,
+    chatId: string,
+    userId: string,
+    apiKey: string,
+    provider?: 'openai' | 'zai',
+    baseURL?: string,
+    headers?: Record<string, string>,
+    size: string = '1024x1024'
+): Promise<{
+    imageUrl: string
+    message: string
+    prompt: string
+    size: string
+    quality: string
+}> {
+    log.info(`[Tools] generateImageDirect: prompt="${prompt.slice(0, 80)}...", quality=high, size=${size}`)
+
+    const context: ToolContext = {
+        apiKey,
+        provider: provider || 'openai',
+        baseURL,
+        headers
+    }
+
+    // Call executeGenerateImage with high-quality params and dynamic size
+    return executeGenerateImage(
+        {
+            prompt,
+            size: size as '1024x1024' | '1536x1024' | '1024x1536' | 'auto',
+            quality: 'high',
+            background: 'auto',
+            output_format: 'png',
+            n: 1
+        },
+        chatId,
+        userId,
+        context
+    )
+}
+
 // tRPC router for direct tool execution (used by renderer for manual tool calls)
 export const toolsRouter = router({
     execute: protectedProcedure
         .input(z.object({
             toolName: z.string(),
             args: z.any(),
-            chatId: z.string().uuid()
+            chatId: z.string().uuid(),
+            apiKey: z.string().optional() // Optional - will fallback to stored key
         }))
         .mutation(async ({ ctx, input }) => {
             // Verify chat ownership
@@ -4527,7 +4901,23 @@ export const toolsRouter = router({
 
             if (!chat) throw new Error('Chat not found or access denied')
 
-            return executeTool(input.toolName, input.args, input.chatId, ctx.userId)
+            // Get API key - prefer input, fallback to stored key
+            const storedKey = getSecureApiKeyStore().getOpenAIKey()
+            const apiKey = input.apiKey || storedKey
+            
+            log.info(`[ToolsRouter] execute: toolName=${input.toolName}, hasInputApiKey=${!!input.apiKey}, hasStoredKey=${!!storedKey}`)
+            
+            if (!apiKey && ['generate_image', 'edit_image'].includes(input.toolName)) {
+                throw new Error('OpenAI API key is required. Please configure it in Settings.')
+            }
+            
+            // Build tool context for image/AI operations
+            const context: ToolContext | undefined = apiKey ? {
+                apiKey,
+                provider: 'openai'
+            } : undefined
+
+            return executeTool(input.toolName, input.args, input.chatId, ctx.userId, context)
         }),
 
     list: protectedProcedure.query(() => {

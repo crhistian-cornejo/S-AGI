@@ -12,7 +12,7 @@ import { getChatGPTAuthManager } from '../../auth'
 import OpenAI from 'openai'
 import type { Responses } from 'openai/resources/responses/responses'
 import { OpenAIFileService } from '../../ai/openai-files'
-import { SPREADSHEET_TOOLS, DOCUMENT_TOOLS, PLAN_TOOLS, executeTool } from './tools'
+import { SPREADSHEET_TOOLS, DOCUMENT_TOOLS, IMAGE_TOOLS, PLAN_TOOLS, executeTool, generateImageDirect, type ToolContext } from './tools'
 import type { AIStreamEvent, ReasoningConfig, NativeToolsConfig, AIProvider } from '@shared/ai-types'
 import { 
     AI_MODELS, 
@@ -454,7 +454,8 @@ type FunctionToolParam = Responses.FunctionTool
  */
 function createFunctionTools(
     chatId: string,
-    userId: string
+    userId: string,
+    context?: ToolContext
 ): { tools: FunctionToolParam[]; executors: Map<string, (args: unknown) => Promise<unknown>> } {
     const executors = new Map<string, (args: unknown) => Promise<unknown>>()
     const tools: FunctionToolParam[] = []
@@ -481,6 +482,19 @@ function createFunctionTools(
             strict: true
         })
         executors.set(name, (args) => executeTool(name, args, chatId, userId))
+    }
+
+    // Add image tools (require API context)
+    for (const [name, tool] of Object.entries(IMAGE_TOOLS)) {
+        tools.push({
+            type: 'function',
+            name,
+            description: tool.description,
+            parameters: zodToJsonSchema(tool.inputSchema) as FunctionToolParam['parameters'],
+            strict: true
+        })
+        // Pass context to image tools for API access
+        executors.set(name, (args) => executeTool(name, args, chatId, userId, context))
     }
 
     return { tools, executors }
@@ -877,7 +891,11 @@ export const aiRouter = router({
                 promptCacheKey: z.string().optional(),
                 /** Prompt cache retention policy */
                 promptCacheRetention: z.enum(['in_memory', '24h']).optional()
-            }).optional()
+            }).optional(),
+            /** When true, forces the AI to use the generate_image tool with the prompt */
+            generateImage: z.boolean().optional(),
+            /** Image size for image generation (e.g., '1024x1024', '1536x1024', '1024x1536') */
+            imageSize: z.string().optional()
         }))
         .mutation(async ({ ctx, input }) => {
             // Validate user has access to this chat
@@ -1100,10 +1118,21 @@ export const aiRouter = router({
                         })
                     }
 
+                    // Build tool context for image generation and other API-requiring tools
+                    const toolContext: ToolContext = {
+                        apiKey: input.apiKey,
+                        provider: provider as ToolContext['provider']
+                    }
+                    // For Z.AI, add custom base URL and headers
+                    if (provider === 'zai') {
+                        toolContext.baseURL = ZAI_BASE_URL
+                        toolContext.headers = { 'X-ZAI-Source': ZAI_SOURCE_HEADER }
+                    }
+
                     // Build tools based on mode
                     const { tools: functionTools, executors } = input.mode === 'plan'
                         ? createPlanModeTools(input.chatId, ctx.userId)
-                        : createFunctionTools(input.chatId, ctx.userId)
+                        : createFunctionTools(input.chatId, ctx.userId, toolContext)
                     
                     // Select system prompt based on mode
                     // Add current date/time context for accurate temporal awareness
@@ -2078,8 +2107,87 @@ CRITICAL INSTRUCTIONS FOR DOCUMENT QUERIES:
                 }
             }
 
-            // Start processing in background
-            runAgentLoop()
+            // Direct image generation function - skips AI agent for faster response
+            const runImageGeneration = async () => {
+                const startTime = Date.now()
+                const toolCallId = `img_${crypto.randomUUID()}`
+                
+                try {
+                    log.info(`[AI] Direct image generation mode - prompt: "${input.prompt.slice(0, 80)}...", size: ${input.imageSize || '1024x1024'}`)
+                    
+                    // Use provided size or default to 1024x1024
+                    const imageSize = input.imageSize || '1024x1024'
+                    
+                    // Emit tool call start event
+                    emit({ 
+                        type: 'tool-call-start', 
+                        toolCallId,
+                        toolName: 'generate_image'
+                    })
+                    
+                    // Emit tool call done with args
+                    emit({
+                        type: 'tool-call-done',
+                        toolCallId,
+                        toolName: 'generate_image',
+                        args: { prompt: input.prompt, size: imageSize, quality: 'high' }
+                    })
+
+                    // Get API key - prefer input key, fallback to stored
+                    const apiKey = input.apiKey || getSecureApiKeyStore().getOpenAIKey()
+                    if (!apiKey) {
+                        throw new Error('OpenAI API key is required for image generation')
+                    }
+
+                    // Determine if using Z.AI
+                    const provider = input.provider || 'openai'
+                    const baseURL = provider === 'zai' ? ZAI_BASE_URL : undefined
+                    const headers = provider === 'zai' ? { 'X-ZAI-Source': ZAI_SOURCE_HEADER } : undefined
+
+                    // Call direct image generation with dynamic size
+                    const result = await generateImageDirect(
+                        input.prompt,
+                        input.chatId,
+                        ctx.userId,
+                        apiKey,
+                        provider as 'openai' | 'zai',
+                        baseURL,
+                        headers,
+                        imageSize
+                    )
+
+                    // Emit tool result
+                    emit({
+                        type: 'tool-result',
+                        toolCallId,
+                        toolName: 'generate_image',
+                        result,
+                        success: true
+                    })
+
+                    // Note: We don't emit text-delta with markdown image because
+                    // the AgentImageGeneration component renders the image from tool-result
+                    
+                    // Emit finish
+                    const duration = Date.now() - startTime
+                    log.info(`[AI] Direct image generation completed in ${duration}ms`)
+                    emit({ type: 'finish', totalSteps: 1 })
+
+                } catch (error) {
+                    log.error(`[AI] Direct image generation error:`, error)
+                    const errorMessage = error instanceof Error ? sanitizeApiError(error.message) : 'Unknown error'
+                    emit({ type: 'error', error: errorMessage })
+                } finally {
+                    activeStreams.delete(input.chatId)
+                }
+            }
+
+            // Start processing in background - use direct image generation if flag is set
+            if (input.generateImage) {
+                runImageGeneration()
+            } else {
+                runAgentLoop()
+            }
 
             return { success: true, message: 'Agent loop started' }
         }),

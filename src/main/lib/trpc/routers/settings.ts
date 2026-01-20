@@ -2,6 +2,9 @@ import { z } from 'zod'
 import { router, publicProcedure } from '../trpc'
 import { getSecureApiKeyStore } from '../../auth/api-key-store'
 import { getChatGPTAuthManager, getClaudeCodeAuthManager, getZaiAuthManager } from '../../auth'
+import { supabase } from '../../supabase/client'
+import os from 'os'
+import { app } from 'electron'
 
 /**
  * Settings router for secure API key management and OAuth status
@@ -23,6 +26,50 @@ export const settingsRouter = router({
             hasChatGPTPlus: chatGPTAuth.isConnected(),
             hasClaudeCode: claudeCodeAuth.isConnected()
         }
+    }),
+
+    // Get system and app info for debug
+    getSystemInfo: publicProcedure.query(() => {
+        return {
+            platform: os.platform(),
+            arch: os.arch(),
+            release: os.release(),
+            totalMem: Math.round(os.totalmem() / (1024 * 1024 * 1024)),
+            freeMem: Math.round(os.freemem() / (1024 * 1024 * 1024)),
+            cpus: os.cpus().length,
+            version: app.getVersion(),
+            chrome: process.versions.chrome,
+            electron: process.versions.electron,
+            node: process.versions.node,
+            v8: process.versions.v8,
+        }
+    }),
+
+    // Check connectivity health
+    checkHealth: publicProcedure.query(async () => {
+        const results = {
+            supabase: false,
+            openai: false,
+            internet: false,
+        }
+
+        try {
+            // Check internet/google
+            const response = await fetch('https://www.google.com', { method: 'HEAD', timeout: 5000 } as any)
+            results.internet = response.ok
+        } catch (e) {
+            results.internet = false
+        }
+
+        try {
+            // Check Supabase
+            const { error } = await supabase.from('chats').select('id', { count: 'exact', head: true })
+            results.supabase = !error
+        } catch (e) {
+            results.supabase = false
+        }
+
+        return results
     }),
 
     // Set OpenAI API key

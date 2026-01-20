@@ -24,6 +24,7 @@ import {
     AgentFileSearch,
     AgentTodoTool,
     AgentExitPlanModeTool,
+    AgentImageGeneration,
     getToolStatus,
     type PlanStep,
     type ToolPart
@@ -278,7 +279,9 @@ const SPECIAL_TOOLS = new Set([
     'Task', 'task',
     'PlanWrite', 'planwrite', 'plan_write',
     'TodoWrite', 'todowrite', 'todo_write',
-    'ExitPlanMode', 'exitplanmode', 'exit_plan_mode'
+    'ExitPlanMode', 'exitplanmode', 'exit_plan_mode',
+    // Image generation tools - render with dedicated image component
+    'generate_image', 'edit_image'
 ])
 
 /** Check if a tool should be rendered individually with a dedicated component */
@@ -434,7 +437,11 @@ export const MessageList = memo(function MessageList({
     return (
         <div className="space-y-6 px-4 py-4 max-w-3xl mx-auto">
             {messages.map((message, index) => (
-                <div key={message.id} className="animate-in fade-in slide-in-from-bottom-2 duration-300">
+                <div
+                    key={message.id}
+                    id={`msg-${message.id}`}
+                    className="animate-in fade-in slide-in-from-bottom-2 duration-300 scroll-mt-4"
+                >
                     <MessageItem 
                         message={message} 
                         onViewArtifact={onViewArtifact}
@@ -905,6 +912,32 @@ const AgentToolRenderer = memo(function AgentToolRenderer({
                     }
                 }}
                 chatStatus={chatStatus}
+            />
+        )
+    }
+
+    // Image generation tools - use dedicated component with shimmer and lightbox
+    if (toolType === 'tool-generate_image' || toolType === 'tool-edit_image') {
+        const prompt = typeof input.prompt === 'string' ? input.prompt : 'Generated image'
+        const imageUrl = isRecord(output) && typeof output.imageUrl === 'string' ? output.imageUrl : undefined
+        const size = typeof input.size === 'string' ? input.size : '1024x1024'
+        const quality = typeof input.quality === 'string' ? input.quality : 'high'
+        const errorMsg = isRecord(output) && typeof output.error === 'string' ? output.error : undefined
+        
+        const status = isComplete && imageUrl 
+            ? 'complete' 
+            : isComplete && !imageUrl 
+                ? 'error' 
+                : 'generating'
+        
+        return (
+            <AgentImageGeneration
+                prompt={prompt}
+                imageUrl={imageUrl}
+                size={size}
+                quality={quality}
+                status={status}
+                error={errorMsg}
             />
         )
     }

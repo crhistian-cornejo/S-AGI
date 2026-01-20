@@ -10,6 +10,9 @@ import {
     settingsModalOpenAtom,
     chatModeAtom,
     isPlanModeAtom,
+    isImageGenerationModeAtom,
+    imageAspectRatioAtom,
+    ASPECT_RATIO_TO_SIZE,
     selectedModelAtom,
     streamingToolCallsAtom,
     streamingErrorAtom,
@@ -22,6 +25,7 @@ import {
     streamingWebSearchesAtom,
     streamingAnnotationsAtom,
     streamingFileSearchesAtom,
+    imageEditDialogAtom,
     type WebSearchInfo,
     type FileSearchInfo,
     type UrlCitation,
@@ -35,8 +39,10 @@ import { Logo } from '@/components/ui/logo'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { MessageList } from './message-list'
+import { MessageTableOfContents } from './message-table-of-contents'
 import { ChatInput } from './chat-input'
 import { ChatFilesPanel } from './chat-files-panel'
+import { ImageEditDialog } from '@/features/agent/image-edit-dialog'
 import { useSmoothStream } from '@/hooks/use-smooth-stream'
 import { useDocumentUpload } from '@/lib/use-document-upload'
 import { AI_MODELS } from '@shared/ai-types'
@@ -75,6 +81,9 @@ export function ChatView() {
     const setSelectedArtifact = useSetAtom(selectedArtifactAtom)
     const setArtifactPanelOpen = useSetAtom(artifactPanelOpenAtom)
 
+    // Image edit dialog state
+    const [imageEditDialog, setImageEditDialog] = useAtom(imageEditDialogAtom)
+
     // Document upload for file search
     const documentUpload = useDocumentUpload({ chatId: selectedChatId })
 
@@ -84,6 +93,7 @@ export function ChatView() {
     const messagesEndRef = useRef<HTMLDivElement>(null)
     const scrollContainerRef = useRef<HTMLDivElement>(null)
     const [showScrollToBottom, setShowScrollToBottom] = useState(false)
+    const [activeMessageId, setActiveMessageId] = useState<string | null>(null)
 
     // Get key status from main process (persisted in safeStorage)
     const { data: keyStatus } = trpc.settings.getApiKeyStatus.useQuery()
@@ -110,6 +120,10 @@ export function ChatView() {
 
     // Plan mode state
     const setIsPlanMode = useSetAtom(isPlanModeAtom)
+    
+    // Image generation mode state
+    const [isImageMode, setIsImageMode] = useAtom(isImageGenerationModeAtom)
+    const imageAspectRatio = useAtomValue(imageAspectRatioAtom)
 
     // Detect unapproved plan - look for ExitPlanMode tool without subsequent "Implement plan" user message
     const hasUnapprovedPlan = useMemo(() => {
@@ -183,9 +197,14 @@ export function ChatView() {
 
         const userMessage = messageToSend
         const existingMessages = messages
+        
+        // Capture isImageMode and aspect ratio BEFORE resetting (closure issue fix)
+        const shouldGenerateImage = isImageMode
+        const imageSize = shouldGenerateImage ? ASPECT_RATIO_TO_SIZE[imageAspectRatio] : undefined
 
         setInput('')
         setIsStreaming(true)
+        setIsImageMode(false) // Reset image mode after capturing its value
         smoothStream.startStream()
         setStreamingToolCalls([])
         setStreamingReasoning('')
@@ -732,7 +751,11 @@ export function ChatView() {
                         summary: 'auto' // Required to receive reasoning summary events
                     },
                     // Enable file search if there are files in vector store
-                    nativeTools: hasFilesInVectorStore ? { fileSearch: true } : undefined
+                    nativeTools: hasFilesInVectorStore ? { fileSearch: true } : undefined,
+                    // Image generation mode - forces use of generate_image tool with gpt-image-1.5
+                    generateImage: shouldGenerateImage,
+                    // Image size based on selected aspect ratio
+                    imageSize
                 })
             } catch (error) {
                 cleanupListener?.()
@@ -857,6 +880,10 @@ export function ChatView() {
         setShowScrollToBottom(distanceFromBottom > 120)
     }, [getScrollViewport])
 
+    const handleScrollToMessage = useCallback((id: string) => {
+        document.getElementById(`msg-${id}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }, [])
+
     // Memoized handler for viewing artifacts
     const handleViewArtifact = useCallback(async (artifactId: string) => {
         try {
@@ -894,6 +921,36 @@ export function ChatView() {
         viewport.addEventListener('scroll', handleScroll, { passive: true })
         return () => viewport.removeEventListener('scroll', handleScroll)
     }, [getScrollViewport, updateScrollButton])
+
+    // Intersection Observer to track active user message for ToC
+    useEffect(() => {
+        const viewport = getScrollViewport()
+        if (!viewport || !messages?.length) return
+
+        const observer = new IntersectionObserver(
+            (entries) => {
+                entries.forEach((entry) => {
+                    if (entry.isIntersecting) {
+                        const id = entry.target.id.replace('msg-', '')
+                        setActiveMessageId(id)
+                    }
+                })
+            },
+            {
+                root: viewport,
+                threshold: 0.1,
+                rootMargin: '-10% 0px -70% 0px' // Detect near top
+            }
+        )
+
+        const userMessages = messages.filter(m => m.role === 'user')
+        userMessages.forEach((m) => {
+            const el = document.getElementById(`msg-${m.id}`)
+            if (el) observer.observe(el)
+        })
+
+        return () => observer.disconnect()
+    }, [messages, getScrollViewport])
 
     // Error state - chat not found (stale localStorage)
     if (messagesError && selectedChatId) {
@@ -1068,6 +1125,18 @@ export function ChatView() {
 
                 {/* Bottom Fade Overlay */}
                 <div className="absolute bottom-0 left-0 right-0 h-16 bg-gradient-to-t from-background to-transparent pointer-events-none z-10" />
+
+                {/* Floating ToC - right side, horizontal lines, length by prompt */}
+                <div className="absolute right-2 top-10 bottom-16 w-12 flex flex-col items-end justify-start pt-2 z-[8] pointer-events-none overflow-hidden">
+                    <div className="pointer-events-auto max-h-full overflow-y-auto py-1 pr-1 scrollbar-none">
+                        <MessageTableOfContents
+                            messages={messages || []}
+                            activeId={activeMessageId}
+                            onScrollToMessage={handleScrollToMessage}
+                            tooltipSide="left"
+                        />
+                    </div>
+                </div>
             </div>
 
             {/* Input area */}
@@ -1121,6 +1190,20 @@ export function ChatView() {
                     )}
                 </div>
             </div>
+
+            {/* Image Edit Dialog - controlled by imageEditDialogAtom */}
+            <ImageEditDialog
+                open={imageEditDialog.isOpen}
+                onOpenChange={(open) => setImageEditDialog(prev => ({ ...prev, isOpen: open }))}
+                imageUrl={imageEditDialog.imageUrl}
+                originalPrompt={imageEditDialog.originalPrompt}
+                onEditComplete={() => {
+                    // Close dialog after successful edit
+                    setImageEditDialog({ isOpen: false, imageUrl: '', originalPrompt: '' })
+                    // Refetch messages to show the new edited image in the chat
+                    refetchMessages()
+                }}
+            />
         </div>
     )
 }

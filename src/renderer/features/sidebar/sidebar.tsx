@@ -21,7 +21,8 @@ import {
     IconArchiveOff,
     IconChevronDown,
     IconChevronRight,
-    IconSparkles
+    IconSparkles,
+    IconPhoto
 } from '@tabler/icons-react'
 import { trpc } from '@/lib/trpc'
 import {
@@ -32,6 +33,7 @@ import {
     selectedArtifactAtom,
     artifactPanelOpenAtom,
     undoStackAtom,
+    activeTabAtom,
     type UndoItem
 } from '@/lib/atoms'
 
@@ -431,6 +433,7 @@ export function Sidebar() {
     const [sidebarOpen, setSidebarOpen] = useAtom(sidebarOpenAtom)
     const setSelectedArtifact = useSetAtom(selectedArtifactAtom)
     const setArtifactPanelOpen = useSetAtom(artifactPanelOpenAtom)
+    const [activeTab, setActiveTab] = useAtom(activeTabAtom)
     const [searchQuery, setSearchQuery] = useState('')
     const showWindowsLogo = isWindows() && sidebarOpen
     const [editingChatId, setEditingChatId] = useState<string | null>(null)
@@ -650,6 +653,7 @@ export function Sidebar() {
         setSelectedChatId(chatId)
         setSelectedArtifact(null)
         setArtifactPanelOpen(false)
+        setActiveTab('chat')
     }
 
     const handleDeleteChat = (chatId: string) => {
@@ -796,6 +800,23 @@ export function Sidebar() {
                         {isMacOS() ? '⌘' : 'Ctrl'} K
                     </kbd>
                 </div>
+            </div>
+
+            {/* Navigation Items */}
+            <div className="px-2 pb-2 space-y-1">
+                <button
+                    type="button"
+                    onClick={() => setActiveTab('gallery')}
+                    className={cn(
+                        'w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors',
+                        activeTab === 'gallery'
+                            ? 'bg-primary/10 text-primary font-medium'
+                            : 'text-foreground/80 hover:bg-accent/50'
+                    )}
+                >
+                    <IconPhoto size={16} className={activeTab === 'gallery' ? 'text-primary' : 'opacity-60'} />
+                    <span>Gallery</span>
+                </button>
             </div>
 
             {/* Chat list with fade scroll effect */}

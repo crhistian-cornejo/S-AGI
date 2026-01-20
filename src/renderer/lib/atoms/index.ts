@@ -129,7 +129,7 @@ export const systemDarkThemeIdAtom = atomWithStorage<string>(
 export const fullThemeDataAtom = atom<VSCodeFullTheme | null>(null)
 
 // === TAB SYSTEM ===
-export type AppTab = 'chat' | 'excel' | 'doc'
+export type AppTab = 'chat' | 'excel' | 'doc' | 'gallery'
 export const activeTabAtom = atomWithStorage<AppTab>('active-tab', 'chat')
 
 // === INPUT STATE ===
@@ -138,6 +138,40 @@ export const chatModeAtom = atomWithStorage<'plan' | 'agent'>('chat-mode', 'agen
 
 // === PLAN MODE STATE ===
 export const isPlanModeAtom = atomWithStorage<boolean>('agents:isPlanMode', false)
+
+// === IMAGE GENERATION MODE ===
+// When true, the AI will generate an image based on the user's prompt
+export const isImageGenerationModeAtom = atom(false)
+
+// Aspect ratio options for image generation (maps to gpt-image-1.5 sizes)
+export type ImageAspectRatio = 'square' | 'landscape' | 'portrait'
+export const imageAspectRatioAtom = atomWithStorage<ImageAspectRatio>('image-aspect-ratio', 'square')
+
+// Maps aspect ratio to OpenAI image sizes
+export const ASPECT_RATIO_TO_SIZE: Record<ImageAspectRatio, string> = {
+    'square': '1024x1024',
+    'landscape': '1536x1024',  // 3:2 ratio
+    'portrait': '1024x1536'    // 2:3 ratio
+}
+
+export const ASPECT_RATIO_LABELS: Record<ImageAspectRatio, string> = {
+    'square': '1:1',
+    'landscape': '3:2',
+    'portrait': '2:3'
+}
+
+// === IMAGE EDIT DIALOG STATE ===
+export interface ImageEditDialogState {
+    isOpen: boolean
+    imageUrl: string
+    originalPrompt: string
+}
+
+export const imageEditDialogAtom = atom<ImageEditDialogState>({
+    isOpen: false,
+    imageUrl: '',
+    originalPrompt: ''
+})
 
 // Track sub-chats with pending plan approval (plan ready but not yet implemented)
 // Set<subChatId>
@@ -244,7 +278,7 @@ export const streamingFileSearchesAtom = atom<FileSearchInfo[]>([])
 
 // === SETTINGS MODAL ===
 export const settingsModalOpenAtom = atom(false)
-export type SettingsTab = 'account' | 'appearance' | 'api-keys' | 'debug'
+export type SettingsTab = 'account' | 'appearance' | 'api-keys' | 'advanced' | 'debug'
 export const settingsActiveTabAtom = atom<SettingsTab>('account')
 
 // === HELP & SHORTCUTS ===

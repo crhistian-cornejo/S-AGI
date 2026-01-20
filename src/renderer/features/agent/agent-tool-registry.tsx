@@ -11,6 +11,7 @@ import {
   CodeIcon,
   FileSearchIcon,
   TableIcon,
+  ImageIcon,
 } from "./icons"
 import { IconFolderSearch, IconListCheck } from "@tabler/icons-react"
 
@@ -532,6 +533,42 @@ export const AgentToolRegistry: Record<string, ToolMeta> = {
       return isPending ? "Reading document" : "Read document"
     },
     subtitle: () => "",
+    variant: "simple",
+  },
+
+  // ========================================================================
+  // Image Generation Tools
+  // ========================================================================
+
+  "tool-generate_image": {
+    icon: ImageIcon,
+    title: (part) => {
+      const isPending =
+        part.state !== "output-available" && part.state !== "output-error"
+      if (isPending) return "Generating image..."
+      const hasError = part.state === "output-error" || part.output?.error
+      return hasError ? "Image generation failed" : "Generated image"
+    },
+    subtitle: (part) => {
+      const prompt = (part.input?.prompt as string) || ""
+      return prompt.length > 50 ? prompt.slice(0, 47) + "..." : prompt
+    },
+    variant: "simple",
+  },
+
+  "tool-edit_image": {
+    icon: ImageIcon,
+    title: (part) => {
+      const isPending =
+        part.state !== "output-available" && part.state !== "output-error"
+      if (isPending) return "Editing image..."
+      const hasError = part.state === "output-error" || part.output?.error
+      return hasError ? "Image edit failed" : "Edited image"
+    },
+    subtitle: (part) => {
+      const prompt = (part.input?.prompt as string) || ""
+      return prompt.length > 50 ? prompt.slice(0, 47) + "..." : prompt
+    },
     variant: "simple",
   },
 }

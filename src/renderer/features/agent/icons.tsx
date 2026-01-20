@@ -390,3 +390,25 @@ export function TableIcon(props: IconProps) {
     </svg>
   )
 }
+
+// Image/Photo icon for AI image generation
+export function ImageIcon(props: IconProps) {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      width="16"
+      height="16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      {...props}
+    >
+      <rect x="2" y="2" width="12" height="12" rx="1.5" />
+      <circle cx="5.5" cy="5.5" r="1.5" />
+      <path d="M14 10L11 7L4 14" />
+    </svg>
+  )
+}
