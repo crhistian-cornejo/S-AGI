@@ -378,11 +378,13 @@ export function MainLayout() {
                 {/* 
                  * Excel Tab - Conditional rendering to avoid Univer DI conflicts.
                  * Only one Univer instance exists at a time.
+                 * Key prop forces complete remount when artifact changes to avoid stale data issues.
                  */}
                 {activeTab === 'excel' && (
                     <div className="flex-1 flex flex-col pt-10 animate-in fade-in zoom-in-95 duration-300">
                         <Suspense fallback={<PanelLoadingFallback />}>
                             <UniverSpreadsheet
+                                key={selectedArtifact?.type === 'spreadsheet' ? selectedArtifact.id : 'new'}
                                 artifactId={selectedArtifact?.type === 'spreadsheet' ? selectedArtifact.id : undefined}
                                 data={selectedArtifact?.type === 'spreadsheet' ? selectedArtifact.univer_data : undefined}
                             />
@@ -393,11 +395,13 @@ export function MainLayout() {
                 {/* 
                  * Doc Tab - Conditional rendering to avoid Univer DI conflicts.
                  * Only one Univer instance exists at a time.
+                 * Key prop forces complete remount when artifact changes to avoid stale data issues.
                  */}
                 {activeTab === 'doc' && (
                     <div className="flex-1 flex flex-col pt-10 animate-in fade-in zoom-in-95 duration-300 z-0 relative">
                         <Suspense fallback={<PanelLoadingFallback />}>
                             <UniverDocument
+                                key={selectedArtifact?.type === 'document' ? selectedArtifact.id : 'new'}
                                 artifactId={selectedArtifact?.type === 'document' ? selectedArtifact.id : undefined}
                                 data={selectedArtifact?.type === 'document' ? selectedArtifact.univer_data : undefined}
                             />

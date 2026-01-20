@@ -146,9 +146,9 @@ You can see and analyze images uploaded by users. When a user uploads an image:
 
 **Tables & Data in Images:**
 - If you see a table, data grid, or structured information in an image, AUTOMATICALLY extract all visible data
-- Create a spreadsheet using create_spreadsheet with the extracted data
-- Apply appropriate formatting (bold headers, alignment, borders)
-- Navigate to the Excel tab so the user can see the result
+- Use ONLY create_spreadsheet with ALL the data in one call - do NOT use format_cells, set_column_width, or other formatting tools
+- The spreadsheet will be auto-formatted with professional styling
+- Keep it simple: one tool call is better than many
 
 **Charts & Graphs:**
 - Describe the chart type, data trends, and key insights
@@ -583,6 +583,69 @@ function createPlanModeTools(
         executors.set(name, (args) => executeTool(name, args, chatId, userId))
     }
 
+    return { tools, executors }
+}
+
+/**
+ * MINIMAL TOOLS MODE: When processing images (tables/data extraction)
+ * Only expose create_spreadsheet and create_document to prevent 19+ tool call chains.
+ * The model will put all data in a single create_spreadsheet call instead of
+ * calling format_cells, set_column_width, freeze_panes, etc. separately.
+ */
+const MINIMAL_SPREADSHEET_TOOLS = ['create_spreadsheet'] as const
+const MINIMAL_DOCUMENT_TOOLS = ['create_document'] as const
+
+function createMinimalFunctionTools(
+    chatId: string,
+    userId: string,
+    context?: ToolContext
+): { tools: FunctionToolParam[]; executors: Map<string, (args: unknown) => Promise<unknown>> } {
+    const executors = new Map<string, (args: unknown) => Promise<unknown>>()
+    const tools: FunctionToolParam[] = []
+
+    // Only add create_spreadsheet
+    for (const name of MINIMAL_SPREADSHEET_TOOLS) {
+        const tool = SPREADSHEET_TOOLS[name]
+        if (tool) {
+            tools.push({
+                type: 'function',
+                name,
+                description: tool.description,
+                parameters: zodToJsonSchema(tool.inputSchema) as FunctionToolParam['parameters'],
+                strict: true
+            })
+            executors.set(name, (args) => executeTool(name, args, chatId, userId))
+        }
+    }
+
+    // Only add create_document
+    for (const name of MINIMAL_DOCUMENT_TOOLS) {
+        const tool = DOCUMENT_TOOLS[name]
+        if (tool) {
+            tools.push({
+                type: 'function',
+                name,
+                description: tool.description,
+                parameters: zodToJsonSchema(tool.inputSchema) as FunctionToolParam['parameters'],
+                strict: true
+            })
+            executors.set(name, (args) => executeTool(name, args, chatId, userId))
+        }
+    }
+
+    // Still include image tools (generate/edit) since they may be relevant
+    for (const [name, tool] of Object.entries(IMAGE_TOOLS)) {
+        tools.push({
+            type: 'function',
+            name,
+            description: tool.description,
+            parameters: zodToJsonSchema(tool.inputSchema) as FunctionToolParam['parameters'],
+            strict: true
+        })
+        executors.set(name, (args) => executeTool(name, args, chatId, userId, context))
+    }
+
+    log.info(`[AI] Created MINIMAL function tools for image mode: ${tools.map(t => t.name).join(', ')}`)
     return { tools, executors }
 }
 
@@ -1201,9 +1264,17 @@ export const aiRouter = router({
                     }
 
                     // Build tools based on mode
+                    // OPTIMIZATION: When images are present, use minimal tools to avoid 19+ tool call chains
+                    // This forces the model to use create_spreadsheet with ALL data in one call
                     const { tools: functionTools, executors } = input.mode === 'plan'
                         ? createPlanModeTools(input.chatId, ctx.userId)
-                        : createFunctionTools(input.chatId, ctx.userId, toolContext)
+                        : hasImages
+                            ? createMinimalFunctionTools(input.chatId, ctx.userId, toolContext)
+                            : createFunctionTools(input.chatId, ctx.userId, toolContext)
+                    
+                    if (hasImages) {
+                        log.info(`[AI] Using MINIMAL tools mode for image input - only create_spreadsheet/create_document available`)
+                    }
                     
                     // Select system prompt based on mode
                     // Add current date/time context for accurate temporal awareness

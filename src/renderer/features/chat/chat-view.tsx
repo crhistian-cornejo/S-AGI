@@ -19,6 +19,7 @@ import {
     streamingErrorAtom,
     selectedArtifactAtom,
     artifactPanelOpenAtom,
+    activeTabAtom,
     streamingReasoningAtom,
     isReasoningAtom,
     reasoningEffortAtom,
@@ -82,6 +83,7 @@ export function ChatView() {
     // Artifact state
     const setSelectedArtifact = useSetAtom(selectedArtifactAtom)
     const setArtifactPanelOpen = useSetAtom(artifactPanelOpenAtom)
+    const setActiveTab = useSetAtom(activeTabAtom)
 
     // Image edit dialog state
     const [imageEditDialog, setImageEditDialog] = useAtom(imageEditDialogAtom)
@@ -590,28 +592,33 @@ export function ChatView() {
                                     : t
                             ))
 
-                            // Auto-open artifact panel when spreadsheet/document is created
-                            const isArtifactCreation = event.toolName === 'create_spreadsheet' || event.toolName === 'create_document'
+                            // Auto-navigate to EXCEL/DOCS tab when spreadsheet/document is created
+                            // This provides a "computer use" experience - AI controls the UI directly
+                            const isSpreadsheetCreation = event.toolName === 'create_spreadsheet'
+                            const isDocumentCreation = event.toolName === 'create_document'
+                            const isArtifactCreation = isSpreadsheetCreation || isDocumentCreation
+                            
                             if (isArtifactCreation && event.success && event.result?.artifactId) {
-                                // Invalidate artifacts query to show new artifact
+                                // Invalidate artifacts query
                                 utils.artifacts.list.invalidate({ chatId: chatIdForStream })
                                 
-                                // Auto-open the newly created artifact
+                                // Navigate directly to the appropriate tab (no panel, no lag)
                                 try {
                                     const artifact = await trpcClient.artifacts.get.query({ id: event.result.artifactId })
-                                    console.log('[ChatView] Auto-opening artifact:', {
+                                    console.log('[ChatView] Navigating to artifact tab:', {
                                         id: artifact?.id,
                                         name: artifact?.name,
-                                        hasUniverData: !!artifact?.univer_data,
-                                        univerDataKeys: artifact?.univer_data ? Object.keys(artifact.univer_data) : [],
-                                        cellDataRows: artifact?.univer_data?.sheets?.sheet1?.cellData ? Object.keys(artifact.univer_data.sheets.sheet1.cellData).length : 0
+                                        type: artifact?.type,
+                                        hasUniverData: !!artifact?.univer_data
                                     })
                                     if (artifact) {
                                         setSelectedArtifact(artifact as any)
-                                        setArtifactPanelOpen(true)
+                                        // Go directly to EXCEL or DOCS tab - no panel!
+                                        setActiveTab(isSpreadsheetCreation ? 'excel' : 'doc')
+                                        setArtifactPanelOpen(false) // Ensure panel is closed
                                     }
                                 } catch (err) {
-                                    console.warn('[ChatView] Failed to auto-open artifact:', err)
+                                    console.warn('[ChatView] Failed to navigate to artifact:', err)
                                 }
                             }
                             break

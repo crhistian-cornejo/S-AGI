@@ -109,24 +109,44 @@ export interface UniverSheetsInstance {
 
 let sheetsInstance: UniverSheetsInstance | null = null
 let instanceVersion = 0
+let currentContainer: HTMLElement | null = null
+let currentWorkbookId: string | null = null
 
 /**
  * Initialize the Sheets Univer instance
  */
 export async function initSheetsUniver(container: HTMLElement): Promise<UniverSheetsInstance> {
+    // If we already have an instance with the same container, reuse it
+    // This handles StrictMode double-mounting and rapid re-renders
+    if (sheetsInstance && currentContainer === container) {
+        console.log('[UniverSheets] Reusing existing instance for same container (version:', sheetsInstance.version, ')')
+        return sheetsInstance
+    }
+    
     // Increment version - any pending dispose with old version will be cancelled
     instanceVersion++
     const currentVersion = instanceVersion
     
-    // Dispose any existing instance synchronously (safe here because we're not in React render)
-    if (sheetsInstance) {
-        console.log('[UniverSheets] Disposing existing instance before creating new one')
-        try {
-            sheetsInstance.univer.dispose()
-        } catch (e) {
-            console.warn('[UniverSheets] Error disposing old instance:', e)
-        }
-        sheetsInstance = null
+    // Capture old instance for deferred disposal
+    const oldInstance = sheetsInstance
+    sheetsInstance = null
+    currentContainer = null
+    
+    // Defer dispose to next tick to avoid "synchronously unmount during render" error
+    // This happens when React unmounts one component and mounts another in the same render cycle
+    if (oldInstance) {
+        console.log('[UniverSheets] Scheduling deferred dispose of old instance before creating new one')
+        await new Promise<void>((resolve) => {
+            setTimeout(() => {
+                try {
+                    console.log('[UniverSheets] Executing deferred dispose')
+                    oldInstance.univer.dispose()
+                } catch (e) {
+                    console.warn('[UniverSheets] Error disposing old instance:', e)
+                }
+                resolve()
+            }, 0)
+        })
     }
     
     // Clear container content
@@ -244,6 +264,7 @@ export async function initSheetsUniver(container: HTMLElement): Promise<UniverSh
     }
     
     sheetsInstance = { univer, api, version: currentVersion }
+    currentContainer = container
     console.log('[UniverSheets] Instance created successfully (version:', currentVersion, ')')
     
     return sheetsInstance
@@ -268,6 +289,8 @@ export function disposeSheetsUniver(version?: number): void {
             console.warn('[UniverSheets] Error during dispose:', e)
         }
         sheetsInstance = null
+        currentContainer = null
+        currentWorkbookId = null
     }
 }
 
@@ -281,9 +304,20 @@ export function getSheetsInstanceVersion(): number {
 /**
  * Create a new workbook with optional data
  * Uses univer.createUnit() as per official examples
+ * Returns existing workbook if it matches the requested ID (avoids duplicates)
  */
 export function createWorkbook(univer: Univer, api: FUniver, data?: any, id?: string): any {
     const workbookId = data?.id || id || `workbook-${Date.now()}`
+    
+    // If we already have a workbook with this ID, reuse it
+    // This prevents duplicate workbooks during StrictMode double-mounting
+    if (currentWorkbookId === workbookId) {
+        const existingWorkbook = api.getActiveWorkbook()
+        if (existingWorkbook) {
+            console.log('[UniverSheets] Reusing existing workbook with same ID:', workbookId)
+            return existingWorkbook
+        }
+    }
     
     console.log('[UniverSheets] createWorkbook:', {
         hasData: !!data,
@@ -315,6 +349,9 @@ export function createWorkbook(univer: Univer, api: FUniver, data?: any, id?: st
     
     // Get the workbook via API
     const workbook = api.getActiveWorkbook()
+    
+    // Track workbook ID to prevent duplicates
+    currentWorkbookId = workbookId
 
     console.log('[UniverSheets] Workbook created with ID:', workbook?.getId?.() || workbookId)
     

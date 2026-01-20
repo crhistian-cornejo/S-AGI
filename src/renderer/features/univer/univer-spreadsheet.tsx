@@ -128,6 +128,16 @@ export const UniverSpreadsheet = React.forwardRef<UniverSpreadsheetRef, UniverSp
                 setIsLoading(true)
                 setError(null)
 
+                // Wait for next frame to ensure container is fully in DOM
+                // This prevents race conditions with React's render cycle
+                await new Promise(resolve => requestAnimationFrame(resolve))
+                
+                // Check if still mounted after waiting
+                if (!mounted || !containerRef.current) {
+                    console.log('[UniverSpreadsheet] Aborted init - component unmounted during wait')
+                    return
+                }
+
                 console.log('[UniverSpreadsheet] Initializing sheets instance')
 
                 // Get the sheets Univer instance
