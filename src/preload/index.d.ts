@@ -35,6 +35,8 @@ export interface DesktopApi {
   minimize: () => Promise<void>
   maximize: () => Promise<void>
   close: () => Promise<void>
+  isMaximized: () => Promise<boolean>
+  onMaximizeChange: (callback: (maximized: boolean) => void) => () => void
   getVersion: () => Promise<string>
   setSession: (session: { access_token: string; refresh_token: string } | null) => Promise<{ success: boolean; error?: string }>
   getTheme: () => Promise<'system' | 'light' | 'dark'>

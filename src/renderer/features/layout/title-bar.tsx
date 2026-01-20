@@ -1,3 +1,4 @@
+import { useState, useEffect } from 'react'
 import { useAtom, useAtomValue, useSetAtom } from 'jotai'
 import {
     artifactPanelOpenAtom,
@@ -31,7 +32,8 @@ import {
     IconLayoutSidebarRightCollapse,
     IconMinus,
     IconSquare,
-    IconX
+    IconX,
+    IconArrowsDiagonalMinimize2
 } from '@tabler/icons-react'
 import { Button } from '@/components/ui/button'
 import { Logo } from '@/components/ui/logo'
@@ -69,6 +71,14 @@ export function TitleBar({ className, noTrafficLightSpace }: TitleBarProps) {
     const handleMaximize = () => window.desktopApi?.maximize()
     const handleClose = () => window.desktopApi?.close()
 
+    const [isMaximized, setIsMaximized] = useState(false)
+    useEffect(() => {
+        const api = window.desktopApi
+        if (!api?.isMaximized || !api?.onMaximizeChange) return
+        api.isMaximized().then(setIsMaximized)
+        return api.onMaximizeChange(setIsMaximized)
+    }, [])
+
     // Get current provider and connection status
     const provider = useAtomValue(currentProviderAtom)
     const sidebarOpen = useAtomValue(sidebarOpenAtom)
@@ -98,6 +108,7 @@ export function TitleBar({ className, noTrafficLightSpace }: TitleBarProps) {
             className={cn(
                 'h-10 flex items-center bg-transparent drag-region shrink-0 px-2 transition-all duration-300',
                 showTrafficLights && !noTrafficLightSpace && 'pl-20',
+                !showTrafficLights && 'pr-0',
                 className
             )}
         >
@@ -163,7 +174,7 @@ export function TitleBar({ className, noTrafficLightSpace }: TitleBarProps) {
             {isDesktop && <div className="flex-1 h-full" />}
 
             {/* Right content - Logo and text on macOS, controls on others */}
-            <div className="flex items-center no-drag pr-1">
+            <div className="flex items-center no-drag pr-0">
                 {/* Logo and text - only on macOS */}
                 {showTrafficLights && (
                     <div className="flex items-center gap-2 mr-2">
@@ -208,7 +219,11 @@ export function TitleBar({ className, noTrafficLightSpace }: TitleBarProps) {
                             className="h-10 w-11 rounded-none hover:bg-accent"
                             onClick={handleMaximize}
                         >
-                            <IconSquare size={14} />
+                            {isMaximized ? (
+                                <IconArrowsDiagonalMinimize2 size={14} />
+                            ) : (
+                                <IconSquare size={14} />
+                            )}
                         </Button>
                         <Button
                             variant="ghost"

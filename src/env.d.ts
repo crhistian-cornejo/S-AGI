@@ -24,6 +24,8 @@ interface DesktopApi {
     minimize: () => Promise<void>
     maximize: () => Promise<void>
     close: () => Promise<void>
+    isMaximized: () => Promise<boolean>
+    onMaximizeChange: (callback: (maximized: boolean) => void) => () => void
     getVersion: () => Promise<string>
     getTheme: () => Promise<'system' | 'light' | 'dark'>
     setTheme: (theme: 'system' | 'light' | 'dark') => Promise<boolean>

@@ -10,6 +10,12 @@ const desktopApi = {
     minimize: () => ipcRenderer.invoke('window:minimize'),
     maximize: () => ipcRenderer.invoke('window:maximize'),
     close: () => ipcRenderer.invoke('window:close'),
+    isMaximized: () => ipcRenderer.invoke('window:isMaximized') as Promise<boolean>,
+    onMaximizeChange: (callback: (maximized: boolean) => void) => {
+        const handler = (_: unknown, maximized: boolean) => callback(maximized)
+        ipcRenderer.on('window:maximize-changed', handler)
+        return () => ipcRenderer.removeListener('window:maximize-changed', handler)
+    },
 
     // App info
     getVersion: () => ipcRenderer.invoke('app:getVersion'),

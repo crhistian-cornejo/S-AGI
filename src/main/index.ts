@@ -496,6 +496,10 @@ function createWindow(): void {
         mainWindow?.show()
     })
 
+    // Notify renderer when maximized/unmaximized (for title-bar icon)
+    mainWindow.on('maximize', () => mainWindow?.webContents.send('window:maximize-changed', true))
+    mainWindow.on('unmaximize', () => mainWindow?.webContents.send('window:maximize-changed', false))
+
     // DevTools: use View > Toggle DevTools (Ctrl+Shift+I). No auto-open to avoid
     // Chromium console noise (language-mismatch, Autofill.enable, etc.).
 }
@@ -731,6 +735,8 @@ ipcMain.handle('window:maximize', () => {
         mainWindow?.maximize()
     }
 })
+
+ipcMain.handle('window:isMaximized', () => mainWindow?.isMaximized() ?? false)
 
 ipcMain.handle('window:close', () => {
     mainWindow?.close()
