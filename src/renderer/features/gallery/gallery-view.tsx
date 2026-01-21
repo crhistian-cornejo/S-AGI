@@ -27,12 +27,13 @@ export const Card = React.memo(
   }) => {
     const [imgError, setImgError] = useState(false)
     return (
-    <div
+    <button
+      type="button"
       onMouseEnter={() => setHovered(index)}
       onMouseLeave={() => setHovered(null)}
       onClick={onClick}
       className={cn(
-        "rounded-2xl relative bg-gray-100 dark:bg-neutral-900 overflow-hidden h-full w-full transition-all duration-300 ease-out cursor-zoom-in border border-border/50 shadow-sm",
+        "rounded-2xl relative bg-gray-100 dark:bg-neutral-900 overflow-hidden h-full w-full transition-all duration-300 ease-out cursor-zoom-in border border-border/50 shadow-sm p-0 text-left",
         hovered !== null && hovered !== index && "blur-[2px] scale-[0.98] opacity-50"
       )}
     >
@@ -75,7 +76,7 @@ export const Card = React.memo(
             </button>
         </div>
       </div>
-    </div>
+    </button>
     )
   }
 );
@@ -84,7 +85,13 @@ Card.displayName = "Card";
 
 // --- Main Gallery View ---
 export function GalleryView() {
-    const { data: images, isLoading, refetch, isFetching } = trpc.gallery.list.useQuery()
+    const { data: images, isLoading, refetch, isFetching } = trpc.gallery.list.useQuery(undefined, {
+        staleTime: 1000 * 60 * 5,
+        gcTime: 1000 * 60 * 60,
+        refetchOnMount: false,
+        refetchOnWindowFocus: false,
+        refetchOnReconnect: true
+    })
     const [hovered, setHovered] = useState<number | null>(null);
     const [selectedImage, setSelectedImage] = useState<string | null>(null)
     const [sidebarOpen, setSidebarOpen] = useAtom(sidebarOpenAtom)
@@ -99,7 +106,7 @@ export function GalleryView() {
     React.useEffect(() => {
         console.log('[Gallery] Platform detected:', platform, 'isWindows:', isWindowsRuntime)
         console.log('[Gallery] desktopApi available:', !!(window as any).desktopApi)
-    }, [])
+    }, [isWindowsRuntime, platform])
 
     if (isLoading) {
         return (

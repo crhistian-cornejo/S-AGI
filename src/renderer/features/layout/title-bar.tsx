@@ -8,6 +8,7 @@ import {
     currentProviderAtom,
     sidebarOpenAtom
 } from '@/lib/atoms'
+import { shortcutsDialogOpenAtom } from '@/lib/atoms'
 import { trpc } from '@/lib/trpc'
 import {
     DropdownMenu,
@@ -33,7 +34,8 @@ import {
     IconMinus,
     IconSquare,
     IconX,
-    IconArrowsDiagonalMinimize2
+    IconArrowsDiagonalMinimize2,
+    IconKeyboard
 } from '@tabler/icons-react'
 import { Button } from '@/components/ui/button'
 import { Logo } from '@/components/ui/logo'
@@ -51,6 +53,7 @@ export function TitleBar({ className, noTrafficLightSpace }: TitleBarProps) {
     const [artifactPanelOpen, setArtifactPanelOpen] = useAtom(artifactPanelOpenAtom)
     const [activeTab, setActiveTab] = useAtom(activeTabAtom)
     const setSettingsOpen = useSetAtom(settingsModalOpenAtom)
+    const setShortcutsOpen = useSetAtom(shortcutsDialogOpenAtom)
     const selectedArtifact = useAtomValue(selectedArtifactAtom)
     const isDesktop = isElectron()
     const showTrafficLights = isMacOS() && isDesktop
@@ -202,12 +205,26 @@ export function TitleBar({ className, noTrafficLightSpace }: TitleBarProps) {
                     </Tooltip>
                 )}
 
+                <Tooltip>
+                    <TooltipTrigger asChild>
+                        <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8 mr-1"
+                            onClick={() => setShortcutsOpen(true)}
+                            aria-label="Shortcuts"
+                        >
+                            <IconKeyboard size={16} />
+                        </Button>
+                    </TooltipTrigger>
+                    <TooltipContent side="bottom">Shortcuts</TooltipContent>
+                </Tooltip>
+
 
                 {isElectron() && !isMacOS() && (
                     <div className="flex items-center">
                         <Button
                             variant="ghost"
-                            size="icon"
                             className="h-10 w-11 rounded-none hover:bg-accent"
                             onClick={handleMinimize}
                         >

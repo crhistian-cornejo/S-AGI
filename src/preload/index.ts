@@ -107,7 +107,14 @@ const desktopApi = {
 
     // Quick Prompt
     quickPrompt: {
-        sendMessage: (message: string) => ipcRenderer.invoke('quick-prompt:send', message)
+        sendMessage: (message: string) => ipcRenderer.invoke('quick-prompt:send', message),
+        onCreateChat: (callback: (message: string) => void) => {
+            const handler = (_: any, message: string) => callback(message)
+            ipcRenderer.on('quick-prompt:create-chat', handler)
+            return () => {
+                ipcRenderer.removeListener('quick-prompt:create-chat', handler)
+            }
+        }
     },
 
     // Artifact live updates listener (for real-time sync when AI modifies artifacts)

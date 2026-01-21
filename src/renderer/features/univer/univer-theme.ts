@@ -294,5 +294,5 @@ export function createDarkTheme(): typeof defaultTheme {
  */
 export function isDarkModeActive(): boolean {
     if (typeof document === 'undefined') return currentIsDark
-    return document.documentElement.classList.contains('dark')
+    return document.documentElement.classList.contains('univer-dark') || document.documentElement.classList.contains('dark')
 }

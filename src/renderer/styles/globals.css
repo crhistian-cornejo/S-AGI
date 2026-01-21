@@ -200,7 +200,8 @@
 }
 
 /* Dark mode - Univer CSS variable overrides */
-.dark {
+.dark,
+.univer-dark {
     --univer-color-primary: hsl(var(--primary));
     --univer-color-primary-hover: hsl(var(--primary) / 0.9);
     --univer-color-primary-active: hsl(var(--primary) / 0.8);
@@ -255,7 +256,9 @@
 
 /* Ensure all icons in toolbar are visible in dark mode */
 .dark .univer-toolbar svg,
-.dark [class*="univer-toolbar"] svg {
+.dark [class*="univer-toolbar"] svg,
+.univer-dark .univer-toolbar svg,
+.univer-dark [class*="univer-toolbar"] svg {
     color: hsl(var(--foreground)) !important;
     fill: hsl(var(--foreground)) !important;
     stroke: hsl(var(--foreground)) !important;

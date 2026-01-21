@@ -1,5 +1,6 @@
 import { memo, useEffect, useRef, useState } from 'react'
-import { IconCheck, IconCopy, IconLoader2, IconPlayerPlay, IconPlayerStop, IconExternalLink, IconWorld, IconFile } from '@tabler/icons-react'
+import { IconCheck, IconCopy, IconLoader2, IconPlayerPlay, IconPlayerStop, IconExternalLink, IconWorld, IconFile, IconAlertCircle } from '@tabler/icons-react'
+import { Skeleton } from '@/components/ui/skeleton'
 import { useAtomValue } from 'jotai'
 import { cn } from '@/lib/utils'
 import { trpc } from '@/lib/trpc'
@@ -403,11 +404,31 @@ interface MessageListProps {
         | { type: 'url_citation'; url: string; title?: string; startIndex: number; endIndex: number }
         | { type: 'file_citation'; fileId: string; filename: string; index: number }
     >
+    /** Error message from streaming */
+    streamingError?: string | null
 }
 
 // ============================================================================
 // Components
 // ============================================================================
+
+/** Error notification component - shows error messages in the chat */
+const ErrorNotification = memo(function ErrorNotification({ error }: { error: string }) {
+    return (
+        <div className="flex items-start gap-4 animate-in fade-in slide-in-from-bottom-2 duration-300">
+            <div className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0 bg-red-500/10">
+                <IconAlertCircle size={18} className="text-red-500" />
+            </div>
+            <div className="flex-1 min-w-0">
+                <div className="prose-container">
+                    <div className="text-sm text-foreground">
+                        {error}
+                    </div>
+                </div>
+            </div>
+        </div>
+    )
+})
 
 /** Memoized assistant avatar to prevent unnecessary re-renders */
 const AssistantAvatar = memo(function AssistantAvatar() {
@@ -419,10 +440,10 @@ const AssistantAvatar = memo(function AssistantAvatar() {
 })
 
 /** Main message list component - memoized for performance */
-export const MessageList = memo(function MessageList({ 
-    messages, 
-    isLoading, 
-    streamingText, 
+export const MessageList = memo(function MessageList({
+    messages,
+    isLoading,
+    streamingText,
     streamingToolCalls,
     streamingReasoning,
     lastReasoning,
@@ -430,7 +451,8 @@ export const MessageList = memo(function MessageList({
     onViewArtifact,
     streamingWebSearches,
     streamingFileSearches,
-    streamingAnnotations
+    streamingAnnotations,
+    streamingError
 }: MessageListProps) {
     if (messages.length === 0 && !isLoading && !lastReasoning) {
         return (
@@ -518,19 +540,20 @@ export const MessageList = memo(function MessageList({
                 </div>
             )}
 
-            {/* Initial Loading / Thinking State - shows while waiting for first response chunk */}
+            {/* Error notification - shows when there's a streaming error */}
+            {streamingError && (
+                <ErrorNotification error={streamingError} />
+            )}
+
+            {/* Initial Loading State - shows skeleton while waiting for first response chunk */}
             {isLoading && !streamingText && !streamingReasoning && (!streamingToolCalls || streamingToolCalls.length === 0) && (!streamingWebSearches || streamingWebSearches.length === 0) && (!streamingFileSearches || streamingFileSearches.length === 0) && (
                 <div className="flex gap-4 animate-in fade-in duration-300">
                     <AssistantAvatar />
-                    <div className="flex-1 pt-1">
-                        <div className="flex items-center gap-2 text-muted-foreground">
-                            <div className="flex gap-1">
-                                <span className="w-1.5 h-1.5 rounded-full bg-current animate-bounce" style={{ animationDelay: '0ms' }} />
-                                <span className="w-1.5 h-1.5 rounded-full bg-current animate-bounce" style={{ animationDelay: '150ms' }} />
-                                <span className="w-1.5 h-1.5 rounded-full bg-current animate-bounce" style={{ animationDelay: '300ms' }} />
-                            </div>
-                            <span className="text-sm">Thinking...</span>
-                        </div>
+                    <div className="flex-1 pt-1 space-y-3">
+                        {/* Skeleton lines mimicking text response */}
+                        <Skeleton className="h-4 w-[85%]" />
+                        <Skeleton className="h-4 w-[70%]" />
+                        <Skeleton className="h-4 w-[60%]" />
                     </div>
                 </div>
             )}

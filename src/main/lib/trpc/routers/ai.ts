@@ -33,7 +33,8 @@ const DEFAULT_REQUEST_TIMEOUT_MS = 120_000
 const FLEX_REQUEST_TIMEOUT_MS = 900_000
 const RETRY_DELAYS_MS = [500, 1000, 2000]
 
-const ZAI_BASE_URL = 'https://api.z.ai/api/coding/paas/v4'
+const ZAI_GENERAL_BASE_URL = 'https://api.z.ai/api/paas/v4/'
+const ZAI_CODING_BASE_URL = 'https://api.z.ai/api/coding/paas/v4/'
 const ZAI_SOURCE_HEADER = 'S-AGI-Agent'
 
 const AUTO_TITLE_MAX_LENGTH = 25
@@ -55,6 +56,22 @@ function pickModeAuto(text: string, _hasImages?: boolean): 'instant' | 'thinking
     return (long || complex) ? 'thinking' : 'instant'
 }
 
+function isLikelyCodingPrompt(text: string): boolean {
+    const t = text.toLowerCase()
+    if (t.includes('```')) return true
+    if (/[\\/][\w.\-]+\.([cm]?[jt]sx?|py|go|rs|java|kt|cs|php|rb|sql|json|yml|yaml|toml|md)\b/i.test(text)) return true
+    if (/\b([cm]?[jt]sx?|typescript|javascript|python|golang|rust|java|kotlin|c#|sql|react|electron|node|bun|npm|vite|webpack)\b/i.test(t)) return true
+    if (/\b(stack trace|exception|traceback|segfault|compile|build|tsc|lint|typecheck|bug|fix|refactor)\b/i.test(t)) return true
+    if (/\b(git|commit|diff|pr|pull request|branch|merge)\b/i.test(t)) return true
+    return false
+}
+
+function isZaiBillingError(error: unknown): boolean {
+    const status = (error as any)?.status
+    const message = (error as any)?.message || ''
+    return status === 429 && /insufficient\s+balance|no\s+resource\s+package|quota\s+exceeded/i.test(message)
+}
+
 function isRetryableError(error: unknown): boolean {
     const status = (error as any)?.status
     const code = (error as any)?.code
@@ -62,8 +79,7 @@ function isRetryableError(error: unknown): boolean {
     
     // Z.AI billing errors should NOT be retried (they won't resolve themselves)
     // Common patterns: "Insufficient balance", "no resource package", "quota exceeded"
-    const isZaiBillingError = status === 429 && /insufficient\s+balance|no\s+resource\s+package|quota\s+exceeded/i.test(message)
-    if (isZaiBillingError) {
+    if (isZaiBillingError(error)) {
         log.warn('[AI] Z.AI billing error detected - will not retry:', message)
         return false
     }
@@ -1069,7 +1085,7 @@ export const aiRouter = router({
                         : null
                     if (chosenMode) log.info(`[AI] ResponseMode: ${input.responseMode} -> chosen: ${chosenMode}`)
                     
-                    log.info(`[AI] Starting Responses API agent loop with ${modelId} (provider: ${provider})`)
+                    log.info(`[AI] Starting ${provider === 'zai' ? 'Chat Completions' : 'Responses API'} agent loop with ${modelId} (provider: ${provider})`)
                     log.info(`[AI] Reasoning config:`, input.reasoning)
                     if (hasImages) {
                         log.info(`[AI] Including ${input.images?.length} image(s)`)
@@ -1078,6 +1094,7 @@ export const aiRouter = router({
                     // Create OpenAI client based on provider
                     let client: OpenAI
                     let chatGPTAccountId: string | null = null
+                    let zaiBaseURL: string | null = null
                     
                     if (provider === 'chatgpt-plus') {
                         // ChatGPT Plus/Pro - use OAuth token with custom fetch
@@ -1227,20 +1244,22 @@ export const aiRouter = router({
                         })
                     */
                     } else if (provider === 'zai') {
-                        // Z.AI Coding Plan - OpenAI-compatible API with custom base URL
                         if (!input.apiKey) {
                             throw new Error('Z.AI API key is required')
                         }
 
+                        const wantsCodingEndpoint = isLikelyCodingPrompt(input.prompt)
+                        zaiBaseURL = wantsCodingEndpoint ? ZAI_CODING_BASE_URL : ZAI_GENERAL_BASE_URL
+
                         client = new OpenAI({
                             apiKey: input.apiKey,
-                            baseURL: ZAI_BASE_URL,
+                            baseURL: zaiBaseURL,
                             defaultHeaders: {
-                                'X-ZAI-Source': ZAI_SOURCE_HEADER
+                                'X-Source': ZAI_SOURCE_HEADER
                             }
                         })
 
-                        log.info('[AI] Using Z.AI provider with Coding Plan endpoint')
+                        log.info(`[AI] Using Z.AI provider endpoint: ${wantsCodingEndpoint ? 'coding' : 'general'}`)
                     } else {
                         // Standard OpenAI API - use API key
                         if (!input.apiKey) {
@@ -1259,8 +1278,8 @@ export const aiRouter = router({
                     }
                     // For Z.AI, add custom base URL and headers
                     if (provider === 'zai') {
-                        toolContext.baseURL = ZAI_BASE_URL
-                        toolContext.headers = { 'X-ZAI-Source': ZAI_SOURCE_HEADER }
+                        toolContext.baseURL = zaiBaseURL || ZAI_GENERAL_BASE_URL
+                        toolContext.headers = { 'X-Source': ZAI_SOURCE_HEADER }
                     }
 
                     // Build tools based on mode
@@ -1598,11 +1617,13 @@ CRITICAL INSTRUCTIONS FOR DOCUMENT QUERIES:
                         : null
 
                     // Determine reasoning config (ResponseMode override para GPT-5.2)
-                    const reasoningConfig: ReasoningConfig | undefined = chosenMode === 'instant'
-                        ? { effort: 'none', summary: 'auto' }
-                        : chosenMode === 'thinking'
-                            ? { effort: 'high', summary: 'auto' }
-                            : (modelDef?.supportsReasoning ? input.reasoning : undefined)
+                    const reasoningConfig: ReasoningConfig | undefined = provider === 'zai'
+                        ? undefined
+                        : chosenMode === 'instant'
+                            ? { effort: 'none', summary: 'auto' }
+                            : chosenMode === 'thinking'
+                                ? { effort: 'high', summary: 'auto' }
+                                : (modelDef?.supportsReasoning ? input.reasoning : undefined)
                     
                     log.info(`[AI] Final reasoning config:`, reasoningConfig)
 
@@ -1643,24 +1664,89 @@ CRITICAL INSTRUCTIONS FOR DOCUMENT QUERIES:
                                 log.info(`[AI] ${provider} first message role: ${chatMessages[0]?.role}`)
                             }
 
-                            const stream = await withRetry(
-                                `${provider}.chat.completions.create`,
-                                abortController.signal,
-                                0,
-                                (signal) => client.chat.completions.create(
-                                    {
-                                        model: modelId,
-                                        messages: chatMessages || [],
-                                        tools: chatTools.length > 0 ? chatTools : undefined,
-                                        tool_choice: chatTools.length > 0 ? 'auto' : undefined,
-                                        stream: true
-                                    },
-                                    { signal, timeout: DEFAULT_REQUEST_TIMEOUT_MS }
-                                ) as any
+                            const zaiThinkingEnabled = provider === 'zai' && modelDef?.supportsReasoning && (
+                                input.mode === 'plan' ||
+                                input.reasoning?.effort === 'medium' ||
+                                input.reasoning?.effort === 'high'
                             )
+
+                            const params: any = {
+                                model: modelId,
+                                messages: chatMessages || [],
+                                tools: chatTools.length > 0 ? chatTools : undefined,
+                                tool_choice: chatTools.length > 0 ? 'auto' : undefined,
+                                stream: true
+                            }
+
+                            if (provider === 'zai') {
+                                params.thinking = zaiThinkingEnabled
+                                    ? { type: 'enabled', clear_thinking: false }
+                                    : { type: 'disabled' }
+                            }
+
+                            let stream: any
+                            try {
+                                stream = await withRetry(
+                                    `${provider}.chat.completions.create`,
+                                    abortController.signal,
+                                    0,
+                                    (signal) => client.chat.completions.create(
+                                        params,
+                                        { signal, timeout: DEFAULT_REQUEST_TIMEOUT_MS }
+                                    ) as any
+                                )
+                            } catch (err) {
+                                // Handle Z.AI billing/quota errors with graceful fallbacks
+                                if (provider === 'zai' && isZaiBillingError(err)) {
+                                    // 1) If using coding endpoint, fall back to general endpoint
+                                    if (zaiBaseURL === ZAI_CODING_BASE_URL) {
+                                        log.warn('[AI] Z.AI coding endpoint billing error - falling back to general endpoint')
+                                        zaiBaseURL = ZAI_GENERAL_BASE_URL
+                                        client = new OpenAI({
+                                            apiKey: input.apiKey!,
+                                            baseURL: zaiBaseURL,
+                                            defaultHeaders: { 'X-Source': ZAI_SOURCE_HEADER }
+                                        })
+                                        try {
+                                            stream = await withRetry(
+                                                `${provider}.chat.completions.create`,
+                                                abortController.signal,
+                                                0,
+                                                (signal) => client.chat.completions.create(
+                                                    params,
+                                                    { signal, timeout: DEFAULT_REQUEST_TIMEOUT_MS }
+                                                ) as any
+                                            )
+                                        } catch (retryErr) {
+                                            // If still a billing error, proceed to model fallback
+                                            if (!isZaiBillingError(retryErr)) throw retryErr
+                                        }
+                                    }
+                                    // 2) Fallback to free model GLM-4.7-Flash if not already using it
+                                    if (params.model !== 'GLM-4.7-Flash') {
+                                        log.warn('[AI] Z.AI billing/quota error - switching to free model GLM-4.7-Flash')
+                                        params.model = 'GLM-4.7-Flash'
+                                        stream = await withRetry(
+                                            `${provider}.chat.completions.create`,
+                                            abortController.signal,
+                                            0,
+                                            (signal) => client.chat.completions.create(
+                                                params,
+                                                { signal, timeout: DEFAULT_REQUEST_TIMEOUT_MS }
+                                            ) as any
+                                        )
+                                    } else {
+                                        // Already on free model; cannot recover
+                                        throw err
+                                    }
+                                } else {
+                                    throw err
+                                }
+                            }
  
                             const toolCallMap = new Map<string, { id: string; name: string; args: string }>()
                             let lastChunk: any = null
+                            let stepReasoning = ''
 
                             for await (const chunk of stream as any) {
                                 lastChunk = chunk
@@ -1675,6 +1761,7 @@ CRITICAL INSTRUCTIONS FOR DOCUMENT QUERIES:
                                 const reasoningDelta = (delta as any).reasoning || (delta as any).reasoning_summary || (delta as any).reasoning_content
                                 if (typeof reasoningDelta === 'string' && reasoningDelta.length > 0) {
                                     fullReasoningSummary += reasoningDelta
+                                    stepReasoning += reasoningDelta
                                     emit({ type: 'reasoning-summary-delta', delta: reasoningDelta, summaryIndex: 0 })
                                 }
 
@@ -1777,8 +1864,9 @@ CRITICAL INSTRUCTIONS FOR DOCUMENT QUERIES:
                             chatMessages?.push({
                                 role: 'assistant',
                                 content: null,
-                                tool_calls: toolCallPayload
-                            } as OpenAI.ChatCompletionMessageParam)
+                                tool_calls: toolCallPayload,
+                                ...(provider === 'zai' && stepReasoning ? { reasoning_content: stepReasoning } : {})
+                            } as any)
 
                             await Promise.all(toolCalls.map(async (toolCall) => {
                                 let parsedArgs: unknown = {}
@@ -2366,8 +2454,8 @@ CRITICAL INSTRUCTIONS FOR DOCUMENT QUERIES:
 
                     // Determine if using Z.AI
                     const provider = input.provider || 'openai'
-                    const baseURL = provider === 'zai' ? ZAI_BASE_URL : undefined
-                    const headers = provider === 'zai' ? { 'X-ZAI-Source': ZAI_SOURCE_HEADER } : undefined
+                    const baseURL = provider === 'zai' ? ZAI_GENERAL_BASE_URL : undefined
+                    const headers = provider === 'zai' ? { 'X-Source': ZAI_SOURCE_HEADER } : undefined
 
                     // Call direct image generation with dynamic size
                     const result = await generateImageDirect(

@@ -59,6 +59,7 @@ export interface DesktopApi {
   }
   quickPrompt: {
     sendMessage: (message: string) => Promise<{ success: boolean }>
+    onCreateChat: (callback: (message: string) => void) => () => void
   }
   onArtifactUpdate: (callback: (data: { artifactId: string; univerData: any; type: 'spreadsheet' | 'document' }) => void) => () => void
   // UI Navigation (agent-controlled)

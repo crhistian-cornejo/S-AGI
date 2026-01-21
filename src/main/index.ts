@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, nativeTheme, Tray, Menu, nativeImage, session, shell, globalShortcut } from 'electron'
+import { app, BrowserWindow, ipcMain, nativeTheme, Tray, Menu, nativeImage, session, shell } from 'electron'
 import { join } from 'path'
 import { existsSync } from 'fs'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
@@ -7,6 +7,7 @@ import { appRouter } from './lib/trpc'
 import { createContext } from './lib/trpc/trpc'
 import { supabase } from './lib/supabase/client'
 import { setMainWindow } from './lib/window-manager'
+import { getHotkeyManager } from './lib/hotkeys'
 import log from 'electron-log'
 
 // Basic menu to enable standard shortcuts like Copy/Paste
@@ -200,11 +201,24 @@ function createTrayPopover(): BrowserWindow {
     return popover
 }
 
-// ═══ QUICK PROMPT WINDOW (ChatGPT-style floating input) ═══
+// ═══ QUICK PROMPT WINDOW (Spotlight-style floating input) ═══
 function createQuickPromptWindow(): BrowserWindow {
+    const { screen } = require('electron')
+    const primaryDisplay = screen.getPrimaryDisplay()
+    const { width: screenWidth, height: screenHeight } = primaryDisplay.workAreaSize
+
+    const windowWidth = 600
+    const windowHeight = 60
+
+    // Calculate center position
+    const x = Math.round((screenWidth - windowWidth) / 2)
+    const y = Math.round((screenHeight - windowHeight) / 2) - 100 // Slightly above center
+
     const win = new BrowserWindow({
-        width: 640,
-        height: 80,
+        width: windowWidth,
+        height: windowHeight,
+        x,
+        y,
         show: false,
         frame: false,
         resizable: false,
@@ -214,9 +228,9 @@ function createQuickPromptWindow(): BrowserWindow {
         alwaysOnTop: true,
         skipTaskbar: true,
         transparent: true,
-        hasShadow: true,
+        hasShadow: false,
         focusable: true,
-        type: 'toolbar', // macOS: helps with always-on-top behavior
+        type: 'panel',
         webPreferences: {
             preload: join(__dirname, '../preload/index.js'),
             sandbox: true,
@@ -249,31 +263,25 @@ function showQuickPromptWindow(): void {
     }
 
     const { screen } = require('electron')
-    const display = screen.getDisplayNearestPoint(screen.getCursorScreenPoint())
+    const cursorPoint = screen.getCursorScreenPoint()
+    const display = screen.getDisplayNearestPoint(cursorPoint)
 
-    // Center horizontally
-    const x = Math.round(display.workArea.x + (display.workArea.width / 2) - 320)
-    
-    // Position higher up to avoid dock/taskbar - 150px from bottom with minimum margin
-    const bottomMargin = 150
-    const y = Math.max(display.workArea.y, display.workArea.y + display.workArea.height - bottomMargin - 80)
+    const windowWidth = 600
+    const windowHeight = 60
 
-    quickPromptWindow.setPosition(x, y)
+    // Center horizontally and vertically on the current display (slightly above center)
+    const x = Math.round(display.bounds.x + (display.bounds.width - windowWidth) / 2)
+    const y = Math.round(display.bounds.y + (display.bounds.height - windowHeight) / 2) - 100
+
+    quickPromptWindow.setBounds({ x, y, width: windowWidth, height: windowHeight })
     quickPromptShownAt = Date.now()
-    
-    // Ensure always on top with higher priority
-    quickPromptWindow.setAlwaysOnTop(true, 'screen-saver')
+
+    // Ensure always on top
+    quickPromptWindow.setAlwaysOnTop(true, 'floating')
     quickPromptWindow.show()
     quickPromptWindow.focus()
-    
-    // Double-check always on top after showing (some systems override it)
-    setTimeout(() => {
-        if (quickPromptWindow && !quickPromptWindow.isDestroyed()) {
-            quickPromptWindow.setAlwaysOnTop(true, 'screen-saver')
-        }
-    }, 100)
 
-    log.info('[QuickPrompt] Window shown at', { x, y, display: display.workArea })
+    log.info('[QuickPrompt] Window centered at', { x, y })
 }
 
 // Position and show popover near tray icon
@@ -476,10 +484,7 @@ function createWindow(): void {
         show: false,
         autoHideMenuBar: true,
         frame: false,
-        titleBarStyle: 'hidden',
-        trafficLightPosition: { x: 12, y: 12 },
-        vibrancy: 'under-window',
-        visualEffectState: 'active',
+        titleBarStyle: 'hiddenInset',
         icon: process.platform === 'darwin' 
             ? join(__dirname, 'icon.icns')
             : process.platform === 'win32'
@@ -644,18 +649,27 @@ app.whenReady().then(() => {
     // Create Tray
     createTray()
 
-    // ═══ GLOBAL SHORTCUT: "Quick Prompt" (Win+Alt+Space; fallback Ctrl+Shift+Space) ═══
-    // Abre la barra flotante para escribir un prompt. Win+Alt+Space puede estar reservado
-    // por el sistema o Raycast; Ctrl+Shift+Space como respaldo (Ctrl+Alt+Space = Claude).
-    const onQuickPrompt = () => {
+    // ═══ CONFIGURABLE HOTKEYS ═══
+    // Set up hotkey handlers and register all configured shortcuts
+    const hotkeyManager = getHotkeyManager()
+
+    // Register handler for Quick Prompt
+    hotkeyManager.setHandler('quick-prompt', () => {
         showQuickPromptWindow()
+    })
+
+    // Register all configured hotkeys
+    hotkeyManager.registerAll()
+
+    // Log registration results
+    const statuses = hotkeyManager.getAllStatus()
+    for (const status of statuses) {
+        if (status.isRegistered) {
+            log.info(`[App] Hotkey registered: ${status.id} → ${status.shortcut}`)
+        } else if (status.enabled) {
+            log.warn(`[App] Hotkey failed to register: ${status.id} → ${status.shortcut} (${status.error})`)
+        }
     }
-    const r1 = globalShortcut.register('Super+Alt+Space', onQuickPrompt)
-    const r2 = globalShortcut.register('Control+Shift+Space', onQuickPrompt)
-    if (!r1) log.warn('[App] Win+Alt+Space no registrado (p. ej. en uso por el sistema). Prueba Ctrl+Shift+Space.')
-    else log.info('[App] Quick Prompt: Win+Alt+Space')
-    if (!r2) log.warn('[App] Ctrl+Shift+Space no registrado.')
-    else log.info('[App] Quick Prompt (fallback): Ctrl+Shift+Space')
 
     app.on('activate', () => {
         // macOS: Re-create or restore window when dock icon is clicked
@@ -682,7 +696,8 @@ app.on('window-all-closed', () => {
 app.on('before-quit', () => {
     log.info('[App] Before quit - cleaning up resources...')
 
-    globalShortcut.unregisterAll()
+    // Unregister all hotkeys
+    getHotkeyManager().unregisterAll()
 
     // Destroy quick prompt window
     if (quickPromptWindow && !quickPromptWindow.isDestroyed()) {

@@ -128,7 +128,14 @@ export function ApiKeysTab() {
     const handleProviderChange = (p: AIProvider) => {
         setCurrentProvider(p)
         const models = allModelsGrouped[p] || []
-        if (models.length > 0) setSelectedModel(models[0].id)
+        if (models.length > 0) {
+            const defaultModel = {
+                openai: 'gpt-5',
+                'chatgpt-plus': 'gpt-5.1-codex-max',
+                zai: 'GLM-4.7-Flash'
+            }[p]
+            setSelectedModel(defaultModel || models[0].id)
+        }
     }
 
     return (

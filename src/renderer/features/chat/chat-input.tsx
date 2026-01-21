@@ -1,4 +1,4 @@
-import { useRef, useEffect, useState, useCallback } from 'react'
+import { memo, useMemo, useRef, useEffect, useState, useCallback } from 'react'
 import { useAtom, useAtomValue } from 'jotai'
 import { AnimatedLogo } from './animated-logo'
 import { TextShimmer } from '@/components/ui/text-shimmer'
@@ -69,7 +69,7 @@ interface ChatInputProps {
     streamingText?: string
 }
 
-export function ChatInput({ value, onChange, onSend, onStop, isLoading, streamingText }: ChatInputProps) {
+export const ChatInput = memo(function ChatInput({ value, onChange, onSend, onStop, isLoading, streamingText }: ChatInputProps) {
     const textareaRef = useRef<HTMLTextAreaElement>(null)
     const fileInputRef = useRef<HTMLInputElement>(null)
     const docInputRef = useRef<HTMLInputElement>(null)
@@ -287,11 +287,12 @@ export function ChatInput({ value, onChange, onSend, onStop, isLoading, streamin
         return `${value.slice(0, max)}…`
     }
 
-    const activeWebSearch = streamingWebSearches.find(ws => ws.status === 'searching')
-    const latestWebSearchDone = [...streamingWebSearches].reverse().find(ws => ws.status === 'done')
-    const activeFileSearch = streamingFileSearches.find(fs => fs.status === 'searching')
-    const latestFileSearchDone = [...streamingFileSearches].reverse().find(fs => fs.status === 'done')
-    const activeTool = streamingToolCalls.find(tc => tc.status === 'executing' || tc.status === 'streaming')
+    // Memoize expensive searches to prevent re-computation on every render
+    const activeWebSearch = useMemo(() => streamingWebSearches.find(ws => ws.status === 'searching'), [streamingWebSearches])
+    const latestWebSearchDone = useMemo(() => [...streamingWebSearches].reverse().find(ws => ws.status === 'done'), [streamingWebSearches])
+    const activeFileSearch = useMemo(() => streamingFileSearches.find(fs => fs.status === 'searching'), [streamingFileSearches])
+    const latestFileSearchDone = useMemo(() => [...streamingFileSearches].reverse().find(fs => fs.status === 'done'), [streamingFileSearches])
+    const activeTool = useMemo(() => streamingToolCalls.find(tc => tc.status === 'executing' || tc.status === 'streaming'), [streamingToolCalls])
 
     const statusLabel = (() => {
         if (!isLoading) return ''
@@ -312,7 +313,7 @@ export function ChatInput({ value, onChange, onSend, onStop, isLoading, streamin
             return 'Thinking'
         }
         if (streamingText && streamingText.length > 0) {
-            return 'Responding'
+            return 'Streaming'
         }
         // File search completion takes priority
         if (latestFileSearchDone) {
@@ -327,17 +328,18 @@ export function ChatInput({ value, onChange, onSend, onStop, isLoading, streamin
         if (latestWebSearchDone) {
             return 'Web search complete'
         }
-        return 'Responding'
+        // Initial state - waiting for first chunk
+        return 'Generating'
     })()
 
-    // Build allImages array for gallery navigation
-    const allImagesData = images
+    // Build allImages array for gallery navigation - memoized
+    const allImagesData = useMemo(() => images
         .filter(img => img.url && !img.isLoading)
         .map(img => ({
             id: img.id,
             filename: img.filename,
             url: img.url,
-        }))
+        })), [images])
 
     return (
         /* biome-ignore lint/a11y/noNoninteractiveElementToInteractiveRole: drag events for file drop zone */
@@ -823,4 +825,4 @@ export function ChatInput({ value, onChange, onSend, onStop, isLoading, streamin
             </div>
         </div>
     )
-}
+})

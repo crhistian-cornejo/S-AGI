@@ -28,6 +28,8 @@ import {
     streamingAnnotationsAtom,
     streamingFileSearchesAtom,
     imageEditDialogAtom,
+    pendingQuickPromptMessageAtom,
+    chatSoundsEnabledAtom,
     type WebSearchInfo,
     type FileSearchInfo,
     type UrlCitation,
@@ -47,13 +49,20 @@ import { ChatFilesPanel } from './chat-files-panel'
 import { ImageEditDialog } from '@/features/agent/image-edit-dialog'
 import { useSmoothStream } from '@/hooks/use-smooth-stream'
 import { useDocumentUpload } from '@/lib/use-document-upload'
+import { useChatSounds } from '@/lib/use-chat-sounds'
 import { AI_MODELS } from '@shared/ai-types'
 
 export function ChatView() {
-    // Force rebuild
+    // Sound effects preference
+    const soundsEnabled = useAtomValue(chatSoundsEnabledAtom)
+    // Sound effects hook
+    const chatSounds = useChatSounds(soundsEnabled)
+
+    // Force rebuild - useAtomValue for read-only, useSetAtom for write-only
     const selectedChatId = useAtomValue(selectedChatIdAtom)
     const [input, setInput] = useAtom(chatInputAtom)
-    const [isStreaming, setIsStreaming] = useAtom(isStreamingAtom)
+    const isStreaming = useAtomValue(isStreamingAtom)
+    const setIsStreaming = useSetAtom(isStreamingAtom)
     const provider = useAtomValue(currentProviderAtom)
     const mode = useAtomValue(chatModeAtom)
     const setSettingsOpen = useSetAtom(settingsModalOpenAtom)
@@ -63,22 +72,30 @@ export function ChatView() {
     const smoothStream = useSmoothStream({ delayMs: 0, chunking: 'word' })
     const streamingText = smoothStream.displayText
 
-    // Streaming state
-    const [streamingToolCalls, setStreamingToolCalls] = useAtom(streamingToolCallsAtom)
+    // Streaming state - separate read and write atoms
+    const streamingToolCalls = useAtomValue(streamingToolCallsAtom)
+    const setStreamingToolCalls = useSetAtom(streamingToolCallsAtom)
+    const streamingError = useAtomValue(streamingErrorAtom)
     const setStreamingError = useSetAtom(streamingErrorAtom)
 
     // Reasoning state (for GPT-5 with reasoning enabled)
-    const [streamingReasoning, setStreamingReasoning] = useAtom(streamingReasoningAtom)
-    const [isReasoning, setIsReasoning] = useAtom(isReasoningAtom)
-    const [lastReasoning, setLastReasoning] = useAtom(lastReasoningAtom)
+    const streamingReasoning = useAtomValue(streamingReasoningAtom)
+    const setStreamingReasoning = useSetAtom(streamingReasoningAtom)
+    const isReasoning = useAtomValue(isReasoningAtom)
+    const setIsReasoning = useSetAtom(isReasoningAtom)
+    const lastReasoning = useAtomValue(lastReasoningAtom)
+    const setLastReasoning = useSetAtom(lastReasoningAtom)
     const reasoningEffort = useAtomValue(reasoningEffortAtom)
     const responseMode = useAtomValue(responseModeAtom)
 
     // Web search state (for OpenAI native web search)
-    const [streamingWebSearches, setStreamingWebSearches] = useAtom(streamingWebSearchesAtom)
+    const streamingWebSearches = useAtomValue(streamingWebSearchesAtom)
+    const setStreamingWebSearches = useSetAtom(streamingWebSearchesAtom)
     // File search state (for OpenAI file_search tool)
-    const [streamingFileSearches, setStreamingFileSearches] = useAtom(streamingFileSearchesAtom)
-    const [streamingAnnotations, setStreamingAnnotations] = useAtom(streamingAnnotationsAtom)
+    const streamingFileSearches = useAtomValue(streamingFileSearchesAtom)
+    const setStreamingFileSearches = useSetAtom(streamingFileSearchesAtom)
+    const streamingAnnotations = useAtomValue(streamingAnnotationsAtom)
+    const setStreamingAnnotations = useSetAtom(streamingAnnotationsAtom)
 
     // Artifact state
     const setSelectedArtifact = useSetAtom(selectedArtifactAtom)
@@ -86,7 +103,8 @@ export function ChatView() {
     const setActiveTab = useSetAtom(activeTabAtom)
 
     // Image edit dialog state
-    const [imageEditDialog, setImageEditDialog] = useAtom(imageEditDialogAtom)
+    const imageEditDialog = useAtomValue(imageEditDialogAtom)
+    const setImageEditDialog = useSetAtom(imageEditDialogAtom)
 
     // Document upload for file search
     const documentUpload = useDocumentUpload({ chatId: selectedChatId })
@@ -94,6 +112,7 @@ export function ChatView() {
     // Abort controller and scroll refs
     const abortRef = useRef<(() => void) | null>(null)
     const handleSendRef = useRef<typeof handleSend | null>(null)
+    const stopThinkingRef = useRef<(() => void) | null>(null)
     const messagesEndRef = useRef<HTMLDivElement>(null)
     const scrollContainerRef = useRef<HTMLDivElement>(null)
     const [showScrollToBottom, setShowScrollToBottom] = useState(false)
@@ -122,11 +141,12 @@ export function ChatView() {
         }
     )
 
-    // Plan mode state
+    // Plan mode state - only use write atom
     const setIsPlanMode = useSetAtom(isPlanModeAtom)
     
-    // Image generation mode state
-    const [isImageMode, setIsImageMode] = useAtom(isImageGenerationModeAtom)
+    // Image generation mode state - separate read and write atoms
+    const isImageMode = useAtomValue(isImageGenerationModeAtom)
+    const setIsImageMode = useSetAtom(isImageGenerationModeAtom)
     const imageAspectRatio = useAtomValue(imageAspectRatioAtom)
 
     // Detect unapproved plan - look for ExitPlanMode tool without subsequent "Implement plan" user message
@@ -218,6 +238,9 @@ export function ChatView() {
         setStreamingWebSearches([]) // Clear previous web searches
         setStreamingFileSearches([]) // Clear previous file searches
         setStreamingAnnotations([]) // Clear previous annotations
+
+        // Play thinking sound (single, not loop)
+        stopThinkingRef.current = chatSounds.playThinking(false)
 
         const documentUploadPromise = documents && documents.length > 0
             ? (async () => {
@@ -328,6 +351,7 @@ export function ChatView() {
                 if (!result.key) {
                     setStreamingError('Z.AI API key not configured')
                     setIsStreaming(false)
+                    chatSounds.playError()
                     return
                 }
                 apiKey = result.key
@@ -336,6 +360,7 @@ export function ChatView() {
                 if (!result.key) {
                     setStreamingError('OpenAI API key not configured')
                     setIsStreaming(false)
+                    chatSounds.playError()
                     return
                 }
                 apiKey = result.key
@@ -345,6 +370,7 @@ export function ChatView() {
                 if (!result.key) {
                     setStreamingError('API key not configured')
                     setIsStreaming(false)
+                    chatSounds.playError()
                     return
                 }
                 apiKey = result.key
@@ -532,6 +558,8 @@ export function ChatView() {
                         }
 
                         case 'tool-call-start': {
+                            // Play tool use sound
+                            chatSounds.playToolUse()
                             toolCalls.set(event.toolCallId, {
                                 id: event.toolCallId,
                                 name: event.toolName,
@@ -586,24 +614,32 @@ export function ChatView() {
                             
                             setStreamingToolCalls(prev => prev.map(t =>
                                 t.id === event.toolCallId
-                                    ? { 
-                                        ...t, 
-                                        status: event.success ? 'complete' as const : 'error' as const, 
-                                        result: event.result 
+                                    ? {
+                                        ...t,
+                                        status: event.success ? 'complete' as const : 'error' as const,
+                                        result: event.result
                                     }
                                     : t
                             ))
+
+                            // Play tool error sound if tool failed
+                            if (!event.success) {
+                                chatSounds.playToolError()
+                            }
 
                             // Auto-navigate to EXCEL/DOCS tab when spreadsheet/document is created
                             // This provides a "computer use" experience - AI controls the UI directly
                             const isSpreadsheetCreation = event.toolName === 'create_spreadsheet'
                             const isDocumentCreation = event.toolName === 'create_document'
                             const isArtifactCreation = isSpreadsheetCreation || isDocumentCreation
-                            
+
                             if (isArtifactCreation && event.success && event.result?.artifactId) {
+                                // Play artifact created sound
+                                chatSounds.playArtifactCreated()
+
                                 // Invalidate artifacts query
                                 utils.artifacts.list.invalidate({ chatId: chatIdForStream })
-                                
+
                                 // Navigate directly to the appropriate tab (no panel, no lag)
                                 try {
                                     const artifact = await trpcClient.artifacts.get.query({ id: event.result.artifactId })
@@ -628,6 +664,8 @@ export function ChatView() {
 
                         case 'error': {
                             setStreamingError(event.error)
+                            // Play error sound for streaming/API errors
+                            chatSounds.playError()
                             // Reset streaming state (same as finish, but without saving message)
                             setIsStreaming(false)
                             smoothStream.stopStream()
@@ -731,6 +769,11 @@ export function ChatView() {
                             setStreamingWebSearches([])
                             setStreamingFileSearches([])
                             setStreamingAnnotations([])
+
+                            // Stop thinking sound and play response done sound
+                            stopThinkingRef.current?.()
+                            chatSounds.playResponseDone()
+
                             cleanupListener?.() // Clean up listener when done
                             abortRef.current = null
                             break
@@ -815,6 +858,9 @@ export function ChatView() {
             console.error('Failed to send message:', error)
             const errorMessage = error instanceof Error ? error.message : 'Unknown error'
 
+            // Play error sound for send failures
+            chatSounds.playError()
+
             if (isChatAccessError(errorMessage)) {
                 console.warn('[ChatView] Chat not found, creating a new chat and retrying')
 
@@ -839,6 +885,22 @@ export function ChatView() {
 
     // Keep ref updated for use in callbacks
     handleSendRef.current = handleSend
+
+    // === QUICK PROMPT AUTO-SEND ===
+    // Watch for pending messages from Quick Prompt and auto-send them
+    const [pendingMessage, setPendingMessage] = useAtom(pendingQuickPromptMessageAtom)
+
+    useEffect(() => {
+        if (pendingMessage && selectedChatId && !isStreaming && handleSendRef.current) {
+            console.log('[ChatView] Auto-sending pending Quick Prompt message:', pendingMessage.substring(0, 50) + '...')
+
+            // Clear the pending message first to prevent re-triggering
+            setPendingMessage(null)
+
+            // Call handleSend with the message override
+            handleSendRef.current(undefined, undefined, pendingMessage)
+        }
+    }, [pendingMessage, selectedChatId, isStreaming, setPendingMessage])
 
     // Handle plan approval - sends "Implement plan" message and switches to agent mode
     const handleApprovePlan = useCallback(() => {
@@ -881,12 +943,16 @@ export function ChatView() {
     useEffect(() => {
         if (selectedChatId) {
             utils.messages.list.invalidate({ chatId: selectedChatId })
+            // Play chat start sound when switching to a new chat
+            if (messages && messages.length === 0) {
+                chatSounds.playChatStart()
+            }
         }
         // Clear artifact selection when chat changes
         // The new chat may have different artifacts
         setSelectedArtifact(null)
         setArtifactPanelOpen(false)
-    }, [selectedChatId, utils, setSelectedArtifact, setArtifactPanelOpen])
+    }, [selectedChatId, utils, setSelectedArtifact, setArtifactPanelOpen, messages, chatSounds])
 
     const getScrollViewport = useCallback(() => {
         const root = scrollContainerRef.current
@@ -1124,6 +1190,7 @@ export function ChatView() {
                             streamingWebSearches={streamingWebSearches}
                             streamingFileSearches={streamingFileSearches}
                             streamingAnnotations={streamingAnnotations}
+                            streamingError={streamingError}
                         />
                         <div ref={messagesEndRef} className="h-px" />
                     </div>

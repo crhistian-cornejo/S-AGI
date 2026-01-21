@@ -2,12 +2,14 @@ import { useTheme } from 'next-themes'
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useAtom, useSetAtom } from 'jotai'
 import { motion, AnimatePresence } from 'motion/react'
+import { IconVolume, IconVolumeOff } from '@tabler/icons-react'
 import { cn } from '@/lib/utils'
 import {
     selectedFullThemeIdAtom,
     fullThemeDataAtom,
     systemLightThemeIdAtom,
     systemDarkThemeIdAtom,
+    chatSoundsEnabledAtom,
     type VSCodeFullTheme,
 } from '@/lib/atoms'
 import {
@@ -20,6 +22,8 @@ import {
     SelectItem,
     SelectTrigger,
 } from '@/components/ui/select'
+import { Button } from '@/components/ui/button'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 
 // Theme preview box with dot and "Aa" text
 function ThemePreviewBox({ theme, size = 'md', className }: { theme: VSCodeFullTheme | null; size?: 'sm' | 'md'; className?: string }) {
@@ -64,6 +68,9 @@ export function AppearanceTab() {
     const [systemLightThemeId, setSystemLightThemeId] = useAtom(systemLightThemeIdAtom)
     const [systemDarkThemeId, setSystemDarkThemeId] = useAtom(systemDarkThemeIdAtom)
     const setFullThemeData = useSetAtom(fullThemeDataAtom)
+
+    // Sound effects toggle
+    const [soundsEnabled, setSoundsEnabled] = useAtom(chatSoundsEnabledAtom)
 
     useEffect(() => {
         setMounted(true)
@@ -294,6 +301,44 @@ export function AppearanceTab() {
                         </motion.div>
                     )}
                 </AnimatePresence>
+            </div>
+
+            {/* Sound Effects Toggle */}
+            <div className="bg-background rounded-lg border border-border overflow-hidden">
+                <div className="flex items-center justify-between p-4">
+                    <div className="flex flex-col space-y-1">
+                        <span className="text-sm font-medium text-foreground">
+                            Sound effects
+                        </span>
+                        <span className="text-xs text-muted-foreground">
+                            Play sounds for chat events (thinking, tools, artifacts, etc.)
+                        </span>
+                    </div>
+
+                    <Tooltip>
+                        <TooltipTrigger asChild>
+                            <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => setSoundsEnabled(!soundsEnabled)}
+                                className="h-9 w-9 rounded-md"
+                            >
+                                {soundsEnabled ? (
+                                    <IconVolume size={18} />
+                                ) : (
+                                    <IconVolumeOff size={18} className="text-muted-foreground" />
+                                )}
+                                <span className="sr-only">
+                                    {soundsEnabled ? 'Disable sounds' : 'Enable sounds'}
+                                </span>
+                            </Button>
+                        </TooltipTrigger>
+                        <TooltipContent side="left">
+                            {soundsEnabled ? 'Disable sounds' : 'Enable sounds'}
+                        </TooltipContent>
+                    </Tooltip>
+                </div>
             </div>
         </div>
     )

@@ -77,10 +77,10 @@ export const AgentGeneratedImage = memo(function AgentGeneratedImage({
     }
 
     return (
-        <div className={cn("relative group", className)}>
+        <div className={cn("relative group inline-block w-fit max-w-full mx-auto", className)}>
             {/* Image container with reveal animation */}
             <div className={cn(
-                "relative overflow-hidden rounded-xl",
+                "relative overflow-hidden rounded-xl inline-block",
                 "bg-gradient-to-br from-muted/50 to-muted/30",
                 "border border-border/30",
                 "transition-all duration-500 ease-out"
@@ -117,7 +117,7 @@ export const AgentGeneratedImage = memo(function AgentGeneratedImage({
                         onLoad={() => setIsLoaded(true)}
                         onError={() => setError(true)}
                         className={cn(
-                            "w-full max-w-lg object-contain",
+                            "w-auto max-w-lg object-contain",
                             "transition-opacity duration-500",
                             isRevealed ? "opacity-100" : "opacity-0"
                         )}

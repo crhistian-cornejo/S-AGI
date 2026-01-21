@@ -2,10 +2,11 @@ import { useAtom } from 'jotai'
 import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { AnimatePresence, motion } from 'motion/react'
-import { IconX, IconUser, IconPalette, IconKey, IconBug, IconAdjustmentsHorizontal } from '@tabler/icons-react'
+import { IconX, IconUser, IconPalette, IconKey, IconBug, IconAdjustmentsHorizontal, IconKeyboard } from '@tabler/icons-react'
 import { cn } from '@/lib/utils'
 import { settingsModalOpenAtom, settingsActiveTabAtom, type SettingsTab } from '@/lib/atoms'
 import { AccountTab, AppearanceTab, ApiKeysTab, DebugTab, AdvancedTab } from './tabs'
+import { ShortcutsTab } from './tabs/shortcuts-tab'
 
 // Check if we're in development mode
 const isDevelopment = import.meta.env.MODE === 'development'
@@ -41,6 +42,12 @@ const ALL_TABS: TabConfig[] = [
         label: 'Advanced',
         icon: IconAdjustmentsHorizontal,
         description: 'Advanced AI behavior and system settings'
+    },
+    {
+        id: 'shortcuts',
+        label: 'Shortcuts',
+        icon: IconKeyboard,
+        description: 'Configure keyboard shortcuts'
     },
     // Debug tab - only shown in development
     ...(isDevelopment
@@ -125,6 +132,8 @@ export function SettingsDialog() {
                 return <AppearanceTab />
             case 'advanced':
                 return <AdvancedTab />
+            case 'shortcuts':
+                return <ShortcutsTab />
             case 'debug':
                 return isDevelopment ? <DebugTab /> : null
             default:

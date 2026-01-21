@@ -227,10 +227,14 @@ export function ChatFilesPanel({ className }: ChatFilesPanelProps) {
                                     type="button"
                                     onClick={() => setIsExpanded(true)}
                                     className={cn(
-                                        "bg-zinc-800/30 border border-white/5 rounded-xl p-2 h-[64px]",
+                                        "rounded-xl p-2 h-[64px]",
                                         "flex flex-col justify-center gap-1 transition-all duration-300 ease-out",
-                                        "hover:bg-zinc-800/60 hover:scale-[1.04] hover:border-white/10 hover:shadow-2xl hover:shadow-black/40",
-                                        "relative group text-left outline-none focus-visible:ring-2 focus-visible:ring-primary overflow-hidden"
+                                        "relative group text-left outline-none focus-visible:ring-2 focus-visible:ring-primary overflow-hidden",
+                                        // Theme-aware surface and border
+                                        "bg-muted/50 border border-border/50",
+                                        "hover:bg-muted/70 hover:scale-[1.04] hover:border-border",
+                                        // Subtle shadow adaptable to themes
+                                        "shadow-sm hover:shadow-md"
                                     )}
                                 >
                                     <FileItem file={file} className="p-0 border-0 bg-transparent shadow-none w-full scale-[0.9] origin-left" />
@@ -238,13 +242,13 @@ export function ChatFilesPanel({ className }: ChatFilesPanelProps) {
                                     {idx === 2 && allFiles.length > 3 && (
                                         <>
                                             {/* Floating Badge */}
-                                            <div className="absolute top-1 right-1 z-10 bg-blue-600 text-white text-[9px] font-black px-1.5 py-0.5 rounded-full shadow-lg ring-1 ring-white/20">
+                                            <div className="absolute top-1 right-1 z-10 bg-blue-600 text-white text-[9px] font-black px-1.5 py-0.5 rounded-full shadow-lg ring-1 ring-border">
                                                 +{allFiles.length - 3}
                                             </div>
                                             
                                             {/* Glass Overlay on Hover */}
-                                            <div className="absolute inset-0 bg-blue-600/10 backdrop-blur-[2px] opacity-0 group-hover:opacity-100 transition-all duration-300 flex items-center justify-center">
-                                                <span className="text-[8px] font-black text-blue-400 uppercase tracking-[0.1em] drop-shadow-md">
+                                            <div className="absolute inset-0 bg-blue-600/10 dark:bg-blue-500/10 backdrop-blur-[2px] opacity-0 group-hover:opacity-100 transition-all duration-300 flex items-center justify-center">
+                                                <span className="text-[8px] font-black text-blue-600 dark:text-blue-400 uppercase tracking-[0.1em] drop-shadow-md">
                                                     Show all
                                                 </span>
                                             </div>
@@ -267,7 +271,7 @@ export function ChatFilesPanel({ className }: ChatFilesPanelProps) {
                                 <button
                                     type="button"
                                     onClick={() => setIsExpanded(false)}
-                                    className="mt-3 group flex items-center justify-center gap-2 w-full py-2 rounded-xl border border-white/5 bg-zinc-800/20 hover:bg-zinc-800/40 hover:border-white/10 transition-all duration-200 outline-none focus-visible:ring-1 focus-visible:ring-primary/50"
+                                    className="mt-3 group flex items-center justify-center gap-2 w-full py-2 rounded-xl border border-border/50 bg-muted/30 hover:bg-muted/50 hover:border-border transition-all duration-200 outline-none focus-visible:ring-1 focus-visible:ring-primary/50"
                                 >
                                     <IconX size={12} className="text-muted-foreground group-hover:text-foreground transition-colors" />
                                     <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground group-hover:text-foreground transition-colors">

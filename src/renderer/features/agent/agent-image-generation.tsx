@@ -190,11 +190,11 @@ export const AgentImageGeneration = memo(function AgentImageGeneration({
     return (
         <>
             <div className={cn(
-                "rounded-xl border border-border/50 overflow-hidden group",
+                "inline-block w-fit max-w-full rounded-xl border border-border/50 overflow-hidden group mx-auto",
                 className
             )}>
                 {/* Image container with reveal animation */}
-                <div className="relative bg-muted/20">
+                <div className="relative bg-muted/20 inline-block">
                     {/* Loading shimmer overlay */}
                     {!isLoaded && (
                         <div className="absolute inset-0 aspect-square max-w-lg mx-auto bg-muted/30 overflow-hidden">
@@ -224,7 +224,7 @@ export const AgentImageGeneration = memo(function AgentImageGeneration({
                                 onLoad={() => setIsLoaded(true)}
                                 onError={() => setLoadError(true)}
                                 className={cn(
-                                    "w-full max-w-lg mx-auto object-contain cursor-zoom-in",
+                                    "w-auto max-w-lg mx-auto object-contain cursor-zoom-in",
                                     "transition-transform duration-200 hover:scale-[1.02]"
                                 )}
                             />

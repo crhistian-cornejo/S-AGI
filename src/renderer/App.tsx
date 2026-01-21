@@ -19,7 +19,8 @@ import {
     selectedArtifactAtom,
     artifactPanelOpenAtom,
     sidebarOpenAtom,
-    activeTabAtom
+    activeTabAtom,
+    pendingQuickPromptMessageAtom
 } from './lib/atoms'
 import { toast } from 'sonner'
 
@@ -81,6 +82,7 @@ function ConnectionStatusSync() {
 
 /**
  * Quick Prompt Handler - Creates a new chat from the floating Quick Prompt window
+ * Sets pendingQuickPromptMessageAtom so ChatView can auto-send the message with AI response
  */
 function QuickPromptHandler() {
     const setSelectedChatId = useSetAtom(selectedChatIdAtom)
@@ -88,51 +90,43 @@ function QuickPromptHandler() {
     const setArtifactPanelOpen = useSetAtom(artifactPanelOpenAtom)
     const setSidebarOpen = useSetAtom(sidebarOpenAtom)
     const setActiveTab = useSetAtom(activeTabAtom)
+    const setPendingMessage = useSetAtom(pendingQuickPromptMessageAtom)
+    const utils = trpc.useUtils()
 
     const createChat = trpc.chats.create.useMutation({
-        onSuccess: (chat) => {
-            setSelectedChatId(chat.id)
-            setSelectedArtifact(null)
-            setArtifactPanelOpen(false)
-            setSidebarOpen(true)
-            setActiveTab('chat')
-            toast.success('New chat created')
-        },
         onError: (error) => {
             toast.error('Failed to create chat: ' + error.message)
         }
     })
 
-    const sendMessage = trpc.messages.add.useMutation({
-        onSuccess: () => {
-            toast.success('Message sent')
-        },
-        onError: (error: unknown) => {
-            toast.error('Failed to send message: ' + (error as Error).message)
-        }
-    })
-
     useEffect(() => {
-        const handler = (_event: Event, message: string) => {
+        const cleanup = window.desktopApi?.quickPrompt?.onCreateChat((message: string) => {
             console.log('[QuickPrompt] Received message to create chat:', message.substring(0, 50) + '...')
 
             createChat.mutate({ title: message.slice(0, 50) + (message.length > 50 ? '...' : '') }, {
                 onSuccess: (chat) => {
-                    sendMessage.mutate({
-                        chatId: chat.id,
-                        role: 'user',
-                        content: message,
-                        attachments: []
-                    })
+                    // Invalidate chats list so sidebar refreshes
+                    utils.chats.list.invalidate()
+                    utils.chats.get.invalidate({ id: chat.id })
+
+                    // Set up UI state
+                    setSelectedChatId(chat.id)
+                    setSelectedArtifact(null)
+                    setArtifactPanelOpen(false)
+                    setSidebarOpen(true)
+                    setActiveTab('chat')
+
+                    // Set pending message - ChatView will auto-send this
+                    setPendingMessage(message)
+                    console.log('[QuickPrompt] Chat created and pending message set:', chat.id)
                 }
             })
-        }
+        })
 
-        window.addEventListener('quick-prompt:create-chat', handler as EventListener)
         return () => {
-            window.removeEventListener('quick-prompt:create-chat', handler as EventListener)
+            cleanup?.()
         }
-    }, [createChat, sendMessage])
+    }, [createChat, setSelectedChatId, setSelectedArtifact, setArtifactPanelOpen, setSidebarOpen, setActiveTab, setPendingMessage, utils])
 
     return null
 }

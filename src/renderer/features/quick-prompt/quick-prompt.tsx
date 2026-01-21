@@ -1,5 +1,8 @@
 import { useState, useRef, useEffect } from 'react'
-import { IconSparkles } from '@tabler/icons-react'
+import { Logo } from '@/components/ui/logo'
+import { useChatSounds } from '@/lib/use-chat-sounds'
+import { useAtomValue } from 'jotai'
+import { chatSoundsEnabledAtom } from '@/lib/atoms'
 import './quick-prompt.css'
 
 export function QuickPrompt() {
@@ -7,21 +10,34 @@ export function QuickPrompt() {
     const [isSending, setIsSending] = useState(false)
     const inputRef = useRef<HTMLInputElement>(null)
 
+    // Sound effects
+    const soundsEnabled = useAtomValue(chatSoundsEnabledAtom)
+    const chatSounds = useChatSounds(soundsEnabled)
+
     useEffect(() => {
         setTimeout(() => {
             inputRef.current?.focus()
         }, 100)
+
+        // Play sound when quick prompt opens (only once on mount)
+        chatSounds.playChatStart()
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [])
 
     const handleSubmit = async () => {
         if (!message.trim() || isSending) return
 
         setIsSending(true)
+
+        // Play thinking sound when sending
+        chatSounds.playThinking(false)
+
         try {
             await window.desktopApi?.quickPrompt.sendMessage(message.trim())
             window.close()
         } catch (error) {
             console.error('Failed to send quick prompt:', error)
+            chatSounds.playError()
             setIsSending(false)
         }
     }
@@ -40,7 +56,7 @@ export function QuickPrompt() {
         <div className="quick-prompt-container">
             <div className="quick-prompt-content">
                 <div className="quick-prompt-icon">
-                    <IconSparkles size={18} stroke={2} />
+                    <Logo size={22} />
                 </div>
                 <input
                     ref={inputRef}

@@ -6,6 +6,22 @@ import type { AIProvider, ModelDefinition, ResponseMode } from '@shared/ai-types
 
 export type { ResponseMode }
 
+/**
+ * ⚠️ BUNDLE SIZE OPTIMIZATION NOTE:
+ * 
+ * This file is a barrel export that collects all atoms. When importing from this file,
+ * the bundler may need to parse and tree-shake all exports, which can impact build times.
+ * 
+ * ✅ Use barrel imports when importing MULTIPLE atoms:
+ *   import { selectedChatIdAtom, chatInputAtom } from '@/lib/atoms'
+ * 
+ * ✅ Use direct imports when importing ONLY ONE atom:
+ *   import { selectedChatIdAtom } from '@/lib/atoms/chat'
+ * 
+ * Future optimization: Consider splitting into separate files (chat.ts, ui.ts, artifacts.ts, etc.)
+ * if the bundle size becomes an issue.
+ */
+
 // === SIDEBAR STATE ===
 export const sidebarOpenAtom = atomWithStorage('sidebar-open', true)
 export const sidebarWidthAtom = atomWithStorage('sidebar-width', 280)
@@ -13,6 +29,9 @@ export const sidebarWidthAtom = atomWithStorage('sidebar-width', 280)
 // === CHAT STATE ===
 export const selectedChatIdAtom = atomWithStorage<string | null>('selected-chat-id', null)
 export const selectedChatAtom = atom<Chat | null>(null)
+
+// Pending message from Quick Prompt - ChatView will auto-send this
+export const pendingQuickPromptMessageAtom = atom<string | null>(null)
 
 // === ARTIFACT STATE ===
 export const selectedArtifactIdAtom = atom<string | null>(null)
@@ -304,9 +323,13 @@ export interface FileSearchInfo {
 // Active file searches during streaming
 export const streamingFileSearchesAtom = atom<FileSearchInfo[]>([])
 
+// === SOUND EFFECTS ===
+// Enable/disable chat sound effects
+export const chatSoundsEnabledAtom = atomWithStorage('chat-sounds-enabled', true)
+
 // === SETTINGS MODAL ===
 export const settingsModalOpenAtom = atom(false)
-export type SettingsTab = 'account' | 'appearance' | 'api-keys' | 'advanced' | 'debug'
+export type SettingsTab = 'account' | 'appearance' | 'api-keys' | 'advanced' | 'shortcuts' | 'debug'
 export const settingsActiveTabAtom = atom<SettingsTab>('account')
 
 // === HELP & SHORTCUTS ===

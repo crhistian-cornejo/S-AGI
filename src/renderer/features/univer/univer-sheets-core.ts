@@ -109,19 +109,14 @@ export interface UniverSheetsInstance {
 
 let sheetsInstance: UniverSheetsInstance | null = null
 let instanceVersion = 0
-let currentContainer: HTMLElement | null = null
 let currentWorkbookId: string | null = null
 
 /**
  * Initialize the Sheets Univer instance
  */
 export async function initSheetsUniver(container: HTMLElement): Promise<UniverSheetsInstance> {
-    // If we already have an instance with the same container, reuse it
-    // This handles StrictMode double-mounting and rapid re-renders
-    if (sheetsInstance && currentContainer === container) {
-        console.log('[UniverSheets] Reusing existing instance for same container (version:', sheetsInstance.version, ')')
-        return sheetsInstance
-    }
+    // Always create a fresh instance on mount to avoid DI conflicts and stale state
+    // Reuse caused intermittent bugs when switching tabs rapidly
     
     // Increment version - any pending dispose with old version will be cancelled
     instanceVersion++
@@ -130,7 +125,6 @@ export async function initSheetsUniver(container: HTMLElement): Promise<UniverSh
     // Capture old instance for deferred disposal
     const oldInstance = sheetsInstance
     sheetsInstance = null
-    currentContainer = null
     
     // Defer dispose to next tick to avoid "synchronously unmount during render" error
     // This happens when React unmounts one component and mounts another in the same render cycle
@@ -264,7 +258,6 @@ export async function initSheetsUniver(container: HTMLElement): Promise<UniverSh
     }
     
     sheetsInstance = { univer, api, version: currentVersion }
-    currentContainer = container
     console.log('[UniverSheets] Instance created successfully (version:', currentVersion, ')')
     
     return sheetsInstance
@@ -289,7 +282,6 @@ export function disposeSheetsUniver(version?: number): void {
             console.warn('[UniverSheets] Error during dispose:', e)
         }
         sheetsInstance = null
-        currentContainer = null
         currentWorkbookId = null
     }
 }

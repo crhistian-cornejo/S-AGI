@@ -11,7 +11,7 @@ import type { AIProvider } from '@shared/ai-types'
  * Z.AI API configuration
  */
 const ZAI_CONFIG = {
-    baseURL: 'https://api.z.ai/api/coding/paas/v4',
+    baseURL: 'https://api.z.ai/api/paas/v4/',
     sourceHeader: 'S-AGI-Agent'
 }
 

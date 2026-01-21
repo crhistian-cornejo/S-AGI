@@ -47,6 +47,7 @@ interface DesktopApi {
     }
     quickPrompt: {
         sendMessage: (message: string) => Promise<{ success: boolean }>
+        onCreateChat: (callback: (message: string) => void) => () => void
     }
     onArtifactUpdate: (callback: (data: ArtifactUpdateEvent) => void) => () => void
     // ChatGPT Plus connected listener

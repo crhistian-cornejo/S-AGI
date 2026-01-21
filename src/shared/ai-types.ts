@@ -232,7 +232,7 @@ export const AI_MODELS: Record<string, ModelDefinition> = {
 export const DEFAULT_MODELS: Record<AIProvider, string> = {
     openai: 'gpt-5',
     'chatgpt-plus': 'gpt-5.1-codex-max',
-    zai: 'GLM-4.7'
+    zai: 'GLM-4.7-Flash'
 }
 
 /**

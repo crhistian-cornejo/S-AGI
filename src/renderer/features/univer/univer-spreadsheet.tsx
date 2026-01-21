@@ -31,12 +31,9 @@ export const UniverSpreadsheet = React.forwardRef<UniverSpreadsheetRef, UniverSp
     // Snapshot cache for persistence across tab switches
     const [snapshotCache, setSnapshotCache] = useAtom(artifactSnapshotCacheAtom)
 
-    // Generate a stable instance ID
+    // Use artifact ID for data purposes; fallback to a stable per-mount ID
     const instanceIdRef = React.useRef<string>(`spreadsheet-${Date.now()}`)
-    const instanceId = instanceIdRef.current
-
-    // Use artifact ID for data purposes
-    const effectiveDataId = artifactId ?? instanceId
+    const effectiveDataId = artifactId ?? instanceIdRef.current
 
     // Check if we have a cached snapshot that's newer than the DB data
     const getCachedOrDbData = React.useCallback(() => {
@@ -102,13 +99,6 @@ export const UniverSpreadsheet = React.forwardRef<UniverSpreadsheetRef, UniverSp
     const initialDataRef = React.useRef(effectiveData)
     const isInitializedRef = React.useRef(false)
 
-    // Update initialDataRef when effectiveData changes (for remounts)
-    React.useEffect(() => {
-        if (!isInitializedRef.current) {
-            initialDataRef.current = effectiveData
-        }
-    }, [effectiveData])
-
     // Initialize Univer on mount, dispose on unmount
     // Only depends on effectiveDataId to avoid unnecessary re-initialization
     React.useEffect(() => {
@@ -119,10 +109,7 @@ export const UniverSpreadsheet = React.forwardRef<UniverSpreadsheetRef, UniverSp
                 return
             }
 
-            // Skip if already initialized with same ID
-            if (isInitializedRef.current) {
-                return
-            }
+            if (isInitializedRef.current) return
 
             try {
                 setIsLoading(true)
@@ -285,7 +272,7 @@ export const UniverSpreadsheet = React.forwardRef<UniverSpreadsheetRef, UniverSp
             container.removeEventListener('keydown', handleInput)
             container.removeEventListener('paste', handleInput)
         }
-    }, [artifactId, isLoading])
+    }, [artifactId])
 
     // Listen for live artifact updates from AI tools
     React.useEffect(() => {
@@ -342,14 +329,10 @@ export const UniverSpreadsheet = React.forwardRef<UniverSpreadsheetRef, UniverSp
     return (
         <div className="relative w-full h-full">
             {isLoading && (
-                <div 
-                    className="absolute inset-0 flex items-center justify-center bg-background/80 z-10"
-                    style={{ pointerEvents: 'auto' }}
-                    onClick={(e) => {
-                        e.preventDefault()
-                        e.stopPropagation()
-                    }}
-                >
+            <div 
+                className="absolute inset-0 flex items-center justify-center bg-background/80 z-10"
+                style={{ pointerEvents: 'auto' }}
+            >
                     <div className="flex items-center gap-2 pointer-events-none">
                         <div className="w-4 h-4 border-2 border-primary border-t-transparent rounded-full animate-spin" />
                         <span className="text-sm text-muted-foreground">Loading spreadsheet...</span>
@@ -360,7 +343,6 @@ export const UniverSpreadsheet = React.forwardRef<UniverSpreadsheetRef, UniverSp
             {/* biome-ignore lint/a11y/noNoninteractiveTabindex: Required for Univer canvas keyboard input */}
             <div 
                 ref={containerRef} 
-                tabIndex={0} 
                 className="w-full h-full outline-none"
             />
         </div>

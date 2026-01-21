@@ -148,7 +148,7 @@ export class TokenManager {
                 return {
                     token: apiKey,
                     provider: 'zai',
-                    baseURL: 'https://api.z.ai/api/coding/paas/v4',
+                    baseURL: 'https://api.z.ai/api/paas/v4/',
                     headers: {
                         'X-Source': 'S-AGI-Agent'
                     }
