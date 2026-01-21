@@ -4261,7 +4261,7 @@ async function executeSelectArtifact(
 async function executeGetUiContext(
     args: z.infer<typeof UI_NAVIGATION_TOOLS.get_ui_context.inputSchema>,
     chatId: string,
-    userId: string
+    _userId: string
 ): Promise<{
     success: boolean
     context: {

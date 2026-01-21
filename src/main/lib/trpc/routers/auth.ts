@@ -7,6 +7,13 @@ import { supabase, authStorage } from '../../supabase/client'
 import { getMainWindow, sendToRenderer } from '../../window-manager'
 import { BrowserWindow, shell } from 'electron'
 import log from 'electron-log'
+import {
+    authRateLimiter,
+    signUpRateLimiter,
+    passwordResetRateLimiter,
+    oauthRateLimiter,
+    checkRateLimit
+} from '../../auth/rate-limiter'
 
 /** Parse access_token and refresh_token from a Supabase OAuth callback URL (hash or query). */
 function parseOAuthTokensFromUrl(url: string): { access_token: string; refresh_token: string } | null {
@@ -56,6 +63,8 @@ export const authRouter = router({
             password: z.string().min(6)
         }))
         .mutation(async ({ input }) => {
+            // Rate limit by email to prevent spam
+            checkRateLimit(signUpRateLimiter, input.email.toLowerCase())
             log.info('[Auth] Signing up:', input.email)
             const { data, error } = await supabase.auth.signUp({
                 email: input.email,
@@ -81,6 +90,8 @@ export const authRouter = router({
             password: z.string()
         }))
         .mutation(async ({ input }) => {
+            // Rate limit by email to prevent brute force
+            checkRateLimit(authRateLimiter, input.email.toLowerCase())
             log.info('[Auth] Signing in:', input.email)
             const { data, error } = await supabase.auth.signInWithPassword({
                 email: input.email,
@@ -140,6 +151,8 @@ export const authRouter = router({
             email: z.string().email()
         }))
         .mutation(async ({ input }) => {
+            // Strict rate limit for password resets
+            checkRateLimit(passwordResetRateLimiter, input.email.toLowerCase())
             log.info('[Auth] Requesting password reset for:', input.email)
             const { error } = await supabase.auth.resetPasswordForEmail(input.email)
 
@@ -157,6 +170,8 @@ export const authRouter = router({
             provider: z.enum(['google', 'github', 'apple'])
         }))
         .mutation(async ({ input }) => {
+            // Rate limit OAuth attempts (use provider as key since we don't have user identity yet)
+            checkRateLimit(oauthRateLimiter, `oauth:${input.provider}`)
             log.info('[Auth] Starting OAuth flow for:', input.provider)
 
             const mainWindow = getMainWindow()

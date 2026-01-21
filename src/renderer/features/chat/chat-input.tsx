@@ -44,6 +44,7 @@ import {
     allModelsGroupedAtom,
     // NOTE: Gemini disabled - hasGeminiAdvancedAtom,
     type ReasoningEffort,
+    type ResponseMode,
 } from '@/lib/atoms'
 
 import { useFileUpload } from '@/lib/use-file-upload'
@@ -148,10 +149,10 @@ export function ChatInput({ value, onChange, onSend, onStop, isLoading, streamin
         if (e.key === 'Tab' && e.ctrlKey) {
             if (supportsResponseMode) {
                 e.preventDefault()
-                setResponseMode((prev) => ({ instant: 'thinking', thinking: 'auto', auto: 'instant' }[prev]))
+                setResponseMode((prev) => ({ instant: 'thinking', thinking: 'auto', auto: 'instant' }[prev] as ResponseMode))
             } else if (supportsReasoning) {
                 e.preventDefault()
-                setReasoningEffort((prev) => ({ low: 'medium', medium: 'high', high: 'low' }[prev]))
+                setReasoningEffort((prev) => ({ low: 'medium', medium: 'high', high: 'low' }[prev] as ReasoningEffort))
             }
             return
         }

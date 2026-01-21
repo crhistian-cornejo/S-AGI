@@ -64,6 +64,12 @@ export interface DesktopApi {
   // UI Navigation (agent-controlled)
   onNavigateTab: (callback: (data: { tab: 'chat' | 'excel' | 'doc' | 'gallery' }) => void) => () => void
   onSelectArtifact: (callback: (data: { artifactId: string; openInFullTab: boolean; targetTab?: string }) => void) => () => void
+  // Notification listener (for agent-triggered notifications)
+  onNotification: (callback: (data: { message: string; type: 'info' | 'success' | 'warning' | 'error'; duration?: number }) => void) => () => void
+  // Auth refresh state listener
+  onAuthRefreshing: (callback: (data: { provider: string; refreshing: boolean }) => void) => () => void
+  // Auth error listener
+  onAuthError: (callback: (data: { provider: string; error: string | null }) => void) => () => void
 }
 
 declare global {

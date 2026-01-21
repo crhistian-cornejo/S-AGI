@@ -10,9 +10,6 @@ import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 
-// Check if running on Windows - get from desktopApi
-const isWindows = (window as any).desktopApi?.platform === 'win32'
-
 // --- Focus Card Component (User Style) ---
 export const Card = React.memo(
   ({

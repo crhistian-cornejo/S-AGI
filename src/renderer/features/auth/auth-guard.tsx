@@ -1,4 +1,3 @@
-import { useEffect } from 'react'
 import { useSetAtom } from 'jotai'
 import { IconLoader2, IconBrandGoogle } from '@tabler/icons-react'
 import { toast } from 'sonner'
@@ -14,7 +13,6 @@ interface AuthGuardProps {
 export function AuthGuard({ children }: AuthGuardProps) {
     const setAuthDialogOpen = useSetAtom(authDialogOpenAtom)
     const setAuthDialogMode = useSetAtom(authDialogModeAtom)
-    const utils = trpc.useUtils()
 
     const { data: session, isLoading, error } = trpc.auth.getSession.useQuery(undefined, {
         retry: false,

@@ -49,6 +49,19 @@ interface DesktopApi {
         sendMessage: (message: string) => Promise<{ success: boolean }>
     }
     onArtifactUpdate: (callback: (data: ArtifactUpdateEvent) => void) => () => void
+    // ChatGPT Plus connected listener
+    onChatGPTConnected: (callback: (data: { isConnected: boolean; accountId?: string }) => void) => () => void
+    // Gemini Advanced connected listener
+    onGeminiConnected: (callback: (data: { isConnected: boolean }) => void) => () => void
+    // UI Navigation (agent-controlled)
+    onNavigateTab: (callback: (data: { tab: 'chat' | 'excel' | 'doc' | 'gallery' }) => void) => () => void
+    onSelectArtifact: (callback: (data: { artifactId: string; openInFullTab: boolean; targetTab?: string }) => void) => () => void
+    // Notification listener (for agent-triggered notifications)
+    onNotification: (callback: (data: { message: string; type: 'info' | 'success' | 'warning' | 'error'; duration?: number }) => void) => () => void
+    // Auth refresh state listener
+    onAuthRefreshing: (callback: (data: { provider: string; refreshing: boolean }) => void) => () => void
+    // Auth error listener
+    onAuthError: (callback: (data: { provider: string; error: string | null }) => void) => () => void
 }
 
 // Artifact live update event from main process

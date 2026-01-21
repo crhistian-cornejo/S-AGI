@@ -134,6 +134,33 @@ const desktopApi = {
         return () => {
             ipcRenderer.removeListener('ui:select-artifact', handler)
         }
+    },
+
+    // Notification listener (for agent-triggered notifications)
+    onNotification: (callback: (data: { message: string; type: 'info' | 'success' | 'warning' | 'error'; duration?: number }) => void) => {
+        const handler = (_: any, data: any) => callback(data)
+        ipcRenderer.on('ui:notification', handler)
+        return () => {
+            ipcRenderer.removeListener('ui:notification', handler)
+        }
+    },
+
+    // Auth refresh state listener
+    onAuthRefreshing: (callback: (data: { provider: string; refreshing: boolean }) => void) => {
+        const handler = (_: any, data: any) => callback(data)
+        ipcRenderer.on('auth:refreshing', handler)
+        return () => {
+            ipcRenderer.removeListener('auth:refreshing', handler)
+        }
+    },
+
+    // Auth error listener
+    onAuthError: (callback: (data: { provider: string; error: string | null }) => void) => {
+        const handler = (_: any, data: any) => callback(data)
+        ipcRenderer.on('auth:error', handler)
+        return () => {
+            ipcRenderer.removeListener('auth:error', handler)
+        }
     }
 }
 

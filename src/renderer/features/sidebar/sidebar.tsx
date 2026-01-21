@@ -21,7 +21,6 @@ import {
     IconArchiveOff,
     IconChevronDown,
     IconChevronRight,
-    IconSparkles,
     IconPhoto,
     IconCode,
     IconTable,

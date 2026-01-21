@@ -48,7 +48,7 @@ export function AuthDialog() {
     }
 
     const signIn = trpc.auth.signIn.useMutation({
-        onSuccess: async (data) => {
+        onSuccess: async () => {
             // Session is already set in main process via tRPC - main process is the source of truth.
             // Do NOT set session in renderer's local Supabase client to avoid refresh token conflicts.
             toast.success('Signed in successfully!')
@@ -94,7 +94,7 @@ export function AuthDialog() {
     })
 
     const exchangeCode = trpc.auth.exchangeCodeForSession.useMutation({
-        onSuccess: async (data) => {
+        onSuccess: async () => {
             // Session is already set in main process via tRPC - main process is the source of truth.
             // Do NOT set session in renderer's local Supabase client to avoid refresh token conflicts.
             toast.success('Signed in with Google!')

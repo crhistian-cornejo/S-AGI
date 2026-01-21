@@ -16,6 +16,7 @@ import {
     commandKOpenAtom,
     reasoningEffortAtom,
     supportsReasoningAtom,
+    type ReasoningEffort,
 } from '@/lib/atoms'
 import { Sidebar } from '@/features/sidebar/sidebar'
 import { ChatView } from '@/features/chat/chat-view'
@@ -190,7 +191,7 @@ export function MainLayout() {
     useHotkeys('ctrl+tab', (e) => {
         e.preventDefault()
         if (!supportsReasoning) return
-        setReasoningEffort((prev) => ({ low: 'medium', medium: 'high', high: 'low' }[prev]))
+        setReasoningEffort((prev) => ({ low: 'medium', medium: 'high', high: 'low' }[prev] as ReasoningEffort))
     }, { preventDefault: true, enableOnFormTags: true, enabled: !isUniverTabActive })
 
     return (

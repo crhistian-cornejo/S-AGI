@@ -321,6 +321,59 @@ export const authDialogModeAtom = atom<'signin' | 'signup'>('signin')
 // --- REFRESH ---
 export const onboardingCompletedAtom = atomWithStorage('onboarding-completed', false)
 
+// === AUTH REFRESH STATE ===
+// Track which providers are currently refreshing their tokens
+export const authRefreshingAtom = atom<Set<AIProvider>>(new Set<AIProvider>())
+
+// Track auth errors per provider
+export interface AuthError {
+    message: string
+    code?: string
+    timestamp: number
+}
+export const authErrorsAtom = atom<Partial<Record<AIProvider, AuthError>>>({})
+
+// Helper atom to check if any provider is refreshing
+export const isAnyAuthRefreshingAtom = atom((get) => {
+    const refreshing = get(authRefreshingAtom)
+    return refreshing.size > 0
+})
+
+// Helper atom to set refreshing state for a provider
+export const setAuthRefreshingAtom = atom(
+    null,
+    (get, set, { provider, refreshing }: { provider: AIProvider; refreshing: boolean }) => {
+        const current = get(authRefreshingAtom)
+        const updated = new Set(current)
+        if (refreshing) {
+            updated.add(provider)
+        } else {
+            updated.delete(provider)
+        }
+        set(authRefreshingAtom, updated)
+    }
+)
+
+// Helper atom to set auth error for a provider
+export const setAuthErrorAtom = atom(
+    null,
+    (get, set, { provider, error }: { provider: AIProvider; error: string | null }) => {
+        const current = get(authErrorsAtom)
+        if (error) {
+            set(authErrorsAtom, {
+                ...current,
+                [provider]: {
+                    message: error,
+                    timestamp: Date.now()
+                }
+            })
+        } else {
+            const { [provider]: _, ...rest } = current
+            set(authErrorsAtom, rest)
+        }
+    }
+)
+
 // Legacy atoms for backward compatibility
 export const isLoadingAtom = isStreamingAtom
 export const claudeCodeConnectedAtom = atom((get) => {
