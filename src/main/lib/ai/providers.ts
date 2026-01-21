@@ -8,7 +8,8 @@ import { getSecureApiKeyStore } from '../auth/api-key-store'
 import type { AIProvider } from '@shared/ai-types'
 
 /**
- * Z.AI API configuration
+ * Z.AI API configuration (OpenAI-compatible)
+ * @see https://docs.z.ai/api-reference
  */
 const ZAI_CONFIG = {
     baseURL: 'https://api.z.ai/api/paas/v4/',
@@ -119,24 +120,25 @@ function createChatGPTFetch(manager: ReturnType<typeof getChatGPTAuthManager>) {
 
 /**
  * Create Z.AI provider with OpenAI-compatible endpoint
+ * @see https://docs.z.ai/api-reference
+ *
+ * Available models:
+ * - GLM-4.7: Main model with thinking mode support
+ * - GLM-4.7-Flash: Fast model for quick tasks (free tier fallback)
  */
 function createZaiProvider() {
     const zaiManager = getZaiAuthManager()
 
     return customProvider({
         languageModels: {
+            // Main model with thinking mode support
             'GLM-4.7': createOpenAI({
                 baseURL: ZAI_CONFIG.baseURL,
                 apiKey: 'dummy',
                 fetch: createZaiFetch(zaiManager)
             })('GLM-4.7'),
 
-            'GLM-4.7-FlashX': createOpenAI({
-                baseURL: ZAI_CONFIG.baseURL,
-                apiKey: 'dummy',
-                fetch: createZaiFetch(zaiManager)
-            })('GLM-4.7-FlashX'),
-
+            // Fast model for quick tasks
             'GLM-4.7-Flash': createOpenAI({
                 baseURL: ZAI_CONFIG.baseURL,
                 apiKey: 'dummy',

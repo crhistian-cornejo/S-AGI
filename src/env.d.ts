@@ -37,9 +37,32 @@ interface DesktopApi {
     onAIStreamEvent: (callback: (event: AIStreamEvent) => void) => () => void
     tray: {
         getRecentItems: () => Promise<TrayRecentItem[]>
+        getUser: () => Promise<{ email: string; avatarUrl: string | null; fullName: string | null } | null>
         action: (data: { action: string; [key: string]: unknown }) => Promise<void>
         onRefresh: (callback: () => void) => () => void
         onAction: (action: string, callback: (data?: any) => void) => () => void
+    }
+    files: {
+        listFolders: () => Promise<FileManagerFolder[]>
+        createFolder: (data: { name: string; isSensitive?: boolean }) => Promise<FileManagerFolder>
+        renameFolder: (data: { folderId: string; name: string }) => Promise<FileManagerFolder>
+        deleteFolder: (data: { folderId: string }) => Promise<{ success: boolean }>
+        listFiles: (data: { folderId: string }) => Promise<FileManagerFileWithUrls[]>
+        getQuickAccess: () => Promise<FileManagerQuickAccess>
+        importPaths: (data: { folderId: string; paths: string[] }) => Promise<FileManagerFile[]>
+        pickAndImport: (data: { folderId: string }) => Promise<FileManagerFile[]>
+        deleteFile: (data: { fileId: string }) => Promise<{ success: boolean }>
+        openFile: (data: { fileId: string }) => Promise<{ success: boolean }>
+        showInFolder: (data: { fileId: string }) => Promise<{ success: boolean }>
+        exportFiles: (data: { fileIds: string[] }) => Promise<{ exported: number }>
+    }
+    security: {
+        getSensitiveStatus: () => Promise<{ unlockedUntil: number; canBiometric: boolean; pinEnabled: boolean }>
+        unlockSensitive: (data: { ttlMs?: number; reason?: string }) => Promise<{ success: boolean; unlockedUntil: number; error?: string }>
+        unlockWithPin: (data: { pin: string; ttlMs?: number }) => Promise<{ success: boolean; unlockedUntil: number; error?: string }>
+        setPin: (data: { pin: string }) => Promise<{ success: boolean }>
+        clearPin: () => Promise<{ success: boolean }>
+        lockSensitive: () => Promise<{ success: boolean }>
     }
     clipboard: {
         writeText: (text: string) => Promise<boolean>
@@ -79,6 +102,40 @@ interface TrayRecentItem {
     name: string
     updatedAt: string
     chatId?: string
+}
+
+interface FileManagerFolder {
+    id: string
+    name: string
+    createdAt: string
+    updatedAt: string
+    isSensitive: boolean
+}
+
+interface FileManagerFile {
+    id: string
+    folderId: string
+    originalName: string
+    storedPath: string
+    ext: string
+    size: number
+    mime: string
+    createdAt: string
+    updatedAt: string
+    lastOpenedAt: string | null
+    openCount: number
+    isImage: boolean
+    thumbnailPath: string | null
+}
+
+interface FileManagerFileWithUrls extends FileManagerFile {
+    url: string
+    thumbnailUrl: string | null
+}
+
+interface FileManagerQuickAccess {
+    recent: FileManagerFile[]
+    frequent: FileManagerFile[]
 }
 
 // AI Stream event type

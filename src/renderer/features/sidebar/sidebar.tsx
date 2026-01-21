@@ -296,51 +296,64 @@ function ChatItem({
             content={tooltipContent}
             containerClassName="w-full"
         >
-            <p className="truncate font-medium">
+            <p className="truncate font-medium text-sm">
                 {chat.title || 'Untitled'}
-            </p>
-            <p className="text-xs text-muted-foreground truncate">
-                {formatRelativeTime(chat.updated_at)}
             </p>
         </CursorTooltip>
     )
 
     const actionMenu = (
-        <div className="flex items-center gap-1 shrink-0">
-            {chat.pinned && (
-                <IconPinFilled size={14} className="text-primary" />
+        <div className="flex items-center gap-0.5">
+            <Tooltip>
+                <TooltipTrigger asChild>
+                    <button
+                        type="button"
+                        className={cn(
+                            "p-1 rounded-md transition-colors",
+                            chat.pinned 
+                                ? "text-primary opacity-100" 
+                                : "text-muted-foreground/60 hover:text-foreground hover:bg-accent/50 opacity-0 group-hover:opacity-100"
+                        )}
+                        onClick={(e) => {
+                            e.stopPropagation()
+                            onTogglePin()
+                        }}
+                    >
+                        {chat.pinned ? <IconPinFilled size={14} /> : <IconPin size={14} />}
+                    </button>
+                </TooltipTrigger>
+                <TooltipContent side="top">{chat.pinned ? 'Unpin' : 'Pin'}</TooltipContent>
+            </Tooltip>
+
+            {!isArchived && (
+                <Tooltip>
+                    <TooltipTrigger asChild>
+                        <button
+                            type="button"
+                            className="p-1 text-muted-foreground/60 hover:text-foreground hover:bg-accent/50 rounded-md transition-colors opacity-0 group-hover:opacity-100"
+                            onClick={(e) => {
+                                e.stopPropagation()
+                                onArchive()
+                            }}
+                        >
+                            <IconArchive size={14} />
+                        </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="top">Archive</TooltipContent>
+                </Tooltip>
             )}
-            {isArchived && (
-                <IconArchive size={14} className="text-muted-foreground/60" />
-            )}
+
             <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                     <button
                         type="button"
-                        className="opacity-0 group-hover:opacity-100 p-1 hover:bg-accent/50 rounded-md transition-[opacity,transform] active:scale-95"
+                        className="p-1 text-muted-foreground/60 hover:text-foreground hover:bg-accent/50 rounded-md transition-colors active:scale-95 opacity-0 group-hover:opacity-100"
                         onClick={(e) => e.stopPropagation()}
-                        aria-label="Chat actions"
                     >
                         <IconDots size={14} />
                     </button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="w-44">
-                    {/* Pin/Unpin - only for non-archived */}
-                    {!isArchived && (
-                        <DropdownMenuItem onClick={onTogglePin}>
-                            {chat.pinned ? (
-                                <>
-                                    <IconPin size={14} className="mr-2" />
-                                    Unpin
-                                </>
-                            ) : (
-                                <>
-                                    <IconPinFilled size={14} className="mr-2" />
-                                    Pin to top
-                                </>
-                            )}
-                        </DropdownMenuItem>
-                    )}
                     <DropdownMenuItem onClick={onStartRename}>
                         <IconPencil size={14} className="mr-2" />
                         Rename
@@ -373,14 +386,17 @@ function ChatItem({
         return (
             <div
                 className={cn(
-                    'group flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors',
+                    'group flex flex-col gap-0.5 px-2.5 py-1.5 rounded-lg text-sm transition-colors',
                     isSelected
-                        ? 'bg-accent text-accent-foreground'
+                        ? 'bg-accent/80 ring-1 ring-primary/20 shadow-sm'
                         : 'text-foreground/80 hover:bg-accent/50'
                 )}
             >
-                <IconMessage size={16} className="shrink-0 opacity-60" />
-                <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-1.5">
+                    <IconMessage size={12} className={cn("shrink-0", isSelected ? "text-primary" : "text-muted-foreground/40")} />
+                    <span className="text-[10px] text-muted-foreground">Editing...</span>
+                </div>
+                <div className="w-full">
                     <input
                         type="text"
                         value={editingTitle}
@@ -394,11 +410,12 @@ function ChatItem({
                             }
                         }}
                         onBlur={() => onSaveRename(editingTitle)}
-                        className="w-full bg-background border border-border rounded px-2 py-0.5 text-sm font-medium focus:outline-none focus:ring-1 focus:ring-primary"
+                        className="w-full bg-background border border-border rounded px-2 py-0.5 text-xs font-medium focus:outline-none focus:ring-1 focus:ring-primary"
                         onClick={(e) => e.stopPropagation()}
                         aria-label="Chat title"
                         name="chat-title"
                         autoComplete="off"
+                        autoFocus
                     />
                 </div>
             </div>
@@ -408,23 +425,32 @@ function ChatItem({
     return (
         <div
             className={cn(
-                'group flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors',
+                'group flex flex-col gap-0.5 px-2.5 py-2 rounded-lg text-sm transition-all duration-200 cursor-pointer select-none',
                 isSelected
-                    ? 'bg-accent text-accent-foreground'
-                    : 'text-foreground/80 hover:bg-accent/50'
+                    ? 'bg-accent/80 text-accent-foreground ring-1 ring-primary/20 shadow-sm'
+                    : 'text-foreground/80 hover:bg-accent/50 hover:shadow-sm'
             )}
+            onClick={onSelect}
         >
-            <button
-                type="button"
-                className="flex flex-1 items-center gap-2 min-w-0 text-left"
-                onClick={onSelect}
-            >
-                <IconMessage size={16} className="shrink-0 opacity-60" />
-                <div className="flex-1 min-w-0">
-                    {titleContent}
+            <div className="flex items-center justify-between w-full">
+                <div className="flex items-center gap-1.5 min-w-0">
+                    <IconMessage 
+                        size={12} 
+                        className={cn(
+                            "shrink-0 transition-colors",
+                            isSelected ? "text-primary" : "text-muted-foreground/40"
+                        )} 
+                    />
+                    <span className="text-[10px] text-muted-foreground font-medium truncate">
+                        {formatRelativeTime(chat.updated_at)}
+                    </span>
                 </div>
-            </button>
-            {actionMenu}
+                {actionMenu}
+            </div>
+            
+            <div className="w-full">
+                {titleContent}
+            </div>
         </div>
     )
 }
@@ -474,7 +500,6 @@ export function Sidebar() {
     const [editingTitle, setEditingTitle] = useState('')
     
     // Section collapse state
-    const [showPinned, setShowPinned] = useState(true)
     const [showRecent, setShowRecent] = useState(true)
     const [showArchived, setShowArchived] = useState(false)
 
@@ -508,20 +533,13 @@ export function Sidebar() {
         gcTime: 1000 * 60 * 30
     })
 
-    // Separate pinned and unpinned chats
-    const { pinnedChats, recentChats } = useMemo(() => {
-        const pinned: Chat[] = []
-        const recent: Chat[] = []
-        
-        for (const chat of (chats || [])) {
-            if (chat.pinned) {
-                pinned.push(chat)
-            } else {
-                recent.push(chat)
-            }
-        }
-        
-        return { pinnedChats: pinned, recentChats: recent }
+    // Sort chats: pinned first, then by updated_at
+    const sortedChats = useMemo(() => {
+        return [...(chats || [])].sort((a, b) => {
+            if (a.pinned && !b.pinned) return -1
+            if (!a.pinned && b.pinned) return 1
+            return new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()
+        })
     }, [chats])
 
     // Filter chats based on search query
@@ -532,8 +550,7 @@ export function Sidebar() {
         [searchQuery]
     )
 
-    const filteredPinned = useMemo(() => filterChats(pinnedChats), [filterChats, pinnedChats])
-    const filteredRecent = useMemo(() => filterChats(recentChats), [filterChats, recentChats])
+    const filteredChats = useMemo(() => filterChats(sortedChats), [filterChats, sortedChats])
     const filteredArchived = useMemo(() => filterChats(archivedChats || []), [filterChats, archivedChats])
 
     const utils = trpc.useUtils()
@@ -864,42 +881,24 @@ export function Sidebar() {
                         </div>
                     ) : (
                         <>
-                            {/* Pinned Section */}
-                            {filteredPinned.length > 0 && (
-                                <div className="mb-2">
-                                    <SectionHeader
-                                        title="Pinned"
-                                        count={filteredPinned.length}
-                                        isOpen={showPinned}
-                                        onToggle={() => setShowPinned(!showPinned)}
-                                        icon={<IconPinFilled size={12} />}
-                                    />
-                                    {showPinned && (
-                                        <div className="space-y-1">
-                                            {renderChatList(filteredPinned)}
-                                        </div>
-                                    )}
-                                </div>
-                            )}
-
-                            {/* Recent Section */}
+                            {/* History Section (includes Pinned and Recent) */}
                             <div className="mb-2">
                                 <SectionHeader
-                                    title="Recent"
-                                    count={filteredRecent.length}
+                                    title="History"
+                                    count={filteredChats.length}
                                     isOpen={showRecent}
                                     onToggle={() => setShowRecent(!showRecent)}
                                     icon={<IconMessage size={12} />}
                                 />
                                 {showRecent && (
                                     <div className="space-y-1">
-                                        {filteredRecent.length === 0 && filteredPinned.length === 0 ? (
+                                        {filteredChats.length === 0 ? (
                                             <div className="text-sm text-muted-foreground text-center py-8 px-4">
                                                 <IconMessage size={32} className="mx-auto mb-2 opacity-30" />
                                                 <p>{searchQuery ? 'No results found' : 'No conversations yet'}</p>
                                             </div>
                                         ) : (
-                                            renderChatList(filteredRecent)
+                                            renderChatList(filteredChats)
                                         )}
                                     </div>
                                 )}

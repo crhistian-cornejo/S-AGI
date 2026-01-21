@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useAtom, useAtomValue, useSetAtom } from 'jotai'
 import {
     artifactPanelOpenAtom,
@@ -6,10 +6,12 @@ import {
     activeTabAtom,
     settingsModalOpenAtom,
     currentProviderAtom,
-    sidebarOpenAtom
+    sidebarOpenAtom,
+    chatSoundsEnabledAtom
 } from '@/lib/atoms'
 import { shortcutsDialogOpenAtom } from '@/lib/atoms'
 import { trpc } from '@/lib/trpc'
+import { useChatSounds } from '@/lib/use-chat-sounds'
 import {
     DropdownMenu,
     DropdownMenuContent,
@@ -57,6 +59,17 @@ export function TitleBar({ className, noTrafficLightSpace }: TitleBarProps) {
     const selectedArtifact = useAtomValue(selectedArtifactAtom)
     const isDesktop = isElectron()
     const showTrafficLights = isMacOS() && isDesktop
+    const soundsEnabled = useAtomValue(chatSoundsEnabledAtom)
+    const chatSounds = useChatSounds(soundsEnabled)
+    const prevActiveTabRef = useRef<string | null>(null)
+
+    const handleTabChange = (tab: 'chat' | 'excel' | 'doc') => {
+        setActiveTab(tab)
+        if (prevActiveTabRef.current !== null && prevActiveTabRef.current !== tab) {
+            chatSounds.playClick()
+        }
+        prevActiveTabRef.current = tab
+    }
 
     const utils = trpc.useUtils()
     const { data: session } = trpc.auth.getSession.useQuery()
@@ -134,7 +147,7 @@ export function TitleBar({ className, noTrafficLightSpace }: TitleBarProps) {
                 >
                     <button
                         type="button"
-                        onClick={() => setActiveTab('chat')}
+                        onClick={() => handleTabChange('chat')}
                         className={cn(
                             "flex items-center gap-1.5 px-3 h-full rounded-md text-[11px] font-bold uppercase tracking-wider transition-all duration-300",
                             activeTab === 'chat'
@@ -147,7 +160,7 @@ export function TitleBar({ className, noTrafficLightSpace }: TitleBarProps) {
                     </button>
                     <button
                         type="button"
-                        onClick={() => setActiveTab('excel')}
+                        onClick={() => handleTabChange('excel')}
                         className={cn(
                             "flex items-center gap-1.5 px-3 h-full rounded-md text-[11px] font-bold uppercase tracking-wider transition-all duration-300",
                             activeTab === 'excel'
@@ -160,7 +173,7 @@ export function TitleBar({ className, noTrafficLightSpace }: TitleBarProps) {
                     </button>
                     <button
                         type="button"
-                        onClick={() => setActiveTab('doc')}
+                        onClick={() => handleTabChange('doc')}
                         className={cn(
                             "flex items-center gap-1.5 px-3 h-full rounded-md text-[11px] font-bold uppercase tracking-wider transition-all duration-300",
                             activeTab === 'doc'

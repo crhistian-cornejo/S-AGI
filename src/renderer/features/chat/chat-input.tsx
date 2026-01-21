@@ -15,10 +15,14 @@ import {
     IconRectangle,
     IconRectangleVertical,
     IconSquare,
+    IconAt,
 } from '@tabler/icons-react'
 import { Button } from '@/components/ui/button'
 import { ImageAttachmentItem } from '@/components/image-attachment-item'
 import { FileAttachmentItem } from '@/components/file-attachment-item'
+import { DocumentMentionPopover, DocumentMentionBadge, type MentionableDocument } from '@/components/document-mention-popover'
+import { selectedChatIdAtom } from '@/lib/atoms'
+import { useDocumentUpload } from '@/lib/use-document-upload'
 import {
     Select,
     SelectContent,
@@ -63,7 +67,11 @@ import { trpc } from '@/lib/trpc'
 interface ChatInputProps {
     value: string
     onChange: (value: string) => void
-    onSend: (images?: Array<{ base64Data: string; mediaType: string; filename: string }>, documents?: File[]) => void
+    onSend: (
+        images?: Array<{ base64Data: string; mediaType: string; filename: string }>,
+        documents?: File[],
+        targetDocument?: { id: string; filename: string } | null
+    ) => void
     onStop?: () => void
     isLoading: boolean
     streamingText?: string
@@ -129,6 +137,25 @@ export const ChatInput = memo(function ChatInput({ value, onChange, onSend, onSt
     // Drag and drop state
     const [isDragOver, setIsDragOver] = useState(false)
 
+    // Document mention state (@mentions)
+    const selectedChatId = useAtomValue(selectedChatIdAtom)
+    const documentUpload = useDocumentUpload({ chatId: selectedChatId })
+    const [isMentionPopoverOpen, setIsMentionPopoverOpen] = useState(false)
+    const [mentionSearchQuery, setMentionSearchQuery] = useState('')
+    const [mentionSelectedIndex, setMentionSelectedIndex] = useState(0)
+    const [selectedDocument, setSelectedDocument] = useState<MentionableDocument | null>(null)
+    const mentionTriggerPosRef = useRef<number>(-1)
+
+    // Convert document upload files to mentionable documents
+    const mentionableDocuments: MentionableDocument[] = useMemo(() => {
+        return (documentUpload.files || []).map(f => ({
+            id: f.id,
+            filename: f.filename,
+            bytes: f.bytes,
+            status: f.status
+        }))
+    }, [documentUpload.files])
+
     // Auto-resize textarea when value changes
     // biome-ignore lint/correctness/useExhaustiveDependencies: value is intentionally in deps to trigger resize
     useEffect(() => {
@@ -144,7 +171,75 @@ export const ChatInput = memo(function ChatInput({ value, onChange, onSend, onSt
         textareaRef.current?.focus()
     }, [])
 
+    // Handle document mention selection
+    const handleMentionSelect = useCallback((doc: MentionableDocument) => {
+        // Remove the @query from the input and set the selected document
+        if (mentionTriggerPosRef.current >= 0) {
+            const beforeAt = value.slice(0, mentionTriggerPosRef.current)
+            const afterQuery = value.slice(mentionTriggerPosRef.current + 1 + mentionSearchQuery.length)
+            onChange(beforeAt + afterQuery)
+        }
+        setSelectedDocument(doc)
+        setIsMentionPopoverOpen(false)
+        setMentionSearchQuery('')
+        mentionTriggerPosRef.current = -1
+        textareaRef.current?.focus()
+    }, [value, mentionSearchQuery, onChange])
+
+    // Handle removing selected document
+    const handleRemoveSelectedDocument = useCallback(() => {
+        setSelectedDocument(null)
+    }, [])
+
+    // Filter documents for mention popover
+    const filteredMentionDocs = useMemo(() => {
+        if (!mentionSearchQuery) return mentionableDocuments
+        const query = mentionSearchQuery.toLowerCase()
+        return mentionableDocuments.filter(doc =>
+            doc.filename.toLowerCase().includes(query)
+        )
+    }, [mentionableDocuments, mentionSearchQuery])
+
     const handleKeyDown = (e: React.KeyboardEvent) => {
+        // Handle mention popover navigation
+        if (isMentionPopoverOpen) {
+            if (e.key === 'ArrowDown') {
+                e.preventDefault()
+                setMentionSelectedIndex(prev =>
+                    prev < filteredMentionDocs.length - 1 ? prev + 1 : 0
+                )
+                return
+            }
+            if (e.key === 'ArrowUp') {
+                e.preventDefault()
+                setMentionSelectedIndex(prev =>
+                    prev > 0 ? prev - 1 : filteredMentionDocs.length - 1
+                )
+                return
+            }
+            if (e.key === 'Enter') {
+                e.preventDefault()
+                if (filteredMentionDocs.length > 0 && mentionSelectedIndex >= 0) {
+                    handleMentionSelect(filteredMentionDocs[mentionSelectedIndex])
+                }
+                return
+            }
+            if (e.key === 'Escape') {
+                e.preventDefault()
+                setIsMentionPopoverOpen(false)
+                setMentionSearchQuery('')
+                mentionTriggerPosRef.current = -1
+                return
+            }
+            if (e.key === 'Tab') {
+                e.preventDefault()
+                if (filteredMentionDocs.length > 0 && mentionSelectedIndex >= 0) {
+                    handleMentionSelect(filteredMentionDocs[mentionSelectedIndex])
+                }
+                return
+            }
+        }
+
         // Ctrl+Tab: cycle ResponseMode (Instant→Thinking→Auto) o Reasoning (Low→Medium→High)
         if (e.key === 'Tab' && e.ctrlKey) {
             if (supportsResponseMode) {
@@ -162,7 +257,7 @@ export const ChatInput = memo(function ChatInput({ value, onChange, onSend, onSt
             setIsPlanMode(prev => !prev)
             return
         }
-        
+
         if (e.key === 'Enter' && !e.shiftKey) {
             e.preventDefault()
             if (!isLoading && canSend) {
@@ -184,7 +279,7 @@ export const ChatInput = memo(function ChatInput({ value, onChange, onSend, onSt
 
     const handleSend = useCallback(() => {
         if (!canSend) return
-        
+
         // Prepare images for sending
         const imageData = images
             .filter(img => img.base64Data && img.mediaType)
@@ -193,15 +288,67 @@ export const ChatInput = memo(function ChatInput({ value, onChange, onSend, onSt
                 mediaType: img.mediaType!,
                 filename: img.filename,
             }))
-        
+
         // Get raw File objects for documents
         const documentFiles = files
             .filter(f => f.base64Data)
             .map(f => new File([Uint8Array.from(atob(f.base64Data!), c => c.charCodeAt(0))], f.filename, { type: f.type }))
-        
-        onSend(imageData.length > 0 ? imageData : undefined, documentFiles.length > 0 ? documentFiles : undefined)
+
+        // Pass selected document for targeted file search
+        const targetDoc = selectedDocument
+            ? { id: selectedDocument.id, filename: selectedDocument.filename }
+            : null
+
+        onSend(
+            imageData.length > 0 ? imageData : undefined,
+            documentFiles.length > 0 ? documentFiles : undefined,
+            targetDoc
+        )
         clearAll()
-    }, [canSend, images, files, onSend, clearAll])
+        setSelectedDocument(null) // Clear selected document after sending
+    }, [canSend, images, files, onSend, clearAll, selectedDocument])
+
+    // Handle input change with @ mention detection
+    const handleInputChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
+        const newValue = e.target.value
+        const cursorPos = e.target.selectionStart || 0
+
+        onChange(newValue)
+
+        // Check if we should open the mention popover
+        // Look for @ that's either at the start or preceded by whitespace
+        if (mentionableDocuments.length > 0) {
+            // Find the last @ before cursor
+            const textBeforeCursor = newValue.slice(0, cursorPos)
+            const lastAtIndex = textBeforeCursor.lastIndexOf('@')
+
+            if (lastAtIndex >= 0) {
+                // Check if @ is at start or preceded by whitespace
+                const charBefore = lastAtIndex > 0 ? textBeforeCursor[lastAtIndex - 1] : ' '
+                const isValidTrigger = charBefore === ' ' || charBefore === '\n' || lastAtIndex === 0
+
+                if (isValidTrigger) {
+                    // Get the query after @
+                    const queryAfterAt = textBeforeCursor.slice(lastAtIndex + 1)
+                    // Only show popover if query doesn't contain spaces (single word filter)
+                    if (!queryAfterAt.includes(' ')) {
+                        mentionTriggerPosRef.current = lastAtIndex
+                        setMentionSearchQuery(queryAfterAt)
+                        setMentionSelectedIndex(0)
+                        setIsMentionPopoverOpen(true)
+                        return
+                    }
+                }
+            }
+        }
+
+        // Close popover if @ is removed or query is invalid
+        if (isMentionPopoverOpen) {
+            setIsMentionPopoverOpen(false)
+            setMentionSearchQuery('')
+            mentionTriggerPosRef.current = -1
+        }
+    }, [onChange, mentionableDocuments.length, isMentionPopoverOpen])
 
     // Paste handler for images
     const handlePaste = useCallback((e: React.ClipboardEvent) => {
@@ -444,6 +591,31 @@ export const ChatInput = memo(function ChatInput({ value, onChange, onSend, onSt
                     </div>
                 )}
 
+                {/* Selected Document Badge (from @mention) */}
+                {selectedDocument && (
+                    <div className="flex flex-wrap gap-1.5 px-2 pb-2">
+                        <DocumentMentionBadge
+                            document={selectedDocument}
+                            onRemove={handleRemoveSelectedDocument}
+                        />
+                    </div>
+                )}
+
+                {/* Document Mention Popover */}
+                <DocumentMentionPopover
+                    isOpen={isMentionPopoverOpen}
+                    onClose={() => {
+                        setIsMentionPopoverOpen(false)
+                        setMentionSearchQuery('')
+                        mentionTriggerPosRef.current = -1
+                    }}
+                    onSelect={handleMentionSelect}
+                    documents={mentionableDocuments}
+                    searchQuery={mentionSearchQuery}
+                    selectedIndex={mentionSelectedIndex}
+                    onSelectedIndexChange={setMentionSelectedIndex}
+                />
+
                 {/* Drop overlay */}
                 {isDragOver && (
                     <div className="absolute inset-0 bg-primary/5 rounded-[24px] flex items-center justify-center z-10 pointer-events-none">
@@ -454,10 +626,16 @@ export const ChatInput = memo(function ChatInput({ value, onChange, onSend, onSt
                 <textarea
                     ref={textareaRef}
                     value={value}
-                    onChange={(e) => onChange(e.target.value)}
+                    onChange={handleInputChange}
                     onKeyDown={handleKeyDown}
                     onPaste={handlePaste}
-                    placeholder={isImageMode ? "Describe the image you want to generate..." : "Type a message..."}
+                    placeholder={
+                        isImageMode
+                            ? "Describe the image you want to generate..."
+                            : mentionableDocuments.length > 0
+                                ? "Type a message... (@ to mention a document)"
+                                : "Type a message..."
+                    }
                     className="w-full bg-transparent resize-none outline-none text-[15px] leading-relaxed min-h-[60px] max-h-[400px] pt-2 pb-2 px-3 placeholder:text-muted-foreground/40 transition-all font-normal"
                     rows={1}
                     disabled={isLoading}
@@ -686,10 +864,10 @@ export const ChatInput = memo(function ChatInput({ value, onChange, onSend, onSt
                                 {/* Document upload button for file search */}
                                 <Tooltip>
                                     <TooltipTrigger asChild>
-                                        <Button 
+                                        <Button
                                             type="button"
-                                            variant="ghost" 
-                                            size="icon" 
+                                            variant="ghost"
+                                            size="icon"
                                             className={cn(
                                                 "h-8 w-8 text-muted-foreground/40 hover:text-foreground hover:bg-accent/50 rounded-xl relative",
                                                 files.length > 0 && "bg-accent/50 text-foreground"
@@ -709,6 +887,55 @@ export const ChatInput = memo(function ChatInput({ value, onChange, onSend, onSt
                                         <p>{isUploading ? 'Processing...' : 'Attach documents (PDF, Word, etc.)'}</p>
                                     </TooltipContent>
                                 </Tooltip>
+
+                                {/* @ Mention button for Knowledge Base */}
+                                {mentionableDocuments.length > 0 && (
+                                    <Tooltip>
+                                        <TooltipTrigger asChild>
+                                            <Button
+                                                type="button"
+                                                variant="ghost"
+                                                size="icon"
+                                                className={cn(
+                                                    "h-8 w-8 text-muted-foreground/40 hover:text-foreground hover:bg-accent/50 rounded-xl relative",
+                                                    (isMentionPopoverOpen || selectedDocument) && "bg-accent/50 text-foreground"
+                                                )}
+                                                onClick={() => {
+                                                    if (textareaRef.current) {
+                                                        const cursorPos = textareaRef.current.selectionStart || value.length
+                                                        const before = value.slice(0, cursorPos)
+                                                        const after = value.slice(cursorPos)
+                                                        const needsSpace = before.length > 0 && !before.endsWith(' ') && !before.endsWith('\n')
+                                                        onChange(before + (needsSpace ? ' @' : '@') + after)
+                                                        // Set cursor position after @
+                                                        setTimeout(() => {
+                                                            if (textareaRef.current) {
+                                                                const newPos = cursorPos + (needsSpace ? 2 : 1)
+                                                                textareaRef.current.selectionStart = newPos
+                                                                textareaRef.current.selectionEnd = newPos
+                                                                textareaRef.current.focus()
+                                                                // Trigger popover
+                                                                mentionTriggerPosRef.current = cursorPos + (needsSpace ? 1 : 0)
+                                                                setMentionSearchQuery('')
+                                                                setMentionSelectedIndex(0)
+                                                                setIsMentionPopoverOpen(true)
+                                                            }
+                                                        }, 0)
+                                                    }
+                                                }}
+                                                disabled={isLoading}
+                                            >
+                                                <IconAt size={18} />
+                                                <span className="absolute -top-0.5 -right-0.5 h-3.5 w-3.5 rounded-full bg-blue-500 text-[9px] text-white flex items-center justify-center font-bold">
+                                                    {mentionableDocuments.length > 9 ? '9+' : mentionableDocuments.length}
+                                                </span>
+                                            </Button>
+                                        </TooltipTrigger>
+                                        <TooltipContent>
+                                            <p>Mention document (@) - {mentionableDocuments.length} docs available</p>
+                                        </TooltipContent>
+                                    </Tooltip>
+                                )}
 
                                 {/* Image Generation Toggle */}
                                 <Tooltip>

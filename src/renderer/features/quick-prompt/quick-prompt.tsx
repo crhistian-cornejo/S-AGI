@@ -52,8 +52,10 @@ export function QuickPrompt() {
         }
     }
 
+    const isWindows = window.desktopApi?.platform === 'win32'
+
     return (
-        <div className="quick-prompt-container">
+        <div className={`quick-prompt-container ${isWindows ? 'platform-windows' : ''}`}>
             <div className="quick-prompt-content">
                 <div className="quick-prompt-icon">
                     <Logo size={22} />

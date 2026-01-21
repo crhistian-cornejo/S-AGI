@@ -1,0 +1,145 @@
+import { ipcMain, dialog, shell } from 'electron'
+import { z } from 'zod'
+import { getFileManager } from './file-manager'
+import { isSensitiveUnlocked } from '../security/sensitive-lock'
+
+export function registerFileManagerIpc(getTrayPopover: () => Electron.BrowserWindow | null): void {
+    const fm = getFileManager()
+    fm.init().catch(() => {})
+
+    const notifyChange = () => {
+        const popover = getTrayPopover()
+        popover?.webContents.send('tray:refresh')
+    }
+
+    const assertFolderAllowed = async (folderId: string) => {
+        const isSensitive = await fm.isFolderSensitive(folderId)
+        if (isSensitive && !isSensitiveUnlocked()) throw new Error('Sensitive folder locked')
+    }
+
+    const assertFileAllowed = async (fileId: string) => {
+        const isSensitive = await fm.isFileSensitive(fileId)
+        if (isSensitive && !isSensitiveUnlocked()) throw new Error('Sensitive file locked')
+    }
+
+    ipcMain.handle('files:list-folders', async () => {
+        return await fm.listFolders()
+    })
+
+    ipcMain.handle('files:create-folder', async (_event, input: unknown) => {
+        const { name, isSensitive } = z.object({
+            name: z.string().min(1).max(64),
+            isSensitive: z.boolean().optional().default(false)
+        }).parse(input)
+        const folder = await fm.createFolder(name, isSensitive)
+        notifyChange()
+        return folder
+    })
+
+    ipcMain.handle('files:rename-folder', async (_event, input: unknown) => {
+        const { folderId, name } = z.object({
+            folderId: z.string().min(1),
+            name: z.string().min(1).max(64)
+        }).parse(input)
+        const folder = await fm.renameFolder(folderId, name)
+        notifyChange()
+        return folder
+    })
+
+    ipcMain.handle('files:delete-folder', async (_event, input: unknown) => {
+        const { folderId } = z.object({
+            folderId: z.string().min(1)
+        }).parse(input)
+        await fm.deleteFolder(folderId)
+        notifyChange()
+        return { success: true }
+    })
+
+    ipcMain.handle('files:list-files', async (_event, input: unknown) => {
+        const { folderId } = z.object({
+            folderId: z.string().min(1)
+        }).parse(input)
+        await assertFolderAllowed(folderId)
+        return await fm.listFiles(folderId)
+    })
+
+    ipcMain.handle('files:get-quick-access', async () => {
+        return await fm.getQuickAccess()
+    })
+
+    ipcMain.handle('files:import-paths', async (_event, input: unknown) => {
+        const { folderId, paths } = z.object({
+            folderId: z.string().min(1),
+            paths: z.array(z.string().min(1)).min(1).max(200)
+        }).parse(input)
+        await assertFolderAllowed(folderId)
+        const files = await fm.importFromPaths(paths, folderId)
+        notifyChange()
+        return files
+    })
+
+    ipcMain.handle('files:pick-and-import', async (_event, input: unknown) => {
+        const { folderId } = z.object({
+            folderId: z.string().min(1)
+        }).parse(input)
+        await assertFolderAllowed(folderId)
+        const result = await dialog.showOpenDialog({
+            title: 'Select files',
+            properties: ['openFile', 'multiSelections']
+        })
+        if (result.canceled || result.filePaths.length === 0) return []
+        const files = await fm.importFromPaths(result.filePaths, folderId)
+        notifyChange()
+        return files
+    })
+
+    ipcMain.handle('files:delete-file', async (_event, input: unknown) => {
+        const { fileId } = z.object({
+            fileId: z.string().min(1)
+        }).parse(input)
+        await assertFileAllowed(fileId)
+        await fm.deleteFile(fileId)
+        notifyChange()
+        return { success: true }
+    })
+
+    ipcMain.handle('files:open-file', async (_event, input: unknown) => {
+        const { fileId } = z.object({
+            fileId: z.string().min(1)
+        }).parse(input)
+        await assertFileAllowed(fileId)
+        const file = await fm.getFileById(fileId)
+        if (!file) return { success: false }
+        await shell.openPath(file.storedPath)
+        await fm.markOpened(fileId)
+        notifyChange()
+        return { success: true }
+    })
+
+    ipcMain.handle('files:show-in-folder', async (_event, input: unknown) => {
+        const { fileId } = z.object({
+            fileId: z.string().min(1)
+        }).parse(input)
+        await assertFileAllowed(fileId)
+        const file = await fm.getFileById(fileId)
+        if (!file) return { success: false }
+        shell.showItemInFolder(file.storedPath)
+        return { success: true }
+    })
+
+    ipcMain.handle('files:export', async (_event, input: unknown) => {
+        const { fileIds } = z.object({
+            fileIds: z.array(z.string().min(1)).min(1).max(200)
+        }).parse(input)
+        for (const id of fileIds) {
+            await assertFileAllowed(id)
+        }
+        const dir = await dialog.showOpenDialog({
+            title: 'Choose destination folder',
+            properties: ['openDirectory', 'createDirectory']
+        })
+        if (dir.canceled || dir.filePaths.length === 0) return { exported: 0 }
+        const res = await fm.exportToDirectory(fileIds, dir.filePaths[0]!)
+        return res
+    })
+}

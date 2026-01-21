@@ -215,13 +215,21 @@ export function ChatView() {
     }
 
     // Handle send message
-    const handleSend = async (images?: Array<{ base64Data: string; mediaType: string; filename: string }>, documents?: File[], messageOverride?: string) => {
+    const handleSend = async (
+        images?: Array<{ base64Data: string; mediaType: string; filename: string }>,
+        documents?: File[],
+        targetDocument?: { id: string; filename: string } | null,
+        messageOverride?: string
+    ) => {
         const messageToSend = messageOverride ?? input.trim()
         if ((!messageToSend && !images?.length) || !selectedChatId || isStreaming) return
 
         const userMessage = messageToSend
         const existingMessages = messages
-        
+
+        // Store target document for file search filtering
+        const targetDocumentForSearch = targetDocument || null
+
         // Capture isImageMode and aspect ratio BEFORE resetting (closure issue fix)
         const shouldGenerateImage = isImageMode
         const imageSize = shouldGenerateImage ? ASPECT_RATIO_TO_SIZE[imageAspectRatio] : undefined
@@ -802,9 +810,14 @@ export function ChatView() {
                     ? lastAssistant.metadata.openaiResponseId
                     : undefined
 
+                // If user selected a specific document via @mention, prepend context to prompt
+                const promptWithDocContext = targetDocumentForSearch
+                    ? `[Focus on document: "${targetDocumentForSearch.filename}"]\n\n${userMessage}`
+                    : userMessage
+
                 await chatMutation.mutateAsync({
                     chatId: chatIdForStream,
-                    prompt: userMessage,
+                    prompt: promptWithDocContext,
                     mode,
                     provider,
                     apiKey,
@@ -820,12 +833,14 @@ export function ChatView() {
                         effort: reasoningEffort,
                         summary: 'auto' // Required to receive reasoning summary events
                     },
-                    // Enable file search if there are files in vector store
-                    nativeTools: hasFilesInVectorStore ? { fileSearch: true } : undefined,
+                    // Enable file search if there are files in vector store OR if targeting a specific document
+                    nativeTools: (hasFilesInVectorStore || targetDocumentForSearch) ? { fileSearch: true } : undefined,
                     // Image generation mode - forces use of generate_image tool with gpt-image-1.5
                     generateImage: shouldGenerateImage,
                     // Image size based on selected aspect ratio
-                    imageSize
+                    imageSize,
+                    // Target document for focused file search
+                    targetDocument: targetDocumentForSearch || undefined
                 })
             } catch (error) {
                 cleanupListener?.()
@@ -897,8 +912,8 @@ export function ChatView() {
             // Clear the pending message first to prevent re-triggering
             setPendingMessage(null)
 
-            // Call handleSend with the message override
-            handleSendRef.current(undefined, undefined, pendingMessage)
+            // Call handleSend with the message override (4th param)
+            handleSendRef.current(undefined, undefined, null, pendingMessage)
         }
     }, [pendingMessage, selectedChatId, isStreaming, setPendingMessage])
 
@@ -907,8 +922,8 @@ export function ChatView() {
         // Switch to agent mode
         setIsPlanMode(false)
 
-        // Send "Implement plan" message using ref to avoid stale closure
-        handleSendRef.current?.(undefined, undefined, 'Implement plan')
+        // Send "Implement plan" message using ref to avoid stale closure (4th param)
+        handleSendRef.current?.(undefined, undefined, null, 'Implement plan')
     }, [setIsPlanMode])
 
     // Keyboard shortcut: Cmd/Ctrl+Enter to approve plan
@@ -943,16 +958,12 @@ export function ChatView() {
     useEffect(() => {
         if (selectedChatId) {
             utils.messages.list.invalidate({ chatId: selectedChatId })
-            // Play chat start sound when switching to a new chat
-            if (messages && messages.length === 0) {
-                chatSounds.playChatStart()
-            }
         }
         // Clear artifact selection when chat changes
         // The new chat may have different artifacts
         setSelectedArtifact(null)
         setArtifactPanelOpen(false)
-    }, [selectedChatId, utils, setSelectedArtifact, setArtifactPanelOpen, messages, chatSounds])
+    }, [selectedChatId, utils, setSelectedArtifact, setArtifactPanelOpen, messages])
 
     const getScrollViewport = useCallback(() => {
         const root = scrollContainerRef.current

@@ -80,6 +80,7 @@ const desktopApi = {
     // Tray Popover API
     tray: {
         getRecentItems: () => ipcRenderer.invoke('tray:get-recent-items'),
+        getUser: () => ipcRenderer.invoke('tray:get-user'),
         action: (data: { action: string; [key: string]: unknown }) => 
             ipcRenderer.invoke('tray:action', data),
         onRefresh: (callback: () => void) => {
@@ -97,6 +98,30 @@ const desktopApi = {
                 ipcRenderer.removeListener(channel, listener)
             }
         }
+    },
+
+    files: {
+        listFolders: () => ipcRenderer.invoke('files:list-folders'),
+        createFolder: (data: { name: string; isSensitive?: boolean }) => ipcRenderer.invoke('files:create-folder', data),
+        renameFolder: (data: { folderId: string; name: string }) => ipcRenderer.invoke('files:rename-folder', data),
+        deleteFolder: (data: { folderId: string }) => ipcRenderer.invoke('files:delete-folder', data),
+        listFiles: (data: { folderId: string }) => ipcRenderer.invoke('files:list-files', data),
+        getQuickAccess: () => ipcRenderer.invoke('files:get-quick-access'),
+        importPaths: (data: { folderId: string; paths: string[] }) => ipcRenderer.invoke('files:import-paths', data),
+        pickAndImport: (data: { folderId: string }) => ipcRenderer.invoke('files:pick-and-import', data),
+        deleteFile: (data: { fileId: string }) => ipcRenderer.invoke('files:delete-file', data),
+        openFile: (data: { fileId: string }) => ipcRenderer.invoke('files:open-file', data),
+        showInFolder: (data: { fileId: string }) => ipcRenderer.invoke('files:show-in-folder', data),
+        exportFiles: (data: { fileIds: string[] }) => ipcRenderer.invoke('files:export', data)
+    },
+
+    security: {
+        getSensitiveStatus: () => ipcRenderer.invoke('security:sensitive-status'),
+        unlockSensitive: (data: { ttlMs?: number; reason?: string }) => ipcRenderer.invoke('security:unlock-sensitive', data),
+        unlockWithPin: (data: { pin: string; ttlMs?: number }) => ipcRenderer.invoke('security:unlock-with-pin', data),
+        setPin: (data: { pin: string }) => ipcRenderer.invoke('security:set-pin', data),
+        clearPin: () => ipcRenderer.invoke('security:clear-pin'),
+        lockSensitive: () => ipcRenderer.invoke('security:lock-sensitive')
     },
     
     // Clipboard

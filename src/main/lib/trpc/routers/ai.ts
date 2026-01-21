@@ -1038,7 +1038,12 @@ export const aiRouter = router({
             /** When true, forces the AI to use the generate_image tool with the prompt */
             generateImage: z.boolean().optional(),
             /** Image size for image generation (e.g., '1024x1024', '1536x1024', '1024x1536') */
-            imageSize: z.string().optional()
+            imageSize: z.string().optional(),
+            /** Target document for focused file search (from @mention) */
+            targetDocument: z.object({
+                id: z.string(),
+                filename: z.string()
+            }).optional()
         }))
         .mutation(async ({ ctx, input }) => {
             // Validate user has access to this chat

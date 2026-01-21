@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, nativeTheme, Tray, Menu, nativeImage, session, shell } from 'electron'
+import { app, BrowserWindow, ipcMain, nativeTheme, Tray, Menu, nativeImage, session, shell, dialog } from 'electron'
 import { join } from 'path'
 import { existsSync } from 'fs'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
@@ -8,6 +8,10 @@ import { createContext } from './lib/trpc/trpc'
 import { supabase } from './lib/supabase/client'
 import { setMainWindow } from './lib/window-manager'
 import { getHotkeyManager } from './lib/hotkeys'
+import { registerFileManagerIpc } from './lib/file-manager/ipc'
+import { registerSecurityIpc } from './lib/security/ipc'
+import { getFileManager } from './lib/file-manager/file-manager'
+import { lockSensitiveNow } from './lib/security/sensitive-lock'
 import log from 'electron-log'
 
 // Basic menu to enable standard shortcuts like Copy/Paste
@@ -161,7 +165,7 @@ async function getRecentItems(): Promise<Array<{
 function createTrayPopover(): BrowserWindow {
     const popover = new BrowserWindow({
         width: 350,
-        height: 550,
+        height: 650,
         show: false,
         frame: false,
         resizable: false,
@@ -197,6 +201,10 @@ function createTrayPopover(): BrowserWindow {
         popover.hide()
     })
 
+    popover.on('show', () => {
+        popover.webContents.send('tray:refresh')
+    })
+
     log.info('[Tray] Popover window created')
     return popover
 }
@@ -230,7 +238,11 @@ function createQuickPromptWindow(): BrowserWindow {
         transparent: true,
         hasShadow: false,
         focusable: true,
-        type: 'panel',
+        type: process.platform === 'darwin' ? 'panel' : undefined,
+        backgroundColor: '#00000000',
+        thickFrame: false, // Prevents Windows default resize/shadow behavior
+        autoHideMenuBar: true,
+        titleBarStyle: 'hidden',
         webPreferences: {
             preload: join(__dirname, '../preload/index.js'),
             sandbox: true,
@@ -240,6 +252,13 @@ function createQuickPromptWindow(): BrowserWindow {
     })
 
     attachNavigationGuards(win, getRendererOrigins())
+
+    // Windows 11 Fix: Disable rounded corners and system materials that cause border artifacts
+    if (process.platform === 'win32') {
+        win.setMenuBarVisibility(false)
+        // @ts-ignore - Electron 28+ / Windows 11 specific
+        if (win.setBackgroundMaterial) win.setBackgroundMaterial('none')
+    }
 
     if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
         win.loadURL(`${process.env['ELECTRON_RENDERER_URL']}/quick-prompt.html`)
@@ -360,7 +379,7 @@ function registerContentSecurityPolicy(): void {
         `default-src 'self' ${devOrigins}`,
         `script-src ${scriptSrc}`,
         `style-src 'self' 'unsafe-inline' ${devOrigins}`,
-        `img-src 'self' data: blob: https:`,
+        `img-src 'self' data: blob: https: file:`,
         `font-src 'self' data:`,
         `connect-src 'self' https: wss: ${devOrigins}`,
         `media-src 'self' blob: data:`,
@@ -435,6 +454,33 @@ function createTray(): void {
                 mainWindow?.show()
                 mainWindow?.focus()
             } 
+        },
+        {
+            label: 'Import Files…',
+            accelerator: process.platform === 'darwin' ? 'Cmd+U' : 'Ctrl+U',
+            click: async () => {
+                try {
+                    const result = await dialog.showOpenDialog({
+                        title: 'Select files',
+                        properties: ['openFile', 'multiSelections']
+                    })
+                    if (!result.canceled && result.filePaths.length > 0) {
+                        const fm = getFileManager()
+                        await fm.init()
+                        await fm.importFromPaths(result.filePaths, 'inbox')
+                        trayPopover?.webContents.send('tray:refresh')
+                    }
+                } catch (err) {
+                    log.warn('[Tray] Import failed:', err)
+                }
+            }
+        },
+        {
+            label: 'Lock Sensitive Files',
+            click: () => {
+                lockSensitiveNow()
+                trayPopover?.webContents.send('tray:refresh')
+            }
         },
         { type: 'separator' },
         { 
@@ -649,6 +695,9 @@ app.whenReady().then(() => {
     // Create Tray
     createTray()
 
+    registerSecurityIpc()
+    registerFileManagerIpc(() => trayPopover)
+
     // ═══ CONFIGURABLE HOTKEYS ═══
     // Set up hotkey handlers and register all configured shortcuts
     const hotkeyManager = getHotkeyManager()
@@ -852,6 +901,21 @@ ipcMain.handle('haptic:perform', (_, type: string) => {
 // Tray Popover IPC handlers
 ipcMain.handle('tray:get-recent-items', async () => {
     return await getRecentItems()
+})
+
+ipcMain.handle('tray:get-user', async () => {
+    try {
+        const { data } = await supabase.auth.getUser()
+        const user = data.user
+        if (!user) return null
+        const email = user.email || ''
+        const avatarUrl = (user.user_metadata as any)?.avatar_url || null
+        const fullName = (user.user_metadata as any)?.full_name || null
+        return { email, avatarUrl, fullName }
+    } catch (err) {
+        log.warn('[Tray] Failed to get user:', err)
+        return null
+    }
 })
 
 // ═══ QUICK PROMPT IPC HANDLER ═══

@@ -188,41 +188,30 @@ export const AI_MODELS: Record<string, ModelDefinition> = {
     },
 
     // ========================================================================
-    // Z.AI GLM Models (OpenAI-compatible Coding Plan)
+    // Z.AI GLM Models (OpenAI-compatible)
+    // @see https://docs.z.ai/api-reference
     // ========================================================================
     'GLM-4.7': {
         id: 'GLM-4.7',
         provider: 'zai',
         name: 'GLM-4.7',
-        description: 'Z.AI flagship coding model with deep reasoning',
+        description: 'Z.AI main model with thinking mode support',
         contextWindow: 128000,
+        supportsImages: true,
         supportsTools: true,
-        supportsNativeWebSearch: true,
         supportsReasoning: true,
         defaultReasoningEffort: 'medium'
-    },
-    'GLM-4.7-FlashX': {
-        id: 'GLM-4.7-FlashX',
-        provider: 'zai',
-        name: 'GLM-4.7 FlashX',
-        description: 'Fast Z.AI model with extended context',
-        contextWindow: 128000,
-        supportsTools: true,
-        supportsNativeWebSearch: true,
-        supportsReasoning: true,
-        defaultReasoningEffort: 'low'
     },
     'GLM-4.7-Flash': {
         id: 'GLM-4.7-Flash',
         provider: 'zai',
         name: 'GLM-4.7 Flash',
-        description: 'Free ultra-fast Z.AI model for quick tasks',
+        description: 'Fast Z.AI model for quick tasks (free tier fallback)',
         contextWindow: 128000,
+        supportsImages: true,
         supportsTools: true,
-        supportsNativeWebSearch: true,
-        supportsReasoning: true,
-        defaultReasoningEffort: 'low',
-        includedInSubscription: true // Free tier model
+        supportsReasoning: false,
+        includedInSubscription: true // Free tier fallback
     }
 } as const
 
@@ -249,14 +238,12 @@ export function getModelById(modelId: string): ModelDefinition | undefined {
     const direct = AI_MODELS[modelId]
     if (direct) return direct
 
-    const normalized = modelId.trim()
-    if (normalized.toLowerCase() === 'glm-4.7') {
+    // Normalize case-insensitive lookups for GLM models
+    const normalized = modelId.trim().toLowerCase()
+    if (normalized === 'glm-4.7') {
         return AI_MODELS['GLM-4.7']
     }
-    if (normalized.toLowerCase() === 'glm-4.7-flashx') {
-        return AI_MODELS['GLM-4.7-FlashX']
-    }
-    if (normalized.toLowerCase() === 'glm-4.7-flash') {
+    if (normalized === 'glm-4.7-flash') {
         return AI_MODELS['GLM-4.7-Flash']
     }
 

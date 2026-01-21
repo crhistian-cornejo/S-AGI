@@ -1,5 +1,24 @@
 import { useCallback, useEffect, useRef } from 'react'
 
+let sharedAudioContext: AudioContext | null = null
+let sharedResumePromise: Promise<void> | null = null
+
+function getSharedAudioContext(): AudioContext {
+    if (!sharedAudioContext) {
+        sharedAudioContext = new (window.AudioContext || (window as any).webkitAudioContext)()
+    }
+    return sharedAudioContext
+}
+
+function ensureAudioResumed(ctx: AudioContext): Promise<void> {
+    if (ctx.state === 'running') return Promise.resolve()
+    if (sharedResumePromise) return sharedResumePromise
+    sharedResumePromise = ctx.resume().catch(() => {}).then(() => {
+        sharedResumePromise = null
+    })
+    return sharedResumePromise
+}
+
 /**
  * Sound types available for chat events
  */
@@ -12,6 +31,7 @@ export type ChatSoundType =
     | 'error'          // Generic error (API error, streaming error)
     | 'tool-error'     // Error executing a tool
     | 'agent-error'    // Agent error
+    | 'click'          // UI click sound
 
 /**
  * Sound configuration - volume, pitch, duration for each sound type
@@ -71,6 +91,12 @@ const SOUND_CONFIGS: Record<ChatSoundType, SoundConfig> = {
         duration: 0.4,
         volume: 0.3,
         type: 'sawtooth'
+    },
+    click: {
+        frequency: 1200,
+        duration: 0.02,
+        volume: 0.05,
+        type: 'sine'
     }
 }
 
@@ -79,7 +105,6 @@ const SOUND_CONFIGS: Record<ChatSoundType, SoundConfig> = {
  * All sounds are generated synthetically - no external files needed
  */
 export function useChatSounds(enabled: boolean = true) {
-    const audioContextRef = useRef<AudioContext | null>(null)
     const thinkIntervalRef = useRef<NodeJS.Timeout | null>(null)
 
     /**
@@ -87,10 +112,7 @@ export function useChatSounds(enabled: boolean = true) {
      * Must be created after user interaction due to browser policies
      */
     const getAudioContext = useCallback((): AudioContext => {
-        if (!audioContextRef.current) {
-            audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)()
-        }
-        return audioContextRef.current
+        return getSharedAudioContext()
     }, [])
 
     /**
@@ -105,45 +127,41 @@ export function useChatSounds(enabled: boolean = true) {
 
         try {
             const ctx = getAudioContext()
-            
-            // Resume if suspended (required after user interaction)
-            if (ctx.state === 'suspended') {
-                ctx.resume()
-            }
 
-            const oscillator = ctx.createOscillator()
-            const gainNode = ctx.createGain()
+            ensureAudioResumed(ctx).then(() => {
+                const oscillator = ctx.createOscillator()
+                const gainNode = ctx.createGain()
 
-            oscillator.type = config.type
-            oscillator.frequency.setValueAtTime(config.frequency, ctx.currentTime)
+                oscillator.type = config.type
+                oscillator.frequency.setValueAtTime(config.frequency, ctx.currentTime)
 
-            // Configure volume with fade in/out
-            const startTime = ctx.currentTime
-            const attackTime = fadeIn ? 0.05 : 0
-            const releaseTime = fadeOut ? 0.1 : 0
-            const sustainTime = config.duration - attackTime - releaseTime
+                const startTime = ctx.currentTime + 0.001
+                const attackTime = fadeIn ? 0.05 : 0
+                const releaseTime = fadeOut ? 0.1 : 0
+                const sustainTime = config.duration - attackTime - releaseTime
 
-            gainNode.gain.setValueAtTime(0, startTime)
-            
-            if (attackTime > 0) {
-                gainNode.gain.linearRampToValueAtTime(config.volume, startTime + attackTime)
-            } else {
-                gainNode.gain.setValueAtTime(config.volume, startTime)
-            }
+                gainNode.gain.setValueAtTime(0, startTime)
 
-            if (sustainTime > 0) {
-                gainNode.gain.setValueAtTime(config.volume, startTime + attackTime + sustainTime)
-            }
+                if (attackTime > 0) {
+                    gainNode.gain.linearRampToValueAtTime(config.volume, startTime + attackTime)
+                } else {
+                    gainNode.gain.setValueAtTime(config.volume, startTime)
+                }
 
-            if (releaseTime > 0) {
-                gainNode.gain.linearRampToValueAtTime(0, startTime + attackTime + sustainTime + releaseTime)
-            }
+                if (sustainTime > 0) {
+                    gainNode.gain.setValueAtTime(config.volume, startTime + attackTime + sustainTime)
+                }
 
-            oscillator.connect(gainNode)
-            gainNode.connect(ctx.destination)
+                if (releaseTime > 0) {
+                    gainNode.gain.linearRampToValueAtTime(0, startTime + attackTime + sustainTime + releaseTime)
+                }
 
-            oscillator.start(startTime)
-            oscillator.stop(startTime + config.duration)
+                oscillator.connect(gainNode)
+                gainNode.connect(ctx.destination)
+
+                oscillator.start(startTime)
+                oscillator.stop(startTime + config.duration)
+            })
         } catch (error) {
             console.error('[useChatSounds] Failed to play sound:', error)
         }
@@ -185,10 +203,7 @@ export function useChatSounds(enabled: boolean = true) {
 
         const config = SOUND_CONFIGS['chat-start']
         const ctx = getAudioContext()
-        
-        if (ctx.state === 'suspended') {
-            ctx.resume()
-        }
+        ensureAudioResumed(ctx)
 
         // Play a simple ascending arpeggio: C5, E5, G5
         const frequencies = [523.25, 659.25, 783.99]
@@ -207,10 +222,7 @@ export function useChatSounds(enabled: boolean = true) {
 
         const config = SOUND_CONFIGS['response-done']
         const ctx = getAudioContext()
-        
-        if (ctx.state === 'suspended') {
-            ctx.resume()
-        }
+        ensureAudioResumed(ctx)
 
         // Play a pleasant two-tone: G5 -> C6
         playTone({ ...config, frequency: 783.99 }, true, true)
@@ -227,10 +239,7 @@ export function useChatSounds(enabled: boolean = true) {
 
         const config = SOUND_CONFIGS['tool-use']
         const ctx = getAudioContext()
-        
-        if (ctx.state === 'suspended') {
-            ctx.resume()
-        }
+        ensureAudioResumed(ctx)
 
         // Short, sharp sound
         playTone(config, false, false)
@@ -244,10 +253,7 @@ export function useChatSounds(enabled: boolean = true) {
 
         const config = SOUND_CONFIGS['artifact-created']
         const ctx = getAudioContext()
-        
-        if (ctx.state === 'suspended') {
-            ctx.resume()
-        }
+        ensureAudioResumed(ctx)
 
         // Play a chord: E5, G#5, B5
         const frequencies = [659.25, 830.61, 987.77]
@@ -266,10 +272,7 @@ export function useChatSounds(enabled: boolean = true) {
 
         const config = SOUND_CONFIGS['error']
         const ctx = getAudioContext()
-
-        if (ctx.state === 'suspended') {
-            ctx.resume()
-        }
+        ensureAudioResumed(ctx)
 
         // Play a descending two-tone: A3 -> E3
         playTone({ ...config, frequency: 220 }, true, true)
@@ -286,10 +289,7 @@ export function useChatSounds(enabled: boolean = true) {
 
         const config = SOUND_CONFIGS['tool-error']
         const ctx = getAudioContext()
-
-        if (ctx.state === 'suspended') {
-            ctx.resume()
-        }
+        ensureAudioResumed(ctx)
 
         // Play a single low tone
         playTone(config, true, true)
@@ -303,10 +303,7 @@ export function useChatSounds(enabled: boolean = true) {
 
         const config = SOUND_CONFIGS['agent-error']
         const ctx = getAudioContext()
-
-        if (ctx.state === 'suspended') {
-            ctx.resume()
-        }
+        ensureAudioResumed(ctx)
 
         // Play a three-tone descending pattern: F3 -> D3 -> A2
         playTone({ ...config, frequency: 174.61 }, true, true)
@@ -316,6 +313,20 @@ export function useChatSounds(enabled: boolean = true) {
         setTimeout(() => {
             playTone({ ...config, frequency: 110, volume: 0.15 }, true, true)
         }, 300)
+    }, [enabled, getAudioContext, playTone])
+
+    /**
+     * Play click sound - UI click interaction
+     */
+    const playClick = useCallback((): void => {
+        if (!enabled) return
+
+        const config = SOUND_CONFIGS['click']
+        const ctx = getAudioContext()
+        ensureAudioResumed(ctx)
+
+        // Play immediate click sound without fade
+        playTone(config, false, false)
     }, [enabled, getAudioContext, playTone])
 
     /**
@@ -413,15 +424,24 @@ export function useChatSounds(enabled: boolean = true) {
 
     // Cleanup on unmount
     useEffect(() => {
+        if (!enabled) return
+
+        const ctx = getAudioContext()
+        const warmup = () => {
+            ensureAudioResumed(ctx)
+        }
+
+        window.addEventListener('pointerdown', warmup, { once: true, passive: true })
+        window.addEventListener('keydown', warmup, { once: true, passive: true })
+
         return () => {
             if (thinkIntervalRef.current) {
                 clearInterval(thinkIntervalRef.current)
             }
-            if (audioContextRef.current) {
-                audioContextRef.current.close()
-            }
+            window.removeEventListener('pointerdown', warmup)
+            window.removeEventListener('keydown', warmup)
         }
-    }, [])
+    }, [enabled, getAudioContext])
 
     return {
         playThinking,
@@ -432,6 +452,7 @@ export function useChatSounds(enabled: boolean = true) {
         playError,
         playToolError,
         playAgentError,
+        playClick,
         exportSoundToWav,
         exportAllSounds,
         downloadSound
