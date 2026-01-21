@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect } from 'react'
 import { useAtom, useAtomValue, useSetAtom } from 'jotai'
 import {
     artifactPanelOpenAtom,
@@ -6,12 +6,10 @@ import {
     activeTabAtom,
     settingsModalOpenAtom,
     currentProviderAtom,
-    sidebarOpenAtom,
-    chatSoundsEnabledAtom
+    sidebarOpenAtom
 } from '@/lib/atoms'
 import { shortcutsDialogOpenAtom } from '@/lib/atoms'
 import { trpc } from '@/lib/trpc'
-import { useChatSounds } from '@/lib/use-chat-sounds'
 import {
     DropdownMenu,
     DropdownMenuContent,
@@ -37,12 +35,11 @@ import {
     IconSquare,
     IconX,
     IconArrowsDiagonalMinimize2,
-    IconKeyboard
+    IconCommand
 } from '@tabler/icons-react'
 import { Button } from '@/components/ui/button'
 import { Logo } from '@/components/ui/logo'
 import { ZaiIcon, OpenAIIcon } from '@/components/icons/model-icons'
-// NOTE: Gemini disabled - import { ZaiIcon, GeminiIcon } from '@/components/icons/model-icons'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn, isMacOS, isElectron, isWindows } from '@/lib/utils'
 
@@ -59,17 +56,6 @@ export function TitleBar({ className, noTrafficLightSpace }: TitleBarProps) {
     const selectedArtifact = useAtomValue(selectedArtifactAtom)
     const isDesktop = isElectron()
     const showTrafficLights = isMacOS() && isDesktop
-    const soundsEnabled = useAtomValue(chatSoundsEnabledAtom)
-    const chatSounds = useChatSounds(soundsEnabled)
-    const prevActiveTabRef = useRef<string | null>(null)
-
-    const handleTabChange = (tab: 'chat' | 'excel' | 'doc') => {
-        setActiveTab(tab)
-        if (prevActiveTabRef.current !== null && prevActiveTabRef.current !== tab) {
-            chatSounds.playClick()
-        }
-        prevActiveTabRef.current = tab
-    }
 
     const utils = trpc.useUtils()
     const { data: session } = trpc.auth.getSession.useQuery()
@@ -95,16 +81,14 @@ export function TitleBar({ className, noTrafficLightSpace }: TitleBarProps) {
         return api.onMaximizeChange(setIsMaximized)
     }, [])
 
-    // Get current provider and connection status
     const provider = useAtomValue(currentProviderAtom)
     const sidebarOpen = useAtomValue(sidebarOpenAtom)
     const { data: keyStatus } = trpc.settings.getApiKeyStatus.useQuery()
 
-    const isConnected = provider === 'chatgpt-plus' 
-        ? keyStatus?.hasChatGPTPlus 
-        // NOTE: gemini-advanced disabled
-        : provider === 'openai' 
-            ? keyStatus?.hasOpenAI 
+    const isConnected = provider === 'chatgpt-plus'
+        ? keyStatus?.hasChatGPTPlus
+        : provider === 'openai'
+            ? keyStatus?.hasOpenAI
             : provider === 'zai'
                 ? keyStatus?.hasZai
                 : false
@@ -128,7 +112,6 @@ export function TitleBar({ className, noTrafficLightSpace }: TitleBarProps) {
                 className
             )}
         >
-            {/* Left content - only on non-macOS; en Windows se oculta cuando el sidebar está expandido */}
             {!showTrafficLights && (!isWindows() || !sidebarOpen) && (
                 <div className="flex items-center gap-2 no-drag ml-2">
                     <Logo size={20} />
@@ -147,7 +130,7 @@ export function TitleBar({ className, noTrafficLightSpace }: TitleBarProps) {
                 >
                     <button
                         type="button"
-                        onClick={() => handleTabChange('chat')}
+                        onClick={() => setActiveTab('chat')}
                         className={cn(
                             "flex items-center gap-1.5 px-3 h-full rounded-md text-[11px] font-bold uppercase tracking-wider transition-all duration-300",
                             activeTab === 'chat'
@@ -160,7 +143,7 @@ export function TitleBar({ className, noTrafficLightSpace }: TitleBarProps) {
                     </button>
                     <button
                         type="button"
-                        onClick={() => handleTabChange('excel')}
+                        onClick={() => setActiveTab('excel')}
                         className={cn(
                             "flex items-center gap-1.5 px-3 h-full rounded-md text-[11px] font-bold uppercase tracking-wider transition-all duration-300",
                             activeTab === 'excel'
@@ -173,7 +156,7 @@ export function TitleBar({ className, noTrafficLightSpace }: TitleBarProps) {
                     </button>
                     <button
                         type="button"
-                        onClick={() => handleTabChange('doc')}
+                        onClick={() => setActiveTab('doc')}
                         className={cn(
                             "flex items-center gap-1.5 px-3 h-full rounded-md text-[11px] font-bold uppercase tracking-wider transition-all duration-300",
                             activeTab === 'doc'
@@ -189,9 +172,7 @@ export function TitleBar({ className, noTrafficLightSpace }: TitleBarProps) {
 
             {isDesktop && <div className="flex-1 h-full" />}
 
-            {/* Right content - Logo and text on macOS, controls on others */}
             <div className="flex items-center no-drag pr-0">
-                {/* Logo and text - only on macOS */}
                 {showTrafficLights && (
                     <div className="flex items-center gap-2 mr-2">
                         <Logo size={20} />
@@ -227,12 +208,11 @@ export function TitleBar({ className, noTrafficLightSpace }: TitleBarProps) {
                             onClick={() => setShortcutsOpen(true)}
                             aria-label="Shortcuts"
                         >
-                            <IconKeyboard size={16} />
+                            <IconCommand size={16} />
                         </Button>
                     </TooltipTrigger>
                     <TooltipContent side="bottom">Shortcuts</TooltipContent>
                 </Tooltip>
-
 
                 {isElectron() && !isMacOS() && (
                     <div className="flex items-center">
@@ -266,7 +246,6 @@ export function TitleBar({ className, noTrafficLightSpace }: TitleBarProps) {
                     </div>
                 )}
 
-                {/* MacOS Profile Trigger - Pegado al borde derecho */}
                 {showTrafficLights && !sidebarOpen && (
                     <DropdownMenu>
                         <DropdownMenuTrigger asChild>
@@ -295,7 +274,6 @@ export function TitleBar({ className, noTrafficLightSpace }: TitleBarProps) {
                                 </div>
                                 {isConnected && (
                                     <div className="flex items-center gap-1.5 bg-accent/50 px-2 py-0.5 rounded-full shrink-0 ml-2">
-                                        {/* NOTE: gemini-advanced disabled */}
                                         <providerIcon.icon size={10} className={providerIcon.className} />
                                         <span className="text-[9px] font-bold tracking-tight uppercase">
                                             {provider === 'chatgpt-plus' ? 'Plus' : provider}
@@ -304,8 +282,8 @@ export function TitleBar({ className, noTrafficLightSpace }: TitleBarProps) {
                                 )}
                             </DropdownMenuLabel>
                             <DropdownMenuSeparator />
-                            <DropdownMenuItem 
-                                onClick={() => setSettingsOpen(true)} 
+                            <DropdownMenuItem
+                                onClick={() => setSettingsOpen(true)}
                                 className="justify-between cursor-pointer"
                             >
                                 <span className="flex items-center">

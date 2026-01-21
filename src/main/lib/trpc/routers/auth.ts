@@ -15,6 +15,15 @@ import {
     checkRateLimit
 } from '../../auth/rate-limiter'
 
+function decodeImageDataUrl(dataUrl: string): { contentType: string; buffer: Buffer } {
+    const match = /^data:(image\/[a-zA-Z0-9.+-]+);base64,(.*)$/.exec(dataUrl)
+    if (!match) throw new Error('Invalid image data URL')
+    const contentType = match[1]
+    const buffer = Buffer.from(match[2], 'base64')
+    if (!buffer.length) throw new Error('Empty image data')
+    return { contentType, buffer }
+}
+
 /** Parse access_token and refresh_token from a Supabase OAuth callback URL (hash or query). */
 function parseOAuthTokensFromUrl(url: string): { access_token: string; refresh_token: string } | null {
     const hashIdx = url.indexOf('#')
@@ -53,8 +62,137 @@ export const authRouter = router({
             log.error('[Auth] getUser error:', error)
             return null
         }
+        if (!user) return null
+
+        const userMetadata: Record<string, unknown> = (user.user_metadata as Record<string, unknown>) ?? {}
+        const avatarPath = typeof userMetadata.avatar_path === 'string' ? userMetadata.avatar_path : null
+        const avatarProviderUrl = typeof userMetadata.avatar_provider_url === 'string' ? userMetadata.avatar_provider_url : null
+
+        if (avatarPath) {
+            const { data: signedData, error: signError } = await supabase.storage
+                .from('attachments')
+                .createSignedUrl(avatarPath, 60 * 60 * 24 * 7)
+            if (!signError && signedData?.signedUrl) {
+                return {
+                    ...user,
+                    user_metadata: {
+                        ...userMetadata,
+                        avatar_url: signedData.signedUrl
+                    }
+                }
+            }
+        }
+
+        if (avatarProviderUrl) {
+            return {
+                ...user,
+                user_metadata: {
+                    ...userMetadata,
+                    avatar_url: avatarProviderUrl
+                }
+            }
+        }
+
+        const fallbackPicture = typeof userMetadata.picture === 'string' ? userMetadata.picture : null
+        const existingAvatarUrl = typeof userMetadata.avatar_url === 'string' ? userMetadata.avatar_url : null
+        if (!existingAvatarUrl && fallbackPicture) {
+            return {
+                ...user,
+                user_metadata: {
+                    ...userMetadata,
+                    avatar_url: fallbackPicture
+                }
+            }
+        }
+
         return user
     }),
+
+    updateProfile: protectedProcedure
+        .input(z.object({
+            fullName: z.string().min(1).max(80).nullable().optional(),
+            username: z.string().min(2).max(32).regex(/^[a-z0-9_]+$/).nullable().optional(),
+            bio: z.string().max(240).nullable().optional(),
+            website: z.string().max(200).url().nullable().optional(),
+            location: z.string().max(80).nullable().optional(),
+            timezone: z.string().max(80).nullable().optional(),
+            pronouns: z.string().max(40).nullable().optional(),
+            avatar: z.object({
+                mode: z.enum(['keep', 'remove', 'provider', 'upload']),
+                dataUrl: z.string().nullable().optional(),
+                providerUrl: z.string().url().nullable().optional()
+            }).optional()
+        }))
+        .mutation(async ({ input, ctx }) => {
+            const { data: { user: currentUser }, error: currentUserError } = await supabase.auth.getUser()
+            if (currentUserError) {
+                log.error('[Auth] updateProfile getUser error:', currentUserError)
+                throw new Error(currentUserError.message)
+            }
+            if (!currentUser) throw new Error('Not authenticated. Please sign in first.')
+
+            const existingMetadata: Record<string, unknown> = (currentUser.user_metadata as Record<string, unknown>) ?? {}
+            const nextMetadata: Record<string, unknown> = { ...existingMetadata }
+
+            if (input.fullName !== undefined) nextMetadata.full_name = input.fullName
+            if (input.username !== undefined) nextMetadata.username = input.username
+            if (input.bio !== undefined) nextMetadata.bio = input.bio
+            if (input.website !== undefined) nextMetadata.website = input.website
+            if (input.location !== undefined) nextMetadata.location = input.location
+            if (input.timezone !== undefined) nextMetadata.timezone = input.timezone
+            if (input.pronouns !== undefined) nextMetadata.pronouns = input.pronouns
+
+            const existingAvatarPath = typeof existingMetadata.avatar_path === 'string' ? existingMetadata.avatar_path : null
+
+            if (input.avatar?.mode === 'remove') {
+                if (existingAvatarPath) {
+                    await supabase.storage.from('attachments').remove([existingAvatarPath])
+                }
+                nextMetadata.avatar_path = null
+                nextMetadata.avatar_provider_url = null
+            }
+
+            if (input.avatar?.mode === 'provider') {
+                const providerUrl = input.avatar.providerUrl ?? null
+                nextMetadata.avatar_path = null
+                nextMetadata.avatar_provider_url = providerUrl
+            }
+
+            if (input.avatar?.mode === 'upload') {
+                const dataUrl = input.avatar.dataUrl
+                if (!dataUrl) throw new Error('Missing avatar data')
+                const { contentType, buffer } = decodeImageDataUrl(dataUrl)
+                if (buffer.length > 2_000_000) throw new Error('Avatar image too large')
+
+                const path = `avatars/${ctx.userId}/avatar`
+                const ext = contentType.includes('webp') ? 'webp' : contentType.includes('png') ? 'png' : contentType.includes('jpeg') ? 'jpg' : 'img'
+                const storagePath = `${path}.${ext}`
+
+                if (existingAvatarPath && existingAvatarPath !== storagePath) {
+                    await supabase.storage.from('attachments').remove([existingAvatarPath])
+                }
+
+                const { error: uploadError } = await supabase.storage
+                    .from('attachments')
+                    .upload(storagePath, buffer, { contentType, upsert: true, cacheControl: '3600' })
+
+                if (uploadError) {
+                    log.error('[Auth] updateProfile avatar upload error:', uploadError)
+                    throw new Error(uploadError.message)
+                }
+
+                nextMetadata.avatar_path = storagePath
+                nextMetadata.avatar_provider_url = null
+            }
+
+            const { data, error } = await supabase.auth.updateUser({ data: nextMetadata })
+            if (error) {
+                log.error('[Auth] updateProfile updateUser error:', error)
+                throw new Error(error.message)
+            }
+
+            return data.user
+        }),
 
     // Sign up with email and password
     signUp: publicProcedure

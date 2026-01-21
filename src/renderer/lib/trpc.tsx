@@ -1,4 +1,5 @@
 import { createTRPCReact } from "@trpc/react-query"
+import { httpBatchLink } from "@trpc/client"
 import { ipcLink } from "trpc-electron/renderer"
 import superjson from "superjson"
 import { useState, ReactNode } from "react"
@@ -67,8 +68,17 @@ export function TRPCProvider({ children }: { children: ReactNode }) {
             return globalForTRPC.__trpc_client__
         }
 
+        const hasElectronTRPC = typeof (window as any).electronTRPC !== 'undefined'
+
         const client = trpc.createClient({
-            links: [ipcLink({ transformer: superjson })]
+            links: hasElectronTRPC
+                ? [ipcLink({ transformer: superjson })]
+                : [
+                    httpBatchLink({
+                        url: `${window.location.origin}/trpc`,
+                        transformer: superjson
+                    })
+                ]
         })
 
         globalForTRPC.__trpc_client__ = client

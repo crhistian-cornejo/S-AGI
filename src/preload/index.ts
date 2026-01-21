@@ -151,6 +151,15 @@ const desktopApi = {
         }
     },
 
+    // Artifact created listener (for auto-selecting newly created artifacts like charts)
+    onArtifactCreated: (callback: (data: { artifactId: string; type: string; name: string }) => void) => {
+        const handler = (_: any, data: any) => callback(data)
+        ipcRenderer.on('artifact:created', handler)
+        return () => {
+            ipcRenderer.removeListener('artifact:created', handler)
+        }
+    },
+
     // UI Navigation listeners (for agent-controlled UI changes)
     onNavigateTab: (callback: (data: { tab: 'chat' | 'excel' | 'doc' | 'gallery' }) => void) => {
         const handler = (_: any, data: any) => callback(data)

@@ -27,6 +27,7 @@ import {
     streamingWebSearchesAtom,
     streamingAnnotationsAtom,
     streamingFileSearchesAtom,
+    streamingDocumentCitationsAtom,
     imageEditDialogAtom,
     pendingQuickPromptMessageAtom,
     chatSoundsEnabledAtom,
@@ -35,6 +36,7 @@ import {
     type UrlCitation,
     type FileCitation,
     type Annotation,
+    type DocumentCitation,
 } from '@/lib/atoms'
 import { trpc, trpcClient } from '@/lib/trpc'
 import { Button } from '@/components/ui/button'
@@ -96,10 +98,13 @@ export function ChatView() {
     const setStreamingFileSearches = useSetAtom(streamingFileSearchesAtom)
     const streamingAnnotations = useAtomValue(streamingAnnotationsAtom)
     const setStreamingAnnotations = useSetAtom(streamingAnnotationsAtom)
+    // Document citations state (for local RAG with non-OpenAI providers)
+    const streamingDocumentCitations = useAtomValue(streamingDocumentCitationsAtom)
+    const setStreamingDocumentCitations = useSetAtom(streamingDocumentCitationsAtom)
 
     // Artifact state
     const setSelectedArtifact = useSetAtom(selectedArtifactAtom)
-    const setArtifactPanelOpen = useSetAtom(artifactPanelOpenAtom)
+    const [artifactPanelOpen, setArtifactPanelOpen] = useAtom(artifactPanelOpenAtom)
     const setActiveTab = useSetAtom(activeTabAtom)
 
     // Image edit dialog state
@@ -246,6 +251,7 @@ export function ChatView() {
         setStreamingWebSearches([]) // Clear previous web searches
         setStreamingFileSearches([]) // Clear previous file searches
         setStreamingAnnotations([]) // Clear previous annotations
+        setStreamingDocumentCitations([]) // Clear previous document citations
 
         // Play thinking sound (single, not loop)
         stopThinkingRef.current = chatSounds.playThinking(false)
@@ -391,13 +397,30 @@ export function ChatView() {
                 generateAutoTitle(chatIdForStream, userMessage, apiKey, provider)
             }
 
-            // Get conversation history for context
+            // Get conversation history for context (including images from attachments)
+            // Note: Historical images are included as base64 in the messages array
+            // The backend will handle image context limits (max 10 historical images)
             const messageHistory = (historySource || [])
                 .filter(m => m.role === 'user' || m.role === 'assistant')
-                .map(m => ({
-                    role: m.role as 'user' | 'assistant',
-                    content: typeof m.content === 'string' ? m.content : m.content?.text || ''
-                }))
+                .map(m => {
+                    const content = typeof m.content === 'string' ? m.content : m.content?.text || ''
+
+                    // Extract image attachments with preview data (already base64)
+                    // Only include if the attachment has preview data (base64)
+                    const imageAttachments = (m.attachments || [])
+                        .filter((att: any) => att.type?.startsWith('image/') && att.preview)
+                        .map((att: any) => ({
+                            type: 'image' as const,
+                            data: att.preview.replace(/^data:image\/[^;]+;base64,/, ''), // Remove data URI prefix if present
+                            mediaType: att.type
+                        }))
+
+                    return {
+                        role: m.role as 'user' | 'assistant',
+                        content,
+                        images: imageAttachments.length > 0 ? imageAttachments : undefined
+                    }
+                })
 
             // Check if there are files in vector store or uploading for file search
             // Also check if we just uploaded documents in this send action
@@ -418,6 +441,8 @@ export function ChatView() {
             }
             // Collect annotations in local variable to persist them
             let collectedAnnotations: Annotation[] = []
+            // Collect document citations for local RAG
+            let collectedDocumentCitations: DocumentCitation[] = []
 
             try {
                 const streamStartedAt = Date.now()
@@ -516,15 +541,33 @@ export function ChatView() {
                                     filename: a.filename,
                                     index: a.index
                                 }))
-                            
+
                             const allCitations: Annotation[] = [...urlCitations, ...fileCitations]
                             console.log('[ChatView] Parsed citations:', { urlCitations: urlCitations.length, fileCitations: fileCitations.length })
-                            
+
                             if (allCitations.length > 0) {
                                 // Accumulate in local variable for persistence
                                 collectedAnnotations = [...collectedAnnotations, ...allCitations]
                                 // Also update streaming state for live display
                                 setStreamingAnnotations(prev => [...prev, ...allCitations])
+                            }
+
+                            // Convert file_citations to DocumentCitation format for inline badges
+                            // OpenAI file_citations don't have text, so we use a placeholder
+                            if (fileCitations.length > 0) {
+                                const docCitationsFromFiles: DocumentCitation[] = fileCitations.map((fc, idx) => ({
+                                    id: idx + 1,
+                                    filename: fc.filename || 'Documento',
+                                    pageNumber: null, // OpenAI doesn't provide page numbers
+                                    text: 'Fuente citada del documento' // Placeholder since OpenAI doesn't provide the text
+                                }))
+
+                                // Merge with any existing document citations
+                                collectedDocumentCitations = [
+                                    ...collectedDocumentCitations,
+                                    ...docCitationsFromFiles
+                                ]
+                                setStreamingDocumentCitations(collectedDocumentCitations)
                             }
                             break
                         }
@@ -557,6 +600,22 @@ export function ChatView() {
                                     ? { ...fs, status: 'done' as const }
                                     : fs
                             ))
+                            break
+                        }
+
+                        case 'document_citations': {
+                            // Store document citations for inline rendering with hover tooltips
+                            console.log('[ChatView] Document citations received:', event.citations?.length || 0)
+                            if (event.citations && event.citations.length > 0) {
+                                collectedDocumentCitations = event.citations.map((c: any) => ({
+                                    id: c.id,
+                                    filename: c.filename,
+                                    pageNumber: c.pageNumber,
+                                    text: c.text,
+                                    marker: c.marker
+                                }))
+                                setStreamingDocumentCitations(collectedDocumentCitations)
+                            }
                             break
                         }
 
@@ -686,6 +745,7 @@ export function ChatView() {
                             setStreamingWebSearches([])
                             setStreamingFileSearches([])
                             setStreamingAnnotations([])
+                            setStreamingDocumentCitations([])
                             cleanupListener?.()
                             abortRef.current = null
                             break
@@ -747,6 +807,7 @@ export function ChatView() {
                                         reasoning: fullReasoning || undefined,
                                         actions: actions.length > 0 ? actions : undefined,
                                         annotations: collectedAnnotations.length > 0 ? collectedAnnotations : undefined,
+                                        documentCitations: collectedDocumentCitations.length > 0 ? collectedDocumentCitations : undefined,
                                         ...(event.responseId && { openaiResponseId: event.responseId }),
                                         // Fallback por si las columnas model_id/model_name no existen o fallan
                                         ...(selectedModel && { model_id: selectedModel }),
@@ -777,6 +838,7 @@ export function ChatView() {
                             setStreamingWebSearches([])
                             setStreamingFileSearches([])
                             setStreamingAnnotations([])
+                            setStreamingDocumentCitations([])
 
                             // Stop thinking sound and play response done sound
                             stopThinkingRef.current?.()
@@ -1201,6 +1263,7 @@ export function ChatView() {
                             streamingWebSearches={streamingWebSearches}
                             streamingFileSearches={streamingFileSearches}
                             streamingAnnotations={streamingAnnotations}
+                            streamingDocumentCitations={streamingDocumentCitations}
                             streamingError={streamingError}
                         />
                         <div ref={messagesEndRef} className="h-px" />

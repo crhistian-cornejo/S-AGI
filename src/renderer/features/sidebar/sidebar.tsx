@@ -140,7 +140,13 @@ interface Chat {
     created_at: string
     archived: boolean
     pinned?: boolean
-    meta?: { spreadsheets: number; documents: number; hasCode: boolean; hasImages: boolean }
+    meta?: { 
+        spreadsheets: number; 
+        documents: number; 
+        hasCode: boolean; 
+        hasImages: boolean;
+        messageCount: number;
+    }
 }
 
 // ============================================================================
@@ -200,11 +206,41 @@ function ChatItem({
 
     const tooltipContent = (
         <div className="space-y-3 min-w-[200px]">
-            {/* Title */}
-            <div>
+            {/* Title and Message Count Indicator */}
+            <div className="flex items-start justify-between gap-3">
                 <p className="font-semibold text-foreground text-sm leading-tight line-clamp-2">
                     {chat.title || 'Untitled'}
                 </p>
+                {chat.meta?.messageCount !== undefined && chat.meta.messageCount > 0 && (
+                    <div className="flex items-center gap-1.5 shrink-0 pt-0.5" title={`${chat.meta.messageCount} user prompts`}>
+                        <div className="flex items-end gap-[2px] h-3.5">
+                            {[0, 1, 2, 3, 4].map((i) => {
+                                // Notion-style bars: vertical version of the horizontal ToC lines
+                                const heights = [4, 9, 6, 12, 8];
+                                let active = false;
+                                if (chat.meta!.messageCount > 0 && i === 0) active = true;
+                                if (chat.meta!.messageCount > 2 && i === 1) active = true;
+                                if (chat.meta!.messageCount > 8 && i === 2) active = true;
+                                if (chat.meta!.messageCount > 20 && i === 3) active = true;
+                                if (chat.meta!.messageCount > 45 && i === 4) active = true;
+                                
+                                return (
+                                    <div 
+                                        key={i} 
+                                        className={cn(
+                                            "w-[3px] rounded-full transition-all duration-500",
+                                            active ? "bg-primary" : "bg-muted-foreground/15"
+                                        )}
+                                        style={{ height: `${heights[i]}px` }}
+                                    />
+                                );
+                            })}
+                        </div>
+                        <span className="text-[10px] font-bold text-muted-foreground/50 tabular-nums">
+                            {chat.meta.messageCount}
+                        </span>
+                    </div>
+                )}
             </div>
 
             {/* Status Badges */}
@@ -493,7 +529,7 @@ export function Sidebar() {
     const [sidebarOpen, setSidebarOpen] = useAtom(sidebarOpenAtom)
     const setSelectedArtifact = useSetAtom(selectedArtifactAtom)
     const setArtifactPanelOpen = useSetAtom(artifactPanelOpenAtom)
-    const [activeTab, setActiveTab] = useAtom(activeTabAtom)
+    const setActiveTab = useSetAtom(activeTabAtom)
     const [searchQuery, setSearchQuery] = useState('')
     const showWindowsLogo = isWindows() && sidebarOpen
     const [editingChatId, setEditingChatId] = useState<string | null>(null)
@@ -522,7 +558,7 @@ export function Sidebar() {
     const user = session?.user
 
     // Fetch chats (includes pinned, ordered correctly)
-    const { data: chats, isLoading, refetch } = trpc.chats.list.useQuery({}, {
+    const { data: chats, isLoading, refetch } = trpc.chats.list.useQuery(undefined, {
         staleTime: 60_000,
         gcTime: 1000 * 60 * 30
     })
@@ -596,9 +632,11 @@ export function Sidebar() {
     const createChat = trpc.chats.create.useMutation({
         onSuccess: (chat: Chat) => {
             utils.chats.get.invalidate({ id: chat.id })
+            utils.chats.list.invalidate()
             setSelectedChatId(chat.id)
             setSelectedArtifact(null)
             setArtifactPanelOpen(false)
+            setActiveTab('chat')
             refetch()
         },
         onError: (error) => {
@@ -797,26 +835,6 @@ export function Sidebar() {
                                 variant="ghost"
                                 size="icon"
                                 className="h-8 w-8 text-muted-foreground hover:text-foreground rounded-xl shrink-0 no-drag"
-                                onClick={handleNewChat}
-                                disabled={createChat.isPending}
-                            >
-                                <IconPlus size={18} />
-                            </Button>
-                        </TooltipTrigger>
-                        <TooltipContent side="bottom" className="flex items-center gap-2 font-semibold">
-                            New Conversation
-                            <kbd className="pointer-events-none inline-flex h-5 select-none items-center gap-1 rounded border bg-muted px-1.5 font-mono text-[10px] font-medium text-muted-foreground opacity-100">
-                                {navigator.platform.toLowerCase().includes('mac') ? '⌘' : 'Ctrl'} N
-                            </kbd>
-                        </TooltipContent>
-                    </Tooltip>
-
-                    <Tooltip>
-                        <TooltipTrigger asChild>
-                            <Button
-                                variant="ghost"
-                                size="icon"
-                                className="h-8 w-8 text-muted-foreground hover:text-foreground rounded-xl shrink-0 no-drag"
                                 onClick={() => setSidebarOpen(false)}
                                 aria-label="Collapse sidebar"
                             >
@@ -827,6 +845,38 @@ export function Sidebar() {
                             Collapse Sidebar
                             <kbd className="pointer-events-none inline-flex h-5 select-none items-center gap-1 rounded border bg-muted px-1.5 font-mono text-[10px] font-medium text-muted-foreground opacity-100">
                                 {navigator.platform.toLowerCase().includes('mac') ? '⌘' : 'Ctrl'} \
+                            </kbd>
+                        </TooltipContent>
+                    </Tooltip>
+                    <Tooltip>
+                        <TooltipTrigger asChild>
+                            <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8 text-muted-foreground hover:text-foreground rounded-xl shrink-0 no-drag"
+                                onClick={() => setActiveTab('gallery')}
+                            >
+                                <IconPhoto size={18} />
+                            </Button>
+                        </TooltipTrigger>
+                        <TooltipContent side="bottom">Gallery</TooltipContent>
+                    </Tooltip>
+                    <Tooltip>
+                        <TooltipTrigger asChild>
+                            <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8 text-muted-foreground hover:text-foreground rounded-xl shrink-0 no-drag"
+                                onClick={handleNewChat}
+                                disabled={createChat.isPending}
+                            >
+                                <IconPlus size={18} />
+                            </Button>
+                        </TooltipTrigger>
+                        <TooltipContent side="bottom" className="flex items-center gap-2 font-semibold">
+                            New Conversation
+                            <kbd className="pointer-events-none inline-flex h-5 select-none items-center gap-1 rounded border bg-muted px-1.5 font-mono text-[10px] font-medium text-muted-foreground opacity-100">
+                                {navigator.platform.toLowerCase().includes('mac') ? '⌘' : 'Ctrl'} N
                             </kbd>
                         </TooltipContent>
                     </Tooltip>
@@ -851,23 +901,6 @@ export function Sidebar() {
                         {isMacOS() ? '⌘' : 'Ctrl'} K
                     </kbd>
                 </div>
-            </div>
-
-            {/* Navigation Items */}
-            <div className="px-4 pb-2 space-y-1">
-                <button
-                    type="button"
-                    onClick={() => setActiveTab('gallery')}
-                    className={cn(
-                        'w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors',
-                        activeTab === 'gallery'
-                            ? 'bg-primary/10 text-primary font-medium'
-                            : 'text-foreground/80 hover:bg-accent/50'
-                    )}
-                >
-                    <IconPhoto size={16} className={activeTab === 'gallery' ? 'text-primary' : 'opacity-60'} />
-                    <span>Gallery</span>
-                </button>
             </div>
 
             <Separator className="my-1 opacity-40" />

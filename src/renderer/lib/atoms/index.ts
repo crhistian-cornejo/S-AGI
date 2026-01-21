@@ -323,6 +323,18 @@ export interface FileSearchInfo {
 // Active file searches during streaming
 export const streamingFileSearchesAtom = atom<FileSearchInfo[]>([])
 
+// === DOCUMENT CITATIONS STATE (for local RAG with non-OpenAI providers) ===
+export interface DocumentCitation {
+    id: number
+    filename: string
+    pageNumber: number | null
+    text: string
+    marker?: string
+}
+
+// Document citations for the current streaming response
+export const streamingDocumentCitationsAtom = atom<DocumentCitation[]>([])
+
 // === SOUND EFFECTS ===
 // Enable/disable chat sound effects
 export const chatSoundsEnabledAtom = atomWithStorage('chat-sounds-enabled', true)

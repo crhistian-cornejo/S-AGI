@@ -81,6 +81,42 @@ function ConnectionStatusSync() {
 }
 
 /**
+ * Artifact Created Handler - Auto-selects newly created artifacts (especially charts)
+ * Opens the artifact panel to display the new artifact immediately
+ */
+function ArtifactCreatedHandler() {
+    const setSelectedArtifact = useSetAtom(selectedArtifactAtom)
+    const setArtifactPanelOpen = useSetAtom(artifactPanelOpenAtom)
+    const utils = trpc.useUtils()
+
+    useEffect(() => {
+        const cleanup = window.desktopApi?.onArtifactCreated?.((data) => {
+            console.log('[ArtifactCreated] New artifact created:', data)
+
+            // Fetch the full artifact data and select it
+            utils.artifacts.get.fetch({ id: data.artifactId }).then((artifact) => {
+                if (artifact) {
+                    setSelectedArtifact(artifact)
+                    setArtifactPanelOpen(true)
+                    // Invalidate artifacts list so it shows up in sidebar
+                    utils.artifacts.list.invalidate()
+                    utils.artifacts.listAll.invalidate()
+                    console.log('[ArtifactCreated] Artifact selected and panel opened:', artifact.name)
+                }
+            }).catch((err) => {
+                console.error('[ArtifactCreated] Failed to fetch artifact:', err)
+            })
+        })
+
+        return () => {
+            cleanup?.()
+        }
+    }, [setSelectedArtifact, setArtifactPanelOpen, utils])
+
+    return null
+}
+
+/**
  * Quick Prompt Handler - Creates a new chat from the floating Quick Prompt window
  * Sets pendingQuickPromptMessageAtom so ChatView can auto-send the message with AI response
  */
@@ -153,6 +189,7 @@ export function App() {
                 <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
                     <TRPCProvider>
                         <ConnectionStatusSync />
+                        <ArtifactCreatedHandler />
                         <QuickPromptHandler />
                         <TooltipProvider delayDuration={100}>
                             <OAuthCallbackHandler />

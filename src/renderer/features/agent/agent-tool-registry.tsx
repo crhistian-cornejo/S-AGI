@@ -12,6 +12,7 @@ import {
   FileSearchIcon,
   TableIcon,
   ImageIcon,
+  ChartIcon,
 } from "./icons"
 import { IconFolderSearch, IconListCheck } from "@tabler/icons-react"
 
@@ -568,6 +569,30 @@ export const AgentToolRegistry: Record<string, ToolMeta> = {
     subtitle: (part) => {
       const prompt = (part.input?.prompt as string) || ""
       return prompt.length > 50 ? prompt.slice(0, 47) + "..." : prompt
+    },
+    variant: "simple",
+  },
+
+  // ========================================================================
+  // Chart Generation Tools
+  // ========================================================================
+
+  "tool-generate_chart": {
+    icon: ChartIcon,
+    title: (part) => {
+      const isPending =
+        part.state !== "output-available" && part.state !== "output-error"
+      if (isPending) return "Generating chart..."
+      const hasError = part.state === "output-error" || part.output?.error
+      return hasError ? "Chart generation failed" : "Generate Chart"
+    },
+    subtitle: (part) => {
+      const title = (part.input?.title as string) || ""
+      const type = (part.input?.type as string) || "chart"
+      if (title) {
+        return title.length > 40 ? title.slice(0, 37) + "..." : title
+      }
+      return type.charAt(0).toUpperCase() + type.slice(1)
     },
     variant: "simple",
   },

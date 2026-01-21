@@ -702,6 +702,32 @@ export const IMAGE_TOOLS = {
     }
 }
 
+// Chart generation tools - Create interactive charts from data
+export const CHART_TOOLS = {
+    generate_chart: {
+        description: 'Generate an interactive chart from data. Creates bar, line, pie, area, scatter, or doughnut charts. Returns a chart artifact that can be viewed in the gallery.',
+        inputSchema: z.object({
+            title: z.string().describe('Title of the chart'),
+            type: z.enum(['bar', 'line', 'pie', 'area', 'scatter', 'doughnut', 'radar', 'polarArea']).describe('Type of chart to generate'),
+            labels: z.array(z.string()).describe('Labels for the X axis or pie slices (e.g., ["Jan", "Feb", "Mar"])'),
+            datasets: z.array(z.object({
+                label: z.string().describe('Name of the data series'),
+                data: z.array(z.number()).describe('Numeric values for this series'),
+                backgroundColor: z.string().optional().describe('Background color (CSS color or rgba)'),
+                borderColor: z.string().optional().describe('Border color (CSS color or rgba)')
+            })).describe('Data series to plot. Each dataset is a line/bar group.'),
+            options: z.object({
+                showLegend: z.boolean().optional().describe('Show chart legend. Default: true'),
+                showGrid: z.boolean().optional().describe('Show grid lines. Default: true'),
+                stacked: z.boolean().optional().describe('Stack bars/areas. Default: false'),
+                aspectRatio: z.number().optional().describe('Width/height ratio. Default: 2'),
+                xAxisTitle: z.string().optional().describe('Title for X axis'),
+                yAxisTitle: z.string().optional().describe('Title for Y axis')
+            }).optional().describe('Chart display options')
+        })
+    }
+}
+
 // UI Navigation Tools - Allow agent to control the application UI
 export const UI_NAVIGATION_TOOLS = {
     navigate_to_tab: {
@@ -730,6 +756,7 @@ export const ALL_TOOLS = {
     ...SPREADSHEET_TOOLS,
     ...DOCUMENT_TOOLS,
     ...IMAGE_TOOLS,
+    ...CHART_TOOLS,
     ...UI_NAVIGATION_TOOLS
 }
 
@@ -4306,6 +4333,120 @@ async function executeGetUiContext(
     }
 }
 
+// Generate chart artifact
+async function executeGenerateChart(
+    args: z.infer<typeof CHART_TOOLS.generate_chart.inputSchema>,
+    chatId: string,
+    userId: string
+): Promise<{ artifactId: string; message: string; chartConfig: Record<string, unknown>; title: string }> {
+    const { title, type, labels, datasets, options } = args
+
+    log.info(`[Tools] executeGenerateChart: ${title}, type=${type}, labels=${labels.length}, datasets=${datasets.length}`)
+
+    // Generate default colors if not provided
+    const defaultColors = [
+        'rgba(59, 130, 246, 0.7)',   // Blue
+        'rgba(16, 185, 129, 0.7)',   // Green
+        'rgba(245, 158, 11, 0.7)',   // Amber
+        'rgba(239, 68, 68, 0.7)',    // Red
+        'rgba(139, 92, 246, 0.7)',   // Purple
+        'rgba(236, 72, 153, 0.7)',   // Pink
+        'rgba(20, 184, 166, 0.7)',   // Teal
+        'rgba(249, 115, 22, 0.7)',   // Orange
+    ]
+
+    // Prepare datasets with colors
+    const processedDatasets = datasets.map((ds, index) => ({
+        label: ds.label,
+        data: ds.data,
+        backgroundColor: ds.backgroundColor || defaultColors[index % defaultColors.length],
+        borderColor: ds.borderColor || ds.backgroundColor?.replace('0.7', '1') || defaultColors[index % defaultColors.length].replace('0.7', '1'),
+        borderWidth: type === 'line' || type === 'scatter' ? 2 : 1,
+        fill: type === 'area',
+        tension: type === 'line' || type === 'area' ? 0.3 : 0
+    }))
+
+    // Build Chart.js configuration
+    const chartConfig = {
+        type: type === 'area' ? 'line' : type, // Area is just line with fill
+        data: {
+            labels,
+            datasets: processedDatasets
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: true,
+            aspectRatio: options?.aspectRatio ?? 2,
+            plugins: {
+                legend: {
+                    display: options?.showLegend !== false,
+                    position: 'top' as const
+                },
+                title: {
+                    display: true,
+                    text: title,
+                    font: { size: 16, weight: 'bold' as const }
+                }
+            },
+            scales: type !== 'pie' && type !== 'doughnut' && type !== 'radar' && type !== 'polarArea' ? {
+                x: {
+                    display: true,
+                    title: {
+                        display: !!options?.xAxisTitle,
+                        text: options?.xAxisTitle || ''
+                    },
+                    grid: {
+                        display: options?.showGrid !== false
+                    },
+                    stacked: options?.stacked || false
+                },
+                y: {
+                    display: true,
+                    title: {
+                        display: !!options?.yAxisTitle,
+                        text: options?.yAxisTitle || ''
+                    },
+                    grid: {
+                        display: options?.showGrid !== false
+                    },
+                    stacked: options?.stacked || false,
+                    beginAtZero: true
+                }
+            } : undefined
+        }
+    }
+
+    // Store as chart artifact
+    const { data: artifact, error } = await supabase
+        .from('artifacts')
+        .insert({
+            chat_id: chatId,
+            user_id: userId,
+            type: 'chart',
+            name: title,
+            content: chartConfig
+        })
+        .select()
+        .single()
+
+    if (error) throw new Error(`Failed to create chart: ${error.message}`)
+
+    // Notify renderer to update UI
+    sendToRenderer('artifact:created', {
+        artifactId: artifact.id,
+        type: 'chart',
+        name: title
+    })
+
+    log.info(`[Tools] Created chart artifact: ${artifact.id}`)
+    return {
+        artifactId: artifact.id,
+        message: `Created ${type} chart "${title}" with ${datasets.length} data series and ${labels.length} data points`,
+        chartConfig,
+        title
+    }
+}
+
 // Main tool execution function
 export async function executeTool(
     toolName: string,
@@ -4647,6 +4788,14 @@ export async function executeTool(
                 chatId,
                 userId,
                 context
+            )
+
+        // Chart tools
+        case 'generate_chart':
+            return executeGenerateChart(
+                CHART_TOOLS.generate_chart.inputSchema.parse(args),
+                chatId,
+                userId
             )
 
         // UI Navigation tools

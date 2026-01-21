@@ -56,7 +56,7 @@ export default defineConfig({
         plugins: [
             externalizeDepsPlugin({
                 // Don't externalize these - bundle them instead
-                exclude: ['superjson', 'trpc-electron']
+                exclude: ['superjson', 'trpc-electron', 'jose', 'ai', '@ai-sdk/openai', 'unpdf']
             }),
             copyTrayIcons()
         ],

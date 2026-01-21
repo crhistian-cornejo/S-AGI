@@ -73,6 +73,8 @@ interface DesktopApi {
         onCreateChat: (callback: (message: string) => void) => () => void
     }
     onArtifactUpdate: (callback: (data: ArtifactUpdateEvent) => void) => () => void
+    // Artifact created listener (for auto-selecting newly created artifacts like charts)
+    onArtifactCreated: (callback: (data: ArtifactCreatedEvent) => void) => () => void
     // ChatGPT Plus connected listener
     onChatGPTConnected: (callback: (data: { isConnected: boolean; accountId?: string }) => void) => () => void
     // Gemini Advanced connected listener
@@ -93,6 +95,13 @@ interface ArtifactUpdateEvent {
     artifactId: string
     univerData: any
     type: 'spreadsheet' | 'document'
+}
+
+// Artifact created event from main process (for charts, etc.)
+interface ArtifactCreatedEvent {
+    artifactId: string
+    type: string
+    name: string
 }
 
 // Types for tray popover

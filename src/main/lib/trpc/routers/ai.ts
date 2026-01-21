@@ -12,7 +12,8 @@ import { getChatGPTAuthManager } from '../../auth'
 import OpenAI from 'openai'
 import type { Responses } from 'openai/resources/responses/responses'
 import { OpenAIFileService } from '../../ai/openai-files'
-import { SPREADSHEET_TOOLS, DOCUMENT_TOOLS, IMAGE_TOOLS, PLAN_TOOLS, executeTool, generateImageDirect, type ToolContext } from './tools'
+import { getDocumentContext, shouldUseLocalContext } from '../../documents/document-context'
+import { SPREADSHEET_TOOLS, DOCUMENT_TOOLS, IMAGE_TOOLS, CHART_TOOLS, PLAN_TOOLS, executeTool, generateImageDirect, type ToolContext } from './tools'
 import type { AIStreamEvent, ReasoningConfig, NativeToolsConfig, AIProvider } from '@shared/ai-types'
 import { 
     AI_MODELS, 
@@ -31,7 +32,9 @@ const MAX_AGENT_STEPS = 15
 
 const DEFAULT_REQUEST_TIMEOUT_MS = 120_000
 const FLEX_REQUEST_TIMEOUT_MS = 900_000
-const RETRY_DELAYS_MS = [500, 1000, 2000]
+// Exponential backoff with jitter: 500ms, 1s, 2s, 4s, 8s (5 retries total)
+const RETRY_DELAYS_MS = [500, 1000, 2000, 4000, 8000]
+const MAX_JITTER_MS = 500 // Random jitter to avoid thundering herd
 
 const ZAI_GENERAL_BASE_URL = 'https://api.z.ai/api/paas/v4/'
 const ZAI_CODING_BASE_URL = 'https://api.z.ai/api/coding/paas/v4/'
@@ -76,17 +79,54 @@ function isRetryableError(error: unknown): boolean {
     const status = (error as any)?.status
     const code = (error as any)?.code
     const message = (error as any)?.message || ''
-    
+    const errorType = (error as any)?.type || ''
+
     // Z.AI billing errors should NOT be retried (they won't resolve themselves)
     // Common patterns: "Insufficient balance", "no resource package", "quota exceeded"
     if (isZaiBillingError(error)) {
         log.warn('[AI] Z.AI billing error detected - will not retry:', message)
         return false
     }
-    
-    if (typeof status === 'number' && (status === 429 || status >= 500)) return true
-    if (code === 'ETIMEDOUT' || code === 'ECONNRESET' || code === 'EPIPE' || code === 'ENOTFOUND') return true
+
+    // OpenAI server errors (500, 502, 503, 504) - always retry
+    if (typeof status === 'number' && status >= 500 && status < 600) {
+        log.info(`[AI] Server error ${status} detected - will retry`)
+        return true
+    }
+
+    // Rate limiting (429) - retry with backoff
+    if (status === 429) {
+        log.info('[AI] Rate limit (429) detected - will retry with backoff')
+        return true
+    }
+
+    // OpenAI specific error types that are retryable
+    if (errorType === 'server_error' || errorType === 'api_error' || errorType === 'service_unavailable') {
+        log.info(`[AI] OpenAI error type "${errorType}" - will retry`)
+        return true
+    }
+
+    // Network errors - retry
+    const retryableCodes = ['ETIMEDOUT', 'ECONNRESET', 'EPIPE', 'ENOTFOUND', 'ECONNREFUSED', 'EAI_AGAIN', 'EHOSTUNREACH']
+    if (retryableCodes.includes(code)) {
+        log.info(`[AI] Network error ${code} - will retry`)
+        return true
+    }
+
+    // OpenAI "An error occurred while processing" messages - these are transient
+    if (/error occurred while processing|internal server error|bad gateway|service unavailable/i.test(message)) {
+        log.info('[AI] Transient OpenAI error detected in message - will retry')
+        return true
+    }
+
     return false
+}
+
+/** Calculate delay with jitter for retry */
+function getRetryDelayWithJitter(attemptIndex: number): number {
+    const baseDelay = RETRY_DELAYS_MS[Math.min(attemptIndex, RETRY_DELAYS_MS.length - 1)]
+    const jitter = Math.random() * MAX_JITTER_MS
+    return baseDelay + jitter
 }
 
 function createRequestSignal(parentSignal: AbortSignal, timeoutMs: number): { signal: AbortSignal; cleanup: () => void } {
@@ -118,18 +158,46 @@ async function withRetry<T>(
     task: (signal: AbortSignal) => Promise<T>
 ): Promise<T> {
     let lastError: unknown
+    const maxAttempts = RETRY_DELAYS_MS.length + 1 // +1 for initial attempt
 
-    for (let attempt = 0; attempt <= RETRY_DELAYS_MS.length; attempt += 1) {
+    for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+        // Check if already aborted before starting
+        if (parentSignal.aborted) {
+            throw new Error('Request cancelled')
+        }
+
         const { signal, cleanup } = createRequestSignal(parentSignal, timeoutMs)
         try {
+            if (attempt > 0) {
+                log.info(`[AI] ${label} - attempt ${attempt + 1}/${maxAttempts}`)
+            }
             return await task(signal)
         } catch (error) {
             lastError = error
-            if (!isRetryableError(error) || attempt === RETRY_DELAYS_MS.length) {
+            const errorStatus = (error as any)?.status
+            const errorMessage = (error as any)?.message || String(error)
+            const requestId = (error as any)?.request_id || (error as any)?.headers?.get?.('x-request-id') || 'unknown'
+
+            // Log detailed error info
+            log.warn(`[AI] ${label} failed (attempt ${attempt + 1}/${maxAttempts})`, {
+                status: errorStatus,
+                message: errorMessage.slice(0, 200),
+                requestId,
+                retryable: isRetryableError(error)
+            })
+
+            // Check if we should retry
+            const isLastAttempt = attempt === maxAttempts - 1
+            if (!isRetryableError(error) || isLastAttempt) {
+                if (isLastAttempt && isRetryableError(error)) {
+                    log.error(`[AI] ${label} - max retries (${maxAttempts}) exhausted. Last error:`, errorMessage.slice(0, 300))
+                }
                 throw error
             }
-            const delayMs = RETRY_DELAYS_MS[attempt]
-            log.warn(`[AI] ${label} failed (attempt ${attempt + 1}) - retrying in ${delayMs}ms`) 
+
+            // Calculate delay with jitter and wait
+            const delayMs = getRetryDelayWithJitter(attempt)
+            log.info(`[AI] ${label} - waiting ${Math.round(delayMs)}ms before retry...`)
             await new Promise(resolve => setTimeout(resolve, delayMs))
         } finally {
             cleanup()
@@ -574,6 +642,18 @@ function createFunctionTools(
         executors.set(name, (args) => executeTool(name, args, chatId, userId, context))
     }
 
+    // Add chart tools
+    for (const [name, tool] of Object.entries(CHART_TOOLS)) {
+        tools.push({
+            type: 'function',
+            name,
+            description: tool.description,
+            parameters: zodToJsonSchema(tool.inputSchema) as FunctionToolParam['parameters'],
+            strict: true
+        })
+        executors.set(name, (args) => executeTool(name, args, chatId, userId))
+    }
+
     return { tools, executors }
 }
 
@@ -604,12 +684,13 @@ function createPlanModeTools(
 
 /**
  * MINIMAL TOOLS MODE: When processing images (tables/data extraction)
- * Only expose create_spreadsheet and create_document to prevent 19+ tool call chains.
+ * Only expose create_spreadsheet, create_document, and generate_chart to prevent 19+ tool call chains.
  * The model will put all data in a single create_spreadsheet call instead of
  * calling format_cells, set_column_width, freeze_panes, etc. separately.
  */
 const MINIMAL_SPREADSHEET_TOOLS = ['create_spreadsheet'] as const
 const MINIMAL_DOCUMENT_TOOLS = ['create_document'] as const
+const MINIMAL_CHART_TOOLS = ['generate_chart'] as const
 
 function createMinimalFunctionTools(
     chatId: string,
@@ -637,6 +718,21 @@ function createMinimalFunctionTools(
     // Only add create_document
     for (const name of MINIMAL_DOCUMENT_TOOLS) {
         const tool = DOCUMENT_TOOLS[name]
+        if (tool) {
+            tools.push({
+                type: 'function',
+                name,
+                description: tool.description,
+                parameters: zodToJsonSchema(tool.inputSchema) as FunctionToolParam['parameters'],
+                strict: true
+            })
+            executors.set(name, (args) => executeTool(name, args, chatId, userId))
+        }
+    }
+
+    // Include chart tools (generate_chart)
+    for (const name of MINIMAL_CHART_TOOLS) {
+        const tool = CHART_TOOLS[name]
         if (tool) {
             tools.push({
                 type: 'function',
@@ -854,24 +950,61 @@ function sanitizeApiError(errorText: string): string {
 
 // Types for input content
 
+/** Image attachment type */
+type ImageAttachment = { type: 'image'; data: string; mediaType: string }
+
+/** Message with optional images */
+type MessageWithImages = {
+    role: 'user' | 'assistant' | 'system'
+    content: string
+    images?: ImageAttachment[]
+}
+
 /**
  * Convert internal messages to Responses API format
+ * Now supports images in historical messages for full visual context
  */
 function toResponsesMessages(
-    messages: Array<{ role: 'user' | 'assistant' | 'system'; content: string }>,
+    messages: Array<MessageWithImages>,
     currentPrompt: string,
-    images?: Array<{ type: 'image'; data: string; mediaType: string }>
+    images?: ImageAttachment[],
+    options?: { maxHistoricalImages?: number }
 ): Array<Responses.ResponseInputItem> {
     const result: Array<Responses.ResponseInputItem> = []
+    const maxHistoricalImages = options?.maxHistoricalImages ?? 10 // Limit to avoid context overflow
+    let historicalImageCount = 0
 
-    // Add previous messages
+    // Add previous messages with their images
     for (const msg of messages) {
         if (msg.role === 'user' || msg.role === 'assistant') {
-            result.push({
-                type: 'message',
-                role: msg.role,
-                content: msg.content
-            } as Responses.ResponseInputItem)
+            // Check if this message has images and we haven't exceeded the limit
+            const msgImages = msg.images || []
+            const imagesToInclude = msgImages.slice(0, Math.max(0, maxHistoricalImages - historicalImageCount))
+            historicalImageCount += imagesToInclude.length
+
+            if (msg.role === 'user' && imagesToInclude.length > 0) {
+                // User message with images - use multimodal format
+                const content: Array<Responses.ResponseInputContent> = [
+                    ...imagesToInclude.map(img => ({
+                        type: 'input_image' as const,
+                        image_url: `data:${img.mediaType};base64,${img.data}`,
+                        detail: 'auto' as const
+                    })),
+                    { type: 'input_text' as const, text: msg.content }
+                ]
+                result.push({
+                    type: 'message',
+                    role: 'user',
+                    content
+                } as Responses.ResponseInputItem)
+            } else {
+                // Text-only message
+                result.push({
+                    type: 'message',
+                    role: msg.role,
+                    content: msg.content
+                } as Responses.ResponseInputItem)
+            }
         }
     }
 
@@ -903,23 +1036,65 @@ function toResponsesMessages(
 
 /**
  * Convert internal messages to Chat Completions format
+ * Now supports images in historical messages for Z.AI and other providers
  */
 function toChatMessages(
     systemPrompt: string,
-    messages: Array<{ role: 'user' | 'assistant' | 'system'; content: string }>,
-    currentPrompt: string
+    messages: Array<MessageWithImages>,
+    currentPrompt: string,
+    currentImages?: ImageAttachment[],
+    options?: { maxHistoricalImages?: number; supportsImages?: boolean }
 ): Array<OpenAI.ChatCompletionMessageParam> {
     const result: Array<OpenAI.ChatCompletionMessageParam> = [
         { role: 'system', content: systemPrompt }
     ]
+    const maxHistoricalImages = options?.maxHistoricalImages ?? 10
+    const supportsImages = options?.supportsImages ?? true
+    let historicalImageCount = 0
 
     for (const msg of messages) {
         if (msg.role === 'user' || msg.role === 'assistant') {
-            result.push({ role: msg.role, content: msg.content })
+            const msgImages = msg.images || []
+            const imagesToInclude = supportsImages
+                ? msgImages.slice(0, Math.max(0, maxHistoricalImages - historicalImageCount))
+                : []
+            historicalImageCount += imagesToInclude.length
+
+            if (msg.role === 'user' && imagesToInclude.length > 0) {
+                // User message with images - use multimodal content array
+                const content: Array<OpenAI.ChatCompletionContentPart> = [
+                    ...imagesToInclude.map(img => ({
+                        type: 'image_url' as const,
+                        image_url: {
+                            url: `data:${img.mediaType};base64,${img.data}`,
+                            detail: 'auto' as const
+                        }
+                    })),
+                    { type: 'text' as const, text: msg.content }
+                ]
+                result.push({ role: 'user', content })
+            } else {
+                result.push({ role: msg.role, content: msg.content })
+            }
         }
     }
 
-    result.push({ role: 'user', content: currentPrompt })
+    // Add current message with optional images
+    if (currentImages?.length && supportsImages) {
+        const content: Array<OpenAI.ChatCompletionContentPart> = [
+            ...currentImages.map(img => ({
+                type: 'image_url' as const,
+                image_url: {
+                    url: `data:${img.mediaType};base64,${img.data}`,
+                    detail: 'auto' as const
+                }
+            })),
+            { type: 'text' as const, text: currentPrompt }
+        ]
+        result.push({ role: 'user', content })
+    } else {
+        result.push({ role: 'user', content: currentPrompt })
+    }
 
     return result
 }
@@ -987,8 +1162,15 @@ export const aiRouter = router({
             model: z.string().optional(),
             messages: z.array(z.object({
                 role: z.enum(['user', 'assistant', 'system']),
-                content: z.string()
+                content: z.string(),
+                // Support for historical images in messages
+                images: z.array(z.object({
+                    type: z.literal('image'),
+                    data: z.string(), // base64 data
+                    mediaType: z.string()
+                })).optional()
             })).optional(),
+            // Current message images (backwards compatible)
             images: z.array(z.object({
                 type: z.literal('image'),
                 data: z.string(),
@@ -1529,7 +1711,7 @@ The user has uploaded the following documents to this conversation's knowledge b
 ${fileList}
 
 CRITICAL INSTRUCTIONS FOR DOCUMENT QUERIES:
-1. When the user asks about personal information, dates, names, certificates, 
+1. When the user asks about personal information, dates, names, certificates,
    degrees, work history, or ANY information that could be in these documents,
    you MUST use the file_search tool FIRST before attempting web search.
 
@@ -1544,12 +1726,67 @@ CRITICAL INSTRUCTIONS FOR DOCUMENT QUERIES:
    - General knowledge questions NOT related to the user's documents
    - Information explicitly requested from the internet
 
-5. When file_search returns results, cite the specific document where you found 
-   the information.
+CITATION REQUIREMENTS (MANDATORY):
+5. ALWAYS cite your sources with inline references after EACH fact or statement.
+6. Use this exact format: "El proyecto tiene X objetivo [Nombre_Documento.pdf, p. X]"
+7. If file_search returns multiple results, cite ALL relevant sources.
+8. Example: "La empresa fue fundada en 2020 [Informe.pdf, p. 1] y tiene 500 empleados [Informe.pdf, p. 3]"
+9. NEVER provide information from documents without citing the specific page.
 `
                                 systemPrompt = systemPrompt + knowledgeBaseContext
                                 log.info(`[AI] Added Knowledge Base context with ${filesForPrompt.length} files to system prompt`)
                             }
+                        }
+                    }
+                    // HYBRID RAG: For non-OpenAI providers, inject document context directly into prompt
+                    // OpenAI/ChatGPT Plus uses native file_search but we ALSO inject local context for better citation support
+                    const useLocalRag = shouldUseLocalContext(modelId)
+                    // For OpenAI and ChatGPT Plus with documents, always inject local context for inline citations
+                    const isOpenAIOrChatGPTPlus = provider === 'openai' || provider === 'chatgpt-plus'
+                    const shouldInjectLocalContext = useLocalRag || (isOpenAIOrChatGPTPlus && shouldForceFileSearch)
+
+                    if (shouldInjectLocalContext) {
+                        log.info(`[AI] Using local RAG for ${modelId} (useLocalRag: ${useLocalRag}, isOpenAIOrChatGPTPlus: ${isOpenAIOrChatGPTPlus}, shouldForceFileSearch: ${shouldForceFileSearch}, provider: ${provider}) to enable inline citations`)
+
+                        try {
+                            // Get document context for this chat
+                            const docContext = await getDocumentContext({
+                                chatId: input.chatId,
+                                query: input.prompt,
+                                userId: ctx.userId,
+                                searchContent: true,
+                                maxLength: 15000
+                            })
+
+                            if (docContext.hasContext) {
+                                log.info(`[AI] Injecting local document context: ${docContext.documentNames.length} docs, ${docContext.citations?.length || 0} citations`)
+                                systemPrompt = systemPrompt + '\n' + docContext.contextText
+
+                                // Store citations for later emission to frontend
+                                if (docContext.citations && docContext.citations.length > 0) {
+                                    // Emit document citations so frontend can render them with hover
+                                    const documentCitations = docContext.citations.map(c => ({
+                                        type: 'document_citation' as const,
+                                        id: c.citationId || 0,
+                                        filename: c.filename,
+                                        pageNumber: c.pageNumber,
+                                        text: c.text,
+                                        marker: c.citationMarker
+                                    }))
+                                    emit({ type: 'document_citations', citations: documentCitations })
+                                }
+
+                                // If we have document context, prioritize it over web search
+                                if (docContext.totalDocuments > 0) {
+                                    shouldForceFileSearch = true // Reuse flag to disable web search
+                                    log.info(`[AI] Disabling web search in favor of local document context`)
+                                }
+                            } else {
+                                log.info(`[AI] No document context found for chat ${input.chatId}`)
+                            }
+                        } catch (docError) {
+                            log.error(`[AI] Failed to get document context:`, docError)
+                            // Continue without document context - don't fail the request
                         }
                     }
 
@@ -1617,8 +1854,16 @@ CRITICAL INSTRUCTIONS FOR DOCUMENT QUERIES:
                         input.images
                     )
 
+                    // For Z.AI, check if model supports images
+                    const zaiSupportsImages = modelDef?.supportsImages ?? true
                     const chatMessages = (provider === 'zai')
-                        ? toChatMessages(systemPrompt, input.messages || [], input.prompt)
+                        ? toChatMessages(
+                            systemPrompt,
+                            input.messages || [],
+                            input.prompt,
+                            input.images,
+                            { supportsImages: zaiSupportsImages, maxHistoricalImages: 10 }
+                        )
                         : null
 
                     // Determine reasoning config (ResponseMode override para GPT-5.2)
@@ -1644,8 +1889,9 @@ CRITICAL INSTRUCTIONS FOR DOCUMENT QUERIES:
                     }
 
                     const runChatCompletionsAgentLoop = async () => {
+                        // Z.AI now supports images via OpenAI-compatible multimodal format
                         if (input.images?.length) {
-                            log.warn(`[AI] ${provider} does not support image inputs yet`)
+                            log.info(`[AI] ${provider} processing ${input.images.length} image(s) in multimodal format`)
                         }
 
                         // When web search is enabled for Z.AI, exclude function tools

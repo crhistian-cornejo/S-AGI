@@ -228,10 +228,25 @@ export function useDocumentUpload({ chatId }: UseDocumentUploadOptions) {
 
     // Merge local uploading documents with server files
     const allFiles: VectorStoreFile[] = filesData?.files || []
-    
+
     // Filter out documents that are already in the server response
-    const uploadingDocs = documents.filter(d => 
-        d.status === 'uploading' || d.status === 'processing' || d.status === 'failed'
+    // Also check if the document is now in the server files (by filename match)
+    const serverFilenames = new Set(allFiles.map(f => f.filename))
+    const uploadingDocs = documents.filter(d => {
+        // Keep failed documents
+        if (d.status === 'failed') return true
+        // Keep uploading documents
+        if (d.status === 'uploading') return true
+        // For processing documents, only keep if NOT yet in server
+        if (d.status === 'processing') {
+            return !serverFilenames.has(d.filename)
+        }
+        return false
+    })
+
+    // Check if any documents are still processing (for UI blocking)
+    const hasProcessingDocuments = uploadingDocs.some(d =>
+        d.status === 'uploading' || d.status === 'processing'
     )
 
     return {
@@ -251,6 +266,7 @@ export function useDocumentUpload({ chatId }: UseDocumentUploadOptions) {
         // State
         isUploading: isUploading || uploadMutation.isPending,
         isDeleting: deleteMutation.isPending,
+        hasProcessingDocuments, // True if any docs still uploading/processing
         
         // Helpers
         isSupported: isDocumentSupported,

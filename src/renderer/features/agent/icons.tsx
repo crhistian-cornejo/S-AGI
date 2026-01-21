@@ -412,3 +412,24 @@ export function ImageIcon(props: IconProps) {
     </svg>
   )
 }
+
+export function ChartIcon(props: IconProps) {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      width="16"
+      height="16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      {...props}
+    >
+      <rect x="1" y="8" width="3" height="6" rx="0.5" fill="currentColor" opacity="0.3" />
+      <rect x="6" y="4" width="3" height="10" rx="0.5" fill="currentColor" opacity="0.5" />
+      <rect x="11" y="2" width="3" height="12" rx="0.5" fill="currentColor" opacity="0.7" />
+    </svg>
+  )
+}

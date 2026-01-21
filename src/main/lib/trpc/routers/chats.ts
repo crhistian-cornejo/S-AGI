@@ -118,14 +118,15 @@ async function cleanupChatFiles(chatId: string, userId: string): Promise<void> {
 
 async function enrichWithMeta<T extends { id: string }>(
     chats: T[]
-): Promise<(T & { meta: { spreadsheets: number; documents: number; hasCode: boolean; hasImages: boolean } })[]> {
-    if (!chats.length) return chats as (T & { meta: { spreadsheets: number; documents: number; hasCode: boolean; hasImages: boolean } })[]
+): Promise<(T & { meta: { spreadsheets: number; documents: number; hasCode: boolean; hasImages: boolean; messageCount: number } })[]> {
+    if (!chats.length) return chats as (T & { meta: { spreadsheets: number; documents: number; hasCode: boolean; hasImages: boolean; messageCount: number } })[]
     const ids = chats.map((c) => c.id)
 
-    const [artifactsRes, codeRes, messagesRes] = await Promise.all([
+    const [artifactsRes, codeRes, imagesRes, countRes] = await Promise.all([
         supabase.from('artifacts').select('chat_id, type').in('chat_id', ids),
         supabase.from('chat_messages').select('chat_id').in('chat_id', ids).ilike('content', '%```%'),
-        supabase.from('chat_messages').select('chat_id, metadata').in('chat_id', ids).limit(2000)
+        supabase.from('chat_messages').select('chat_id, metadata').in('chat_id', ids).limit(2000),
+        supabase.from('chat_messages').select('chat_id').in('chat_id', ids).eq('role', 'user')
     ])
 
     const artMap: Record<string, { spreadsheets: number; documents: number }> = {}
@@ -138,11 +139,19 @@ async function enrichWithMeta<T extends { id: string }>(
         }
     }
 
+    const countMap: Record<string, number> = {}
+    for (const id of ids) countMap[id] = 0
+    if (countRes.data) {
+        for (const row of countRes.data) {
+            countMap[row.chat_id] = (countMap[row.chat_id] || 0) + 1
+        }
+    }
+
     const codeSet = new Set<string>()
     for (const row of codeRes.data || []) codeSet.add(row.chat_id)
 
     const imageSet = new Set<string>()
-    for (const row of messagesRes.data || []) {
+    for (const row of imagesRes.data || []) {
         try {
             const tc = (row.metadata as { tool_calls?: { name?: string }[] })?.tool_calls || []
             if (tc.some((t) => t?.name === 'generate_image' || t?.name === 'edit_image')) imageSet.add(row.chat_id)
@@ -157,7 +166,8 @@ async function enrichWithMeta<T extends { id: string }>(
             spreadsheets: artMap[c.id]?.spreadsheets ?? 0,
             documents: artMap[c.id]?.documents ?? 0,
             hasCode: codeSet.has(c.id),
-            hasImages: imageSet.has(c.id)
+            hasImages: imageSet.has(c.id),
+            messageCount: countMap[c.id] ?? 0
         }
     }))
 }
@@ -271,6 +281,26 @@ export const chatsRouter = router({
                 .single()
 
             if (error) {
+                if (error.message.includes('column') && error.message.includes('pinned')) {
+                    log.warn('[Chats] Column "pinned" not found during create, retrying without pinned. PLEASE RUN MIGRATION.')
+                    const { data: fbData, error: fbError } = await supabase
+                        .from('chats')
+                        .insert({
+                            title: input.title,
+                            user_id: ctx.userId,
+                            archived: false
+                        })
+                        .select()
+                        .single()
+
+                    if (fbError) {
+                        log.error('[Chats] Create fallback error:', fbError)
+                        throw new Error(fbError.message)
+                    }
+
+                    log.info('[Chats] Created chat:', fbData.id)
+                    return fbData
+                }
                 log.error('[Chats] Create error:', error)
                 throw new Error(error.message)
             }

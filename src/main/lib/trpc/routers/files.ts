@@ -3,6 +3,16 @@ import { router, protectedProcedure } from '../trpc'
 import { OpenAIFileService } from '../../ai/openai-files'
 import log from 'electron-log'
 import { supabase } from '../../supabase/client'
+import { quickHash, hashBuffer } from '../../security/encryption'
+import {
+    processDocument,
+    isProcessableDocument,
+    searchWithCitations,
+    formatCitation,
+    type ProcessingStatus,
+    type DocumentMetadata,
+    type PageContent
+} from '../../documents/document-processor'
 
 // Supported file types for OpenAI file search
 const SUPPORTED_FILE_TYPES = [
@@ -36,6 +46,9 @@ const SUPPORTED_MIME_TYPES = [
     'text/x-tex'
 ]
 
+// Processing status type for tracking file processing state
+type FileProcessingStatus = ProcessingStatus
+
 export const filesRouter = router({
     /**
      * Upload a file to OpenAI and attach it to the chat's vector store
@@ -61,11 +74,49 @@ export const filesRouter = router({
                     throw new Error('OpenAI API key is required for file upload')
                 }
                 
-                // Calculate file size for duplicate check
+                // Calculate file size and hash for duplicate check
                 const buffer = Buffer.from(input.fileBase64, 'base64')
                 const fileSize = buffer.length
-                
-                // CHECK FOR DUPLICATES: Same filename AND same size in this chat
+
+                // Generate content hash for true deduplication (Midday-style)
+                // Use quickHash for large files, full hash for small files
+                const fileHash = fileSize > 1024 * 1024
+                    ? quickHash(buffer)
+                    : hashBuffer(buffer)
+
+                log.info('[FilesRouter] File hash generated:', {
+                    fileName: input.fileName,
+                    fileSize,
+                    hashMethod: fileSize > 1024 * 1024 ? 'quick' : 'full',
+                    hash: fileHash.substring(0, 16) + '...'
+                })
+
+                // CHECK FOR DUPLICATES: Using content hash (more accurate than filename + size)
+                const { data: existingByHash } = await supabase
+                    .from('chat_files')
+                    .select('id, openai_file_id, openai_vector_store_file_id, filename, file_hash')
+                    .eq('chat_id', input.chatId)
+                    .eq('file_hash', fileHash)
+                    .single()
+
+                if (existingByHash) {
+                    const existingVectorStoreFileId = existingByHash.openai_vector_store_file_id || existingByHash.openai_file_id
+                    log.info('[FilesRouter] Duplicate file detected by hash, skipping upload:', {
+                        fileName: input.fileName,
+                        existingFileName: existingByHash.filename,
+                        existingFileId: existingVectorStoreFileId
+                    })
+                    return {
+                        success: true,
+                        fileId: existingVectorStoreFileId,
+                        openaiFileId: existingByHash.openai_file_id,
+                        vectorStoreId: null,
+                        skipped: true,
+                        reason: 'duplicate_hash'
+                    }
+                }
+
+                // Fallback: Check by filename + size for backwards compatibility
                 const { data: existingFile } = await supabase
                     .from('chat_files')
                     .select('id, openai_file_id, openai_vector_store_file_id, filename')
@@ -73,19 +124,18 @@ export const filesRouter = router({
                     .eq('filename', input.fileName)
                     .eq('file_size', fileSize)
                     .single()
-                
+
                 if (existingFile) {
                     const existingVectorStoreFileId = existingFile.openai_vector_store_file_id || existingFile.openai_file_id
-                    log.info('[FilesRouter] Duplicate file detected, skipping upload:', {
+                    log.info('[FilesRouter] Duplicate file detected by name+size, skipping upload:', {
                         fileName: input.fileName,
                         existingFileId: existingVectorStoreFileId
                     })
-                    // Return existing file info instead of uploading again
-                    return { 
-                        success: true, 
-                        fileId: existingVectorStoreFileId, 
+                    return {
+                        success: true,
+                        fileId: existingVectorStoreFileId,
                         openaiFileId: existingFile.openai_file_id,
-                        vectorStoreId: null, // Will be fetched if needed
+                        vectorStoreId: null,
                         skipped: true,
                         reason: 'duplicate'
                     }
@@ -168,7 +218,46 @@ export const filesRouter = router({
                 const uploaded = await service.uploadAndAttachFile(vectorStoreId, buffer, input.fileName)
                 log.info('[FilesRouter] File uploaded to OpenAI:', uploaded)
                 
-                // 6. Save metadata to chat_files table (fileSize already calculated above)
+                // 6. Process document for text extraction (Midday-style)
+                let processingStatus: FileProcessingStatus = 'pending'
+                let extractedContent: string | null = null
+                let documentMetadata: DocumentMetadata | Record<string, unknown> = {}
+                let documentPages: Array<{ pageNumber: number; content: string; wordCount: number }> | null = null
+
+                // Process documents that support text extraction
+                if (isProcessableDocument(contentType)) {
+                    try {
+                        processingStatus = 'processing'
+                        log.info('[FilesRouter] Processing document for text extraction...')
+
+                        const processed = await processDocument(buffer, input.fileName, contentType)
+
+                        if (processed.success && processed.content) {
+                            extractedContent = processed.content
+                            documentMetadata = processed.metadata
+                            documentPages = processed.pages || null
+                            processingStatus = 'completed'
+                            log.info('[FilesRouter] Document processed successfully:', {
+                                wordCount: processed.metadata.wordCount,
+                                language: processed.metadata.language,
+                                pageCount: processed.pages?.length || 0
+                            })
+                        } else {
+                            processingStatus = 'failed'
+                            documentMetadata = { error: processed.error }
+                            log.warn('[FilesRouter] Document processing failed:', processed.error)
+                        }
+                    } catch (procError) {
+                        processingStatus = 'failed'
+                        documentMetadata = { error: procError instanceof Error ? procError.message : 'Unknown error' }
+                        log.error('[FilesRouter] Document processing error:', procError)
+                    }
+                } else {
+                    // Non-processable files are marked as completed immediately
+                    processingStatus = 'completed'
+                }
+
+                // 7. Save metadata to chat_files table with new fields
                 const { error: dbError } = await supabase
                     .from('chat_files')
                     .insert({
@@ -177,21 +266,41 @@ export const filesRouter = router({
                         filename: input.fileName,
                         storage_path: storagePath,
                         file_size: fileSize,
+                        file_hash: fileHash,
                         openai_file_id: uploaded.fileId,
                         openai_vector_store_file_id: uploaded.vectorStoreFileId,
-                        content_type: contentType
+                        content_type: contentType,
+                        processing_status: processingStatus,
+                        extracted_content: extractedContent,
+                        metadata: documentMetadata,
+                        pages: documentPages
                     })
 
                 if (dbError) {
                     log.error('[FilesRouter] DB insert failed:', dbError)
-                    // consistency issue: file is in storage and openai but not db. 
+                    // consistency issue: file is in storage and openai but not db.
                     // Should theoretically rollup/cleanup but for now logging.
                 }
 
-                log.info('[FilesRouter] File uploaded and persisted successfully:', { fileId: uploaded.fileId, vectorStoreFileId: uploaded.vectorStoreFileId, vectorStoreId, fileName: input.fileName, storagePath })
-                
+                log.info('[FilesRouter] File uploaded and persisted successfully:', {
+                    fileId: uploaded.fileId,
+                    vectorStoreFileId: uploaded.vectorStoreFileId,
+                    vectorStoreId,
+                    fileName: input.fileName,
+                    storagePath,
+                    processingStatus,
+                    hasExtractedContent: !!extractedContent
+                })
+
                 // Return vector store file id for operations, include OpenAI file id for reference
-                return { success: true, fileId: uploaded.vectorStoreFileId, vectorStoreId, openaiFileId: uploaded.fileId }
+                return {
+                    success: true,
+                    fileId: uploaded.vectorStoreFileId,
+                    vectorStoreId,
+                    openaiFileId: uploaded.fileId,
+                    processingStatus,
+                    hasExtractedContent: !!extractedContent
+                }
             } catch (error) {
                 const errorMessage = error instanceof Error ? error.message : 'Unknown error'
                 log.error('[FilesRouter] uploadForChat error:', error)
@@ -645,14 +754,407 @@ export const filesRouter = router({
                     }
                 }
                 
-                return { 
-                    success: true, 
+                return {
+                    success: true,
                     duplicatesFound: duplicates.length,
-                    deleted 
+                    deleted
                 }
             } catch (err) {
                 log.error('[FilesRouter] cleanupDuplicates error:', err)
                 throw new Error(err instanceof Error ? err.message : 'Failed to cleanup duplicates')
+            }
+        }),
+
+    // ========================================================================
+    // New Midday-style endpoints
+    // ========================================================================
+
+    /**
+     * Search documents by extracted text content (full-text search)
+     */
+    searchDocuments: protectedProcedure
+        .input(z.object({
+            query: z.string().min(1),
+            chatId: z.string().uuid().optional(),
+            limit: z.number().min(1).max(50).default(20)
+        }))
+        .query(async ({ ctx, input }) => {
+            log.info('[FilesRouter] searchDocuments:', { query: input.query, chatId: input.chatId })
+
+            try {
+                // Build the full-text search query
+                const searchQuery = input.query
+                    .split(' ')
+                    .filter(word => word.length > 0)
+                    .join(' & ')
+
+                let query = supabase
+                    .from('chat_files')
+                    .select(`
+                        id,
+                        filename,
+                        content_type,
+                        file_size,
+                        processing_status,
+                        metadata,
+                        chat_id,
+                        created_at
+                    `)
+                    .eq('user_id', ctx.userId)
+                    .not('extracted_content', 'is', null)
+                    .textSearch('fts', searchQuery)
+                    .limit(input.limit)
+                    .order('created_at', { ascending: false })
+
+                // Filter by chat if specified
+                if (input.chatId) {
+                    query = query.eq('chat_id', input.chatId)
+                }
+
+                const { data, error } = await query
+
+                if (error) {
+                    log.error('[FilesRouter] Search error:', error)
+                    throw new Error('Search failed')
+                }
+
+                return {
+                    results: data || [],
+                    query: input.query,
+                    count: data?.length || 0
+                }
+            } catch (err) {
+                log.error('[FilesRouter] searchDocuments error:', err)
+                throw err
+            }
+        }),
+
+    /**
+     * Get document details including extracted content
+     */
+    getDocumentDetails: protectedProcedure
+        .input(z.object({
+            fileId: z.string().uuid()
+        }))
+        .query(async ({ ctx, input }) => {
+            const { data, error } = await supabase
+                .from('chat_files')
+                .select(`
+                    id,
+                    filename,
+                    content_type,
+                    file_size,
+                    file_hash,
+                    processing_status,
+                    extracted_content,
+                    metadata,
+                    chat_id,
+                    storage_path,
+                    openai_file_id,
+                    openai_vector_store_file_id,
+                    created_at
+                `)
+                .eq('id', input.fileId)
+                .eq('user_id', ctx.userId)
+                .single()
+
+            if (error) {
+                log.error('[FilesRouter] getDocumentDetails error:', error)
+                throw new Error('Document not found')
+            }
+
+            return data
+        }),
+
+    /**
+     * Reprocess a document for text extraction
+     */
+    reprocessDocument: protectedProcedure
+        .input(z.object({
+            fileId: z.string().uuid()
+        }))
+        .mutation(async ({ ctx, input }) => {
+            log.info('[FilesRouter] reprocessDocument:', input.fileId)
+
+            // Get file info
+            const { data: file, error: fileError } = await supabase
+                .from('chat_files')
+                .select('id, filename, storage_path, content_type')
+                .eq('id', input.fileId)
+                .eq('user_id', ctx.userId)
+                .single()
+
+            if (fileError || !file) {
+                throw new Error('File not found')
+            }
+
+            // Update status to processing
+            await supabase
+                .from('chat_files')
+                .update({ processing_status: 'processing' })
+                .eq('id', input.fileId)
+
+            try {
+                // Download file from storage
+                const { data: fileData, error: downloadError } = await supabase.storage
+                    .from('attachments')
+                    .download(file.storage_path)
+
+                if (downloadError || !fileData) {
+                    throw new Error('Failed to download file')
+                }
+
+                const buffer = Buffer.from(await fileData.arrayBuffer())
+
+                // Process document
+                const processed = await processDocument(buffer, file.filename, file.content_type || 'application/octet-stream')
+
+                // Update database
+                const { error: updateError } = await supabase
+                    .from('chat_files')
+                    .update({
+                        processing_status: processed.processingStatus,
+                        extracted_content: processed.content,
+                        metadata: processed.metadata
+                    })
+                    .eq('id', input.fileId)
+
+                if (updateError) {
+                    throw new Error('Failed to update document')
+                }
+
+                log.info('[FilesRouter] Document reprocessed:', {
+                    fileId: input.fileId,
+                    status: processed.processingStatus,
+                    hasContent: !!processed.content
+                })
+
+                return {
+                    success: true,
+                    processingStatus: processed.processingStatus,
+                    hasContent: !!processed.content,
+                    metadata: processed.metadata
+                }
+            } catch (err) {
+                // Mark as failed
+                await supabase
+                    .from('chat_files')
+                    .update({
+                        processing_status: 'failed',
+                        metadata: { error: err instanceof Error ? err.message : 'Unknown error' }
+                    })
+                    .eq('id', input.fileId)
+
+                throw err
+            }
+        }),
+
+    /**
+     * Get files by processing status
+     */
+    getFilesByStatus: protectedProcedure
+        .input(z.object({
+            status: z.enum(['pending', 'processing', 'completed', 'failed']),
+            chatId: z.string().uuid().optional(),
+            limit: z.number().min(1).max(100).default(50)
+        }))
+        .query(async ({ ctx, input }) => {
+            let query = supabase
+                .from('chat_files')
+                .select(`
+                    id,
+                    filename,
+                    content_type,
+                    file_size,
+                    processing_status,
+                    metadata,
+                    chat_id,
+                    created_at
+                `)
+                .eq('user_id', ctx.userId)
+                .eq('processing_status', input.status)
+                .limit(input.limit)
+                .order('created_at', { ascending: false })
+
+            if (input.chatId) {
+                query = query.eq('chat_id', input.chatId)
+            }
+
+            const { data, error } = await query
+
+            if (error) {
+                log.error('[FilesRouter] getFilesByStatus error:', error)
+                throw new Error('Failed to fetch files')
+            }
+
+            return data || []
+        }),
+
+    /**
+     * Get document statistics for user
+     */
+    getDocumentStats: protectedProcedure
+        .query(async ({ ctx }) => {
+            const { data, error } = await supabase
+                .from('chat_files')
+                .select('processing_status, file_size')
+                .eq('user_id', ctx.userId)
+
+            if (error) {
+                log.error('[FilesRouter] getDocumentStats error:', error)
+                throw new Error('Failed to fetch stats')
+            }
+
+            const stats = {
+                total: data?.length || 0,
+                pending: 0,
+                processing: 0,
+                completed: 0,
+                failed: 0,
+                totalSize: 0
+            }
+
+            for (const file of data || []) {
+                stats[file.processing_status as keyof typeof stats]++
+                stats.totalSize += file.file_size || 0
+            }
+
+            return stats
+        }),
+
+    /**
+     * Search within a document with page citations
+     */
+    searchInDocument: protectedProcedure
+        .input(z.object({
+            fileId: z.string().uuid(),
+            query: z.string().min(1),
+            maxResults: z.number().min(1).max(20).default(5)
+        }))
+        .query(async ({ ctx, input }) => {
+            log.info('[FilesRouter] searchInDocument:', { fileId: input.fileId, query: input.query })
+
+            // Get document with pages
+            const { data: file, error } = await supabase
+                .from('chat_files')
+                .select('id, filename, pages, extracted_content')
+                .eq('id', input.fileId)
+                .eq('user_id', ctx.userId)
+                .single()
+
+            if (error || !file) {
+                throw new Error('Document not found')
+            }
+
+            if (!file.pages || !Array.isArray(file.pages)) {
+                // Fallback: search in extracted_content without page numbers
+                if (file.extracted_content) {
+                    const lowerContent = file.extracted_content.toLowerCase()
+                    const lowerQuery = input.query.toLowerCase()
+                    const index = lowerContent.indexOf(lowerQuery)
+
+                    if (index !== -1) {
+                        const start = Math.max(0, index - 100)
+                        const end = Math.min(file.extracted_content.length, index + input.query.length + 100)
+                        let snippet = file.extracted_content.substring(start, end)
+                        if (start > 0) snippet = '...' + snippet
+                        if (end < file.extracted_content.length) snippet += '...'
+
+                        return {
+                            results: [{
+                                text: snippet,
+                                pageNumber: null,
+                                citation: `[${file.filename}]`
+                            }],
+                            totalMatches: 1
+                        }
+                    }
+                }
+
+                return { results: [], totalMatches: 0 }
+            }
+
+            // Search with citations
+            const pages = file.pages as PageContent[]
+            const citations = searchWithCitations(input.query, pages, input.maxResults)
+
+            return {
+                results: citations.map(c => ({
+                    text: c.text,
+                    pageNumber: c.pageNumber,
+                    citation: formatCitation(file.filename, c.pageNumber, 'bracket')
+                })),
+                totalMatches: citations.length
+            }
+        }),
+
+    /**
+     * Get document pages for a file
+     */
+    getDocumentPages: protectedProcedure
+        .input(z.object({
+            fileId: z.string().uuid()
+        }))
+        .query(async ({ ctx, input }) => {
+            const { data, error } = await supabase
+                .from('chat_files')
+                .select('id, filename, pages, metadata')
+                .eq('id', input.fileId)
+                .eq('user_id', ctx.userId)
+                .single()
+
+            if (error || !data) {
+                throw new Error('Document not found')
+            }
+
+            const pages = (data.pages as PageContent[] | null) || []
+            const metadata = data.metadata as Record<string, unknown> || {}
+
+            return {
+                filename: data.filename,
+                pageCount: pages.length,
+                pages: pages.map(p => ({
+                    pageNumber: p.pageNumber,
+                    wordCount: p.wordCount,
+                    preview: p.content.substring(0, 200) + (p.content.length > 200 ? '...' : '')
+                })),
+                metadata
+            }
+        }),
+
+    /**
+     * Get specific page content
+     */
+    getPageContent: protectedProcedure
+        .input(z.object({
+            fileId: z.string().uuid(),
+            pageNumber: z.number().min(1)
+        }))
+        .query(async ({ ctx, input }) => {
+            const { data, error } = await supabase
+                .from('chat_files')
+                .select('id, filename, pages')
+                .eq('id', input.fileId)
+                .eq('user_id', ctx.userId)
+                .single()
+
+            if (error || !data) {
+                throw new Error('Document not found')
+            }
+
+            const pages = (data.pages as PageContent[] | null) || []
+            const page = pages.find(p => p.pageNumber === input.pageNumber)
+
+            if (!page) {
+                throw new Error(`Page ${input.pageNumber} not found`)
+            }
+
+            return {
+                filename: data.filename,
+                pageNumber: page.pageNumber,
+                content: page.content,
+                wordCount: page.wordCount,
+                citation: formatCitation(data.filename, page.pageNumber, 'bracket')
             }
         })
 })

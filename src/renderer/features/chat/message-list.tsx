@@ -1,13 +1,14 @@
-import { memo, useEffect, useRef, useState } from 'react'
-import { IconCheck, IconCopy, IconLoader2, IconPlayerPlay, IconPlayerStop, IconExternalLink, IconWorld, IconFile, IconAlertCircle } from '@tabler/icons-react'
+import { memo, useEffect, useRef, useState, useMemo } from 'react'
+import { IconCheck, IconCopy, IconLoader2, IconPlayerPlay, IconPlayerStop, IconExternalLink, IconWorld, IconFile, IconAlertCircle, IconChartBar } from '@tabler/icons-react'
 import { Skeleton } from '@/components/ui/skeleton'
-import { useAtomValue } from 'jotai'
+import { useAtomValue, useSetAtom } from 'jotai'
 import { cn } from '@/lib/utils'
-import { trpc } from '@/lib/trpc'
-import { selectedModelAtom } from '@/lib/atoms'
+import { trpc, trpcClient } from '@/lib/trpc'
+import { selectedModelAtom, selectedArtifactAtom, artifactPanelOpenAtom } from '@/lib/atoms'
 import { getModelById } from '@shared/ai-types'
 import { ModelIcon } from '@/components/icons/model-icons'
 import { ChatMarkdownRenderer } from '@/components/chat-markdown-renderer'
+import { CitationsFooter } from '@/components/inline-citation'
 import { MessageAttachments } from '@/components/message-attachments'
 import { Button } from '@/components/ui/button'
 import { Logo } from '@/components/ui/logo'
@@ -351,6 +352,8 @@ interface Message {
             | { type: 'url_citation'; url: string; title?: string; startIndex: number; endIndex: number }
             | { type: 'file_citation'; fileId: string; filename: string; index: number }
         >
+        /** Document citations from local RAG (non-OpenAI providers) */
+        documentCitations?: DocumentCitation[]
     }
     attachments?: Array<{
         id: string
@@ -386,6 +389,15 @@ interface StreamingFileSearch {
     filename?: string
 }
 
+/** Document citation from local RAG */
+interface DocumentCitation {
+    id: number
+    filename: string
+    pageNumber: number | null
+    text: string
+    marker?: string
+}
+
 interface MessageListProps {
     messages: Message[]
     isLoading: boolean
@@ -404,6 +416,8 @@ interface MessageListProps {
         | { type: 'url_citation'; url: string; title?: string; startIndex: number; endIndex: number }
         | { type: 'file_citation'; fileId: string; filename: string; index: number }
     >
+    /** Document citations from local RAG (for non-OpenAI providers) */
+    streamingDocumentCitations?: DocumentCitation[]
     /** Error message from streaming */
     streamingError?: string | null
 }
@@ -452,6 +466,7 @@ export const MessageList = memo(function MessageList({
     streamingWebSearches,
     streamingFileSearches,
     streamingAnnotations,
+    streamingDocumentCitations,
     streamingError
 }: MessageListProps) {
     if (messages.length === 0 && !isLoading && !lastReasoning) {
@@ -503,7 +518,12 @@ export const MessageList = memo(function MessageList({
 
                             {streamingText && (
                                 <div className="prose-container relative">
-                                    <ChatMarkdownRenderer content={streamingText} size="md" isAnimating />
+                                    <ChatMarkdownRenderer
+                                        content={streamingText}
+                                        size="md"
+                                        isAnimating
+                                        documentCitations={streamingDocumentCitations}
+                                    />
                                     <span className="inline-block w-1.5 h-4 bg-primary/40 animate-pulse ml-1 align-middle rounded-sm" />
                                 </div>
                             )}
@@ -594,6 +614,18 @@ const MessageItem = memo(function MessageItem({
     const modelName = message.model_name ?? message.metadata?.model_name ?? modelId
     /** Solo dos providers: OpenAI (openai+chatgpt-plus) o Z.AI */
     const modelProvider = getModelById(modelId || '')?.provider === 'zai' ? 'zai' : 'openai'
+
+    // Extract chart artifact IDs from tool calls (for "Ver Charts" button)
+    const chartArtifactIds = useMemo(() => {
+        if (!message.tool_calls) return []
+        return message.tool_calls
+            .filter(tc => tc.name === 'generate_chart')
+            .map(tc => {
+                const result = tc.result as Record<string, unknown> | undefined
+                return result?.artifactId as string | undefined
+            })
+            .filter((id): id is string => !!id)
+    }, [message.tool_calls])
 
     useEffect(() => {
         return () => {
@@ -747,7 +779,15 @@ const MessageItem = memo(function MessageItem({
                 {/* Text content shown last */}
                 {content && (
                     <div className="prose-container">
-                        <ChatMarkdownRenderer content={content} size="md" />
+                        <ChatMarkdownRenderer
+                            content={content}
+                            size="md"
+                            documentCitations={message.metadata?.documentCitations}
+                        />
+                        {/* Citations footer - shows all cited sources */}
+                        {message.metadata?.documentCitations && message.metadata.documentCitations.length > 0 && (
+                            <CitationsFooter citations={message.metadata.documentCitations} />
+                        )}
                     </div>
                 )}
 
@@ -756,6 +796,13 @@ const MessageItem = memo(function MessageItem({
                     <MessageAttachments 
                         attachments={message.attachments} 
                     />
+                )}
+
+                {/* View Charts button - shown when charts were created in this message */}
+                {chartArtifactIds.length > 0 && (
+                    <div className="mt-3">
+                        <ViewChartsButton chartArtifactIds={chartArtifactIds} />
+                    </div>
                 )}
 
                 {(content || hasUsage) && (
@@ -803,7 +850,7 @@ const MessageItem = memo(function MessageItem({
                                     </Tooltip>
                                 </>
                             )}
-                            
+
                             {/* Sources indicator */}
                             {message.metadata?.annotations && message.metadata.annotations.length > 0 && (
                                 <SourcesIndicator annotations={message.metadata.annotations} />
@@ -1339,5 +1386,58 @@ const SourcesIndicator = memo(function SourcesIndicator({
                 </>
             )}
         </div>
+    )
+})
+
+// ============================================================================
+// Ver Charts Button - Opens artifact panel with charts
+// ============================================================================
+
+interface ViewChartsButtonProps {
+    chartArtifactIds: string[]
+}
+
+/** Button to view charts - shown after messages that created charts */
+const ViewChartsButton = memo(function ViewChartsButton({ chartArtifactIds }: ViewChartsButtonProps) {
+    const setSelectedArtifact = useSetAtom(selectedArtifactAtom)
+    const setArtifactPanelOpen = useSetAtom(artifactPanelOpenAtom)
+    const [isLoading, setIsLoading] = useState(false)
+
+    if (chartArtifactIds.length === 0) return null
+
+    const handleViewCharts = async () => {
+        setIsLoading(true)
+        try {
+            // Fetch the first chart and open the panel
+            const artifact = await trpcClient.artifacts.get.query({ id: chartArtifactIds[0] })
+            if (artifact) {
+                setSelectedArtifact(artifact)
+                setArtifactPanelOpen(true)
+            }
+        } catch (error) {
+            console.error('[ViewChartsButton] Failed to fetch chart:', error)
+        } finally {
+            setIsLoading(false)
+        }
+    }
+
+    const chartCount = chartArtifactIds.length
+    const label = chartCount === 1 ? 'Ver Chart' : `Ver ${chartCount} Charts`
+
+    return (
+        <Button
+            variant="outline"
+            size="sm"
+            className="h-8 gap-2 bg-gradient-to-r from-primary/5 to-primary/10 border-primary/20 hover:border-primary/40 hover:bg-primary/15 transition-all"
+            onClick={handleViewCharts}
+            disabled={isLoading}
+        >
+            {isLoading ? (
+                <IconLoader2 size={14} className="animate-spin" />
+            ) : (
+                <IconChartBar size={14} className="text-primary" />
+            )}
+            <span className="text-xs font-medium">{label}</span>
+        </Button>
     )
 })

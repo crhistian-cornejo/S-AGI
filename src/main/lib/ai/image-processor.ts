@@ -1,14 +1,28 @@
 /**
  * Image Processing Service
- * 
+ *
  * Optimizes images for storage and AI processing:
  * - Converts to WebP for smaller file sizes (typically 25-35% smaller)
  * - Resizes large images to reasonable dimensions
  * - Maintains quality while reducing bandwidth
+ * - HEIC to JPEG conversion for Apple formats
+ * - Memory-safe processing with limits (adapted from Midday)
  */
 
 import sharp from 'sharp'
 import log from 'electron-log'
+
+// ============================================================================
+// Memory Safety Configuration (from Midday)
+// ============================================================================
+
+// Configure Sharp memory limits to prevent OOM
+sharp.cache({ memory: 256, files: 20, items: 100 }) // 256MB cache limit
+sharp.concurrency(2) // Limit parallel operations
+
+// Maximum file sizes
+const MAX_HEIC_SIZE = 15 * 1024 * 1024 // 15MB - HEIC files larger than this skip processing
+const MAX_IMAGE_SIZE = 50 * 1024 * 1024 // 50MB - Reject images larger than this
 
 export interface ImageProcessingOptions {
     /** Target format (default: 'webp') */
@@ -21,6 +35,8 @@ export interface ImageProcessingOptions {
     maxHeight?: number
     /** Whether to strip metadata (default: true) */
     stripMetadata?: boolean
+    /** Skip processing for files larger than this (in bytes) */
+    maxInputSize?: number
 }
 
 export interface ProcessedImage {
@@ -39,11 +55,23 @@ const DEFAULT_OPTIONS: Required<ImageProcessingOptions> = {
     quality: 80,
     maxWidth: 2048,
     maxHeight: 2048,
-    stripMetadata: true
+    stripMetadata: true,
+    maxInputSize: MAX_IMAGE_SIZE
+}
+
+// HEIC/HEIF MIME types
+const HEIC_MIME_TYPES = ['image/heic', 'image/heif', 'image/heic-sequence', 'image/heif-sequence']
+
+/**
+ * Check if MIME type is HEIC/HEIF format
+ */
+export function isHeicFormat(mimeType: string): boolean {
+    return HEIC_MIME_TYPES.includes(mimeType.toLowerCase())
 }
 
 /**
  * Process an image buffer for optimized storage
+ * Handles HEIC conversion, resizing, and format optimization
  */
 export async function processImage(
     inputBuffer: Buffer,
@@ -52,8 +80,17 @@ export async function processImage(
     const opts = { ...DEFAULT_OPTIONS, ...options }
     const originalSize = inputBuffer.length
 
+    // Check file size limits
+    if (originalSize > opts.maxInputSize) {
+        throw new Error(`Image too large: ${formatBytes(originalSize)} exceeds limit of ${formatBytes(opts.maxInputSize)}`)
+    }
+
     try {
-        let pipeline = sharp(inputBuffer)
+        let pipeline = sharp(inputBuffer, {
+            // Memory safety options
+            limitInputPixels: 268402689, // ~16384 x 16384
+            sequentialRead: true // Reduce memory usage
+        })
 
         // Get original metadata
         const metadata = await pipeline.metadata()
@@ -160,9 +197,57 @@ export function isProcessableImage(mimeType: string): boolean {
         'image/gif',
         'image/avif',
         'image/tiff',
-        'image/bmp'
+        'image/bmp',
+        // HEIC/HEIF support (Sharp handles these natively)
+        'image/heic',
+        'image/heif',
+        'image/heic-sequence',
+        'image/heif-sequence'
     ]
     return processableTypes.includes(mimeType.toLowerCase())
+}
+
+/**
+ * Process HEIC image specifically - converts to JPEG
+ * Adapted from Midday's HEIC handling
+ */
+export async function processHeicImage(
+    inputBuffer: Buffer,
+    options?: Omit<ImageProcessingOptions, 'format'>
+): Promise<ProcessedImage> {
+    const originalSize = inputBuffer.length
+
+    // Skip processing for very large HEIC files to prevent OOM
+    if (originalSize > MAX_HEIC_SIZE) {
+        log.warn(`[ImageProcessor] HEIC file too large (${formatBytes(originalSize)}), skipping conversion`)
+        throw new Error(`HEIC file too large for conversion: ${formatBytes(originalSize)}`)
+    }
+
+    log.info(`[ImageProcessor] Converting HEIC to JPEG: ${formatBytes(originalSize)}`)
+
+    // Force JPEG output for HEIC
+    return processImage(inputBuffer, {
+        ...options,
+        format: 'jpeg',
+        quality: options?.quality || 85 // Slightly higher quality for HEIC conversion
+    })
+}
+
+/**
+ * Smart image processor that detects format and applies appropriate processing
+ */
+export async function smartProcessImage(
+    inputBuffer: Buffer,
+    mimeType: string,
+    options?: ImageProcessingOptions
+): Promise<ProcessedImage> {
+    // Handle HEIC specifically
+    if (isHeicFormat(mimeType)) {
+        return processHeicImage(inputBuffer, options)
+    }
+
+    // Standard processing for other formats
+    return processImage(inputBuffer, options)
 }
 
 /**

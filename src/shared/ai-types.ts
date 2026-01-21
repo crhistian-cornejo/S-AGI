@@ -313,7 +313,17 @@ export type AIStreamEvent =
     | { type: 'file-search-start'; searchId: string }
     | { type: 'file-search-searching'; searchId: string }
     | { type: 'file-search-done'; searchId: string; results?: unknown }
-    
+
+    // Document citations (for local RAG with non-OpenAI providers)
+    | { type: 'document_citations'; citations: Array<{
+        type: 'document_citation'
+        id: number
+        filename: string
+        pageNumber: number | null
+        text: string
+        marker?: string
+    }> }
+
     // Approval flow (for human-in-the-loop)
     | { type: 'tool-approval-request'; toolCallId: string; toolName: string; args: unknown }
     | { type: 'tool-approval-response'; toolCallId: string; approved: boolean; message?: string }

@@ -1,4 +1,4 @@
-import { memo, useState, useCallback, useEffect, useMemo, useRef, type ReactNode } from 'react'
+import { memo, useState, useCallback, useEffect, useMemo, useRef, type ReactNode, Fragment } from 'react'
 import * as HoverCard from '@radix-ui/react-hover-card'
 import katex from 'katex'
 import { Streamdown } from 'streamdown'
@@ -7,6 +7,7 @@ import { createMathPlugin } from '@streamdown/math'
 import { mermaid } from '@streamdown/mermaid'
 import { IconCopy, IconCheck, IconExternalLink } from '@tabler/icons-react'
 import { cn } from '@/lib/utils'
+import { InlineCitation, type CitationData } from '@/components/inline-citation'
 
 import 'katex/dist/katex.min.css'
 
@@ -357,6 +358,122 @@ const sizeStyles: Record<MarkdownSize, {
 }
 
 // ============================================================================
+// Citation Processing Utilities
+// ============================================================================
+
+/**
+ * Clean OpenAI file citation markers from text
+ * These appear as 【source】 or 【6:20†filename】 style markers
+ */
+function cleanOpenAICitationMarkers(text: string): string {
+    // Pattern matches 【...】 brackets with various content inside
+    // Common formats: 【source】, 【6:20†archivo.pdf】, 【turn4file】
+    return text
+        .replace(/【[^】]*】/g, '') // Remove 【...】 markers
+        .replace(/\[\[cite:[^\]]+\]\]/g, '') // Remove our [[cite:...]] markers if AI outputs them
+        .replace(/Dfilecite[□\s]*turn\d*file/gi, '') // Clean corrupted markers
+        .replace(/\s{2,}/g, ' ') // Collapse multiple spaces
+        .trim()
+}
+
+/**
+ * Check if text contains citation patterns [1], [2], etc.
+ * Uses a non-global regex to avoid state issues
+ */
+function containsCitationPattern(text: string): boolean {
+    return /\[\d+\]/.test(text)
+}
+
+/**
+ * Process text to replace [N] patterns with InlineCitation components
+ * Returns an array of strings and React elements
+ */
+function processTextWithCitations(
+    text: string,
+    citations: CitationData[]
+): (string | React.ReactElement)[] {
+    if (!citations || citations.length === 0) return [text]
+
+    const citationMap = new Map(citations.map(c => [c.id, c]))
+    const parts: (string | React.ReactElement)[] = []
+    let lastIndex = 0
+
+    // Use a fresh regex instance for each call to avoid global state issues
+    const pattern = /\[(\d+)\]/g
+    let match: RegExpExecArray | null
+
+    while ((match = pattern.exec(text)) !== null) {
+        const citationId = parseInt(match[1], 10)
+        const citation = citationMap.get(citationId)
+
+        // Add text before the match
+        if (match.index > lastIndex) {
+            parts.push(text.slice(lastIndex, match.index))
+        }
+
+        // Add citation component or original text if no matching citation
+        if (citation) {
+            parts.push(
+                <InlineCitation
+                    key={`cite-${match.index}-${citationId}`}
+                    citation={citation}
+                />
+            )
+        } else {
+            // Keep original [N] if no matching citation data
+            parts.push(match[0])
+        }
+
+        lastIndex = match.index + match[0].length
+    }
+
+    // Add remaining text
+    if (lastIndex < text.length) {
+        parts.push(text.slice(lastIndex))
+    }
+
+    return parts.length > 0 ? parts : [text]
+}
+
+/**
+ * Wrapper component to render text with inline citations
+ * Also cleans up OpenAI's file citation markers
+ */
+const TextWithCitations = memo(function TextWithCitations({
+    children,
+    citations
+}: {
+    children: ReactNode
+    citations: CitationData[]
+}) {
+    const rawText = getText(children)
+
+    // Always clean OpenAI citation markers from the text
+    const cleanedText = cleanOpenAICitationMarkers(rawText)
+    const wasChanged = cleanedText !== rawText
+
+    // If we have citations with patterns, process them
+    if (citations && citations.length > 0 && containsCitationPattern(cleanedText)) {
+        const parts = processTextWithCitations(cleanedText, citations)
+        return (
+            <>
+                {parts.map((part, i) => (
+                    typeof part === 'string' ? <Fragment key={i}>{part}</Fragment> : part
+                ))}
+            </>
+        )
+    }
+
+    // If text was modified (cleaned), return the cleaned version
+    if (wasChanged) {
+        return <>{cleanedText}</>
+    }
+
+    // No changes needed, return original children to preserve any React elements
+    return <>{children}</>
+})
+
+// ============================================================================
 // Main Markdown Renderer Component
 // ============================================================================
 
@@ -366,6 +483,8 @@ interface ChatMarkdownRendererProps {
     className?: string
     /** Whether the content is still streaming (enables Streamdown optimizations) */
     isAnimating?: boolean
+    /** Document citations for inline [N] references */
+    documentCitations?: CitationData[]
 }
 
 export const ChatMarkdownRenderer = memo(function ChatMarkdownRenderer({
@@ -373,6 +492,7 @@ export const ChatMarkdownRenderer = memo(function ChatMarkdownRenderer({
     size = 'md',
     className,
     isAnimating = false,
+    documentCitations = [],
 }: ChatMarkdownRendererProps) {
     const styles = sizeStyles[size]
 
@@ -383,6 +503,12 @@ export const ChatMarkdownRenderer = memo(function ChatMarkdownRenderer({
         []
     )
 
+    // Create text wrapper that handles citations and cleans OpenAI markers
+    // Always wrap to clean potential OpenAI markers even without citations
+    const wrapWithCitations = useCallback((children: ReactNode) => {
+        return <TextWithCitations citations={documentCitations}>{children}</TextWithCitations>
+    }, [documentCitations])
+
     return (
         <div className={cn('max-w-none break-words', className)}>
             <Streamdown
@@ -392,29 +518,29 @@ export const ChatMarkdownRenderer = memo(function ChatMarkdownRenderer({
                 components={{
                     // Headings
                     h1: ({ children, ...props }: any) => (
-                        <h1 className={styles.h1} {...props}>{children}</h1>
+                        <h1 className={styles.h1} {...props}>{wrapWithCitations(children)}</h1>
                     ),
                     h2: ({ children, ...props }: any) => (
-                        <h2 className={styles.h2} {...props}>{children}</h2>
+                        <h2 className={styles.h2} {...props}>{wrapWithCitations(children)}</h2>
                     ),
                     h3: ({ children, ...props }: any) => (
-                        <h3 className={styles.h3} {...props}>{children}</h3>
+                        <h3 className={styles.h3} {...props}>{wrapWithCitations(children)}</h3>
                     ),
                     h4: ({ children, ...props }: any) => (
-                        <h4 className={styles.h3} {...props}>{children}</h4>
+                        <h4 className={styles.h3} {...props}>{wrapWithCitations(children)}</h4>
                     ),
                     h5: ({ children, ...props }: any) => (
-                        <h5 className={styles.h3} {...props}>{children}</h5>
+                        <h5 className={styles.h3} {...props}>{wrapWithCitations(children)}</h5>
                     ),
                     h6: ({ children, ...props }: any) => (
-                        <h6 className={styles.h3} {...props}>{children}</h6>
+                        <h6 className={styles.h3} {...props}>{wrapWithCitations(children)}</h6>
                     ),
-                    
-                    // Paragraphs
+
+                    // Paragraphs - main place where citations appear
                     p: ({ children, ...props }: any) => (
-                        <p className={styles.p} {...props}>{children}</p>
+                        <p className={styles.p} {...props}>{wrapWithCitations(children)}</p>
                     ),
-                    
+
                     // Lists
                     ul: ({ children, ...props }: any) => (
                         <ul className={styles.ul} {...props}>{children}</ul>
@@ -423,35 +549,35 @@ export const ChatMarkdownRenderer = memo(function ChatMarkdownRenderer({
                         <ol className={styles.ol} {...props}>{children}</ol>
                     ),
                     li: ({ children, ...props }: any) => (
-                        <li className={styles.li} {...props}>{children}</li>
+                        <li className={styles.li} {...props}>{wrapWithCitations(children)}</li>
                     ),
-                    
+
                     // Links
                     a: ({ href, children, ...props }: any) => (
                         <LinkWithPreview href={href} {...props}>
                             {children}
                         </LinkWithPreview>
                     ),
-                    
-                    // Text formatting
+
+                    // Text formatting - wrap with citations
                     strong: ({ children, ...props }: any) => (
-                        <strong className="font-semibold text-foreground" {...props}>{children}</strong>
+                        <strong className="font-semibold text-foreground" {...props}>{wrapWithCitations(children)}</strong>
                     ),
                     em: ({ children, ...props }: any) => (
-                        <em className="italic" {...props}>{children}</em>
+                        <em className="italic" {...props}>{wrapWithCitations(children)}</em>
                     ),
                     del: ({ children, ...props }: any) => (
-                        <del className="line-through text-muted-foreground" {...props}>{children}</del>
+                        <del className="line-through text-muted-foreground" {...props}>{wrapWithCitations(children)}</del>
                     ),
-                    
+
                     // Blockquotes
                     blockquote: ({ children, ...props }: any) => (
                         <blockquote className={styles.blockquote} {...props}>{children}</blockquote>
                     ),
-                    
+
                     // Horizontal rule
                     hr: () => <hr className="my-6 border-border/50" />,
-                    
+
                     // Tables - Streamdown handles these with plugins
                     table: ({ children, ...props }: any) => (
                         <div className="overflow-x-auto my-4 rounded-xl border border-border/40 shadow-sm">
@@ -468,15 +594,15 @@ export const ChatMarkdownRenderer = memo(function ChatMarkdownRenderer({
                         <tr className="hover:bg-muted/30 transition-colors" {...props}>{children}</tr>
                     ),
                     th: ({ children, ...props }: any) => (
-                        <th className="text-left font-medium px-4 py-2.5 text-foreground" {...props}>{children}</th>
+                        <th className="text-left font-medium px-4 py-2.5 text-foreground" {...props}>{wrapWithCitations(children)}</th>
                     ),
                     td: ({ children, ...props }: any) => (
-                        <td className="px-4 py-2.5 text-foreground/80" {...props}>{children}</td>
+                        <td className="px-4 py-2.5 text-foreground/80" {...props}>{wrapWithCitations(children)}</td>
                     ),
-                    
+
                     // Code blocks - Use our custom CodeBlock wrapper
                     pre: ({ children }: any) => <CodeBlock>{children}</CodeBlock>,
-                    
+
                     // Inline code - styled pill; if it looks like LaTeX (e.g. model used backticks), render with KaTeX
                     code: ({ children, className: codeClassName, ...props }: any) => {
                         const isBlockCode = codeClassName?.includes('language-')
@@ -501,12 +627,12 @@ export const ChatMarkdownRenderer = memo(function ChatMarkdownRenderer({
                             </code>
                         )
                     },
-                    
+
                     // Images
                     img: ({ src, alt, ...props }: any) => (
-                        <img 
-                            src={src} 
-                            alt={alt} 
+                        <img
+                            src={src}
+                            alt={alt}
                             className="max-w-full h-auto rounded-lg my-4 border border-border/30"
                             loading="lazy"
                             {...props}
@@ -527,9 +653,14 @@ export const ChatMarkdownRenderer = memo(function ChatMarkdownRenderer({
 export const CompactMarkdownRenderer = memo(function CompactMarkdownRenderer({
     content,
     className,
+    documentCitations,
 }: {
     content: string
     className?: string
+    documentCitations?: CitationData[]
 }) {
-    return <ChatMarkdownRenderer content={content} size="sm" className={className} />
+    return <ChatMarkdownRenderer content={content} size="sm" className={className} documentCitations={documentCitations} />
 })
+
+// Re-export citation type for consumers
+export type { CitationData }
