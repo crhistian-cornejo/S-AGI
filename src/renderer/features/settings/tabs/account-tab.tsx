@@ -32,9 +32,14 @@ export function AccountTab() {
         onSuccess: () => {
             toast.success('Signed out successfully')
             setSettingsOpen(false)
+            // Invalidate all auth-related queries
             utils.auth.getSession.invalidate()
             utils.auth.getUser.invalidate()
+            // Invalidate data that contains signed URLs (they become invalid on logout)
             utils.chats.list.invalidate()
+            utils.gallery.list.invalidate()
+            // Clear all message caches - signed URLs are invalidated on logout
+            utils.messages.invalidate()
         },
         onError: (error) => {
             toast.error(error.message || 'Failed to sign out')

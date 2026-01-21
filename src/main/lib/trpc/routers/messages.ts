@@ -3,6 +3,64 @@ import { router, protectedProcedure } from '../trpc'
 import { supabase } from '../../supabase/client'
 import path from 'path'
 import { processBase64Image, isProcessableImage, getExtensionForFormat } from '../../ai/image-processor'
+import log from 'electron-log'
+
+// Signed URL TTL for attachments (24 hours - long enough for sessions, short enough for security)
+const ATTACHMENT_SIGNED_URL_TTL = 60 * 60 * 24
+
+// Attachment schema with storagePath for URL regeneration
+const attachmentSchema = z.object({
+    id: z.string(),
+    name: z.string(),
+    size: z.number(),
+    type: z.string(),
+    url: z.string().optional(),
+    preview: z.string().optional(),
+    storagePath: z.string().optional() // Required for URL regeneration
+})
+
+/**
+ * Regenerate signed URLs for attachments that have storagePath
+ * This ensures URLs are always fresh and valid for the current session
+ */
+async function regenerateAttachmentUrls(attachments: any[]): Promise<any[]> {
+    if (!attachments || !Array.isArray(attachments) || attachments.length === 0) {
+        return attachments
+    }
+
+    const regenerated = await Promise.all(
+        attachments.map(async (attachment) => {
+            // Only regenerate if we have a storagePath
+            if (!attachment.storagePath) {
+                return attachment
+            }
+
+            try {
+                const { data: signedUrlData, error } = await supabase.storage
+                    .from('attachments')
+                    .createSignedUrl(attachment.storagePath, ATTACHMENT_SIGNED_URL_TTL)
+
+                if (error) {
+                    log.warn('[MessagesRouter] Failed to regenerate signed URL:', {
+                        storagePath: attachment.storagePath,
+                        error: error.message
+                    })
+                    return attachment
+                }
+
+                return {
+                    ...attachment,
+                    url: signedUrlData.signedUrl
+                }
+            } catch (err) {
+                log.error('[MessagesRouter] Error regenerating URL:', err)
+                return attachment
+            }
+        })
+    )
+
+    return regenerated
+}
 
 export const messagesRouter = router({
     // List messages for a chat
@@ -35,11 +93,21 @@ export const messagesRouter = router({
 
             if (error) throw new Error(error.message)
 
-            // Map metadata.tool_calls to top-level tool_calls consistency
-            return data.map((msg: any) => ({
-                ...msg,
-                tool_calls: msg.metadata?.tool_calls || msg.tool_calls || []
-            }))
+            // Process each message: regenerate attachment URLs and map tool_calls
+            const messagesWithFreshUrls = await Promise.all(
+                data.map(async (msg: any) => {
+                    // Regenerate signed URLs for attachments
+                    const freshAttachments = await regenerateAttachmentUrls(msg.attachments)
+
+                    return {
+                        ...msg,
+                        attachments: freshAttachments,
+                        tool_calls: msg.metadata?.tool_calls || msg.tool_calls || []
+                    }
+                })
+            )
+
+            return messagesWithFreshUrls
         }),
 
     // Add a message to a chat
@@ -54,14 +122,7 @@ export const messagesRouter = router({
             modelId: z.string().optional(),
             /** Display name of the model (e.g. GPT-5.2, GLM-4.7). */
             modelName: z.string().optional(),
-            attachments: z.array(z.object({
-                id: z.string(),
-                name: z.string(),
-                size: z.number(),
-                type: z.string(),
-                url: z.string().optional(),
-                preview: z.string().optional()
-            })).optional()
+            attachments: z.array(attachmentSchema).optional()
         }))
         .mutation(async ({ ctx, input }) => {
             console.log('[MessagesRouter] add message, userId:', ctx.userId, 'chatId:', input.chatId);
@@ -131,14 +192,7 @@ export const messagesRouter = router({
             id: z.string().uuid(),
             content: z.any().optional(),
             toolCalls: z.any().optional(),
-            attachments: z.array(z.object({
-                id: z.string(),
-                name: z.string(),
-                size: z.number(),
-                type: z.string(),
-                url: z.string().optional(),
-                preview: z.string().optional()
-            })).optional()
+            attachments: z.array(attachmentSchema).optional()
         }))
         .mutation(async ({ ctx, input }) => {
             // First get the message to verify ownership through chat
@@ -325,6 +379,81 @@ export const messagesRouter = router({
                 storagePath: storagePath,
                 // Include compression info for UI feedback
                 compression: compressionInfo
+            }
+        }),
+
+    /**
+     * Get a fresh signed URL for a storage path
+     * Used for on-demand URL regeneration when cached URLs expire
+     */
+    getSignedUrl: protectedProcedure
+        .input(z.object({
+            storagePath: z.string(),
+            bucket: z.enum(['attachments', 'images']).optional().default('attachments')
+        }))
+        .query(async ({ ctx, input }) => {
+            // Security: Verify the path belongs to the user
+            // Storage paths are formatted as: {userId}/...
+            if (!input.storagePath.startsWith(`${ctx.userId}/`)) {
+                log.warn('[MessagesRouter] Unauthorized access attempt to storage path:', {
+                    storagePath: input.storagePath,
+                    userId: ctx.userId
+                })
+                throw new Error('Access denied')
+            }
+
+            const { data: signedUrlData, error } = await supabase.storage
+                .from(input.bucket)
+                .createSignedUrl(input.storagePath, ATTACHMENT_SIGNED_URL_TTL)
+
+            if (error) {
+                log.error('[MessagesRouter] Failed to generate signed URL:', error)
+                throw new Error(`Failed to generate signed URL: ${error.message}`)
+            }
+
+            return {
+                url: signedUrlData.signedUrl,
+                expiresIn: ATTACHMENT_SIGNED_URL_TTL
+            }
+        }),
+
+    /**
+     * Batch get signed URLs for multiple storage paths
+     * More efficient than multiple single calls
+     */
+    getSignedUrls: protectedProcedure
+        .input(z.object({
+            storagePaths: z.array(z.string()),
+            bucket: z.enum(['attachments', 'images']).optional().default('attachments')
+        }))
+        .query(async ({ ctx, input }) => {
+            // Filter to only paths belonging to this user
+            const validPaths = input.storagePaths.filter(p => p.startsWith(`${ctx.userId}/`))
+
+            if (validPaths.length === 0) {
+                return { urls: {} }
+            }
+
+            const { data, error } = await supabase.storage
+                .from(input.bucket)
+                .createSignedUrls(validPaths, ATTACHMENT_SIGNED_URL_TTL)
+
+            if (error) {
+                log.error('[MessagesRouter] Failed to generate batch signed URLs:', error)
+                throw new Error(`Failed to generate signed URLs: ${error.message}`)
+            }
+
+            // Map paths to URLs
+            const urls: Record<string, string> = {}
+            for (const item of data || []) {
+                if (item.signedUrl && item.path) {
+                    urls[item.path] = item.signedUrl
+                }
+            }
+
+            return {
+                urls,
+                expiresIn: ATTACHMENT_SIGNED_URL_TTL
             }
         })
 })

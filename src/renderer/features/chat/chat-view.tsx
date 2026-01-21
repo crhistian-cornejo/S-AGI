@@ -248,6 +248,7 @@ export function ChatView() {
                     type: string
                     url?: string
                     preview?: string
+                    storagePath?: string // Required for URL regeneration on login
                 }> = []
 
                 for (const img of images) {
@@ -266,10 +267,11 @@ export function ChatView() {
                             name: uploaded.name,
                             size: uploaded.size,
                             type: uploaded.type,
-                            url: uploaded.url
+                            url: uploaded.url,
+                            storagePath: uploaded.storagePath // Store path for URL regeneration
                         })
 
-                        console.log('[ChatView] Uploaded image:', uploaded.name, '→', uploaded.url)
+                        console.log('[ChatView] Uploaded image:', uploaded.name, '→', uploaded.storagePath)
                     } catch (uploadError) {
                         console.error('[ChatView] Failed to upload image:', img.filename, uploadError)
                     }

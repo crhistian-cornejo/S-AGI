@@ -27,19 +27,26 @@
         "directories": {
             "output": "dist"
         },
-        "files": ["out/**/*"],
+        "files": [
+            "out/**/*"
+        ],
         "mac": {
             "identity": "Developer ID Application: Crhistian Cornejo Ruiz (663F68N7L3)",
             "hardenedRuntime": true,
             "entitlements": "build/entitlements.plist",
             "entitlementsInherit": "build/entitlements.plist",
-            "signatureFlags": ["library"],
+            "signatureFlags": [
+                "library"
+            ],
             "notarize": {
                 "teamId": "663F68N7L3"
             }
         },
         "win": {
-            "target": ["nsis", "portable"]
+            "target": [
+                "nsis",
+                "portable"
+            ]
         },
         "nsis": {
             "oneClick": false,
@@ -48,6 +55,7 @@
         }
     },
     "dependencies": {
+        "@ai-sdk/openai": "^3.0.13",
         "@emotion/is-prop-valid": "^1.4.0",
         "@git-diff-view/react": "^0.0.36",
         "@radix-ui/react-accordion": "^1.2.11",
@@ -117,6 +125,7 @@
         "@xterm/addon-serialize": "^0.14.0",
         "@xterm/addon-web-links": "^0.12.0",
         "@xterm/addon-webgl": "^0.19.0",
+        "ai": "^6.0.42",
         "class-variance-authority": "^0.7.1",
         "clsx": "^2.1.1",
         "date-fns": "^3.6.0",

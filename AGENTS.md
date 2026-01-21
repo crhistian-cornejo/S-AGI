@@ -6,6 +6,10 @@ Guía para agentes AI que trabajan en este repositorio (Claude Code, Cursor, etc
 
 **S-AGI** - Aplicación Electron/Web para crear spreadsheets con AI usando Univer. Los usuarios chatean con Claude para generar, editar y manipular hojas de cálculo en tiempo real.
 
+##
+
+always use bun for everithing
+
 ## Comandos
 
 ```bash

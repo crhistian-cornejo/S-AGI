@@ -10,6 +10,9 @@ import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 
+// Check if running on Windows - get from desktopApi
+const isWindows = (window as any).desktopApi?.platform === 'win32'
+
 // --- Focus Card Component (User Style) ---
 export const Card = React.memo(
   ({
@@ -90,6 +93,16 @@ export function GalleryView() {
     const [sidebarOpen, setSidebarOpen] = useAtom(sidebarOpenAtom)
     const [, setActiveTab] = useAtom(activeTabAtom)
     const setCommandKOpen = useSetAtom(commandKOpenAtom)
+    
+    // Get platform info at runtime for better detection
+    const platform = (window as any).desktopApi?.platform || 'unknown'
+    const isWindowsRuntime = platform === 'win32'
+    
+    // Debug log
+    React.useEffect(() => {
+        console.log('[Gallery] Platform detected:', platform, 'isWindows:', isWindowsRuntime)
+        console.log('[Gallery] desktopApi available:', !!(window as any).desktopApi)
+    }, [])
 
     if (isLoading) {
         return (
@@ -135,8 +148,8 @@ export function GalleryView() {
         <div className="flex-1 flex flex-col min-w-0 h-full overflow-hidden bg-background">
             {/* Header */}
             <div className="h-14 border-b border-border/50 flex items-center px-4 shrink-0 gap-2">
-                {/* Botón sidebar toggle cuando está cerrado */}
-                {!sidebarOpen && (
+                {/* Botón sidebar toggle cuando está cerrado - Solo Windows */}
+                {isWindowsRuntime && !sidebarOpen && (
                     <Tooltip>
                         <TooltipTrigger asChild>
                             <Button
@@ -160,36 +173,38 @@ export function GalleryView() {
                 
                 <div className="w-px h-6 bg-border shrink-0 mx-1" />
                 
-                {/* Acciones */}
-                <div className="flex items-center gap-1 shrink-0">
-                    <Tooltip>
-                        <TooltipTrigger asChild>
-                            <Button
-                                variant="ghost"
-                                size="icon"
-                                className="h-8 w-8 rounded-lg"
-                                onClick={() => setActiveTab('chat')}
-                            >
-                                <IconPlus size={18} />
-                            </Button>
-                        </TooltipTrigger>
-                        <TooltipContent side="bottom">New Chat</TooltipContent>
-                    </Tooltip>
-                    
-                    <Tooltip>
-                        <TooltipTrigger asChild>
-                            <Button
-                                variant="ghost"
-                                size="icon"
-                                className="h-8 w-8 rounded-lg"
-                                onClick={() => setCommandKOpen(true)}
-                            >
-                                <IconHistory size={18} />
-                            </Button>
-                        </TooltipTrigger>
-                        <TooltipContent side="bottom">Search chats</TooltipContent>
-                    </Tooltip>
-                </div>
+                {/* Acciones - Solo Windows */}
+                {isWindowsRuntime && (
+                    <div className="flex items-center gap-1 shrink-0">
+                        <Tooltip>
+                            <TooltipTrigger asChild>
+                                <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-8 w-8 rounded-lg"
+                                    onClick={() => setActiveTab('chat')}
+                                >
+                                    <IconPlus size={18} />
+                                </Button>
+                            </TooltipTrigger>
+                            <TooltipContent side="bottom">New Chat</TooltipContent>
+                        </Tooltip>
+                        
+                        <Tooltip>
+                            <TooltipTrigger asChild>
+                                <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-8 w-8 rounded-lg"
+                                    onClick={() => setCommandKOpen(true)}
+                                >
+                                    <IconHistory size={18} />
+                                </Button>
+                            </TooltipTrigger>
+                            <TooltipContent side="bottom">Search chats</TooltipContent>
+                        </Tooltip>
+                    </div>
+                )}
                 
                 <div className="flex-1" />
                 

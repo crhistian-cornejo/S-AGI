@@ -216,6 +216,7 @@ function createQuickPromptWindow(): BrowserWindow {
         transparent: true,
         hasShadow: true,
         focusable: true,
+        type: 'toolbar', // macOS: helps with always-on-top behavior
         webPreferences: {
             preload: join(__dirname, '../preload/index.js'),
             sandbox: true,
@@ -250,16 +251,29 @@ function showQuickPromptWindow(): void {
     const { screen } = require('electron')
     const display = screen.getDisplayNearestPoint(screen.getCursorScreenPoint())
 
+    // Center horizontally
     const x = Math.round(display.workArea.x + (display.workArea.width / 2) - 320)
-    const y = display.workArea.y + display.workArea.height - 120
+    
+    // Position higher up to avoid dock/taskbar - 150px from bottom with minimum margin
+    const bottomMargin = 150
+    const y = Math.max(display.workArea.y, display.workArea.y + display.workArea.height - bottomMargin - 80)
 
     quickPromptWindow.setPosition(x, y)
     quickPromptShownAt = Date.now()
-    quickPromptWindow.setAlwaysOnTop(true, 'pop-up-menu')
+    
+    // Ensure always on top with higher priority
+    quickPromptWindow.setAlwaysOnTop(true, 'screen-saver')
     quickPromptWindow.show()
     quickPromptWindow.focus()
+    
+    // Double-check always on top after showing (some systems override it)
+    setTimeout(() => {
+        if (quickPromptWindow && !quickPromptWindow.isDestroyed()) {
+            quickPromptWindow.setAlwaysOnTop(true, 'screen-saver')
+        }
+    }, 100)
 
-    log.info('[QuickPrompt] Window shown at', { x, y })
+    log.info('[QuickPrompt] Window shown at', { x, y, display: display.workArea })
 }
 
 // Position and show popover near tray icon
