@@ -16,6 +16,8 @@ import {
     commandKOpenAtom,
     reasoningEffortAtom,
     supportsReasoningAtom,
+    addLocalPdfAtom,
+    createPdfSourceFromLocalFile,
     type ReasoningEffort,
 } from '@/lib/atoms'
 import { Sidebar } from '@/features/sidebar/sidebar'
@@ -35,6 +37,7 @@ import { useUniverTheme } from '@/features/univer/use-univer-theme'
 const ArtifactPanel = lazy(() => import('@/features/artifacts/artifact-panel').then(m => ({ default: m.ArtifactPanel })))
 const UniverSpreadsheet = lazy(() => import('@/features/univer/univer-spreadsheet').then(m => ({ default: m.UniverSpreadsheet })))
 const UniverDocument = lazy(() => import('@/features/univer/univer-document').then(m => ({ default: m.UniverDocument })))
+const PdfTabView = lazy(() => import('@/features/pdf/pdf-tab-view').then(m => ({ default: m.PdfTabView })))
 
 // Loading fallback for lazy components
 function PanelLoadingFallback() {
@@ -57,6 +60,7 @@ export function MainLayout() {
     const setCommandKOpen = useSetAtom(commandKOpenAtom)
     const setReasoningEffort = useSetAtom(reasoningEffortAtom)
     const supportsReasoning = useAtomValue(supportsReasoningAtom)
+    const addLocalPdf = useSetAtom(addLocalPdfAtom)
     const utils = trpc.useUtils()
 
     // Sync Univer theme with app dark/light mode
@@ -110,12 +114,29 @@ export function MainLayout() {
             })
         ]
 
+        // Listen for local PDFs opened from tray
+        if (api.pdf?.onOpenLocalPdfs) {
+            cleanups.push(api.pdf.onOpenLocalPdfs((data) => {
+                console.log('[MainLayout] Opening local PDFs from tray:', data.files.length)
+                for (const file of data.files) {
+                    const pdfSource = createPdfSourceFromLocalFile({
+                        path: file.path,
+                        name: file.name,
+                        size: file.size
+                    })
+                    addLocalPdf(pdfSource)
+                }
+                // Switch to PDF tab
+                setActiveTab('pdf')
+            }))
+        }
+
         return () => {
             for (const cleanup of cleanups) {
                 cleanup()
             }
         }
-    }, [handleNewChat, setActiveTab, setSelectedArtifact, setSelectedChatId, setSettingsOpen])
+    }, [handleNewChat, setActiveTab, setSelectedArtifact, setSelectedChatId, setSettingsOpen, addLocalPdf])
 
     // Global Listeners for Agent-controlled UI Navigation
     useEffect(() => {
@@ -393,7 +414,7 @@ export function MainLayout() {
                     </div>
                 )}
 
-                {/* 
+                {/*
                  * Doc Tab - Conditional rendering to avoid Univer DI conflicts.
                  * Only one Univer instance exists at a time.
                  * Key prop forces complete remount when artifact changes to avoid stale data issues.
@@ -406,6 +427,19 @@ export function MainLayout() {
                                 artifactId={selectedArtifact?.type === 'document' ? selectedArtifact.id : undefined}
                                 data={selectedArtifact?.type === 'document' ? selectedArtifact.univer_data : undefined}
                             />
+                        </Suspense>
+                    </div>
+                )}
+
+                {/*
+                 * PDF Tab - Unified PDF viewer hub.
+                 * Shows PDFs from artifacts, knowledge documents, and citations.
+                 * Includes AI-powered Q&A panel.
+                 */}
+                {activeTab === 'pdf' && (
+                    <div className="flex-1 flex flex-col pt-10 animate-in fade-in zoom-in-95 duration-300">
+                        <Suspense fallback={<PanelLoadingFallback />}>
+                            <PdfTabView />
                         </Suspense>
                     </div>
                 )}

@@ -1,4 +1,4 @@
-import { IconMessageCircle, IconTable, IconFileText } from '@tabler/icons-react'
+import { IconMessageCircle, IconTable, IconFileText, IconFileTypePdf } from '@tabler/icons-react'
 import { useAtom } from 'jotai'
 import { activeTabAtom, type AppTab } from '@/lib/atoms'
 import { cn } from '@/lib/utils'
@@ -24,6 +24,11 @@ const tabs: TabItem[] = [
     id: 'doc',
     label: 'Doc',
     icon: <IconFileText size={18} />
+  },
+  {
+    id: 'pdf',
+    label: 'PDF',
+    icon: <IconFileTypePdf size={18} />
   }
 ]
 

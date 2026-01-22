@@ -13,18 +13,19 @@
     align-items: center;
     gap: 12px;
     padding: 10px 16px;
-    background: #1e1e20; /* Solid background for all platforms */
+    background: rgba(18, 18, 20, 0.88);
     border: 1px solid rgba(255, 255, 255, 0.12);
-    border-radius: 12px;
+    border-radius: 14px;
     pointer-events: auto;
     width: calc(100% - 16px);
     max-width: 580px;
-    box-shadow: none; /* Removed all shadows and glass artifacts */
+    box-shadow: 0 12px 30px rgba(0, 0, 0, 0.45);
+    backdrop-filter: blur(16px) saturate(130%);
 }
 
 .quick-prompt-content:focus-within {
-    border-color: rgba(255, 255, 255, 0.25);
-    background: #222224;
+    border: 1px solid rgba(255, 255, 255, 0.18);
+    background: rgba(20, 20, 22, 0.92);
 }
 
 .quick-prompt-icon {
@@ -58,5 +59,8 @@
 
 /* Windows specific improvements */
 .platform-windows .quick-prompt-content {
-    /* Kept for potential future Windows-only tweaks, currently unified */
+    background: rgba(18, 18, 20, 0.96);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    box-shadow: 0 10px 26px rgba(0, 0, 0, 0.5);
+    backdrop-filter: none;
 }

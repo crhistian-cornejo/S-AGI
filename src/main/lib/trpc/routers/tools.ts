@@ -716,14 +716,17 @@ export const CHART_TOOLS = {
                 backgroundColor: z.string().optional().describe('Background color (CSS color or rgba)'),
                 borderColor: z.string().optional().describe('Border color (CSS color or rgba)')
             })).describe('Data series to plot. Each dataset is a line/bar group.'),
-            options: z.object({
-                showLegend: z.boolean().optional().describe('Show chart legend. Default: true'),
-                showGrid: z.boolean().optional().describe('Show grid lines. Default: true'),
-                stacked: z.boolean().optional().describe('Stack bars/areas. Default: false'),
-                aspectRatio: z.number().optional().describe('Width/height ratio. Default: 2'),
-                xAxisTitle: z.string().optional().describe('Title for X axis'),
-                yAxisTitle: z.string().optional().describe('Title for Y axis')
-            }).optional().describe('Chart display options')
+            options: z.union([
+                z.object({
+                    showLegend: z.boolean().optional().describe('Show chart legend. Default: true'),
+                    showGrid: z.boolean().optional().describe('Show grid lines. Default: true'),
+                    stacked: z.boolean().optional().describe('Stack bars/areas. Default: false'),
+                    aspectRatio: z.number().optional().describe('Width/height ratio. Default: 2'),
+                    xAxisTitle: z.string().optional().describe('Title for X axis'),
+                    yAxisTitle: z.string().optional().describe('Title for Y axis')
+                }),
+                z.string()
+            ]).optional().describe('Chart display options')
         })
     }
 }
@@ -1382,9 +1385,9 @@ async function executeFilterData(
             case 'is_not_empty':
                 return cellValue != null && cellValue !== ''
             case 'equals':
-                return cellValue == compareValue || String(cellValue) === String(compareValue)
+                return cellValue === compareValue || String(cellValue) === String(compareValue)
             case 'not_equals':
-                return cellValue != compareValue && String(cellValue) !== String(compareValue)
+                return cellValue !== compareValue && String(cellValue) !== String(compareValue)
             case 'contains':
                 return String(cellValue ?? '').toLowerCase().includes(String(compareValue ?? '').toLowerCase())
             case 'not_contains':
@@ -4341,6 +4344,27 @@ async function executeGenerateChart(
 ): Promise<{ artifactId: string; message: string; chartConfig: Record<string, unknown>; title: string }> {
     const { title, type, labels, datasets, options } = args
 
+    type ChartOptions = {
+        showLegend?: boolean
+        showGrid?: boolean
+        stacked?: boolean
+        aspectRatio?: number
+        xAxisTitle?: string
+        yAxisTitle?: string
+    }
+
+    let normalizedOptions: ChartOptions | undefined
+    if (typeof options === 'string') {
+        try {
+            normalizedOptions = JSON.parse(options)
+        } catch (error) {
+            log.warn('[Tools] Failed to parse chart options JSON string', error)
+            normalizedOptions = undefined
+        }
+    } else {
+        normalizedOptions = options
+    }
+
     log.info(`[Tools] executeGenerateChart: ${title}, type=${type}, labels=${labels.length}, datasets=${datasets.length}`)
 
     // Generate default colors if not provided
@@ -4376,10 +4400,10 @@ async function executeGenerateChart(
         options: {
             responsive: true,
             maintainAspectRatio: true,
-            aspectRatio: options?.aspectRatio ?? 2,
+            aspectRatio: normalizedOptions?.aspectRatio ?? 2,
             plugins: {
                 legend: {
-                    display: options?.showLegend !== false,
+                    display: normalizedOptions?.showLegend !== false,
                     position: 'top' as const
                 },
                 title: {
@@ -4392,24 +4416,24 @@ async function executeGenerateChart(
                 x: {
                     display: true,
                     title: {
-                        display: !!options?.xAxisTitle,
-                        text: options?.xAxisTitle || ''
+                        display: !!normalizedOptions?.xAxisTitle,
+                        text: normalizedOptions?.xAxisTitle || ''
                     },
                     grid: {
-                        display: options?.showGrid !== false
+                        display: normalizedOptions?.showGrid !== false
                     },
-                    stacked: options?.stacked || false
+                    stacked: normalizedOptions?.stacked || false
                 },
                 y: {
                     display: true,
                     title: {
-                        display: !!options?.yAxisTitle,
-                        text: options?.yAxisTitle || ''
+                        display: !!normalizedOptions?.yAxisTitle,
+                        text: normalizedOptions?.yAxisTitle || ''
                     },
                     grid: {
-                        display: options?.showGrid !== false
+                        display: normalizedOptions?.showGrid !== false
                     },
-                    stacked: options?.stacked || false,
+                    stacked: normalizedOptions?.stacked || false,
                     beginAtZero: true
                 }
             } : undefined

@@ -27,6 +27,7 @@ import {
     IconMessageChatbot,
     IconTable,
     IconFileText,
+    IconFileTypePdf,
     IconSettings,
     IconLogout,
     IconChevronDown,
@@ -106,27 +107,29 @@ export function TitleBar({ className, noTrafficLightSpace }: TitleBarProps) {
     return (
         <div
             className={cn(
-                'h-10 flex items-center bg-transparent drag-region shrink-0 px-2 transition-all duration-300',
+                'h-10 flex items-center bg-transparent drag-region shrink-0 px-2 transition-all duration-300 relative',
                 showTrafficLights && !noTrafficLightSpace && 'pl-20',
                 !showTrafficLights && 'pr-0',
                 className
             )}
         >
+            {/* Left side - Logo */}
             {!showTrafficLights && (!isWindows() || !sidebarOpen) && (
-                <div className="flex items-center gap-2 no-drag ml-2">
+                <div className="flex items-center gap-2 no-drag ml-2 shrink-0 z-10">
                     <Logo size={20} />
                     <span className="text-sm font-semibold text-foreground tracking-tight hidden sm:block">S-AGI</span>
                 </div>
             )}
 
-            {isDesktop && <div className="flex-1 h-full" />}
-
-            <div className={cn('flex no-drag', isDesktop ? 'justify-center' : 'justify-start ml-2')}>
+            {/* Center - Navigation tabs (absolute positioned for true centering) */}
+            <div className={cn(
+                'no-drag z-0',
+                isDesktop
+                    ? 'absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2'
+                    : 'flex-1 flex justify-center'
+            )}>
                 <div
-                    className={cn(
-                        'flex items-center bg-background/40 backdrop-blur-md border border-border/50 rounded-lg p-0.5 h-8',
-                        isDesktop ? 'mx-4' : ''
-                    )}
+                    className="flex items-center bg-background/40 backdrop-blur-md border border-border/50 rounded-lg p-0.5 h-8"
                 >
                     <button
                         type="button"
@@ -167,10 +170,24 @@ export function TitleBar({ className, noTrafficLightSpace }: TitleBarProps) {
                         <IconFileText size={14} />
                         Docs
                     </button>
+                    <button
+                        type="button"
+                        onClick={() => setActiveTab('pdf')}
+                        className={cn(
+                            "flex items-center gap-1.5 px-3 h-full rounded-md text-[11px] font-bold uppercase tracking-wider transition-all duration-300",
+                            activeTab === 'pdf'
+                                ? "bg-accent text-primary shadow-sm"
+                                : "text-muted-foreground hover:text-foreground hover:bg-accent/30"
+                        )}
+                    >
+                        <IconFileTypePdf size={14} />
+                        PDF
+                    </button>
                 </div>
             </div>
 
-            {isDesktop && <div className="flex-1 h-full" />}
+            {/* Spacer for right-side items */}
+            {isDesktop && <div className="flex-1" />}
 
             <div className="flex items-center no-drag pr-0">
                 {showTrafficLights && (

@@ -81,6 +81,9 @@ const desktopApi = {
     tray: {
         getRecentItems: () => ipcRenderer.invoke('tray:get-recent-items'),
         getUser: () => ipcRenderer.invoke('tray:get-user'),
+        getSpreadsheets: () => ipcRenderer.invoke('tray:get-spreadsheets'),
+        getSpreadsheetData: (data: { id: string }) => ipcRenderer.invoke('tray:get-spreadsheet-data', data),
+        getCitations: () => ipcRenderer.invoke('tray:get-citations'),
         action: (data: { action: string; [key: string]: unknown }) => 
             ipcRenderer.invoke('tray:action', data),
         onRefresh: (callback: () => void) => {
@@ -106,6 +109,7 @@ const desktopApi = {
         renameFolder: (data: { folderId: string; name: string }) => ipcRenderer.invoke('files:rename-folder', data),
         deleteFolder: (data: { folderId: string }) => ipcRenderer.invoke('files:delete-folder', data),
         listFiles: (data: { folderId: string }) => ipcRenderer.invoke('files:list-files', data),
+        listAllFiles: () => ipcRenderer.invoke('files:list-all'),
         getQuickAccess: () => ipcRenderer.invoke('files:get-quick-access'),
         importPaths: (data: { folderId: string; paths: string[] }) => ipcRenderer.invoke('files:import-paths', data),
         pickAndImport: (data: { folderId: string }) => ipcRenderer.invoke('files:pick-and-import', data),
@@ -113,6 +117,21 @@ const desktopApi = {
         openFile: (data: { fileId: string }) => ipcRenderer.invoke('files:open-file', data),
         showInFolder: (data: { fileId: string }) => ipcRenderer.invoke('files:show-in-folder', data),
         exportFiles: (data: { fileIds: string[] }) => ipcRenderer.invoke('files:export', data)
+    },
+
+    // PDF local file picker (view only, no import)
+    pdf: {
+        pickLocal: () => ipcRenderer.invoke('pdf:pick-local') as Promise<{
+            files: Array<{ path: string; name: string; size: number }>
+        }>,
+        // Listener for tray-opened local PDFs
+        onOpenLocalPdfs: (callback: (data: { files: Array<{ path: string; name: string; size: number }> }) => void) => {
+            const handler = (_: unknown, data: { files: Array<{ path: string; name: string; size: number }> }) => callback(data)
+            ipcRenderer.on('tray:open-local-pdfs', handler)
+            return () => {
+                ipcRenderer.removeListener('tray:open-local-pdfs', handler)
+            }
+        }
     },
 
     security: {

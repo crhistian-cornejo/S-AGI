@@ -17,4 +17,4 @@ export * from './prompt-input'
 export * from './logo'
 export * from './separator'
 export * from './avatar'
-
+export * from './sidebar'

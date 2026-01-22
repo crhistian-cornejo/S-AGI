@@ -1,15 +1,8 @@
 import { useEffect, useMemo, useState, useCallback, useRef } from 'react'
+import { exportToExcel } from '../univer/excel-exchange'
 import './tray-popover.css'
 
 // Local type definition (matches TrayRecentItem from env.d.ts)
-interface RecentItem {
-    id: string
-    type: 'spreadsheet' | 'document' | 'chat'
-    name: string
-    updatedAt: string
-    chatId?: string
-}
-
 interface FileFolder {
     id: string
     name: string
@@ -32,9 +25,25 @@ interface FileItem {
     url: string
 }
 
-interface QuickAccess {
-    recent: Array<Omit<FileItem, 'thumbnailUrl' | 'url'>>
-    frequent: Array<Omit<FileItem, 'thumbnailUrl' | 'url'>>
+interface SpreadsheetItem {
+    id: string
+    name: string
+    updatedAt: string
+    chatId?: string
+}
+
+interface CitationItem {
+    id: string
+    kind: 'url' | 'file'
+    label: string
+    url?: string
+    filename?: string
+    chatId: string
+    messageId: string
+    createdAt: string
+    startIndex?: number
+    endIndex?: number
+    fileId?: string
 }
 
 // Icons as SVG components for better control
@@ -65,10 +74,14 @@ const DocumentIcon = () => (
     </svg>
 )
 
-const ChatIcon = () => (
+const PdfIcon = () => (
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-        <title>Chat</title>
-        <path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z" />
+        <title>PDF</title>
+        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+        <polyline points="14 2 14 8 20 8" />
+        <path d="M9 13h2v4H9z" />
+        <path d="M13 13h2" />
+        <path d="M13 17h2" />
     </svg>
 )
 
@@ -139,7 +152,6 @@ const getDesktopApi = () => window.desktopApi
 export function TrayPopover() {
     const [view, setView] = useState<'quick' | 'files'>('quick')
     const [searchQuery, setSearchQuery] = useState('')
-    const [recentItems, setRecentItems] = useState<RecentItem[]>([])
     const [isLoading, setIsLoading] = useState(true)
     const searchInputRef = useRef<HTMLInputElement>(null)
     const [folders, setFolders] = useState<FileFolder[]>([])
@@ -151,7 +163,7 @@ export function TrayPopover() {
         }
     })
     const [folderFiles, setFolderFiles] = useState<FileItem[]>([])
-    const [quickAccess, setQuickAccess] = useState<QuickAccess | null>(null)
+    const [allFiles, setAllFiles] = useState<FileItem[]>([])
     const [isImporting, setIsImporting] = useState(false)
     const [isDragging, setIsDragging] = useState(false)
     const [filesError, setFilesError] = useState<string | null>(null)
@@ -160,25 +172,53 @@ export function TrayPopover() {
     const [pin, setPin] = useState('')
     const [pinBusy, setPinBusy] = useState(false)
     const [selectedIds, setSelectedIds] = useState<string[]>([])
-    const [viewer, setViewer] = useState<{ open: boolean; ids: string[]; index: number; zoom: number }>({ open: false, ids: [], index: 0, zoom: 1 })
-
-    // Fetch recent items from main process
-    const fetchRecentItems = useCallback(async () => {
-        const api = getDesktopApi()
-        if (!api?.tray) {
-            setIsLoading(false)
-            return
-        }
-        
+    const [viewer, setViewer] = useState<{ open: boolean; items: FileItem[]; index: number; zoom: number }>({ open: false, items: [], index: 0, zoom: 1 })
+    const [spreadsheets, setSpreadsheets] = useState<SpreadsheetItem[]>([])
+    const [citations, setCitations] = useState<CitationItem[]>([])
+    const [pinnedCitationIds, setPinnedCitationIds] = useState<string[]>(() => {
         try {
-            setIsLoading(true)
-            const items = await api.tray.getRecentItems()
-            setRecentItems(items || [])
+            const raw = localStorage.getItem('tray:pinnedCitations')
+            if (!raw) return []
+            const parsed = JSON.parse(raw)
+            return Array.isArray(parsed) ? parsed : []
+        } catch {
+            return []
+        }
+    })
+
+    const fetchAllFiles = useCallback(async () => {
+        const api = getDesktopApi()
+        if (!api?.files) return
+        try {
+            const list = await api.files.listAllFiles()
+            setAllFiles(list || [])
         } catch (error) {
-            console.error('Failed to fetch recent items:', error)
-            setRecentItems([])
-        } finally {
-            setIsLoading(false)
+            console.error('Failed to fetch all files:', error)
+            setAllFiles([])
+        }
+    }, [])
+
+    const fetchSpreadsheets = useCallback(async () => {
+        const api = getDesktopApi()
+        if (!api?.tray) return
+        try {
+            const list = await api.tray.getSpreadsheets()
+            setSpreadsheets(list || [])
+        } catch (error) {
+            console.error('Failed to fetch spreadsheets:', error)
+            setSpreadsheets([])
+        }
+    }, [])
+
+    const fetchCitations = useCallback(async () => {
+        const api = getDesktopApi()
+        if (!api?.tray) return
+        try {
+            const list = await api.tray.getCitations()
+            setCitations(list || [])
+        } catch (error) {
+            console.error('Failed to fetch citations:', error)
+            setCitations([])
         }
     }, [])
 
@@ -202,13 +242,6 @@ export function TrayPopover() {
         }
     }, [])
 
-    const fetchQuickAccess = useCallback(async () => {
-        const api = getDesktopApi()
-        if (!api?.files) return
-        const qa = await api.files.getQuickAccess()
-        setQuickAccess(qa || null)
-    }, [])
-
     const fetchSensitiveStatus = useCallback(async () => {
         const api = getDesktopApi()
         if (!api?.security) return
@@ -223,10 +256,19 @@ export function TrayPopover() {
         setUser(u || null)
     }, [])
 
+    const fetchQuickData = useCallback(async () => {
+        setIsLoading(true)
+        await Promise.all([
+            fetchAllFiles(),
+            fetchSpreadsheets(),
+            fetchCitations()
+        ])
+        setIsLoading(false)
+    }, [fetchAllFiles, fetchSpreadsheets, fetchCitations])
+
     useEffect(() => {
-        fetchRecentItems()
+        fetchQuickData().catch(() => {})
         fetchFolders().catch(() => {})
-        fetchQuickAccess().catch(() => {})
         fetchSensitiveStatus().catch(() => {})
         fetchUser().catch(() => {})
         
@@ -237,9 +279,8 @@ export function TrayPopover() {
         
         const api = getDesktopApi()
         const cleanup = api?.tray?.onRefresh(() => {
-            fetchRecentItems()
+            fetchQuickData().catch(() => {})
             fetchFolders().catch(() => {})
-            fetchQuickAccess().catch(() => {})
             fetchSensitiveStatus().catch(() => {})
             fetchUser().catch(() => {})
             fetchFiles(selectedFolderId).catch(() => {})
@@ -248,7 +289,7 @@ export function TrayPopover() {
         return () => {
             cleanup?.()
         }
-    }, [fetchRecentItems, fetchFolders, fetchQuickAccess, fetchFiles, fetchSensitiveStatus, fetchUser, selectedFolderId])
+    }, [fetchQuickData, fetchFolders, fetchFiles, fetchSensitiveStatus, fetchUser, selectedFolderId])
 
     useEffect(() => {
         try {
@@ -288,7 +329,7 @@ export function TrayPopover() {
             if (viewer.open) {
                 if (e.key === 'Escape') {
                     e.preventDefault()
-                    setViewer({ open: false, ids: [], index: 0, zoom: 1 })
+                    setViewer({ open: false, items: [], index: 0, zoom: 1 })
                 }
                 if (e.key === 'ArrowLeft') {
                     e.preventDefault()
@@ -296,7 +337,7 @@ export function TrayPopover() {
                 }
                 if (e.key === 'ArrowRight') {
                     e.preventDefault()
-                    setViewer(v => ({ ...v, index: Math.min(v.ids.length - 1, v.index + 1), zoom: 1 }))
+                    setViewer(v => ({ ...v, index: Math.min(v.items.length - 1, v.index + 1), zoom: 1 }))
                 }
                 if (e.key === '+' || e.key === '=') {
                     e.preventDefault()
@@ -314,38 +355,46 @@ export function TrayPopover() {
         }
         window.addEventListener('keydown', onKeyDown)
         return () => window.removeEventListener('keydown', onKeyDown)
-    }, [selectedFolderId, viewer.open, viewer.ids.length])
+    }, [selectedFolderId, viewer.open])
 
     const handleAction = (action: string, data?: Record<string, unknown>) => {
         const api = getDesktopApi()
         api?.tray?.action({ action, ...data })
     }
 
-    const handleOpenItem = (item: RecentItem) => {
-        handleAction('open-item', { 
-            itemId: item.id, 
-            type: item.type,
-            chatId: item.chatId 
-        })
-    }
-
-    const handleKeyDown = (e: React.KeyboardEvent) => {
-        if (e.key === 'Enter' && searchQuery.trim()) {
-            // Send quick AI message
-            handleAction('new-chat', { message: searchQuery.trim() })
-            setSearchQuery('')
-        }
-    }
-
-    const filteredItems = useMemo(() => recentItems.filter(item =>
-        item.name.toLowerCase().includes(searchQuery.toLowerCase())
-    ), [recentItems, searchQuery])
-
     const filteredFiles = useMemo(() => folderFiles.filter(f =>
         f.originalName.toLowerCase().includes(searchQuery.toLowerCase())
     ), [folderFiles, searchQuery])
 
     const imageFiles = useMemo(() => filteredFiles.filter(f => f.isImage), [filteredFiles])
+
+    const filteredAllFiles = useMemo(() => allFiles.filter(f =>
+        f.originalName.toLowerCase().includes(searchQuery.toLowerCase())
+    ), [allFiles, searchQuery])
+
+    const quickImageFiles = useMemo(() => filteredAllFiles.filter(f => f.isImage), [filteredAllFiles])
+
+    const quickPdfFiles = useMemo(() => filteredAllFiles.filter(f =>
+        f.ext.toLowerCase() === 'pdf' || f.mime === 'application/pdf'
+    ), [filteredAllFiles])
+
+    const filteredSpreadsheets = useMemo(() => spreadsheets.filter(s =>
+        s.name.toLowerCase().includes(searchQuery.toLowerCase())
+    ), [spreadsheets, searchQuery])
+
+    const filteredCitations = useMemo(() => citations.filter(c =>
+        c.label.toLowerCase().includes(searchQuery.toLowerCase())
+    ), [citations, searchQuery])
+
+    const pinnedCitations = useMemo(() => {
+        const pinned = new Set(pinnedCitationIds)
+        return filteredCitations.filter(c => pinned.has(c.id))
+    }, [filteredCitations, pinnedCitationIds])
+
+    const recentCitations = useMemo(() => {
+        const pinned = new Set(pinnedCitationIds)
+        return filteredCitations.filter(c => !pinned.has(c.id))
+    }, [filteredCitations, pinnedCitationIds])
 
     const formatDate = (dateStr: string) => {
         const date = new Date(dateStr)
@@ -415,7 +464,7 @@ export function TrayPopover() {
         try {
             await api.files.pickAndImport({ folderId: selectedFolderId })
             await fetchFiles(selectedFolderId)
-            await fetchQuickAccess()
+            await fetchAllFiles()
         } finally {
             setIsImporting(false)
         }
@@ -428,7 +477,7 @@ export function TrayPopover() {
         try {
             await api.files.importPaths({ folderId: selectedFolderId, paths })
             await fetchFiles(selectedFolderId)
-            await fetchQuickAccess()
+            await fetchAllFiles()
         } finally {
             setIsImporting(false)
         }
@@ -482,7 +531,6 @@ export function TrayPopover() {
         if (!api?.files) return
         try {
             await api.files.openFile({ fileId })
-            await fetchQuickAccess()
             await fetchFiles(selectedFolderId)
         } catch (err: any) {
             setFilesError(err?.message || 'Failed to open file')
@@ -496,7 +544,6 @@ export function TrayPopover() {
             await api.files.deleteFile({ fileId })
             setSelectedIds(ids => ids.filter(x => x !== fileId))
             await fetchFiles(selectedFolderId)
-            await fetchQuickAccess()
         } catch (err: any) {
             setFilesError(err?.message || 'Failed to delete file')
         }
@@ -512,17 +559,38 @@ export function TrayPopover() {
         }
     }
 
-    const openViewer = (startId: string) => {
-        const ids = imageFiles.map(f => f.id)
-        const index = Math.max(0, ids.indexOf(startId))
-        setViewer({ open: true, ids, index, zoom: 1 })
+    const openViewer = (items: FileItem[], startId: string) => {
+        const index = Math.max(0, items.findIndex(f => f.id === startId))
+        setViewer({ open: true, items, index, zoom: 1 })
     }
 
     const currentImage = useMemo(() => {
         if (!viewer.open) return null
-        const id = viewer.ids[viewer.index]
-        return folderFiles.find(f => f.id === id) || null
-    }, [viewer, folderFiles])
+        return viewer.items[viewer.index] || null
+    }, [viewer])
+
+    const togglePinCitation = (id: string) => {
+        setPinnedCitationIds(ids => ids.includes(id) ? ids.filter(x => x !== id) : [...ids, id])
+    }
+
+    useEffect(() => {
+        try {
+            localStorage.setItem('tray:pinnedCitations', JSON.stringify(pinnedCitationIds))
+        } catch {}
+    }, [pinnedCitationIds])
+
+    const downloadSpreadsheet = async (item: SpreadsheetItem) => {
+        const api = getDesktopApi()
+        if (!api?.tray) return
+        try {
+            const data = await api.tray.getSpreadsheetData({ id: item.id })
+            if (!data?.univerData) return
+            const name = data.name || item.name || 'spreadsheet'
+            await exportToExcel(data.univerData, `${name}.xlsx`)
+        } catch (err) {
+            console.error('Failed to export spreadsheet:', err)
+        }
+    }
 
     const toggleSelect = (fileId: string) => {
         setSelectedIds(ids => ids.includes(fileId) ? ids.filter(x => x !== fileId) : [...ids, fileId])
@@ -556,7 +624,7 @@ export function TrayPopover() {
     }
 
     return (
-        <div className="tray-popover" onDrop={onDrop} onDragOver={onDragOver} onDragEnter={onDragEnter} onDragLeave={onDragLeave}>
+        <div className="tray-popover" role="application" tabIndex={-1} onDrop={onDrop} onDragOver={onDragOver} onDragEnter={onDragEnter} onDragLeave={onDragLeave}>
             <div className="popover-arrow" />
 
             {isDragging && (
@@ -598,7 +666,6 @@ export function TrayPopover() {
                         placeholder="Search..."
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
-                        onKeyDown={handleKeyDown}
                     />
                 </div>
             </div>
@@ -606,30 +673,6 @@ export function TrayPopover() {
             {view === 'quick' ? (
                 <>
                     <div className="actions-section">
-                        <button 
-                            type="button"
-                            className="action-button"
-                            onClick={() => handleAction('new-chat')}
-                        >
-                            <ChatIcon />
-                            <span>New Chat</span>
-                        </button>
-                        <button 
-                            type="button"
-                            className="action-button"
-                            onClick={() => handleAction('new-spreadsheet')}
-                        >
-                            <SpreadsheetIcon />
-                            <span>New Spreadsheet</span>
-                        </button>
-                        <button 
-                            type="button"
-                            className="action-button"
-                            onClick={() => handleAction('new-document')}
-                        >
-                            <DocumentIcon />
-                            <span>New Document</span>
-                        </button>
                         <button
                             type="button"
                             className="action-button"
@@ -644,60 +687,123 @@ export function TrayPopover() {
 
                     <div className="recent-section-wrapper">
                         <div className="recent-section">
-                            <div className="section-label">
-                                {searchQuery ? 'Search Results' : 'Recent Activity'}
-                            </div>
-                            <div className="recent-list">
-                                {isLoading ? (
-                                    <div className="empty-state">Loading...</div>
-                                ) : filteredItems.length === 0 ? (
-                                    <div className="empty-state">
-                                        {searchQuery ? 'No results found' : 'No recent items'}
-                                    </div>
-                                ) : (
-                                    filteredItems.slice(0, 10).map((item) => (
-                                        <button
-                                            type="button"
-                                            key={item.id}
-                                            className="recent-item"
-                                            onClick={() => handleOpenItem(item)}
-                                        >
-                                            <div className={`item-icon-container ${item.type}`}>
-                                                {item.type === 'spreadsheet' ? <SpreadsheetIcon /> : 
-                                                 item.type === 'document' ? <DocumentIcon /> : <ChatIcon />}
-                                            </div>
-                                            <div className="item-info">
-                                                <div className="item-title">{item.name}</div>
-                                                <div className="item-time">{formatDate(item.updatedAt)}</div>
-                                            </div>
-                                            <div className="item-action-hint">
-                                                <OpenIcon />
-                                            </div>
-                                        </button>
-                                    ))
-                                )}
-                            </div>
-
-                            {!!quickAccess && (
+                            {isLoading ? (
+                                <div className="empty-state">Loading...</div>
+                            ) : (
                                 <>
-                                    <div className="section-label">Quick Access · Files</div>
-                                    <div className="quick-sub-label">Recent</div>
-                                    <div className="quick-grid">
-                                        {(quickAccess.recent || []).slice(0, 4).map(f => (
-                                            <button key={f.id} type="button" className="quick-chip" onClick={() => openFile(f.id)}>
-                                                <FolderIcon />
-                                                <span className="quick-chip-label">{f.originalName}</span>
-                                            </button>
-                                        ))}
+                                    <div className="quick-section">
+                                        <div className="section-label">Images</div>
+                                        {quickImageFiles.length === 0 ? (
+                                            <div className="empty-state">No images</div>
+                                        ) : (
+                                            <div className="gallery-grid">
+                                                {quickImageFiles.slice(0, 30).map(img => (
+                                                    <button key={img.id} type="button" className="gallery-tile" onClick={() => openViewer(quickImageFiles, img.id)}>
+                                                        <img src={img.thumbnailUrl || img.url} alt={img.originalName} />
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        )}
                                     </div>
-                                    <div className="quick-sub-label">Frequent</div>
-                                    <div className="quick-grid">
-                                        {(quickAccess.frequent || []).slice(0, 4).map(f => (
-                                            <button key={f.id} type="button" className="quick-chip" onClick={() => openFile(f.id)}>
-                                                <FolderIcon />
-                                                <span className="quick-chip-label">{f.originalName}</span>
+
+                                    <div className="quick-section">
+                                        <div className="section-label">
+                                            <span>PDFs</span>
+                                            <button
+                                                type="button"
+                                                className="mini-btn"
+                                                onClick={() => handleAction('open-local-pdf')}
+                                                title="Open local PDF (view only)"
+                                                style={{ marginLeft: 'auto' }}
+                                            >
+                                                <PdfIcon />
                                             </button>
-                                        ))}
+                                        </div>
+                                        {quickPdfFiles.length === 0 ? (
+                                            <div className="empty-state">
+                                                <button
+                                                    type="button"
+                                                    className="action-button small"
+                                                    onClick={() => handleAction('open-local-pdf')}
+                                                >
+                                                    <PdfIcon />
+                                                    <span>Open Local PDF</span>
+                                                </button>
+                                            </div>
+                                        ) : (
+                                            <div className="quick-list">
+                                                {quickPdfFiles.slice(0, 8).map(file => (
+                                                    <div key={file.id} className="quick-row">
+                                                        <button type="button" className="quick-row-main" onClick={() => openFile(file.id)}>
+                                                            <DocumentIcon />
+                                                            <span className="quick-row-label">{file.originalName}</span>
+                                                        </button>
+                                                        <button type="button" className="mini-btn" onClick={() => downloadFiles([file.id])} title="Download">
+                                                            <DownloadIcon />
+                                                        </button>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    <div className="quick-section">
+                                        <div className="section-label">Spreadsheets</div>
+                                        {filteredSpreadsheets.length === 0 ? (
+                                            <div className="empty-state">No spreadsheets</div>
+                                        ) : (
+                                            <div className="quick-list">
+                                                {filteredSpreadsheets.slice(0, 8).map(item => (
+                                                    <div key={item.id} className="quick-row">
+                                                        <div className="quick-row-main static">
+                                                            <SpreadsheetIcon />
+                                                            <span className="quick-row-label">{item.name}</span>
+                                                        </div>
+                                                        <button type="button" className="mini-btn" onClick={() => downloadSpreadsheet(item)} title="Download">
+                                                            <DownloadIcon />
+                                                        </button>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    <div className="quick-section">
+                                        <div className="section-label">Notes & Citations</div>
+                                        <div className="quick-sub-label">Pinned</div>
+                                        {pinnedCitations.length === 0 ? (
+                                            <div className="empty-state">No pinned notes</div>
+                                        ) : (
+                                            <div className="quick-list">
+                                                {pinnedCitations.slice(0, 8).map(citation => (
+                                                    <div key={citation.id} className="quick-row">
+                                                        <div className="quick-row-main static">
+                                                            <span className="quick-row-label">{citation.label}</span>
+                                                        </div>
+                                                        <button type="button" className="mini-btn" onClick={() => togglePinCitation(citation.id)} title="Unpin">
+                                                            ✓
+                                                        </button>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        )}
+                                        <div className="quick-sub-label">Recent</div>
+                                        {recentCitations.length === 0 ? (
+                                            <div className="empty-state">No recent notes</div>
+                                        ) : (
+                                            <div className="quick-list">
+                                                {recentCitations.slice(0, 8).map(citation => (
+                                                    <div key={citation.id} className="quick-row">
+                                                        <div className="quick-row-main static">
+                                                            <span className="quick-row-label">{citation.label}</span>
+                                                        </div>
+                                                        <button type="button" className="mini-btn" onClick={() => togglePinCitation(citation.id)} title="Pin">
+                                                            +
+                                                        </button>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        )}
                                     </div>
                                 </>
                             )}
@@ -793,7 +899,7 @@ export function TrayPopover() {
 
                                     return filteredFiles.map(file => (
                                         <div key={file.id} className={`file-row ${selectedIds.includes(file.id) ? 'selected' : ''}`}>
-                                            <button type="button" className="file-main" onClick={() => file.isImage ? openViewer(file.id) : openFile(file.id)}>
+                                            <button type="button" className="file-main" onClick={() => file.isImage ? openViewer(imageFiles, file.id) : openFile(file.id)}>
                                                 <div className="file-thumb">
                                                     {file.isImage ? (
                                                         <img src={file.thumbnailUrl || file.url} alt={file.originalName} />
@@ -827,7 +933,7 @@ export function TrayPopover() {
                                     <div className="section-label">Gallery</div>
                                     <div className="gallery-grid">
                                         {imageFiles.slice(0, 30).map(img => (
-                                            <button key={img.id} type="button" className="gallery-tile" onClick={() => openViewer(img.id)}>
+                                            <button key={img.id} type="button" className="gallery-tile" onClick={() => openViewer(imageFiles, img.id)}>
                                                 <img src={img.thumbnailUrl || img.url} alt={img.originalName} />
                                             </button>
                                         ))}
@@ -884,8 +990,8 @@ export function TrayPopover() {
             </footer>
 
             {viewer.open && currentImage && (
-                <div className="viewer-overlay" onClick={() => setViewer({ open: false, ids: [], index: 0, zoom: 1 })}>
-                    <div className="viewer-card" onClick={(e) => e.stopPropagation()}>
+                <div className="viewer-overlay">
+                    <div className="viewer-card">
                         <div className="viewer-top">
                             <div className="viewer-title">{currentImage.originalName}</div>
                             <div className="viewer-actions">
@@ -895,12 +1001,13 @@ export function TrayPopover() {
                                 <button type="button" className="mini-btn danger" onClick={() => deleteFile(currentImage.id)} title="Delete">
                                     <TrashIcon />
                                 </button>
-                                <button type="button" className="mini-btn" onClick={() => setViewer({ open: false, ids: [], index: 0, zoom: 1 })} title="Close (Esc)">
+                                <button type="button" className="mini-btn" onClick={() => setViewer({ open: false, items: [], index: 0, zoom: 1 })} title="Close (Esc)">
                                     ✕
                                 </button>
                             </div>
                         </div>
-                        <div
+                        <button
+                            type="button"
                             className="viewer-body"
                             onDoubleClick={() => setViewer(v => ({ ...v, zoom: v.zoom === 1 ? 2 : v.zoom === 2 ? 3 : 1 }))}
                             onWheel={(e) => {
@@ -911,6 +1018,12 @@ export function TrayPopover() {
                                 const delta = e.deltaY > 0 ? -0.15 : 0.15
                                 setViewer(v => ({ ...v, zoom: Math.min(6, Math.max(1, v.zoom + delta)) }))
                             }}
+                            onKeyDown={(e) => {
+                                if (e.key === 'Enter' || e.key === ' ') {
+                                    e.preventDefault()
+                                    setViewer(v => ({ ...v, zoom: v.zoom === 1 ? 2 : v.zoom === 2 ? 3 : 1 }))
+                                }
+                            }}
                         >
                             <img
                                 className="viewer-image"
@@ -918,13 +1031,13 @@ export function TrayPopover() {
                                 alt={currentImage.originalName}
                                 style={{ transform: `scale(${viewer.zoom})` }}
                             />
-                        </div>
+                        </button>
                         <div className="viewer-bottom">
                             <button type="button" className="mini-btn" disabled={viewer.index <= 0} onClick={() => setViewer(v => ({ ...v, index: Math.max(0, v.index - 1), zoom: 1 }))}>
                                 ←
                             </button>
-                            <div className="viewer-counter">{viewer.index + 1} / {viewer.ids.length} · {viewer.zoom.toFixed(2)}×</div>
-                            <button type="button" className="mini-btn" disabled={viewer.index >= viewer.ids.length - 1} onClick={() => setViewer(v => ({ ...v, index: Math.min(v.ids.length - 1, v.index + 1), zoom: 1 }))}>
+                            <div className="viewer-counter">{viewer.index + 1} / {viewer.items.length} · {viewer.zoom.toFixed(2)}×</div>
+                            <button type="button" className="mini-btn" disabled={viewer.index >= viewer.items.length - 1} onClick={() => setViewer(v => ({ ...v, index: Math.min(v.items.length - 1, v.index + 1), zoom: 1 }))}>
                                 →
                             </button>
                         </div>

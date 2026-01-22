@@ -13,6 +13,7 @@ import { toolsRouter } from './routers/tools'
 import { filesRouter } from './routers/files'
 import { galleryRouter } from './routers/gallery'
 import { hotkeysRouter } from './routers/hotkeys'
+import { pdfRouter } from './routers/pdf'
 
 // Main app router
 export const appRouter = router({
@@ -25,7 +26,8 @@ export const appRouter = router({
     tools: toolsRouter,
     files: filesRouter,
     gallery: galleryRouter,
-    hotkeys: hotkeysRouter
+    hotkeys: hotkeysRouter,
+    pdf: pdfRouter
 })
 
 // Export type for client

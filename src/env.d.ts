@@ -38,6 +38,21 @@ interface DesktopApi {
     tray: {
         getRecentItems: () => Promise<TrayRecentItem[]>
         getUser: () => Promise<{ email: string; avatarUrl: string | null; fullName: string | null } | null>
+        getSpreadsheets: () => Promise<Array<{ id: string; name: string; updatedAt: string; chatId?: string }>>
+        getSpreadsheetData: (data: { id: string }) => Promise<{ id: string; name: string; univerData: any } | null>
+        getCitations: () => Promise<Array<{
+            id: string
+            kind: 'url' | 'file'
+            label: string
+            url?: string
+            filename?: string
+            chatId: string
+            messageId: string
+            createdAt: string
+            startIndex?: number
+            endIndex?: number
+            fileId?: string
+        }>>
         action: (data: { action: string; [key: string]: unknown }) => Promise<void>
         onRefresh: (callback: () => void) => () => void
         onAction: (action: string, callback: (data?: any) => void) => () => void
@@ -48,6 +63,7 @@ interface DesktopApi {
         renameFolder: (data: { folderId: string; name: string }) => Promise<FileManagerFolder>
         deleteFolder: (data: { folderId: string }) => Promise<{ success: boolean }>
         listFiles: (data: { folderId: string }) => Promise<FileManagerFileWithUrls[]>
+        listAllFiles: () => Promise<FileManagerFileWithUrls[]>
         getQuickAccess: () => Promise<FileManagerQuickAccess>
         importPaths: (data: { folderId: string; paths: string[] }) => Promise<FileManagerFile[]>
         pickAndImport: (data: { folderId: string }) => Promise<FileManagerFile[]>

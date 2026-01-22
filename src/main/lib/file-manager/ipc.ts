@@ -1,5 +1,7 @@
 import { ipcMain, dialog, shell } from 'electron'
 import { z } from 'zod'
+import * as fs from 'node:fs'
+import * as path from 'node:path'
 import { getFileManager } from './file-manager'
 import { isSensitiveUnlocked } from '../security/sensitive-lock'
 
@@ -61,6 +63,11 @@ export function registerFileManagerIpc(getTrayPopover: () => Electron.BrowserWin
         }).parse(input)
         await assertFolderAllowed(folderId)
         return await fm.listFiles(folderId)
+    })
+
+    ipcMain.handle('files:list-all', async () => {
+        const allowSensitive = isSensitiveUnlocked()
+        return await fm.listAllFiles(allowSensitive)
     })
 
     ipcMain.handle('files:get-quick-access', async () => {
@@ -141,5 +148,32 @@ export function registerFileManagerIpc(getTrayPopover: () => Electron.BrowserWin
         if (dir.canceled || dir.filePaths.length === 0) return { exported: 0 }
         const res = await fm.exportToDirectory(fileIds, dir.filePaths[0]!)
         return res
+    })
+
+    // Pick local PDF files for viewing only (no import, just returns paths)
+    ipcMain.handle('pdf:pick-local', async () => {
+        const result = await dialog.showOpenDialog({
+            title: 'Select PDF files to view',
+            filters: [
+                { name: 'PDF Documents', extensions: ['pdf'] }
+            ],
+            properties: ['openFile', 'multiSelections']
+        })
+
+        if (result.canceled || result.filePaths.length === 0) {
+            return { files: [] }
+        }
+
+        // Return file info without importing
+        const files = result.filePaths.map(filePath => {
+            const stats = fs.statSync(filePath)
+            return {
+                path: filePath,
+                name: path.basename(filePath),
+                size: stats.size
+            }
+        })
+
+        return { files }
     })
 }

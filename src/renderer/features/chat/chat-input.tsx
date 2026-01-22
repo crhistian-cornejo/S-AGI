@@ -22,6 +22,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { ImageAttachmentItem } from "@/components/image-attachment-item";
 import { FileAttachmentItem } from "@/components/file-attachment-item";
+import { GhostTextOverlay, TabHint } from "@/components/ghost-text-overlay";
 import {
   DocumentMentionPopover,
   DocumentMentionBadge,
@@ -113,14 +114,9 @@ export const ChatInput = memo(function ChatInput({
 
   const [cursorPosition, setCursorPosition] = useState<number | null>(null);
 
-  const debouncedValue = useDebounce(value, 500);
+  const debouncedValue = useDebounce(value, 150);
 
-  const {
-    misspelledWords,
-    autocomplete,
-    error: spellCheckError,
-    applyTab,
-  } = useSpellCheck(debouncedValue, cursorPosition);
+  const { autocomplete, applyTab } = useSpellCheck(debouncedValue, cursorPosition);
 
   // Get API key status to filter providers
   const { data: keyStatus } = trpc.settings.getApiKeyStatus.useQuery();
@@ -272,33 +268,30 @@ export const ChatInput = memo(function ChatInput({
       }
     }
 
-    // Tab to fix all misspelled words AND apply autocomplete
-    if (e.key === "Tab" && !e.ctrlKey && !e.shiftKey) {
-      // If there are misspelled words OR autocomplete, handle it
-      if (misspelledWords.length > 0 || autocomplete) {
-        e.preventDefault();
+    // Tab to apply autocomplete suggestion
+    if (e.key === "Tab" && !e.ctrlKey && !e.shiftKey && autocomplete) {
+      e.preventDefault();
 
-        const rawCursor = textareaRef.current?.selectionStart;
-        const currentCursor = rawCursor ?? cursorPosition ?? value.length;
-        const result = applyTab(currentCursor);
-        onChange(result.text);
-        setCursorPosition(result.cursorPosition);
+      const rawCursor = textareaRef.current?.selectionStart;
+      const currentCursor = rawCursor ?? cursorPosition ?? value.length;
+      const result = applyTab(currentCursor);
+      onChange(result.text);
+      setCursorPosition(result.cursorPosition);
 
-        requestAnimationFrame(() => {
-          if (!textareaRef.current) return;
-          textareaRef.current.focus();
-          const pos = Math.max(
-            0,
-            Math.min(
-              result.cursorPosition ?? result.text.length,
-              result.text.length,
-            ),
-          );
-          textareaRef.current.selectionStart = pos;
-          textareaRef.current.selectionEnd = pos;
-        });
-        return;
-      }
+      requestAnimationFrame(() => {
+        if (!textareaRef.current) return;
+        textareaRef.current.focus();
+        const pos = Math.max(
+          0,
+          Math.min(
+            result.cursorPosition ?? result.text.length,
+            result.text.length,
+          ),
+        );
+        textareaRef.current.selectionStart = pos;
+        textareaRef.current.selectionEnd = pos;
+      });
+      return;
     }
 
     // Ctrl+Tab: cycle ResponseMode (Instant→Thinking→Auto) o Reasoning (Low→Medium→High)
@@ -393,7 +386,7 @@ export const ChatInput = memo(function ChatInput({
     setSelectedDocument(null); // Clear selected document after sending
   }, [canSend, images, files, onSend, clearAll, selectedDocument]);
 
-  // Handle input change with @ mention detection
+  // Handle input change with @ mention detection and auto-correction
   const handleInputChange = useCallback(
     (e: React.ChangeEvent<HTMLTextAreaElement>) => {
       const newValue = e.target.value;
@@ -790,124 +783,19 @@ export const ChatInput = memo(function ChatInput({
             disabled={isLoading}
             spellCheck={false}
           />
-          {/* Spell Check Overlay - Shows misspelled words with red underline */}
-          {!isLoading && (misspelledWords.length > 0 || autocomplete) && (
-            <div
-              className="absolute inset-0 pt-2 pb-2 px-3 text-[15px] leading-relaxed pointer-events-none whitespace-pre-wrap break-words overflow-hidden z-10"
-              aria-hidden="true"
-            >
-              {(() => {
-                // Build segments: normal text, misspelled words (red), autocomplete ghost
-                const segments: React.ReactNode[] = [];
-                let lastIndex = 0;
-
-                // Combine misspelled words, sorted by position
-                const sortedMisspelled = [...misspelledWords].sort(
-                  (a, b) => a.startIndex - b.startIndex,
-                );
-
-                for (const word of sortedMisspelled) {
-                  // Add transparent text before this word
-                  if (word.startIndex > lastIndex) {
-                    segments.push(
-                      <span
-                        key={`before-${word.startIndex}`}
-                        className="text-transparent"
-                      >
-                        {value.slice(lastIndex, word.startIndex)}
-                      </span>,
-                    );
-                  }
-                  // Add the misspelled word with red wavy underline
-                  segments.push(
-                    <span
-                      key={`word-${word.startIndex}`}
-                      className="text-transparent decoration-red-500 decoration-wavy underline underline-offset-2"
-                      title={
-                        word.bestSuggestion
-                          ? `Did you mean: ${word.bestSuggestion}?`
-                          : "Misspelled word"
-                      }
-                    >
-                      {word.word}
-                    </span>,
-                  );
-                  lastIndex = word.endIndex;
-                }
-
-                // Add remaining text as transparent
-                if (lastIndex < value.length) {
-                  // Check if autocomplete starts here
-                  if (autocomplete && autocomplete.endIndex === value.length) {
-                    // Text before autocomplete word
-                    if (autocomplete.startIndex > lastIndex) {
-                      segments.push(
-                        <span
-                          key="before-autocomplete"
-                          className="text-transparent"
-                        >
-                          {value.slice(lastIndex, autocomplete.startIndex)}
-                        </span>,
-                      );
-                    }
-                    // The word being typed (transparent)
-                    segments.push(
-                      <span
-                        key="autocomplete-word"
-                        className="text-transparent"
-                      >
-                        {autocomplete.original}
-                      </span>,
-                    );
-                    // Ghost text for completion
-                    segments.push(
-                      <span
-                        key="autocomplete-ghost"
-                        className="text-muted-foreground/50 font-normal"
-                      >
-                        {autocomplete.remainingText}
-                      </span>,
-                    );
-                  } else {
-                    segments.push(
-                      <span key="after-all" className="text-transparent">
-                        {value.slice(lastIndex)}
-                      </span>,
-                    );
-                  }
-                } else if (
-                  autocomplete &&
-                  autocomplete.endIndex === value.length
-                ) {
-                  // Autocomplete at the very end
-                  segments.push(
-                    <span
-                      key="autocomplete-ghost"
-                      className="text-muted-foreground/50 font-normal"
-                    >
-                      {autocomplete.remainingText}
-                    </span>,
-                  );
-                }
-
-                return segments;
-              })()}
-            </div>
+          {/* Ghost Text Overlay - Mirror element technique for autocomplete */}
+          {!isLoading && (
+            <GhostTextOverlay
+              textareaRef={textareaRef}
+              value={value}
+              autocomplete={autocomplete}
+              className="z-10"
+            />
           )}
 
           {/* Tab hint indicator */}
-          {!isLoading && (autocomplete || misspelledWords.length > 0) && (
-            <div className="absolute right-3 top-2 flex items-center gap-1.5 pointer-events-none z-30">
-              {misspelledWords.length > 0 && (
-                <span className="text-[10px] text-red-500 bg-red-500/10 px-1.5 py-0.5 rounded font-medium">
-                  {misspelledWords.length} error
-                  {misspelledWords.length > 1 ? "es" : ""}
-                </span>
-              )}
-              <span className="text-[10px] text-muted-foreground/60 bg-muted/50 px-1.5 py-0.5 rounded font-medium">
-                Tab {autocomplete ? "completar" : "corregir"}
-              </span>
-            </div>
+          {!isLoading && (
+            <TabHint hasAutocomplete={!!autocomplete} />
           )}
         </div>
 
@@ -1186,16 +1074,6 @@ export const ChatInput = memo(function ChatInput({
           </div>
 
           <div className="flex items-center gap-1">
-            {/* DEBUG STATUS - Shows spell check loading errors */}
-            {spellCheckError && (
-              <span
-                className="text-[9px] text-red-500 bg-red-500/10 px-1 rounded"
-                title={spellCheckError}
-              >
-                Spell: Error
-              </span>
-            )}
-
             <TooltipProvider delayDuration={0}>
               <div className="flex items-center gap-0.5 mr-1">
                 <Tooltip>

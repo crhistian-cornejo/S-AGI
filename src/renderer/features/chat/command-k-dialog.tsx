@@ -80,7 +80,7 @@ function ChatRow({
         <div
             data-index={index}
             className={cn(
-                'group flex items-center gap-3 px-3 py-2.5 rounded-xl w-full text-left',
+                'group flex items-center gap-3 px-3 py-3 rounded-xl w-full text-left',
                 isHi ? 'bg-accent/80' : 'hover:bg-accent/40'
             )}
         >
@@ -111,8 +111,8 @@ function ChatRow({
                     <IconMessage size={15} />
                 </div>
                 <div className="flex-1 min-w-0">
-                    <p className="truncate font-medium text-foreground/95">{chat.title || 'Untitled'}</p>
-                    <p className="text-xs text-muted-foreground">{formatRelativeTime(chat.updated_at)}</p>
+                    <p className="truncate font-medium text-foreground/95 leading-snug">{chat.title || 'Untitled'}</p>
+                    <p className="text-xs text-muted-foreground leading-snug">{formatRelativeTime(chat.updated_at)}</p>
                 </div>
             </button>
             <DropdownMenu onOpenChange={onMenuOpenChange} modal={false}>

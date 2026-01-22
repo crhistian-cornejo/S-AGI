@@ -1,0 +1,271 @@
+import { atom } from 'jotai'
+import { atomWithStorage } from 'jotai/utils'
+import type { CitationData } from '@/components/inline-citation'
+
+/**
+ * PDF Tab State Management
+ *
+ * These atoms manage the state for the PDF tab, which serves as a unified hub
+ * for viewing PDFs from artifacts, knowledge documents (chat_files), and citations.
+ */
+
+// === PDF SOURCE TYPES ===
+
+export interface PdfSource {
+    /** Source type: artifact, chat_file, local (session-only), or external URL */
+    type: 'artifact' | 'chat_file' | 'local' | 'external'
+    /** Source ID (artifact.id, chat_file.id, or local path) */
+    id: string
+    /** Display name */
+    name: string
+    /** URL to the PDF (storage URL, file:// URL, or external) */
+    url: string
+    /** Associated chat ID (for chat_files) */
+    chatId?: string
+    /** Number of pages */
+    pageCount?: number
+    /** Extracted page content (for chat_files with processing_status = 'completed') */
+    pages?: Array<{
+        pageNumber: number
+        content: string
+        wordCount: number
+    }>
+    /** Additional metadata */
+    metadata?: {
+        title?: string
+        author?: string
+        createdAt?: string
+        fileSize?: number
+        /** Local file path (for local PDFs) */
+        localPath?: string
+    }
+}
+
+// === PDF CHAT (AI Q&A) ===
+
+export interface PdfChatMessage {
+    id: string
+    role: 'user' | 'assistant'
+    content: string
+    citations?: CitationData[]
+    createdAt: Date
+    /** If this was a quick action (summarize, explain, etc.) */
+    action?: 'summarize' | 'explain' | 'key_points' | 'custom'
+}
+
+// === NAVIGATION REQUEST (from citation clicks) ===
+
+export interface PdfNavigationRequest {
+    /** Filename to find and open */
+    filename: string
+    /** Page to navigate to */
+    pageNumber: number | null
+    /** Text to highlight (if available) */
+    highlightText?: string
+    /** Chat ID to help locate the file */
+    chatId?: string
+    /** Source type hint */
+    sourceType?: 'artifact' | 'chat_file'
+}
+
+// === PDF TAB ATOMS ===
+
+/**
+ * Currently selected PDF in the PDF tab
+ * When null, shows empty state / document list
+ */
+export const selectedPdfAtom = atom<PdfSource | null>(null)
+
+/**
+ * Current page number (1-indexed)
+ * Persisted to localStorage for session continuity
+ */
+export const pdfCurrentPageAtom = atomWithStorage('pdf-current-page', 1)
+
+/**
+ * Zoom level (0.5 to 3.0, default 1.0)
+ * Persisted to localStorage
+ */
+export const pdfZoomLevelAtom = atomWithStorage('pdf-zoom-level', 1.0)
+
+/**
+ * Navigation request from citation clicks
+ * When set, PdfTabView will:
+ * 1. Find the matching PDF from the list
+ * 2. Set it as selectedPdf
+ * 3. Navigate to the specified page
+ * 4. Clear this atom
+ */
+export const pdfNavigationRequestAtom = atom<PdfNavigationRequest | null>(null)
+
+/**
+ * Whether the document list sidebar is open
+ * Persisted to localStorage
+ */
+export const pdfSidebarOpenAtom = atomWithStorage('pdf-sidebar-open', true)
+
+/**
+ * PDF-specific chat messages (mini chat panel for Q&A)
+ * Cleared when switching PDFs
+ */
+export const pdfChatMessagesAtom = atom<PdfChatMessage[]>([])
+
+/**
+ * Whether AI is currently processing a PDF query
+ */
+export const pdfChatStreamingAtom = atom(false)
+
+/**
+ * Whether the AI chat panel is open
+ * Persisted to localStorage
+ */
+export const pdfChatPanelOpenAtom = atomWithStorage('pdf-chat-panel-open', false)
+
+/**
+ * Text currently selected in the PDF viewer
+ * Used to populate AI chat input
+ */
+export const pdfSelectedTextAtom = atom<{
+    text: string
+    pageNumber: number
+} | null>(null)
+
+/**
+ * Local PDFs loaded from filesystem (session-only, no cloud upload)
+ * These are for viewing only - no processing, no AI, no vector stores
+ * Cleared when the app is closed
+ */
+export const localPdfsAtom = atom<PdfSource[]>([])
+
+/**
+ * Add a local PDF to the session list
+ */
+export const addLocalPdfAtom = atom(
+    null,
+    (get, set, pdf: PdfSource) => {
+        const current = get(localPdfsAtom)
+        // Avoid duplicates by path
+        if (!current.some(p => p.metadata?.localPath === pdf.metadata?.localPath)) {
+            set(localPdfsAtom, [...current, pdf])
+        }
+    }
+)
+
+/**
+ * Remove a local PDF from the session list
+ */
+export const removeLocalPdfAtom = atom(
+    null,
+    (get, set, pdfId: string) => {
+        const current = get(localPdfsAtom)
+        set(localPdfsAtom, current.filter(p => p.id !== pdfId))
+    }
+)
+
+/**
+ * Clear all local PDFs
+ */
+export const clearLocalPdfsAtom = atom(
+    null,
+    (_get, set) => {
+        set(localPdfsAtom, [])
+    }
+)
+
+// === DERIVED ATOMS ===
+
+/**
+ * Check if the current PDF has extracted content (for AI features)
+ */
+export const pdfHasExtractedContentAtom = atom((get) => {
+    const pdf = get(selectedPdfAtom)
+    if (!pdf) return false
+    return pdf.type === 'chat_file' && pdf.pages && pdf.pages.length > 0
+})
+
+/**
+ * Get total word count from extracted pages
+ */
+export const pdfTotalWordCountAtom = atom((get) => {
+    const pdf = get(selectedPdfAtom)
+    if (!pdf?.pages) return 0
+    return pdf.pages.reduce((sum, page) => sum + (page.wordCount || 0), 0)
+})
+
+// === HELPER FUNCTIONS ===
+
+/**
+ * Create a PdfSource from an artifact
+ */
+export function createPdfSourceFromArtifact(artifact: {
+    id: string
+    name: string
+    pdf_url?: string
+    pdf_page_count?: number
+    created_at?: string
+}): PdfSource | null {
+    if (!artifact.pdf_url) return null
+    return {
+        type: 'artifact',
+        id: artifact.id,
+        name: artifact.name,
+        url: artifact.pdf_url,
+        pageCount: artifact.pdf_page_count,
+        metadata: {
+            createdAt: artifact.created_at
+        }
+    }
+}
+
+/**
+ * Create a PdfSource from a chat_file
+ */
+export function createPdfSourceFromChatFile(chatFile: {
+    id: string
+    filename: string
+    storage_path: string
+    chat_id: string
+    file_size?: number
+    pages?: Array<{ pageNumber: number; content: string; wordCount: number }>
+    metadata?: Record<string, unknown>
+}, signedUrl: string): PdfSource {
+    return {
+        type: 'chat_file',
+        id: chatFile.id,
+        name: chatFile.filename,
+        url: signedUrl,
+        chatId: chatFile.chat_id,
+        pageCount: chatFile.pages?.length,
+        pages: chatFile.pages,
+        metadata: {
+            title: chatFile.metadata?.title as string | undefined,
+            fileSize: chatFile.file_size,
+        }
+    }
+}
+
+/**
+ * Create a PdfSource from a local file path
+ * For session-only viewing (no upload, no AI processing)
+ */
+export function createPdfSourceFromLocalFile(file: {
+    path: string
+    name: string
+    size?: number
+}): PdfSource {
+    // Create a unique ID from the path
+    const id = `local-${btoa(file.path).slice(0, 16)}-${Date.now()}`
+
+    return {
+        type: 'local',
+        id,
+        name: file.name,
+        // Use file:// protocol for local files in Electron
+        url: `file://${file.path}`,
+        metadata: {
+            localPath: file.path,
+            fileSize: file.size,
+            createdAt: new Date().toISOString()
+        }
+    }
+}

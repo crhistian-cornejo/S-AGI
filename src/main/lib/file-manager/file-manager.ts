@@ -167,6 +167,18 @@ export class FileManager {
         }))
     }
 
+    async listAllFiles(allowSensitive: boolean): Promise<Array<FileManagerFile & { url: string; thumbnailUrl: string | null }>> {
+        const state = await this.getState()
+        const sensitiveFolders = new Set(state.folders.filter(f => f.isSensitive).map(f => f.id))
+        const items = state.files.filter(f => allowSensitive || !sensitiveFolders.has(f.folderId))
+        const sorted = items.sort((a, b) => new Date((b.lastOpenedAt ?? b.createdAt)).getTime() - new Date((a.lastOpenedAt ?? a.createdAt)).getTime())
+        return sorted.map(f => ({
+            ...f,
+            url: fileUrlFromPath(f.storedPath),
+            thumbnailUrl: f.thumbnailPath ? fileUrlFromPath(f.thumbnailPath) : null
+        }))
+    }
+
     async getFileById(fileId: string): Promise<FileManagerFile | null> {
         const state = await this.getState()
         return state.files.find(f => f.id === fileId) ?? null

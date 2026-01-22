@@ -31,6 +31,11 @@ export interface SpellCheckResult {
     cursorPosition: number | null;
   };
   getCorrectedText: () => string;
+  /** Auto-correct the word that just ended (call when space is pressed) */
+  autoCorrectOnSpace: (
+    text: string,
+    cursorPosition: number,
+  ) => { text: string; cursorPosition: number; corrected: boolean } | null;
 }
 
 function getBaseUrl(): string {
@@ -236,6 +241,11 @@ const IGNORE_WORDS = new Set([
 
 // Common word completions for faster autocomplete
 const COMMON_COMPLETIONS: Record<string, string[]> = {
+  // Single-character completions (very common)
+  i: ["is", "if", "in", "it", "into", "implement"],
+  a: ["and", "are", "all", "about", "any", "also"],
+  y: ["you", "your", "yes", "yet"],
+  o: ["of", "or", "on", "one", "our"],
   // Spanish - very common
   hol: ["hola"],
   gra: ["gracias", "grande", "gratis"],
@@ -295,6 +305,131 @@ const COMMON_COMPLETIONS: Record<string, string[]> = {
   imp: ["important", "improve", "import"],
   int: ["into", "interesting", "information"],
   act: ["actually", "action", "active"],
+};
+
+// Common phrase completions - triggered after specific words (sentence prediction)
+const PHRASE_COMPLETIONS: Record<string, string[]> = {
+  // Spanish phrases - general
+  muchas: ["gracias"],
+  por: ["favor", "cierto", "ejemplo", "supuesto", "qué"],
+  sin: ["embargo", "duda"],
+  tal: ["vez", "cual"],
+  de: ["hecho", "acuerdo", "todas formas", "todos modos", "nada"],
+  en: ["realidad", "serio", "efecto", "fin", "cambio"],
+  a: ["veces", "pesar de", "través de", "menos que"],
+  lo: ["siento", "que", "mejor", "peor", "mismo"],
+  me: ["parece", "gusta", "gustaría", "pregunto"],
+  te: ["agradezco", "recomiendo", "sugiero"],
+  no: ["obstante", "hay problema", "te preocupes", "importa", "sé"],
+  qué: ["tal", "pasa", "piensas", "opinas", "quieres"],
+  cómo: ["estás", "te va", "puedo ayudar"],
+  buenos: ["días", "tardes"],
+  buenas: ["noches", "tardes"],
+  hasta: ["luego", "pronto", "mañana"],
+  un: ["momento", "segundo", "placer"],
+  con: ["mucho gusto", "respecto a", "permiso"],
+  // Spanish phrases - programming/tech
+  implementar: ["una función", "el sistema", "la solución", "esta funcionalidad"],
+  crear: ["una función", "un componente", "una clase", "un archivo"],
+  agregar: ["una función", "un método", "un campo", "una propiedad"],
+  añadir: ["una función", "un componente", "validación", "un test"],
+  modificar: ["el código", "la función", "el componente", "el archivo"],
+  arreglar: ["el error", "el bug", "el problema", "esto"],
+  corregir: ["el error", "el código", "el problema", "esto"],
+  eliminar: ["este código", "la función", "el componente", "el archivo"],
+  refactorizar: ["el código", "la función", "el componente", "esto"],
+  optimizar: ["el código", "la función", "el rendimiento", "esto"],
+  podemos: ["implementar", "crear", "agregar", "modificar", "usar"],
+  puedes: ["implementar", "crear", "agregar", "ayudarme", "explicar"],
+  necesito: ["implementar", "crear", "ayuda con", "saber cómo"],
+  quiero: ["implementar", "crear", "agregar", "saber cómo"],
+  como: ["podemos", "puedo", "funciona", "se hace"],
+  ayuda: ["con esto", "para implementar", "para crear", "por favor"],
+  una: ["función", "variable", "clase", "solución", "forma de"],
+  nuevo: ["componente", "archivo", "método", "campo"],
+  nueva: ["función", "clase", "variable", "solución"],
+  // English phrases
+  thank: ["you", "you very much", "you so much"],
+  thanks: ["a lot", "for your help", "for everything"],
+  how: ["are you", "can I help", "do you", "does it work"],
+  i: ["think", "believe", "would like", "need", "want", "am"],
+  you: ["are", "can", "should", "might", "could"],
+  it: ["is", "was", "will be", "seems", "looks like"],
+  this: ["is", "looks", "seems", "should"],
+  that: ["is", "was", "would be", "sounds"],
+  what: ["do you", "is", "are", "about", "if"],
+  can: ["you", "I", "we", "help"],
+  could: ["you", "I", "we", "please"],
+  would: ["you", "like", "be", "it"],
+  please: ["let me know", "help me", "check", "send"],
+  let: ["me know", "me check", "me see"],
+  looking: ["forward to", "for"],
+  as: ["soon as possible", "well", "far as I know"],
+  for: ["example", "instance", "now", "the record"],
+  on: ["the other hand", "top of that"],
+  by: ["the way", "the time"],
+  at: ["least", "the moment", "this point"],
+  good: ["morning", "afternoon", "evening", "luck", "job"],
+  nice: ["to meet you", "work", "job"],
+  see: ["you", "you later", "you soon"],
+  take: ["care", "your time"],
+  have: ["a nice day", "a good one", "fun"],
+};
+
+// Next word predictions based on context (last 1-2 words)
+const NEXT_WORD_PREDICTIONS: Record<string, string[]> = {
+  // Spanish
+  "el": ["problema", "sistema", "usuario", "archivo", "proyecto"],
+  "la": ["solución", "respuesta", "aplicación", "función", "página"],
+  "los": ["archivos", "datos", "usuarios", "resultados", "cambios"],
+  "las": ["opciones", "funciones", "variables", "configuraciones"],
+  "un": ["error", "problema", "momento", "archivo", "ejemplo"],
+  "una": ["función", "variable", "solución", "opción", "pregunta"],
+  "es": ["necesario", "importante", "posible", "correcto", "mejor"],
+  "está": ["funcionando", "listo", "bien", "mal", "correcto"],
+  "son": ["necesarios", "importantes", "correctos", "diferentes"],
+  "hay": ["que", "un error", "algún problema", "varias opciones"],
+  "se": ["puede", "debe", "necesita", "recomienda"],
+  "puede": ["ser", "que", "hacer", "usar", "ayudar"],
+  "debe": ["ser", "estar", "tener", "hacer", "incluir"],
+  "quiero": ["que", "saber", "hacer", "ver", "agregar"],
+  "necesito": ["ayuda", "saber", "que", "hacer", "ver"],
+  "puedo": ["hacer", "ver", "ayudar", "preguntar", "usar"],
+  "cómo": ["puedo", "funciona", "se hace", "hago", "usar"],
+  "qué": ["es", "significa", "pasa", "hace", "puedo"],
+  "dónde": ["está", "puedo", "se encuentra", "queda"],
+  "cuándo": ["se", "puedo", "es", "será", "fue"],
+  "para": ["que", "poder", "hacer", "ver", "usar"],
+  "si": ["es posible", "puedes", "quieres", "necesitas", "hay"],
+  // English
+  "the": ["problem", "solution", "file", "function", "user"],
+  "a": ["problem", "solution", "function", "file", "new"],
+  "an": ["error", "issue", "example", "option", "update"],
+  "is": ["not", "working", "correct", "needed", "possible"],
+  "are": ["you", "there", "they", "not", "working"],
+  "i": ["need", "want", "think", "have", "am"],
+  "you": ["can", "should", "need", "want", "have"],
+  "we": ["can", "should", "need", "have", "will"],
+  "it": ["is", "was", "will", "should", "can"],
+  "this": ["is", "should", "will", "can", "needs"],
+  "that": ["is", "was", "should", "can", "will"],
+  "there": ["is", "are", "was", "were", "should"],
+  "can": ["you", "i", "we", "be", "help"],
+  "could": ["you", "i", "we", "be", "help"],
+  "would": ["you", "like", "be", "it", "this"],
+  "should": ["be", "i", "we", "you", "work"],
+  "have": ["you", "a", "to", "been", "any"],
+  "do": ["you", "not", "i", "we", "this"],
+  "does": ["it", "this", "not", "the", "anyone"],
+  "what": ["is", "are", "do", "does", "if"],
+  "how": ["do", "can", "to", "does", "is"],
+  "why": ["is", "do", "does", "are", "not"],
+  "when": ["i", "you", "the", "will", "is"],
+  "where": ["is", "are", "do", "can", "does"],
+  "please": ["help", "check", "let", "send", "try"],
+  "help": ["me", "with", "please", "you", "us"],
+  "need": ["to", "help", "a", "some", "your"],
+  "want": ["to", "a", "some", "you", "this"],
 };
 
 export function useSpellCheck(
@@ -404,7 +539,7 @@ export function useSpellCheck(
         const endIndex = startIndex + word.length;
         const lowerWord = word.toLowerCase();
 
-        if (word.length < 2) continue;
+        if (word.length < 1) continue;
         if (IGNORE_WORDS.has(lowerWord)) continue;
         if (word === word.toUpperCase() && word.length > 1) continue;
         if (/[A-Z]/.test(word.slice(1)) && /[a-z]/.test(word)) continue;
@@ -420,7 +555,7 @@ export function useSpellCheck(
         const isCorrect =
           isCorrectEn || isCorrectEs || isCorrectEnLower || isCorrectEsLower;
 
-        if (isCurrentWord && word.length >= 2) {
+        if (isCurrentWord && word.length >= 1) {
           for (const [prefix, completions] of Object.entries(
             COMMON_COMPLETIONS,
           )) {
@@ -552,6 +687,82 @@ export function useSpellCheck(
             suggestions: allSuggestions,
             bestSuggestion,
           });
+        }
+      }
+
+      // === PHRASE/NEXT-WORD PREDICTION ===
+      // If no autocomplete yet and cursor is after a complete word (ends with space or at end)
+      if (!autocomplete) {
+        const charAtCursor = inputText[clampedCursor - 1];
+        const isAfterSpace = charAtCursor === " " || charAtCursor === "\n";
+
+        if (isAfterSpace || clampedCursor === inputText.length) {
+          // Get the last 1-2 words before cursor for context
+          const textBeforeCursor = beforeCursor.trimEnd();
+          const words = textBeforeCursor.split(/\s+/);
+          const lastWord = words[words.length - 1]?.toLowerCase() || "";
+          const secondLastWord = words[words.length - 2]?.toLowerCase() || "";
+
+          // Try phrase completions first (multi-word predictions)
+          if (lastWord && PHRASE_COMPLETIONS[lastWord]) {
+            const phraseOptions = PHRASE_COMPLETIONS[lastWord];
+            if (phraseOptions.length > 0) {
+              const suggestion = phraseOptions[0];
+              // Only suggest if cursor is right after the trigger word + space
+              if (isAfterSpace) {
+                autocomplete = {
+                  original: "",
+                  completion: suggestion,
+                  remainingText: suggestion,
+                  startIndex: clampedCursor,
+                  endIndex: clampedCursor,
+                };
+              }
+            }
+          }
+
+          // Try next-word predictions if no phrase completion
+          if (!autocomplete && lastWord && NEXT_WORD_PREDICTIONS[lastWord]) {
+            const nextOptions = NEXT_WORD_PREDICTIONS[lastWord];
+            if (nextOptions.length > 0 && isAfterSpace) {
+              const suggestion = nextOptions[0];
+              autocomplete = {
+                original: "",
+                completion: suggestion,
+                remainingText: suggestion,
+                startIndex: clampedCursor,
+                endIndex: clampedCursor,
+              };
+            }
+          }
+
+          // Try two-word context for better predictions
+          if (!autocomplete && secondLastWord && lastWord) {
+            const twoWordKey = `${secondLastWord} ${lastWord}`;
+            // Common two-word patterns
+            const twoWordPhrases: Record<string, string> = {
+              "por favor": "ayúdame",
+              "muchas gracias": "por tu ayuda",
+              "de acuerdo": "con eso",
+              "thank you": "very much",
+              "i would": "like to",
+              "could you": "please",
+              "how can": "I help",
+              "let me": "know",
+              "looking forward": "to",
+              "as soon": "as possible",
+            };
+
+            if (twoWordPhrases[twoWordKey] && isAfterSpace) {
+              autocomplete = {
+                original: "",
+                completion: twoWordPhrases[twoWordKey],
+                remainingText: twoWordPhrases[twoWordKey],
+                startIndex: clampedCursor,
+                endIndex: clampedCursor,
+              };
+            }
+          }
         }
       }
 
@@ -689,6 +900,93 @@ export function useSpellCheck(
     [analyzeText, state.isLoaded, text],
   );
 
+  // Auto-correct the word that just ended when space is pressed
+  const autoCorrectOnSpace = useCallback(
+    (
+      inputText: string,
+      cursorPos: number,
+    ): { text: string; cursorPosition: number; corrected: boolean } | null => {
+      if (!state.isLoaded) return null;
+
+      const { en, es } = spellcheckersRef.current;
+      if (!en || !es) return null;
+
+      // Find the word that just ended (before the space that will be inserted)
+      const beforeCursor = inputText.slice(0, cursorPos);
+      const wordMatch = beforeCursor.match(/[a-záéíóúüñA-ZÁÉÍÓÚÜÑ]+$/i);
+
+      if (!wordMatch) return null;
+
+      const word = wordMatch[0];
+      const wordStart = cursorPos - word.length;
+      const lowerWord = word.toLowerCase();
+
+      // Skip if word is too short or in ignore list
+      if (word.length < 2) return null;
+      if (IGNORE_WORDS.has(lowerWord)) return null;
+      if (word === word.toUpperCase() && word.length > 1) return null;
+
+      // Check if word is correctly spelled
+      const isCorrect =
+        en.check(word) ||
+        es.check(word) ||
+        en.check(lowerWord) ||
+        es.check(lowerWord);
+
+      if (isCorrect) return null;
+
+      // Get suggestions and find best one
+      const suggestionsEs = es.suggest(word, 3) || [];
+      const suggestionsEn = en.suggest(word, 3) || [];
+      const allSuggestions = [
+        ...new Set([...suggestionsEs, ...suggestionsEn]),
+      ].slice(0, 5);
+
+      if (allSuggestions.length === 0) return null;
+
+      // Score suggestions
+      const scored = allSuggestions.map((s) => {
+        let score = 0;
+        const sLower = s.toLowerCase();
+
+        // Prefer suggestions that start with same letter
+        if (sLower[0] === lowerWord[0]) score += 10;
+        // Prefer similar length
+        score -= Math.abs(s.length - word.length) * 2;
+        // Prefer Spanish suggestions slightly
+        if (suggestionsEs.includes(s)) score += 2;
+
+        return { suggestion: s, score };
+      });
+
+      scored.sort((a, b) => b.score - a.score);
+      let bestSuggestion = scored[0]?.suggestion || null;
+
+      if (!bestSuggestion) return null;
+
+      // Preserve capitalization
+      if (word[0] === word[0].toUpperCase()) {
+        bestSuggestion =
+          bestSuggestion.charAt(0).toUpperCase() + bestSuggestion.slice(1);
+      }
+
+      // Apply correction
+      const correctedText =
+        inputText.slice(0, wordStart) +
+        bestSuggestion +
+        inputText.slice(cursorPos);
+
+      const delta = bestSuggestion.length - word.length;
+
+      return {
+        text: correctedText,
+        cursorPosition: cursorPos + delta,
+        corrected: true,
+      };
+    },
+    [state.isLoaded],
+  );
+
   return {
     misspelledWords: analysisResult.misspelledWords,
     autocomplete: analysisResult.autocomplete,
@@ -698,5 +996,6 @@ export function useSpellCheck(
     applyAutocomplete,
     applyTab,
     getCorrectedText,
+    autoCorrectOnSpace,
   };
 }

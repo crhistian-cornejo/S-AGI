@@ -8,6 +8,7 @@ import { mermaid } from '@streamdown/mermaid'
 import { IconCopy, IconCheck, IconExternalLink } from '@tabler/icons-react'
 import { cn } from '@/lib/utils'
 import { InlineCitation, type CitationData } from '@/components/inline-citation'
+import { useCitationNavigation } from '@/lib/hooks/use-citation-navigation'
 
 import 'katex/dist/katex.min.css'
 
@@ -69,8 +70,7 @@ function CodeBlock({ children }: { children: React.ReactNode }) {
                 setLanguage(match ? match[1] : null)
             }
         }
-    }, [children])
-    
+    }, [])
     const handleCopy = useCallback(() => {
         if (!codeText) return
         navigator.clipboard.writeText(codeText)
@@ -377,20 +377,22 @@ function cleanOpenAICitationMarkers(text: string): string {
 }
 
 /**
- * Check if text contains citation patterns [1], [2], etc.
- * Uses a non-global regex to avoid state issues
+ * Check if text contains citation patterns
+ * Supports: [1], [2], [turn2file0], [turn2file1], etc.
  */
 function containsCitationPattern(text: string): boolean {
-    return /\[\d+\]/.test(text)
+    return /\[\d+\]/.test(text) || /\[turn\d*file\d+\]/i.test(text)
 }
 
 /**
- * Process text to replace [N] patterns with InlineCitation components
+ * Process text to replace citation patterns with InlineCitation components
+ * Supports: [N] and [turnXfileN] formats
  * Returns an array of strings and React elements
  */
 function processTextWithCitations(
     text: string,
-    citations: CitationData[]
+    citations: CitationData[],
+    onNavigate?: (citation: CitationData) => void
 ): (string | React.ReactElement)[] {
     if (!citations || citations.length === 0) return [text]
 
@@ -398,12 +400,24 @@ function processTextWithCitations(
     const parts: (string | React.ReactElement)[] = []
     let lastIndex = 0
 
-    // Use a fresh regex instance for each call to avoid global state issues
-    const pattern = /\[(\d+)\]/g
+    // Combined pattern for both [N] and [turnXfileN] formats
+    // turnXfileN uses 0-indexed, so we add 1 to get the citation ID
+    const pattern = /\[(\d+)\]|\[turn\d*file(\d+)\]/gi
     let match: RegExpExecArray | null
 
+    // biome-ignore lint/suspicious/noAssignInExpressions: <explanation>
     while ((match = pattern.exec(text)) !== null) {
-        const citationId = parseInt(match[1], 10)
+        // match[1] is for [N] format, match[2] is for [turnXfileN] format
+        let citationId: number
+        if (match[1] !== undefined) {
+            citationId = parseInt(match[1], 10)
+        } else if (match[2] !== undefined) {
+            // turnXfileN is 0-indexed, convert to 1-indexed
+            citationId = parseInt(match[2], 10) + 1
+        } else {
+            continue
+        }
+
         const citation = citationMap.get(citationId)
 
         // Add text before the match
@@ -411,18 +425,17 @@ function processTextWithCitations(
             parts.push(text.slice(lastIndex, match.index))
         }
 
-        // Add citation component or original text if no matching citation
+        // Add citation component or remove if no matching citation
         if (citation) {
             parts.push(
                 <InlineCitation
                     key={`cite-${match.index}-${citationId}`}
                     citation={citation}
+                    onNavigate={onNavigate}
                 />
             )
-        } else {
-            // Keep original [N] if no matching citation data
-            parts.push(match[0])
         }
+        // If no matching citation, don't add anything (removes the raw marker)
 
         lastIndex = match.index + match[0].length
     }
@@ -441,10 +454,12 @@ function processTextWithCitations(
  */
 const TextWithCitations = memo(function TextWithCitations({
     children,
-    citations
+    citations,
+    onNavigate
 }: {
     children: ReactNode
     citations: CitationData[]
+    onNavigate?: (citation: CitationData) => void
 }) {
     const rawText = getText(children)
 
@@ -454,7 +469,7 @@ const TextWithCitations = memo(function TextWithCitations({
 
     // If we have citations with patterns, process them
     if (citations && citations.length > 0 && containsCitationPattern(cleanedText)) {
-        const parts = processTextWithCitations(cleanedText, citations)
+        const parts = processTextWithCitations(cleanedText, citations, onNavigate)
         return (
             <>
                 {parts.map((part, i) => (
@@ -496,6 +511,9 @@ export const ChatMarkdownRenderer = memo(function ChatMarkdownRenderer({
 }: ChatMarkdownRendererProps) {
     const styles = sizeStyles[size]
 
+    // Citation navigation hook - opens PDF tab when citation is clicked
+    const { navigateToCitation } = useCitationNavigation()
+
     // Memoize plugins object to prevent re-initialization
     // singleDollarTextMath: true so $...$ works for inline LaTeX (e.g. $e^{i\pi}+1=0$)
     const plugins = useMemo(
@@ -506,8 +524,8 @@ export const ChatMarkdownRenderer = memo(function ChatMarkdownRenderer({
     // Create text wrapper that handles citations and cleans OpenAI markers
     // Always wrap to clean potential OpenAI markers even without citations
     const wrapWithCitations = useCallback((children: ReactNode) => {
-        return <TextWithCitations citations={documentCitations}>{children}</TextWithCitations>
-    }, [documentCitations])
+        return <TextWithCitations citations={documentCitations} onNavigate={navigateToCitation}>{children}</TextWithCitations>
+    }, [documentCitations, navigateToCitation])
 
     return (
         <div className={cn('max-w-none break-words', className)}>

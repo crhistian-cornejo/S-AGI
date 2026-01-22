@@ -1,6 +1,6 @@
-import { useRef, lazy, Suspense, useMemo } from 'react'
+import { useRef, lazy, Suspense, useMemo, useCallback } from 'react'
 import { useAtom, useSetAtom } from 'jotai'
-import { IconX, IconDownload, IconMaximize, IconFileText, IconUpload, IconFileSpreadsheet, IconChartBar, IconPhoto, IconFileTypePdf, IconCopy } from '@tabler/icons-react'
+import { IconX, IconDownload, IconMaximize, IconFileText, IconUpload, IconFileSpreadsheet, IconChartBar, IconPhoto, IconFileTypePdf, IconCopy, IconExternalLink } from '@tabler/icons-react'
 import { toast } from 'sonner'
 import { selectedArtifactAtom, artifactPanelOpenAtom, activeTabAtom, selectedChatIdAtom } from '@/lib/atoms'
 import { Button } from '@/components/ui/button'
@@ -15,6 +15,7 @@ import {
 import { UniverSpreadsheet, type UniverSpreadsheetRef } from '@/features/univer/univer-spreadsheet'
 import { UniverDocument, type UniverDocumentRef } from '@/features/univer/univer-document'
 import { exportToExcel, importFromExcel } from '@/features/univer/excel-exchange'
+import { PdfViewer } from '@/components/pdf-viewer/PdfViewer'
 import { trpc } from '@/lib/trpc'
 import { cn } from '@/lib/utils'
 import type { ChartViewerRef } from '@/features/charts/chart-viewer'
@@ -210,11 +211,30 @@ export function ArtifactPanel() {
         }
     }
 
+    // Handle PDF download
+    const handleDownloadPdf = useCallback(() => {
+        if (!artifact?.pdf_url) return
+        const link = document.createElement('a')
+        link.href = artifact.pdf_url
+        link.download = `${artifact.name}.pdf`
+        document.body.appendChild(link)
+        link.click()
+        document.body.removeChild(link)
+        toast.success('PDF downloaded')
+    }, [artifact])
+
+    // Handle open PDF in browser
+    const handleOpenPdfInBrowser = useCallback(() => {
+        if (!artifact?.pdf_url) return
+        window.open(artifact.pdf_url, '_blank')
+    }, [artifact])
+
     if (!artifact) return null
 
     const isSpreadsheet = artifact.type === 'spreadsheet'
     const isDocument = artifact.type === 'document'
     const isChart = artifact.type === 'chart'
+    const isPdf = artifact.type === 'pdf'
 
     // Count charts in current chat
     const chartCount = allArtifacts?.filter(a => a.type === 'chart').length || 0
@@ -236,6 +256,7 @@ export function ArtifactPanel() {
                     {isSpreadsheet && <IconFileSpreadsheet size={16} className="text-muted-foreground shrink-0" />}
                     {isDocument && <IconFileText size={16} className="text-muted-foreground shrink-0" />}
                     {isChart && <IconChartBar size={16} className="text-muted-foreground shrink-0" />}
+                    {isPdf && <IconFileTypePdf size={16} className="text-red-500 shrink-0" />}
                     <span className="font-medium truncate">{artifact.name}</span>
                     <span className="text-xs text-muted-foreground capitalize">{artifact.type}</span>
                     {isChart && chartCount > 1 && (
@@ -332,7 +353,7 @@ export function ArtifactPanel() {
                                 </DropdownMenuItem>
                             </DropdownMenuContent>
                         </DropdownMenu>
-                    ) : isDocument && (
+                    ) : isDocument ? (
                         <Tooltip>
                             <TooltipTrigger asChild>
                                 <Button
@@ -346,6 +367,35 @@ export function ArtifactPanel() {
                             </TooltipTrigger>
                             <TooltipContent>Save</TooltipContent>
                         </Tooltip>
+                    ) : isPdf && (
+                        <>
+                            <Tooltip>
+                                <TooltipTrigger asChild>
+                                    <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        className="h-8 w-8"
+                                        onClick={handleDownloadPdf}
+                                    >
+                                        <IconDownload size={16} />
+                                    </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>Download PDF</TooltipContent>
+                            </Tooltip>
+                            <Tooltip>
+                                <TooltipTrigger asChild>
+                                    <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        className="h-8 w-8"
+                                        onClick={handleOpenPdfInBrowser}
+                                    >
+                                        <IconExternalLink size={16} />
+                                    </Button>
+                                </TooltipTrigger>
+                                <TooltipContent>Open in Browser</TooltipContent>
+                            </Tooltip>
+                        </>
                     )}
 
                     <Tooltip>
@@ -398,6 +448,12 @@ export function ArtifactPanel() {
                             className="p-4"
                         />
                     </Suspense>
+                ) : isPdf && artifact.pdf_url ? (
+                    <PdfViewer
+                        url={artifact.pdf_url}
+                        className="w-full h-full"
+                        onDownload={handleDownloadPdf}
+                    />
                 ) : (
                     <div className="flex items-center justify-center h-full text-muted-foreground">
                         <p>Unsupported artifact type: {artifact.type}</p>

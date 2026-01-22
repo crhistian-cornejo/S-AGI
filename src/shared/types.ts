@@ -37,7 +37,7 @@ export const MessageSchema = z.object({
 export type Message = z.infer<typeof MessageSchema>
 
 // Artifact types
-export const ArtifactTypeSchema = z.enum(['spreadsheet', 'table', 'chart', 'code', 'document'])
+export const ArtifactTypeSchema = z.enum(['spreadsheet', 'table', 'chart', 'code', 'document', 'pdf'])
 export type ArtifactType = z.infer<typeof ArtifactTypeSchema>
 
 // Artifact schema
@@ -49,6 +49,8 @@ export const ArtifactSchema = z.object({
     name: z.string(),
     content: z.any(), // JSONB content
     univer_data: z.any().optional(), // Univer workbook data
+    pdf_url: z.string().optional(), // URL for PDF files
+    pdf_page_count: z.number().optional(), // Number of pages in PDF
     created_at: z.string().datetime(),
     updated_at: z.string().datetime()
 })

@@ -79,7 +79,7 @@ function FadeScrollArea({ children, className }: FadeScrollAreaProps) {
     const checkScroll = useCallback(() => {
         const el = scrollRef.current
         if (!el) return
-        
+
         const { scrollTop, scrollHeight, clientHeight } = el
         setCanScrollUp(scrollTop > 0)
         setCanScrollDown(scrollTop + clientHeight < scrollHeight - 1)
@@ -91,7 +91,7 @@ function FadeScrollArea({ children, className }: FadeScrollAreaProps) {
 
         checkScroll()
         el.addEventListener('scroll', checkScroll, { passive: true })
-        
+
         // Also check on resize
         const resizeObserver = new ResizeObserver(checkScroll)
         resizeObserver.observe(el)
@@ -103,26 +103,26 @@ function FadeScrollArea({ children, className }: FadeScrollAreaProps) {
     }, [checkScroll])
 
     return (
-        <div className={cn("relative flex-1 overflow-hidden", className)}>
+        <div className={cn("relative flex-1 overflow-hidden w-full", className)}>
             {/* Top fade */}
-            <div 
+            <div
                 className={cn(
                     "absolute top-0 left-0 right-0 h-8 z-10 pointer-events-none transition-opacity duration-200",
                     "bg-gradient-to-b from-background to-transparent",
                     canScrollUp ? "opacity-100" : "opacity-0"
                 )}
             />
-            
+
             {/* Scrollable content */}
-            <div 
+            <div
                 ref={scrollRef}
-                className="h-full overflow-y-auto overflow-x-hidden scrollbar-thin scrollbar-thumb-border scrollbar-track-transparent"
+                className="h-full overflow-y-auto overflow-x-hidden scrollbar-thin scrollbar-thumb-border scrollbar-track-transparent w-full"
             >
                 {children}
             </div>
-            
+
             {/* Bottom fade */}
-            <div 
+            <div
                 className={cn(
                     "absolute bottom-0 left-0 right-0 h-8 z-10 pointer-events-none transition-opacity duration-200",
                     "bg-gradient-to-t from-background to-transparent",
@@ -185,6 +185,13 @@ function ChatItem({
     onRestore,
     isArchived
 }: ChatItemProps) {
+    const inputRef = useRef<HTMLInputElement>(null)
+
+    useEffect(() => {
+        if (isEditing) {
+            inputRef.current?.focus()
+        }
+    }, [isEditing])
     // Parse dates with timezone awareness
     const createdDate = new Date(chat.created_at)
     const now = new Date()
@@ -217,12 +224,13 @@ function ChatItem({
                             {[0, 1, 2, 3, 4].map((i) => {
                                 // Notion-style bars: vertical version of the horizontal ToC lines
                                 const heights = [4, 9, 6, 12, 8];
+                                const messageCount = chat.meta?.messageCount ?? 0;
                                 let active = false;
-                                if (chat.meta!.messageCount > 0 && i === 0) active = true;
-                                if (chat.meta!.messageCount > 2 && i === 1) active = true;
-                                if (chat.meta!.messageCount > 8 && i === 2) active = true;
-                                if (chat.meta!.messageCount > 20 && i === 3) active = true;
-                                if (chat.meta!.messageCount > 45 && i === 4) active = true;
+                                if (messageCount > 0 && i === 0) active = true;
+                                if (messageCount > 2 && i === 1) active = true;
+                                if (messageCount > 8 && i === 2) active = true;
+                                if (messageCount > 20 && i === 3) active = true;
+                                if (messageCount > 45 && i === 4) active = true;
                                 
                                 return (
                                     <div 
@@ -332,7 +340,7 @@ function ChatItem({
             content={tooltipContent}
             containerClassName="w-full"
         >
-            <p className="truncate font-medium text-sm">
+            <p className="truncate font-medium text-sm leading-snug">
                 {chat.title || 'Untitled'}
             </p>
         </CursorTooltip>
@@ -422,17 +430,22 @@ function ChatItem({
         return (
             <div
                 className={cn(
-                    'group flex flex-col gap-0.5 px-2.5 py-1.5 rounded-lg text-sm transition-colors',
+                    'group relative flex flex-col gap-1.5 px-3 py-2.5 rounded-lg text-sm transition-colors w-full text-left',
                     isSelected
                         ? 'bg-accent/80 ring-1 ring-primary/20 shadow-sm'
                         : 'text-foreground/80 hover:bg-accent/50'
                 )}
             >
+                {/* First row: editing indicator */}
                 <div className="flex items-center gap-1.5">
                     <IconMessage size={12} className={cn("shrink-0", isSelected ? "text-primary" : "text-muted-foreground/40")} />
-                    <span className="text-[10px] text-muted-foreground">Editing...</span>
+                    <span className="text-[10px] text-muted-foreground font-medium truncate leading-snug flex-1 min-w-0">
+                        Editing...
+                    </span>
                 </div>
-                <div className="w-full">
+
+                {/* Second row: title input */}
+                <div className="w-full min-w-0">
                     <input
                         type="text"
                         value={editingTitle}
@@ -451,7 +464,7 @@ function ChatItem({
                         aria-label="Chat title"
                         name="chat-title"
                         autoComplete="off"
-                        autoFocus
+                        ref={inputRef}
                     />
                 </div>
             </div>
@@ -459,35 +472,125 @@ function ChatItem({
     }
 
     return (
-        <div
+        <button
+            type="button"
             className={cn(
-                'group flex flex-col gap-0.5 px-2.5 py-2 rounded-lg text-sm transition-all duration-200 cursor-pointer select-none',
+                'group relative flex flex-col gap-1.5 px-3 py-2.5 rounded-lg text-sm transition-all duration-200 cursor-pointer select-none w-full text-left',
                 isSelected
                     ? 'bg-accent/80 text-accent-foreground ring-1 ring-primary/20 shadow-sm'
                     : 'text-foreground/80 hover:bg-accent/50 hover:shadow-sm'
             )}
             onClick={onSelect}
         >
-            <div className="flex items-center justify-between w-full">
-                <div className="flex items-center gap-1.5 min-w-0">
-                    <IconMessage 
-                        size={12} 
-                        className={cn(
-                            "shrink-0 transition-colors",
-                            isSelected ? "text-primary" : "text-muted-foreground/40"
-                        )} 
-                    />
-                    <span className="text-[10px] text-muted-foreground font-medium truncate">
-                        {formatRelativeTime(chat.updated_at)}
-                    </span>
+            {/* First row: timestamp (always visible), actions (on hover) */}
+            <div className="flex items-center gap-1.5 w-full">
+                <IconMessage
+                    size={12}
+                    className={cn(
+                        "shrink-0 transition-colors",
+                        isSelected ? "text-primary" : "text-muted-foreground/40"
+                    )}
+                />
+                <span className="text-[10px] text-muted-foreground font-medium truncate leading-snug flex-1 min-w-0">
+                    {formatRelativeTime(chat.updated_at)}
+                </span>
+                {/* Action buttons - aligned to right */}
+                <div className={cn(
+                    "flex items-center gap-0.5 shrink-0 transition-opacity ml-auto",
+                    "opacity-0 group-hover:opacity-100",
+                    // Always visible if pinned
+                    chat.pinned && "opacity-100"
+                )}>
+                    <Tooltip>
+                        <TooltipTrigger asChild>
+                            <button
+                                type="button"
+                                className={cn(
+                                    "p-1 rounded-md transition-colors flex items-center justify-center",
+                                    chat.pinned
+                                        ? "text-primary opacity-100"
+                                        : "text-muted-foreground/60 hover:text-foreground hover:bg-accent/50"
+                                )}
+                                onClick={(e) => {
+                                    e.stopPropagation()
+                                    onTogglePin()
+                                }}
+                            >
+                                {chat.pinned ? <IconPinFilled size={14} /> : <IconPin size={14} />}
+                            </button>
+                        </TooltipTrigger>
+                        <TooltipContent side="top" align="end">{chat.pinned ? 'Unpin' : 'Pin'}</TooltipContent>
+                    </Tooltip>
+
+                    {!isArchived && (
+                        <Tooltip>
+                            <TooltipTrigger asChild>
+                                <button
+                                    type="button"
+                                    className="p-1 text-muted-foreground/60 hover:text-foreground hover:bg-accent/50 rounded-md transition-colors flex items-center justify-center"
+                                    onClick={(e) => {
+                                        e.stopPropagation()
+                                        onArchive()
+                                    }}
+                                >
+                                    <IconArchive size={14} />
+                                </button>
+                            </TooltipTrigger>
+                            <TooltipContent side="top" align="end">Archive</TooltipContent>
+                        </Tooltip>
+                    )}
+
+                    <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                            <button
+                                type="button"
+                                className="p-1 text-muted-foreground/60 hover:text-foreground hover:bg-accent/50 rounded-md transition-colors active:scale-95 flex items-center justify-center"
+                                onClick={(e) => e.stopPropagation()}
+                            >
+                                <IconDots size={14} />
+                            </button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" className="w-44">
+                            <DropdownMenuItem onClick={onStartRename}>
+                                <IconPencil size={14} className="mr-2" />
+                                Rename
+                            </DropdownMenuItem>
+                            {isArchived ? (
+                                <DropdownMenuItem onClick={onRestore}>
+                                    <IconArchiveOff size={14} className="mr-2" />
+                                    Restore
+                                </DropdownMenuItem>
+                            ) : (
+                                <DropdownMenuItem onClick={onArchive}>
+                                    <IconArchive size={14} className="mr-2" />
+                                    Archive
+                                </DropdownMenuItem>
+                            )}
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem
+                                variant="destructive"
+                                onClick={onDelete}
+                            >
+                                <IconTrash size={14} className="mr-2" />
+                                Delete
+                            </DropdownMenuItem>
+                        </DropdownMenuContent>
+                    </DropdownMenu>
                 </div>
-                {actionMenu}
             </div>
-            
-            <div className="w-full">
-                {titleContent}
+
+            {/* Second row: title with full width */}
+            <div className="w-full min-w-0">
+                <CursorTooltip
+                    content={tooltipContent}
+                    containerClassName="w-full"
+                >
+                    <p className="truncate font-medium text-sm leading-snug">
+                        {chat.title || 'Untitled'}
+                    </p>
+                </CursorTooltip>
             </div>
-        </div>
+        </button>
     )
 }
 
@@ -835,25 +938,6 @@ export function Sidebar() {
                                 variant="ghost"
                                 size="icon"
                                 className="h-8 w-8 text-muted-foreground hover:text-foreground rounded-xl shrink-0 no-drag"
-                                onClick={() => setSidebarOpen(false)}
-                                aria-label="Collapse sidebar"
-                            >
-                                <IconLayoutSidebarLeftCollapse size={18} />
-                            </Button>
-                        </TooltipTrigger>
-                        <TooltipContent side="bottom" className="flex items-center gap-2 font-semibold">
-                            Collapse Sidebar
-                            <kbd className="pointer-events-none inline-flex h-5 select-none items-center gap-1 rounded border bg-muted px-1.5 font-mono text-[10px] font-medium text-muted-foreground opacity-100">
-                                {navigator.platform.toLowerCase().includes('mac') ? '⌘' : 'Ctrl'} \
-                            </kbd>
-                        </TooltipContent>
-                    </Tooltip>
-                    <Tooltip>
-                        <TooltipTrigger asChild>
-                            <Button
-                                variant="ghost"
-                                size="icon"
-                                className="h-8 w-8 text-muted-foreground hover:text-foreground rounded-xl shrink-0 no-drag"
                                 onClick={() => setActiveTab('gallery')}
                             >
                                 <IconPhoto size={18} />
@@ -880,16 +964,35 @@ export function Sidebar() {
                             </kbd>
                         </TooltipContent>
                     </Tooltip>
+                    <Tooltip>
+                        <TooltipTrigger asChild>
+                            <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8 text-muted-foreground hover:text-foreground rounded-xl shrink-0 no-drag"
+                                onClick={() => setSidebarOpen(false)}
+                                aria-label="Collapse sidebar"
+                            >
+                                <IconLayoutSidebarLeftCollapse size={18} />
+                            </Button>
+                        </TooltipTrigger>
+                        <TooltipContent side="bottom" className="flex items-center gap-2 font-semibold">
+                            Collapse Sidebar
+                            <kbd className="pointer-events-none inline-flex h-5 select-none items-center gap-1 rounded border bg-muted px-1.5 font-mono text-[10px] font-medium text-muted-foreground opacity-100">
+                                {navigator.platform.toLowerCase().includes('mac') ? '⌘' : 'Ctrl'} \
+                            </kbd>
+                        </TooltipContent>
+                    </Tooltip>
                 </div>
             </div>
 
             {/* Search Bar */}
-            <div className="px-4 pb-2">
-                <div className="relative group">
-                    <IconSearch size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground group-focus-within:text-primary transition-colors" />
+            <div className="px-4 pb-2 w-full">
+                <div className="relative group w-full">
+                    <IconSearch size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground group-focus-within:text-primary transition-colors shrink-0" />
                     <Input
                         placeholder="Search conversations…"
-                        className="pl-9 pr-14 h-9 bg-accent/30 border-none rounded-xl text-xs placeholder:text-muted-foreground/50 focus-visible:ring-1 focus-visible:ring-primary/20 transition-[box-shadow,background-color]"
+                        className="pl-9 pr-14 h-9 bg-accent/30 border-none rounded-xl text-xs placeholder:text-muted-foreground/50 focus-visible:ring-1 focus-visible:ring-primary/20 transition-[box-shadow,background-color] w-full"
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
                         aria-label="Search conversations"
@@ -897,7 +1000,7 @@ export function Sidebar() {
                         autoComplete="off"
                         spellCheck={false}
                     />
-                    <kbd className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 inline-flex h-5 select-none items-center gap-0.5 rounded border bg-muted/80 px-1.5 font-mono text-[10px] font-medium text-muted-foreground">
+                    <kbd className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 inline-flex h-5 select-none items-center gap-0.5 rounded border bg-muted/80 px-1.5 font-mono text-[10px] font-medium text-muted-foreground shrink-0">
                         {isMacOS() ? '⌘' : 'Ctrl'} K
                     </kbd>
                 </div>
@@ -906,8 +1009,8 @@ export function Sidebar() {
             <Separator className="my-1 opacity-40" />
 
             {/* Chat list with fade scroll effect */}
-            <FadeScrollArea className="flex-1 pl-4 pr-0">
-                <div className="pb-4 pr-4">
+            <FadeScrollArea className="flex-1 pl-4 pr-2">
+                <div className="pb-4 pr-2">
                     {isLoading ? (
                         <div className="flex items-center justify-center py-8">
                             <div className="h-5 w-5 animate-spin rounded-full border-2 border-primary border-t-transparent" />
@@ -915,7 +1018,7 @@ export function Sidebar() {
                     ) : (
                         <>
                             {/* History Section (includes Pinned and Recent) */}
-                            <div className="mb-2">
+            <div className="mb-2">
                                 <SectionHeader
                                     title="History"
                                     count={filteredChats.length}
@@ -924,7 +1027,7 @@ export function Sidebar() {
                                     icon={<IconMessage size={12} />}
                                 />
                                 {showRecent && (
-                                    <div className="space-y-1">
+                    <div className="space-y-1.5">
                                         {filteredChats.length === 0 ? (
                                             <div className="text-sm text-muted-foreground text-center py-8 px-4">
                                                 <IconMessage size={32} className="mx-auto mb-2 opacity-30" />
@@ -939,7 +1042,7 @@ export function Sidebar() {
 
                             {/* Archived Section */}
                             {(archivedChats?.length ?? 0) > 0 && (
-                                <div className="mb-2 border-t border-border/50 pt-2 mt-4">
+                <div className="mb-2 border-t border-border/50 pt-2 mt-4">
                                     <SectionHeader
                                         title="Archived"
                                         count={filteredArchived.length}
@@ -948,7 +1051,7 @@ export function Sidebar() {
                                         icon={<IconArchive size={12} />}
                                     />
                                     {showArchived && (
-                                        <div className="space-y-1">
+                        <div className="space-y-1.5">
                                             {renderChatList(filteredArchived, true)}
                                         </div>
                                     )}

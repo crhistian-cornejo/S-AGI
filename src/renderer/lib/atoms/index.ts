@@ -173,8 +173,35 @@ export const systemDarkThemeIdAtom = atomWithStorage<string>(
 export const fullThemeDataAtom = atom<VSCodeFullTheme | null>(null)
 
 // === TAB SYSTEM ===
-export type AppTab = 'chat' | 'excel' | 'doc' | 'gallery'
+export type AppTab = 'chat' | 'excel' | 'doc' | 'gallery' | 'pdf'
 export const activeTabAtom = atomWithStorage<AppTab>('active-tab', 'chat')
+
+// === PDF TAB ATOMS (re-exported from pdf.ts) ===
+export {
+    selectedPdfAtom,
+    pdfCurrentPageAtom,
+    pdfZoomLevelAtom,
+    pdfNavigationRequestAtom,
+    pdfSidebarOpenAtom,
+    pdfChatMessagesAtom,
+    pdfChatStreamingAtom,
+    pdfChatPanelOpenAtom,
+    pdfSelectedTextAtom,
+    pdfHasExtractedContentAtom,
+    pdfTotalWordCountAtom,
+    // Local PDFs (session-only, no upload)
+    localPdfsAtom,
+    addLocalPdfAtom,
+    removeLocalPdfAtom,
+    clearLocalPdfsAtom,
+    // Helper functions
+    createPdfSourceFromArtifact,
+    createPdfSourceFromChatFile,
+    createPdfSourceFromLocalFile,
+    type PdfSource,
+    type PdfChatMessage,
+    type PdfNavigationRequest
+} from './pdf'
 
 // === INPUT STATE ===
 export const chatInputAtom = atom('')

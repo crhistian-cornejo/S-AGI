@@ -161,6 +161,146 @@ async function getRecentItems(): Promise<Array<{
     }
 }
 
+async function getTraySpreadsheets(): Promise<Array<{ id: string; name: string; updatedAt: string; chatId?: string }>> {
+    try {
+        const { data: { session } } = await supabase.auth.getSession()
+        if (!session?.user) {
+            return []
+        }
+
+        const { data, error } = await supabase
+            .from('artifacts')
+            .select('id, name, updated_at, chat_id, user_id, type')
+            .eq('type', 'spreadsheet')
+            .or(`user_id.eq.${session.user.id},chat_id.in.(select id from chats where user_id = '${session.user.id}')`)
+            .order('updated_at', { ascending: false })
+            .limit(20)
+
+        if (error) throw new Error(error.message)
+
+        return (data || []).map((row: any) => ({
+            id: row.id,
+            name: row.name,
+            updatedAt: row.updated_at,
+            chatId: row.chat_id ?? undefined
+        }))
+    } catch (error) {
+        log.error('[Tray] Failed to get spreadsheets:', error)
+        return []
+    }
+}
+
+async function getTraySpreadsheetData(artifactId: string): Promise<{ id: string; name: string; univerData: any } | null> {
+    try {
+        const { data: { session } } = await supabase.auth.getSession()
+        if (!session?.user) {
+            return null
+        }
+
+        const { data: artifact, error } = await supabase
+            .from('artifacts')
+            .select('id, name, univer_data, chat_id, user_id, chats(user_id)')
+            .eq('id', artifactId)
+            .single()
+
+        if (error) throw new Error(error.message)
+
+        const hasDirectOwnership = artifact.user_id === session.user.id
+        const chatData = Array.isArray(artifact.chats) ? artifact.chats[0] : artifact.chats
+        const hasChatOwnership = chatData?.user_id === session.user.id
+
+        if (!hasDirectOwnership && !hasChatOwnership) {
+            return null
+        }
+
+        return { id: artifact.id, name: artifact.name, univerData: artifact.univer_data }
+    } catch (error) {
+        log.error('[Tray] Failed to get spreadsheet data:', error)
+        return null
+    }
+}
+
+async function getTrayCitations(): Promise<Array<{
+    id: string
+    kind: 'url' | 'file'
+    label: string
+    url?: string
+    filename?: string
+    chatId: string
+    messageId: string
+    createdAt: string
+    startIndex?: number
+    endIndex?: number
+    fileId?: string
+}>> {
+    try {
+        const { data: { session } } = await supabase.auth.getSession()
+        if (!session?.user) {
+            return []
+        }
+
+        const { data, error } = await supabase
+            .from('chat_messages')
+            .select('id, chat_id, metadata, created_at')
+            .eq('user_id', session.user.id)
+            .order('created_at', { ascending: false })
+            .limit(100)
+
+        if (error) throw new Error(error.message)
+
+        const items: Array<{
+            id: string
+            kind: 'url' | 'file'
+            label: string
+            url?: string
+            filename?: string
+            chatId: string
+            messageId: string
+            createdAt: string
+            startIndex?: number
+            endIndex?: number
+            fileId?: string
+        }> = []
+
+        for (const row of data || []) {
+            const annotations = (row as any)?.metadata?.annotations || []
+            if (!Array.isArray(annotations)) continue
+            annotations.forEach((a: any, idx: number) => {
+                if (a?.type === 'url_citation' && a.url) {
+                    items.push({
+                        id: `${row.id}-url-${idx}`,
+                        kind: 'url',
+                        label: a.title || a.url,
+                        url: a.url,
+                        chatId: row.chat_id,
+                        messageId: row.id,
+                        createdAt: row.created_at,
+                        startIndex: a.startIndex,
+                        endIndex: a.endIndex
+                    })
+                }
+                if (a?.type === 'file_citation' && a.fileId) {
+                    items.push({
+                        id: `${row.id}-file-${idx}`,
+                        kind: 'file',
+                        label: a.filename || 'Archivo',
+                        filename: a.filename || 'Archivo',
+                        fileId: a.fileId,
+                        chatId: row.chat_id,
+                        messageId: row.id,
+                        createdAt: row.created_at
+                    })
+                }
+            })
+        }
+
+        return items
+    } catch (error) {
+        log.error('[Tray] Failed to get citations:', error)
+        return []
+    }
+}
+
 // Create the tray popover window
 function createTrayPopover(): BrowserWindow {
     const popover = new BrowserWindow({
@@ -242,7 +382,6 @@ function createQuickPromptWindow(): BrowserWindow {
         backgroundColor: '#00000000',
         thickFrame: false, // Prevents Windows default resize/shadow behavior
         autoHideMenuBar: true,
-        titleBarStyle: 'hidden',
         webPreferences: {
             preload: join(__dirname, '../preload/index.js'),
             sandbox: true,
@@ -918,6 +1057,19 @@ ipcMain.handle('tray:get-user', async () => {
     }
 })
 
+ipcMain.handle('tray:get-spreadsheets', async () => {
+    return await getTraySpreadsheets()
+})
+
+ipcMain.handle('tray:get-spreadsheet-data', async (_event, input: { id: string }) => {
+    if (!input?.id) return null
+    return await getTraySpreadsheetData(input.id)
+})
+
+ipcMain.handle('tray:get-citations', async () => {
+    return await getTrayCitations()
+})
+
 // ═══ QUICK PROMPT IPC HANDLER ═══
 ipcMain.handle('quick-prompt:send', async (_, message: string) => {
     log.info('[QuickPrompt] Received message:', message.substring(0, 50) + '...')
@@ -986,6 +1138,32 @@ ipcMain.handle('tray:action', async (_, data: { action: string; [key: string]: u
             mainWindow?.focus()
             mainWindow?.webContents.send('tray:open-settings')
             break
+
+        case 'open-local-pdf': {
+            // Open file picker for local PDFs, then send to main window
+            trayPopover?.hide()
+            const fs = await import('node:fs')
+            const path = await import('node:path')
+            const result = await dialog.showOpenDialog({
+                title: 'Select PDF files to view',
+                filters: [{ name: 'PDF Documents', extensions: ['pdf'] }],
+                properties: ['openFile', 'multiSelections']
+            })
+            if (!result.canceled && result.filePaths.length > 0) {
+                const files = result.filePaths.map(filePath => {
+                    const stats = fs.statSync(filePath)
+                    return {
+                        path: filePath,
+                        name: path.basename(filePath),
+                        size: stats.size
+                    }
+                })
+                mainWindow?.show()
+                mainWindow?.focus()
+                mainWindow?.webContents.send('tray:open-local-pdfs', { files })
+            }
+            break
+        }
 
         case 'quit':
             app.quit()

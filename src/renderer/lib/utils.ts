@@ -86,5 +86,6 @@ export function formatRelativeTime(date: Date | string, locale?: string): string
     if (hours < 24) return rtf.format(-hours, 'hour')
     if (days < 7) return rtf.format(-days, 'day')
 
-    return formatDate(d, locale)
+    const dateLocale = locale || detectLanguage()
+    return new Intl.DateTimeFormat(dateLocale, { month: 'short', day: 'numeric' }).format(d)
 }
