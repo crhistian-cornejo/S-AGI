@@ -221,6 +221,12 @@ const desktopApi = {
         return () => {
             ipcRenderer.removeListener('auth:error', handler)
         }
+    },
+
+    preferences: {
+        get: () => ipcRenderer.invoke('preferences:get'),
+        set: (data: { trayEnabled?: boolean; quickPromptEnabled?: boolean }) =>
+            ipcRenderer.invoke('preferences:set', data)
     }
 }
 

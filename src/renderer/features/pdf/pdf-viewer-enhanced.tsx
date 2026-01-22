@@ -1,21 +1,39 @@
-import { useState, useCallback, useEffect, useRef, memo } from 'react'
+import { useState, useCallback, useEffect, useRef, memo, useMemo } from 'react'
 import { Document, Page, pdfjs } from 'react-pdf'
 import 'react-pdf/dist/Page/TextLayer.css'
 import 'react-pdf/dist/Page/AnnotationLayer.css'
 import { useAtom } from 'jotai'
 import {
-    IconZoomIn,
-    IconZoomOut,
+    IconZoomReset,
     IconDownload,
     IconExternalLink,
     IconChevronLeft,
     IconChevronRight,
     IconSearch,
-    IconLoader2
+    IconLoader2,
+    IconMinus,
+    IconPlus,
+    IconLayoutList,
+    IconPrinter,
+    IconRotateClockwise,
+    IconBookmark,
+    IconShare,
+    IconDotsVertical,
+    IconFileTypePdf,
+    IconAlertTriangle
 } from '@tabler/icons-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Separator } from '@/components/ui/separator'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuSeparator,
+    DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import { toast } from 'sonner'
 import {
     pdfCurrentPageAtom,
@@ -29,23 +47,32 @@ pdfjs.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs'
 
 interface PdfViewerEnhancedProps {
     source: PdfSource | null
-    highlightText?: string
     className?: string
     onTextSelect?: (text: string, pageNumber: number) => void
 }
 
+// Zoom presets for quick selection
+const ZOOM_PRESETS = [
+    { label: '50%', value: 0.5 },
+    { label: '75%', value: 0.75 },
+    { label: '100%', value: 1.0 },
+    { label: '125%', value: 1.25 },
+    { label: '150%', value: 1.5 },
+    { label: '200%', value: 2.0 },
+]
+
 /**
  * Enhanced PDF Viewer for the PDF Tab
  * Features:
- * - Page navigation with jump to page
- * - Zoom controls
+ * - Professional toolbar similar to Univer
+ * - Page navigation with keyboard shortcuts
+ * - Zoom controls with presets
  * - Text selection for AI queries
- * - Keyboard shortcuts
- * - Text highlighting (for citation navigation)
+ * - Thumbnail sidebar (future)
+ * - Annotations and comments support (future)
  */
 export const PdfViewerEnhanced = memo(function PdfViewerEnhanced({
     source,
-    highlightText,
     className,
     onTextSelect
 }: PdfViewerEnhancedProps) {
@@ -58,14 +85,26 @@ export const PdfViewerEnhanced = memo(function PdfViewerEnhanced({
     const [pageInputValue, setPageInputValue] = useState(String(currentPage))
     const [searchQuery, setSearchQuery] = useState('')
     const [showSearch, setShowSearch] = useState(false)
+    const [rotation, setRotation] = useState(0)
+    const [viewMode, setViewMode] = useState<'single' | 'continuous'>('continuous')
 
     const containerRef = useRef<HTMLDivElement>(null)
     const pageRefs = useRef<Map<number, HTMLDivElement>>(new Map())
+    const searchInputRef = useRef<HTMLInputElement>(null)
 
     // Sync page input with current page
     useEffect(() => {
         setPageInputValue(String(currentPage))
     }, [currentPage])
+
+    // Reset state when source changes
+    useEffect(() => {
+        setIsLoading(true)
+        setError(null)
+        setNumPages(0)
+        setCurrentPage(1)
+        setRotation(0)
+    }, [source?.id, setCurrentPage])
 
     // Handle page navigation
     const goToPreviousPage = useCallback(() => {
@@ -80,12 +119,14 @@ export const PdfViewerEnhanced = memo(function PdfViewerEnhanced({
         const validPage = Math.max(1, Math.min(numPages, page))
         setCurrentPage(validPage)
 
-        // Scroll to page
-        const pageElement = pageRefs.current.get(validPage)
-        if (pageElement && containerRef.current) {
-            pageElement.scrollIntoView({ behavior: 'smooth', block: 'start' })
+        // Scroll to page in continuous mode
+        if (viewMode === 'continuous') {
+            const pageElement = pageRefs.current.get(validPage)
+            if (pageElement && containerRef.current) {
+                pageElement.scrollIntoView({ behavior: 'smooth', block: 'start' })
+            }
         }
-    }, [numPages, setCurrentPage])
+    }, [numPages, setCurrentPage, viewMode])
 
     // Handle zoom
     const zoomIn = useCallback(() => {
@@ -100,17 +141,26 @@ export const PdfViewerEnhanced = memo(function PdfViewerEnhanced({
         setScale(1.0)
     }, [setScale])
 
+    const setZoomPreset = useCallback((value: number) => {
+        setScale(value)
+    }, [setScale])
+
+    // Handle rotation
+    const rotate = useCallback(() => {
+        setRotation((prev) => (prev + 90) % 360)
+    }, [])
+
     // Document load handlers
-    const onDocumentLoadSuccess = useCallback(({ numPages }: { numPages: number }) => {
-        setNumPages(numPages)
+    const onDocumentLoadSuccess = useCallback(({ numPages: pages }: { numPages: number }) => {
+        setNumPages(pages)
         setIsLoading(false)
         setError(null)
     }, [])
 
-    const onDocumentLoadError = useCallback((error: Error) => {
+    const onDocumentLoadError = useCallback((err: Error) => {
         setIsLoading(false)
-        setError(error.message)
-        toast.error('Failed to load PDF')
+        setError(err.message)
+        console.error('PDF load error:', err)
     }, [])
 
     // Handle text selection
@@ -189,6 +239,13 @@ export const PdfViewerEnhanced = memo(function PdfViewerEnhanced({
                     if (e.metaKey || e.ctrlKey) {
                         e.preventDefault()
                         setShowSearch(true)
+                        setTimeout(() => searchInputRef.current?.focus(), 100)
+                    }
+                    break
+                case 'Escape':
+                    if (showSearch) {
+                        setShowSearch(false)
+                        setSearchQuery('')
                     }
                     break
             }
@@ -196,7 +253,7 @@ export const PdfViewerEnhanced = memo(function PdfViewerEnhanced({
 
         window.addEventListener('keydown', handleKeyDown)
         return () => window.removeEventListener('keydown', handleKeyDown)
-    }, [error, source, goToPreviousPage, goToNextPage, zoomIn, zoomOut, resetZoom])
+    }, [error, source, goToPreviousPage, goToNextPage, zoomIn, zoomOut, resetZoom, showSearch])
 
     // Handle download
     const handleDownload = useCallback(() => {
@@ -207,7 +264,7 @@ export const PdfViewerEnhanced = memo(function PdfViewerEnhanced({
         document.body.appendChild(link)
         link.click()
         document.body.removeChild(link)
-        toast.success('PDF downloaded')
+        toast.success('Download started')
     }, [source])
 
     // Handle open in browser
@@ -216,10 +273,27 @@ export const PdfViewerEnhanced = memo(function PdfViewerEnhanced({
         window.open(source.url, '_blank')
     }, [source])
 
+    // Handle print
+    const handlePrint = useCallback(() => {
+        if (!source?.url) return
+        const printWindow = window.open(source.url)
+        printWindow?.print()
+    }, [source])
+
+    // Rendered pages based on view mode
+    const renderedPages = useMemo(() => {
+        if (viewMode === 'single') {
+            return [currentPage]
+        }
+        // Continuous mode: render all pages
+        return Array.from({ length: numPages }, (_, i) => i + 1)
+    }, [viewMode, currentPage, numPages])
+
     if (!source) {
         return (
-            <div className={cn("flex items-center justify-center h-full", className)}>
+            <div className={cn("flex items-center justify-center h-full bg-muted/20", className)}>
                 <div className="text-center text-muted-foreground">
+                    <IconFileTypePdf size={48} className="mx-auto mb-3 opacity-30" />
                     <p className="text-sm">Select a PDF to view</p>
                 </div>
             </div>
@@ -228,9 +302,10 @@ export const PdfViewerEnhanced = memo(function PdfViewerEnhanced({
 
     if (!source.url) {
         return (
-            <div className={cn("flex items-center justify-center h-full", className)}>
-                <div className="text-center text-muted-foreground">
-                    <p className="text-sm">PDF URL not available</p>
+            <div className={cn("flex items-center justify-center h-full bg-muted/20", className)}>
+                <div className="text-center">
+                    <IconLoader2 size={32} className="mx-auto mb-3 animate-spin text-primary" />
+                    <p className="text-sm text-muted-foreground">Loading PDF...</p>
                 </div>
             </div>
         )
@@ -238,138 +313,219 @@ export const PdfViewerEnhanced = memo(function PdfViewerEnhanced({
 
     return (
         <div className={cn("flex flex-col h-full w-full bg-muted/30 overflow-hidden", className)}>
-            {/* Toolbar */}
-            <div className="flex items-center justify-between gap-2 px-3 py-2 bg-background border-b border-border shrink-0">
+            {/* Professional Toolbar */}
+            <div className="flex items-center gap-1 h-10 px-2 bg-background border-b border-border shrink-0">
                 {/* Page Navigation */}
-                <div className="flex items-center gap-1">
-                    <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8"
-                        onClick={goToPreviousPage}
-                        disabled={currentPage <= 1}
-                        title="Previous page (Cmd/Ctrl + Left)"
-                    >
-                        <IconChevronLeft size={16} />
-                    </Button>
-                    <div className="flex items-center gap-1 text-sm">
+                <div className="flex items-center gap-0.5">
+                    <Tooltip>
+                        <TooltipTrigger asChild>
+                            <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-7 w-7"
+                                onClick={goToPreviousPage}
+                                disabled={currentPage <= 1}
+                            >
+                                <IconChevronLeft size={16} />
+                            </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>Previous page</TooltipContent>
+                    </Tooltip>
+
+                    <div className="flex items-center gap-1 px-1">
                         <Input
                             type="text"
                             value={pageInputValue}
                             onChange={handlePageInputChange}
                             onBlur={handlePageInputBlur}
                             onKeyDown={handlePageInputKeyDown}
-                            className="w-12 h-7 px-2 text-center text-xs"
+                            className="w-10 h-6 px-1.5 text-center text-xs border-muted"
                         />
-                        <span className="text-muted-foreground">/</span>
-                        <span className="text-muted-foreground">{numPages || '-'}</span>
+                        <span className="text-xs text-muted-foreground">/</span>
+                        <span className="text-xs text-muted-foreground min-w-[1.5rem]">{numPages || '-'}</span>
                     </div>
-                    <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8"
-                        onClick={goToNextPage}
-                        disabled={currentPage >= numPages}
-                        title="Next page (Cmd/Ctrl + Right)"
-                    >
-                        <IconChevronRight size={16} />
-                    </Button>
+
+                    <Tooltip>
+                        <TooltipTrigger asChild>
+                            <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-7 w-7"
+                                onClick={goToNextPage}
+                                disabled={currentPage >= numPages}
+                            >
+                                <IconChevronRight size={16} />
+                            </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>Next page</TooltipContent>
+                    </Tooltip>
                 </div>
+
+                <Separator orientation="vertical" className="h-5 mx-1" />
 
                 {/* Zoom Controls */}
-                <div className="flex items-center gap-1">
-                    <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8"
-                        onClick={zoomOut}
-                        disabled={scale <= 0.5}
-                        title="Zoom out (Cmd/Ctrl + -)"
-                    >
-                        <IconZoomOut size={16} />
-                    </Button>
-                    <input
-                        type="range"
-                        min={0.5}
-                        max={3}
-                        step={0.25}
-                        value={scale}
-                        onChange={(e) => setScale(Number.parseFloat(e.target.value))}
-                        className="w-20 h-1.5 bg-muted rounded-full appearance-none cursor-pointer accent-primary"
-                    />
-                    <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8"
-                        onClick={zoomIn}
-                        disabled={scale >= 3}
-                        title="Zoom in (Cmd/Ctrl + +)"
-                    >
-                        <IconZoomIn size={16} />
-                    </Button>
-                    <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-8 px-2 text-xs"
-                        onClick={resetZoom}
-                        title="Reset zoom (Cmd/Ctrl + 0)"
-                    >
-                        {Math.round(scale * 100)}%
-                    </Button>
+                <div className="flex items-center gap-0.5">
+                    <Tooltip>
+                        <TooltipTrigger asChild>
+                            <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-7 w-7"
+                                onClick={zoomOut}
+                                disabled={scale <= 0.5}
+                            >
+                                <IconMinus size={14} />
+                            </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>Zoom out</TooltipContent>
+                    </Tooltip>
+
+                    <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                            <Button variant="ghost" size="sm" className="h-7 px-2 text-xs min-w-[3.5rem]">
+                                {Math.round(scale * 100)}%
+                            </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="center" className="min-w-[5rem]">
+                            {ZOOM_PRESETS.map((preset) => (
+                                <DropdownMenuItem
+                                    key={preset.value}
+                                    onClick={() => setZoomPreset(preset.value)}
+                                    className={cn(scale === preset.value && "bg-accent")}
+                                >
+                                    {preset.label}
+                                </DropdownMenuItem>
+                            ))}
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem onClick={resetZoom}>
+                                <IconZoomReset size={14} className="mr-2" />
+                                Reset
+                            </DropdownMenuItem>
+                        </DropdownMenuContent>
+                    </DropdownMenu>
+
+                    <Tooltip>
+                        <TooltipTrigger asChild>
+                            <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-7 w-7"
+                                onClick={zoomIn}
+                                disabled={scale >= 3}
+                            >
+                                <IconPlus size={14} />
+                            </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>Zoom in</TooltipContent>
+                    </Tooltip>
                 </div>
 
+                <Separator orientation="vertical" className="h-5 mx-1" />
+
+                {/* View Controls */}
+                <div className="flex items-center gap-0.5">
+                    <Tooltip>
+                        <TooltipTrigger asChild>
+                            <Button
+                                variant={viewMode === 'continuous' ? 'secondary' : 'ghost'}
+                                size="icon"
+                                className="h-7 w-7"
+                                onClick={() => setViewMode(viewMode === 'single' ? 'continuous' : 'single')}
+                            >
+                                <IconLayoutList size={14} />
+                            </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                            {viewMode === 'continuous' ? 'Single page view' : 'Continuous scroll'}
+                        </TooltipContent>
+                    </Tooltip>
+
+                    <Tooltip>
+                        <TooltipTrigger asChild>
+                            <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-7 w-7"
+                                onClick={rotate}
+                            >
+                                <IconRotateClockwise size={14} />
+                            </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>Rotate</TooltipContent>
+                    </Tooltip>
+                </div>
+
+                <div className="flex-1" />
+
                 {/* Actions */}
-                <div className="flex items-center gap-1">
-                    <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8"
-                        onClick={() => setShowSearch(!showSearch)}
-                        title="Search (Cmd/Ctrl + F)"
-                    >
-                        <IconSearch size={16} />
-                    </Button>
-                    <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8"
-                        onClick={handleDownload}
-                        title="Download PDF"
-                    >
-                        <IconDownload size={16} />
-                    </Button>
-                    <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8"
-                        onClick={handleOpenExternal}
-                        title="Open in browser"
-                    >
-                        <IconExternalLink size={16} />
-                    </Button>
+                <div className="flex items-center gap-0.5">
+                    <Tooltip>
+                        <TooltipTrigger asChild>
+                            <Button
+                                variant={showSearch ? 'secondary' : 'ghost'}
+                                size="icon"
+                                className="h-7 w-7"
+                                onClick={() => {
+                                    setShowSearch(!showSearch)
+                                    if (!showSearch) {
+                                        setTimeout(() => searchInputRef.current?.focus(), 100)
+                                    }
+                                }}
+                            >
+                                <IconSearch size={14} />
+                            </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>Search (Ctrl+F)</TooltipContent>
+                    </Tooltip>
+
+                    <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                            <Button variant="ghost" size="icon" className="h-7 w-7">
+                                <IconDotsVertical size={14} />
+                            </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                            <DropdownMenuItem onClick={handleDownload}>
+                                <IconDownload size={14} className="mr-2" />
+                                Download
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={handlePrint}>
+                                <IconPrinter size={14} className="mr-2" />
+                                Print
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={handleOpenExternal}>
+                                <IconExternalLink size={14} className="mr-2" />
+                                Open in browser
+                            </DropdownMenuItem>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem disabled>
+                                <IconBookmark size={14} className="mr-2" />
+                                Bookmarks
+                                <span className="ml-auto text-[10px] text-muted-foreground">Soon</span>
+                            </DropdownMenuItem>
+                            <DropdownMenuItem disabled>
+                                <IconShare size={14} className="mr-2" />
+                                Share link
+                                <span className="ml-auto text-[10px] text-muted-foreground">Soon</span>
+                            </DropdownMenuItem>
+                        </DropdownMenuContent>
+                    </DropdownMenu>
                 </div>
             </div>
 
             {/* Search Bar */}
             {showSearch && (
-                <div className="flex items-center gap-2 px-3 py-2 bg-background border-b border-border">
-                    <IconSearch size={14} className="text-muted-foreground" />
+                <div className="flex items-center gap-2 h-9 px-3 bg-muted/50 border-b border-border animate-in slide-in-from-top-1 duration-150">
+                    <IconSearch size={14} className="text-muted-foreground shrink-0" />
                     <Input
+                        ref={searchInputRef}
                         type="text"
-                        placeholder="Search in PDF..."
+                        placeholder="Search in document..."
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
-                        className="flex-1 h-7 text-sm"
-                        autoFocus
+                        className="flex-1 h-6 text-sm border-0 bg-transparent focus-visible:ring-0 focus-visible:ring-offset-0"
                     />
-                    <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-7 text-xs"
-                        onClick={() => setShowSearch(false)}
-                    >
-                        Close
-                    </Button>
+                    <span className="text-[10px] text-muted-foreground">Press ESC to close</span>
                 </div>
             )}
 
@@ -380,23 +536,31 @@ export const PdfViewerEnhanced = memo(function PdfViewerEnhanced({
                 onMouseUp={handleTextSelection}
             >
                 {error && (
-                    <div className="absolute inset-0 flex items-center justify-center p-8">
+                    <div className="absolute inset-0 flex items-center justify-center p-8 bg-background/80 backdrop-blur-sm z-10">
                         <div className="text-center max-w-md">
-                            <div className="text-6xl mb-4">⚠️</div>
+                            <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-destructive/10 mb-4">
+                                <IconAlertTriangle size={28} className="text-destructive" />
+                            </div>
                             <h3 className="text-lg font-semibold mb-2">Failed to load PDF</h3>
-                            <p className="text-sm text-muted-foreground">{error}</p>
+                            <p className="text-sm text-muted-foreground mb-4">{error}</p>
+                            <Button variant="outline" onClick={() => setError(null)}>
+                                Try again
+                            </Button>
                         </div>
                     </div>
                 )}
 
                 {!error && (
-                    <div className="min-w-full flex flex-col items-center py-4">
+                    <div className="min-w-full flex flex-col items-center py-6 px-4">
                         {isLoading && (
                             <div className="flex items-center justify-center h-64">
                                 <div className="flex flex-col items-center gap-4">
-                                    <IconLoader2 size={32} className="animate-spin text-primary" />
+                                    <div className="relative">
+                                        <div className="w-12 h-12 rounded-full border-2 border-primary/20" />
+                                        <div className="absolute inset-0 w-12 h-12 rounded-full border-2 border-primary border-t-transparent animate-spin" />
+                                    </div>
                                     <p className="text-sm text-muted-foreground">
-                                        Loading PDF...
+                                        Loading document...
                                     </p>
                                 </div>
                             </div>
@@ -408,26 +572,35 @@ export const PdfViewerEnhanced = memo(function PdfViewerEnhanced({
                             onLoadError={onDocumentLoadError}
                             loading={null}
                             error={null}
-                            className="flex flex-col items-center gap-4"
+                            className="flex flex-col items-center gap-6"
                         >
-                            {Array.from({ length: numPages }).map((_, index) => (
+                            {renderedPages.map((pageNum) => (
                                 <div
-                                    key={`page_${index + 1}`}
+                                    key={`page_${pageNum}`}
                                     ref={(el) => {
-                                        if (el) pageRefs.current.set(index + 1, el)
+                                        if (el) pageRefs.current.set(pageNum, el)
                                     }}
-                                    className="relative"
+                                    className={cn(
+                                        "relative group",
+                                        viewMode === 'single' && pageNum !== currentPage && "hidden"
+                                    )}
                                 >
                                     <Page
-                                        pageNumber={index + 1}
+                                        pageNumber={pageNum}
                                         scale={scale}
+                                        rotate={rotation}
                                         renderAnnotationLayer={true}
                                         renderTextLayer={true}
-                                        className="shadow-lg rounded-sm bg-white"
+                                        className="shadow-lg rounded-sm overflow-hidden"
+                                        loading={
+                                            <div className="flex items-center justify-center h-[800px] w-[600px] bg-white dark:bg-zinc-900">
+                                                <IconLoader2 className="animate-spin text-muted-foreground" size={24} />
+                                            </div>
+                                        }
                                     />
-                                    {/* Page number indicator */}
-                                    <div className="absolute bottom-2 right-2 bg-black/50 text-white text-xs px-2 py-0.5 rounded">
-                                        {index + 1}
+                                    {/* Page number badge */}
+                                    <div className="absolute bottom-3 left-1/2 -translate-x-1/2 opacity-0 group-hover:opacity-100 transition-opacity bg-black/60 text-white text-xs px-2.5 py-1 rounded-full backdrop-blur-sm">
+                                        Page {pageNum} of {numPages}
                                     </div>
                                 </div>
                             ))}

@@ -1,13 +1,8 @@
 import { supabase } from "./client";
-import { Tables, TablesInsert, TablesUpdate } from "@/shared/types";
 import { Errors } from "../errors";
 
-// ==================== Type Helpers ====================
-type Chat = Tables<"chats">;
-type Message = Tables<"messages">;
-type Artifact = Tables<"artifacts">;
-type QuickPrompt = Tables<"quick_prompts">;
-type Attachment = Tables<"attachments">;
+type TablesInsert<T extends string> = Record<string, unknown> & { __table?: T };
+type TablesUpdate<T extends string> = Record<string, unknown> & { __table?: T };
 
 // ==================== Chat Queries ====================
 export const chatQueries = {
@@ -163,7 +158,8 @@ export const quickPromptQueries = {
       .eq("user_id", userId)
       .order("order", { ascending: true });
 
-    if (error) throw Errors.DatabaseError("fetching quick prompts", error.message);
+    if (error)
+      throw Errors.DatabaseError("fetching quick prompts", error.message);
     return data;
   },
 
@@ -174,7 +170,8 @@ export const quickPromptQueries = {
       .select()
       .single();
 
-    if (error) throw Errors.DatabaseError("creating quick prompt", error.message);
+    if (error)
+      throw Errors.DatabaseError("creating quick prompt", error.message);
     return data;
   },
 
@@ -186,14 +183,19 @@ export const quickPromptQueries = {
       .select()
       .single();
 
-    if (error) throw Errors.DatabaseError("updating quick prompt", error.message);
+    if (error)
+      throw Errors.DatabaseError("updating quick prompt", error.message);
     return data;
   },
 
   delete: async (id: string) => {
-    const { error } = await supabase.from("quick_prompts").delete().eq("id", id);
+    const { error } = await supabase
+      .from("quick_prompts")
+      .delete()
+      .eq("id", id);
 
-    if (error) throw Errors.DatabaseError("deleting quick prompt", error.message);
+    if (error)
+      throw Errors.DatabaseError("deleting quick prompt", error.message);
   },
 };
 
@@ -205,7 +207,8 @@ export const attachmentQueries = {
       .select("*")
       .eq("message_id", messageId);
 
-    if (error) throw Errors.DatabaseError("fetching attachments", error.message);
+    if (error)
+      throw Errors.DatabaseError("fetching attachments", error.message);
     return data;
   },
 

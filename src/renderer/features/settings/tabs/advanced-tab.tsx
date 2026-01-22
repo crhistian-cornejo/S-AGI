@@ -1,4 +1,5 @@
 import { useAtom } from 'jotai'
+import { useEffect, useState } from 'react'
 import { 
     reasoningEffortAtom, 
     chatModeAtom, 
@@ -7,23 +8,49 @@ import {
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Button } from '@/components/ui/button'
+import { Switch } from '@/components/ui/switch'
 import { toast } from 'sonner'
 import { 
     IconAdjustmentsHorizontal, 
     IconBrain, 
     IconRocket, 
     IconRefresh,
-    IconRotate2
+    IconRotate2,
+    IconMessage,
+    IconDeviceDesktop
 } from '@tabler/icons-react'
 
 export function AdvancedTab() {
     const [reasoningEffort, setReasoningEffort] = useAtom(reasoningEffortAtom)
     const [chatMode, setChatMode] = useAtom(chatModeAtom)
     const [, setOnboardingCompleted] = useAtom(onboardingCompletedAtom)
+    const [trayEnabled, setTrayEnabled] = useState(true)
+    const [quickPromptEnabled, setQuickPromptEnabled] = useState(true)
+    const preferencesAvailable = typeof window !== 'undefined' && !!window.desktopApi?.preferences
 
     const handleResetOnboarding = () => {
         setOnboardingCompleted(false)
         toast.success('Onboarding has been reset. It will appear on next launch or refresh.')
+    }
+
+    useEffect(() => {
+        if (!preferencesAvailable) return
+        window.desktopApi?.preferences?.get().then((prefs) => {
+            setTrayEnabled(prefs.trayEnabled)
+            setQuickPromptEnabled(prefs.quickPromptEnabled)
+        }).catch(() => {})
+    }, [preferencesAvailable])
+
+    const updatePreferences = async (patch: { trayEnabled?: boolean; quickPromptEnabled?: boolean }) => {
+        if (!preferencesAvailable) return
+        try {
+            const next = await window.desktopApi?.preferences?.set(patch)
+            if (next) {
+                setTrayEnabled(next.trayEnabled)
+                setQuickPromptEnabled(next.quickPromptEnabled)
+            }
+        } catch {
+        }
     }
 
     return (
@@ -124,6 +151,56 @@ export function AdvancedTab() {
                     System
                 </h4>
                 
+                <div className="bg-background rounded-lg border border-border overflow-hidden">
+                    <div className="p-4 space-y-4">
+                        <div className="flex items-center justify-between gap-4">
+                            <div className="flex-1">
+                                <div className="flex items-center gap-2">
+                                    <IconDeviceDesktop size={16} className="text-muted-foreground" />
+                                    <p className="text-sm font-medium text-foreground">
+                                        Tray Icon
+                                    </p>
+                                </div>
+                                <p className="text-xs text-muted-foreground mt-1">
+                                    Show or hide the system tray popover
+                                </p>
+                            </div>
+                            <Switch
+                                checked={trayEnabled}
+                                onCheckedChange={(checked) => {
+                                    setTrayEnabled(checked)
+                                    updatePreferences({ trayEnabled: checked })
+                                }}
+                                className="data-[state=checked]:bg-primary"
+                                disabled={!preferencesAvailable}
+                            />
+                        </div>
+
+                        <div className="flex items-center justify-between gap-4 pt-4 border-t border-border/50">
+                            <div className="flex-1">
+                                <div className="flex items-center gap-2">
+                                    <IconMessage size={16} className="text-muted-foreground" />
+                                    <p className="text-sm font-medium text-foreground">
+                                        Quick Prompt
+                                    </p>
+                                </div>
+                                <p className="text-xs text-muted-foreground mt-1">
+                                    Enable the global quick prompt hotkey
+                                </p>
+                            </div>
+                            <Switch
+                                checked={quickPromptEnabled}
+                                onCheckedChange={(checked) => {
+                                    setQuickPromptEnabled(checked)
+                                    updatePreferences({ quickPromptEnabled: checked })
+                                }}
+                                className="data-[state=checked]:bg-primary"
+                                disabled={!preferencesAvailable}
+                            />
+                        </div>
+                    </div>
+                </div>
+
                 <div className="bg-background rounded-lg border border-border overflow-hidden">
                     <div className="p-4">
                         <div className="flex items-center justify-between gap-4">

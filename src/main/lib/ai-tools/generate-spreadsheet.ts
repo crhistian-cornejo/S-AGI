@@ -125,8 +125,8 @@ export function setCellValue(sheetData: any[][], row: number, col: number, value
  * Calculates a range of values (e.g., "A1:A10").
  */
 export function calculateRange(
-  sheetData: any[][],
-  range: string
+  _sheetData: any[][],
+  _range: string
 ): { values: number[]; sum: number; average: number } | null {
   // Parse range (simplified - would need full implementation for Excel-style ranges)
   // For now, return null as placeholder

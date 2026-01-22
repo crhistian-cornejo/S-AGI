@@ -20,7 +20,12 @@ export const chatSchema = z.object({
 });
 
 // ==================== Artifact Schemas ====================
-export const artifactTypeEnum = z.enum(["spreadsheet", "chart", "document", "code"]);
+export const artifactTypeEnum = z.enum([
+  "spreadsheet",
+  "chart",
+  "document",
+  "code",
+]);
 export type ArtifactType = z.infer<typeof artifactTypeEnum>;
 
 export const artifactSchema = z.object({
@@ -37,12 +42,14 @@ export const artifactSchema = z.object({
 export const spreadsheetArtifactSchema = artifactSchema.extend({
   type: z.literal("spreadsheet"),
   content: z.object({
-    sheets: z.array(z.object({
-      name: z.string(),
-      rows: z.number(),
-      columns: z.number(),
-      data: z.array(z.array(z.any())),
-    })),
+    sheets: z.array(
+      z.object({
+        name: z.string(),
+        rows: z.number(),
+        columns: z.number(),
+        data: z.array(z.array(z.any())),
+      }),
+    ),
   }),
 });
 
@@ -63,10 +70,14 @@ export const chartArtifactSchema = artifactSchema.extend({
 export const generateSpreadsheetToolSchema = z.object({
   title: z.string().min(1).max(200),
   description: z.string().optional(),
-  sheets: z.array(z.object({
-    name: z.string().min(1),
-    data: z.array(z.array(z.any())),
-  })).min(1),
+  sheets: z
+    .array(
+      z.object({
+        name: z.string().min(1),
+        data: z.array(z.array(z.any())),
+      }),
+    )
+    .min(1),
 });
 
 export const generateChartToolSchema = z.object({
@@ -75,7 +86,6 @@ export const generateChartToolSchema = z.object({
   data: z.array(z.record(z.any())),
   xAxis: z.string(),
   yAxis: z.array(z.string()),
-  title: z.string().optional(),
 });
 
 // ==================== Quick Prompt Schemas ====================
@@ -111,11 +121,15 @@ export const createMessageInputSchema = z.object({
   chatId: z.string().uuid(),
   content: z.string().min(1),
   role: z.enum(["user", "system"]).default("user"),
-  attachments: z.array(z.object({
-    filename: z.string(),
-    mimeType: z.string(),
-    content: z.any(),
-  })).optional(),
+  attachments: z
+    .array(
+      z.object({
+        filename: z.string(),
+        mimeType: z.string(),
+        content: z.any(),
+      }),
+    )
+    .optional(),
 });
 
 export const updateChatInputSchema = z.object({

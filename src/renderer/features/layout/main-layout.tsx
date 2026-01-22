@@ -116,7 +116,7 @@ export function MainLayout() {
 
         // Listen for local PDFs opened from tray
         if (api.pdf?.onOpenLocalPdfs) {
-            cleanups.push(api.pdf.onOpenLocalPdfs((data) => {
+            cleanups.push(api.pdf.onOpenLocalPdfs((data: { files: Array<{ path: string; name: string; size: number }> }) => {
                 console.log('[MainLayout] Opening local PDFs from tray:', data.files.length)
                 for (const file of data.files) {
                     const pdfSource = createPdfSourceFromLocalFile({

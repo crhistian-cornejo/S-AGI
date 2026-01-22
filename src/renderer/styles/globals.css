@@ -590,3 +590,186 @@ input[type="checkbox"].task-list-item-checkbox:checked {
 .katex {
     font-size: 1.1em;
 }
+
+/* ==========================================================================
+   PDF Viewer Styles (react-pdf)
+   Professional styling for the PDF viewer component
+   ========================================================================== */
+
+/* PDF Document container */
+.react-pdf__Document {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 1.5rem;
+}
+
+/* PDF Page wrapper */
+.react-pdf__Page {
+    position: relative;
+    box-shadow: 
+        0 2px 4px -1px hsl(var(--foreground) / 0.06),
+        0 4px 6px -1px hsl(var(--foreground) / 0.08),
+        0 10px 20px -5px hsl(var(--foreground) / 0.08);
+    border-radius: 2px;
+    overflow: hidden;
+    background-color: white;
+}
+
+/* Canvas rendering */
+.react-pdf__Page canvas {
+    display: block;
+    margin: 0 auto;
+    max-width: 100%;
+    height: auto !important;
+}
+
+/* Text layer for selection */
+.react-pdf__Page__textContent {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    overflow: hidden;
+    opacity: 0.2;
+    line-height: 1.0;
+    user-select: text;
+    pointer-events: auto;
+}
+
+.react-pdf__Page__textContent span {
+    color: transparent;
+    position: absolute;
+    white-space: pre;
+    transform-origin: 0% 0%;
+}
+
+/* Text selection highlight */
+.react-pdf__Page__textContent span::selection {
+    background-color: hsl(var(--primary) / 0.4);
+    color: transparent;
+}
+
+/* Annotation layer (links, forms, etc.) */
+.react-pdf__Page__annotations {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    pointer-events: auto;
+}
+
+.react-pdf__Page__annotations a {
+    position: absolute;
+    cursor: pointer;
+}
+
+.react-pdf__Page__annotations a:hover {
+    background-color: hsl(var(--primary) / 0.1);
+}
+
+/* Dark mode adjustments for PDF pages */
+.dark .react-pdf__Page {
+    /* Keep PDF pages white even in dark mode for readability */
+    background-color: white;
+    /* Add subtle border in dark mode */
+    box-shadow: 
+        0 0 0 1px hsl(var(--border) / 0.5),
+        0 2px 4px -1px hsl(0 0% 0% / 0.2),
+        0 4px 6px -1px hsl(0 0% 0% / 0.25),
+        0 10px 20px -5px hsl(0 0% 0% / 0.3);
+}
+
+/* PDF loading placeholder */
+.react-pdf__Page--loading {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 800px;
+    background: linear-gradient(
+        135deg,
+        hsl(var(--muted)) 0%,
+        hsl(var(--muted) / 0.8) 50%,
+        hsl(var(--muted)) 100%
+    );
+    border-radius: 2px;
+}
+
+/* PDF error state */
+.react-pdf__Page--error {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 400px;
+    background-color: hsl(var(--destructive) / 0.1);
+    border: 1px dashed hsl(var(--destructive) / 0.3);
+    border-radius: 4px;
+    color: hsl(var(--destructive));
+}
+
+/* PDF viewer scrollbar customization */
+.pdf-scroll-container::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+}
+
+.pdf-scroll-container::-webkit-scrollbar-track {
+    background: hsl(var(--muted) / 0.3);
+    border-radius: 5px;
+}
+
+.pdf-scroll-container::-webkit-scrollbar-thumb {
+    background: hsl(var(--muted-foreground) / 0.25);
+    border-radius: 5px;
+    border: 2px solid transparent;
+    background-clip: padding-box;
+}
+
+.pdf-scroll-container::-webkit-scrollbar-thumb:hover {
+    background: hsl(var(--muted-foreground) / 0.4);
+    background-clip: padding-box;
+}
+
+/* Page transition animations */
+.react-pdf__Page {
+    animation: pdf-page-fade-in 0.2s ease-out;
+}
+
+@keyframes pdf-page-fade-in {
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* Zoom transition */
+.react-pdf__Document {
+    transition: transform 0.15s ease-out;
+}
+
+/* PDF toolbar button active states */
+.pdf-toolbar-button[data-active="true"] {
+    background-color: hsl(var(--accent));
+    color: hsl(var(--accent-foreground));
+}
+
+/* Print-specific styles (hide UI when printing PDF) */
+@media print {
+    .pdf-toolbar,
+    .pdf-sidebar,
+    .pdf-chat-panel {
+        display: none !important;
+    }
+    
+    .react-pdf__Page {
+        box-shadow: none;
+        page-break-after: always;
+    }
+}
+

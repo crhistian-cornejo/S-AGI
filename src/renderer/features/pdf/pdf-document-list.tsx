@@ -7,10 +7,10 @@ import {
     IconCheck,
     IconClock,
     IconCloudUpload,
-    IconFolder,
     IconPlus,
     IconX,
-    IconCloud
+    IconCloudFilled,
+    IconDeviceFloppy
 } from '@tabler/icons-react'
 import { trpc } from '@/lib/trpc'
 import {
@@ -35,6 +35,7 @@ import {
 import { Separator } from '@/components/ui/separator'
 import { cn, isElectron } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 
 interface PdfDocumentListProps {
     className?: string
@@ -44,8 +45,8 @@ interface PdfDocumentListProps {
 /**
  * Sidebar component showing all available PDFs
  * Groups by source type:
- * - Cloud PDFs (artifacts + chat_files from Supabase)
  * - Local PDFs (session-only, from filesystem)
+ * - Cloud PDFs (artifacts + chat_files from Supabase)
  */
 export const PdfDocumentList = memo(function PdfDocumentList({
     className,
@@ -86,7 +87,8 @@ export const PdfDocumentList = memo(function PdfDocumentList({
 
         try {
             // Use dedicated PDF picker (view only, no import)
-            const result = await window.desktopApi?.pdf.pickLocal()
+            const api = window.desktopApi as { pdf?: { pickLocal: () => Promise<{ files: { path: string; name: string; size: number }[] }> } }
+            const result = await api?.pdf?.pickLocal()
 
             if (result?.files && result.files.length > 0) {
                 for (const file of result.files) {
@@ -116,13 +118,41 @@ export const PdfDocumentList = memo(function PdfDocumentList({
     const getProcessingIcon = (status?: string) => {
         switch (status) {
             case 'completed':
-                return <IconCheck size={12} className="text-green-500" />
+                return (
+                    <Tooltip>
+                        <TooltipTrigger asChild>
+                            <span><IconCheck size={12} className="text-emerald-500" /></span>
+                        </TooltipTrigger>
+                        <TooltipContent side="right">Processed</TooltipContent>
+                    </Tooltip>
+                )
             case 'processing':
-                return <IconLoader2 size={12} className="text-blue-500 animate-spin" />
+                return (
+                    <Tooltip>
+                        <TooltipTrigger asChild>
+                            <span><IconLoader2 size={12} className="text-blue-500 animate-spin" /></span>
+                        </TooltipTrigger>
+                        <TooltipContent side="right">Processing...</TooltipContent>
+                    </Tooltip>
+                )
             case 'failed':
-                return <IconAlertCircle size={12} className="text-destructive" />
+                return (
+                    <Tooltip>
+                        <TooltipTrigger asChild>
+                            <span><IconAlertCircle size={12} className="text-destructive" /></span>
+                        </TooltipTrigger>
+                        <TooltipContent side="right">Failed to process</TooltipContent>
+                    </Tooltip>
+                )
             case 'pending':
-                return <IconClock size={12} className="text-muted-foreground" />
+                return (
+                    <Tooltip>
+                        <TooltipTrigger asChild>
+                            <span><IconClock size={12} className="text-muted-foreground" /></span>
+                        </TooltipTrigger>
+                        <TooltipContent side="right">Pending</TooltipContent>
+                    </Tooltip>
+                )
             default:
                 return null
         }
@@ -137,17 +167,20 @@ export const PdfDocumentList = memo(function PdfDocumentList({
 
     if (isLoading) {
         return (
-            <div className={cn("flex items-center justify-center py-8", className)}>
-                <IconLoader2 size={20} className="animate-spin text-muted-foreground" />
+            <div className={cn("flex items-center justify-center py-12", className)}>
+                <div className="flex flex-col items-center gap-2">
+                    <IconLoader2 size={20} className="animate-spin text-muted-foreground" />
+                    <span className="text-xs text-muted-foreground">Loading...</span>
+                </div>
             </div>
         )
     }
 
     if (error) {
         return (
-            <div className={cn("flex flex-col items-center justify-center py-8 px-4 text-center", className)}>
+            <div className={cn("flex flex-col items-center justify-center py-12 px-4 text-center", className)}>
                 <IconAlertCircle size={24} className="text-destructive mb-2" />
-                <p className="text-sm text-muted-foreground">Error loading PDFs</p>
+                <p className="text-sm text-muted-foreground">Failed to load documents</p>
             </div>
         )
     }
@@ -157,10 +190,12 @@ export const PdfDocumentList = memo(function PdfDocumentList({
 
     if (totalPdfs === 0 && !isElectron()) {
         return (
-            <div className={cn("flex flex-col items-center justify-center py-8 px-4 text-center", className)}>
-                <IconFileTypePdf size={32} className="text-muted-foreground/50 mb-3" />
-                <p className="text-sm font-medium text-muted-foreground">No PDFs found</p>
-                <p className="text-xs text-muted-foreground/70 mt-1">
+            <div className={cn("flex flex-col items-center justify-center py-12 px-4 text-center", className)}>
+                <div className="w-12 h-12 rounded-xl bg-muted/50 flex items-center justify-center mb-3">
+                    <IconFileTypePdf size={24} className="text-muted-foreground/50" />
+                </div>
+                <p className="text-sm font-medium text-muted-foreground">No documents</p>
+                <p className="text-xs text-muted-foreground/70 mt-1 max-w-[180px]">
                     Upload PDFs to your chats to see them here
                 </p>
             </div>
@@ -168,14 +203,23 @@ export const PdfDocumentList = memo(function PdfDocumentList({
     }
 
     return (
-        <div className={cn("flex flex-col gap-4 py-2", className)}>
+        <div className={cn("flex flex-col gap-1 py-1", className)}>
             {/* Local PDFs Section - Session Only */}
             {isElectron() && (
-                <SidebarGroup>
-                    <SidebarGroupLabel>Local PDFs</SidebarGroupLabel>
-                    <SidebarGroupAction onClick={handleAddLocalPdf} title="Add local PDF">
-                        <IconPlus />
-                    </SidebarGroupAction>
+                <SidebarGroup className="py-1.5">
+                    <div className="flex items-center justify-between px-2 mb-1">
+                        <SidebarGroupLabel className="flex items-center gap-1.5 h-6 px-0">
+                            <IconDeviceFloppy size={12} className="text-amber-500" />
+                            <span className="text-[11px] font-medium uppercase tracking-wide">Local</span>
+                        </SidebarGroupLabel>
+                        <SidebarGroupAction 
+                            onClick={handleAddLocalPdf} 
+                            title="Add local PDF"
+                            className="relative right-0 top-0 h-5 w-5"
+                        >
+                            <IconPlus size={12} />
+                        </SidebarGroupAction>
+                    </div>
                     <SidebarGroupContent>
                         {localPdfs.length > 0 ? (
                             <SidebarMenu>
@@ -192,12 +236,12 @@ export const PdfDocumentList = memo(function PdfDocumentList({
                                 ))}
                             </SidebarMenu>
                         ) : (
-                            <div className="px-2 py-3 text-center">
+                            <div className="px-2 py-2.5 text-center rounded-lg bg-muted/30 mx-1">
                                 <p className="text-[11px] text-muted-foreground/70">
-                                    Add PDFs for quick viewing
+                                    Quick view local PDFs
                                 </p>
                                 <p className="text-[10px] text-muted-foreground/50 mt-0.5">
-                                    Session only • No upload
+                                    Session only
                                 </p>
                             </div>
                         )}
@@ -207,22 +251,31 @@ export const PdfDocumentList = memo(function PdfDocumentList({
 
             {/* Separator between local and cloud */}
             {isElectron() && cloudPdfCount > 0 && (
-                <Separator className="mx-2 w-auto opacity-50" />
+                <Separator className="mx-3 w-auto opacity-30 my-1" />
             )}
 
             {/* Cloud PDFs Section */}
             {cloudPdfCount > 0 && (
-                <SidebarGroup>
-                    <SidebarGroupLabel>Cloud PDFs</SidebarGroupLabel>
+                <SidebarGroup className="py-1.5">
+                    <div className="flex items-center px-2 mb-1">
+                        <SidebarGroupLabel className="flex items-center gap-1.5 h-6 px-0">
+                            <IconCloudFilled size={12} className="text-blue-500" />
+                            <span className="text-[11px] font-medium uppercase tracking-wide">Cloud</span>
+                            <span className="text-[10px] text-muted-foreground ml-1">
+                                {cloudPdfCount}
+                            </span>
+                        </SidebarGroupLabel>
+                    </div>
                     <SidebarGroupContent>
                         <SidebarMenu>
                             {/* Generated PDFs (Artifacts) */}
                             {artifactPdfs.map((pdf) => (
                                 <PdfListItem
                                     key={pdf.id}
-                                    pdf={pdf}
+                                    pdf={pdf as PdfSource}
                                     isSelected={selectedPdf?.id === pdf.id}
-                                    onClick={() => handleSelect(pdf)}
+                                    onClick={() => handleSelect(pdf as PdfSource)}
+                                    sourceType="artifact"
                                 />
                             ))}
 
@@ -230,9 +283,10 @@ export const PdfDocumentList = memo(function PdfDocumentList({
                             {chatFilePdfs.map((pdf) => (
                                 <PdfListItem
                                     key={pdf.id}
-                                    pdf={pdf}
+                                    pdf={pdf as PdfSource}
                                     isSelected={selectedPdf?.id === pdf.id}
-                                    onClick={() => handleSelect(pdf)}
+                                    onClick={() => handleSelect(pdf as PdfSource)}
+                                    sourceType="chat_file"
                                     processingIcon={getProcessingIcon(pdf.metadata?.processingStatus)}
                                     fileSize={formatFileSize(pdf.metadata?.fileSize)}
                                 />
@@ -244,10 +298,10 @@ export const PdfDocumentList = memo(function PdfDocumentList({
 
             {/* Empty state when no cloud PDFs but local exists */}
             {cloudPdfCount === 0 && localPdfs.length > 0 && (
-                <div className="px-2 py-4 text-center">
-                    <IconCloudUpload size={20} className="text-muted-foreground/30 mx-auto mb-2" />
+                <div className="px-3 py-4 text-center">
+                    <IconCloudUpload size={18} className="text-muted-foreground/30 mx-auto mb-1.5" />
                     <p className="text-[11px] text-muted-foreground/50">
-                        No cloud PDFs yet
+                        No cloud documents
                     </p>
                 </div>
             )}
@@ -263,6 +317,8 @@ interface PdfListItemProps {
     fileSize?: string
     /** Whether this is a local (session-only) PDF */
     isLocal?: boolean
+    /** Source type for cloud PDFs */
+    sourceType?: 'artifact' | 'chat_file'
     /** Callback to remove local PDF */
     onRemove?: (e: React.MouseEvent) => void
 }
@@ -274,38 +330,57 @@ const PdfListItem = memo(function PdfListItem({
     processingIcon,
     fileSize,
     isLocal,
+    sourceType,
     onRemove
 }: PdfListItemProps) {
+    const iconColor = isLocal 
+        ? "text-amber-500" 
+        : sourceType === 'artifact' 
+            ? "text-purple-500" 
+            : "text-red-500"
+
     return (
         <SidebarMenuItem>
             <SidebarMenuButton
                 isActive={isSelected}
                 onClick={onClick}
                 tooltip={pdf.name}
-                className="h-auto py-2 pr-8"
+                className={cn(
+                    "h-auto py-2 pr-8 group/pdf-item transition-all",
+                    isSelected && "bg-sidebar-accent"
+                )}
             >
-                <IconFileTypePdf
-                    size={18}
-                    className={cn(
-                        "shrink-0",
-                        isLocal
-                            ? isSelected ? "text-amber-500" : "text-amber-400/70"
-                            : isSelected ? "text-red-500" : "text-red-400/70"
-                    )}
-                />
-                <div className="flex-1 min-w-0 text-left">
-                    <p className="text-sm font-medium truncate leading-tight">{pdf.name}</p>
-                    <div className="flex items-center gap-2 text-[10px] text-muted-foreground mt-0.5">
-                        {isLocal && (
-                            <span className="text-amber-500/70">Local</span>
-                        )}
+                <div className={cn(
+                    "w-7 h-7 rounded-lg flex items-center justify-center shrink-0",
+                    isSelected 
+                        ? "bg-background shadow-sm" 
+                        : "bg-muted/50"
+                )}>
+                    <IconFileTypePdf
+                        size={16}
+                        className={cn(iconColor, !isSelected && "opacity-70")}
+                    />
+                </div>
+                <div className="flex-1 min-w-0 text-left ml-0.5">
+                    <p className={cn(
+                        "text-sm truncate leading-tight",
+                        isSelected ? "font-medium" : "font-normal"
+                    )}>
+                        {pdf.name}
+                    </p>
+                    <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground mt-0.5">
                         {pdf.pageCount && (
-                            <span>{pdf.pageCount} p</span>
+                            <span>{pdf.pageCount} pages</span>
+                        )}
+                        {pdf.pageCount && fileSize && (
+                            <span className="opacity-50">•</span>
                         )}
                         {fileSize && (
                             <span>{fileSize}</span>
                         )}
-                        {processingIcon}
+                        {processingIcon && (
+                            <span className="ml-0.5">{processingIcon}</span>
+                        )}
                     </div>
                 </div>
             </SidebarMenuButton>
@@ -313,10 +388,10 @@ const PdfListItem = memo(function PdfListItem({
                 <Button
                     variant="ghost"
                     size="icon"
-                    className="absolute right-1 top-1.5 h-6 w-6 opacity-0 group-hover/menu-item:opacity-100 transition-opacity z-10 hover:bg-destructive/10 hover:text-destructive"
+                    className="absolute right-1 top-1/2 -translate-y-1/2 h-6 w-6 opacity-0 group-hover/menu-item:opacity-100 transition-opacity hover:bg-destructive/10 hover:text-destructive rounded-md"
                     onClick={onRemove}
                 >
-                    <IconX size={14} />
+                    <IconX size={12} />
                 </Button>
             )}
         </SidebarMenuItem>

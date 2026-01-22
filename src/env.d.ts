@@ -57,6 +57,10 @@ interface DesktopApi {
         onRefresh: (callback: () => void) => () => void
         onAction: (action: string, callback: (data?: any) => void) => () => void
     }
+    pdf: {
+        pickLocal: () => Promise<{ files: Array<{ path: string; name: string; size: number }> }>
+        onOpenLocalPdfs: (callback: (data: { files: Array<{ path: string; name: string; size: number }> }) => void) => () => void
+    }
     files: {
         listFolders: () => Promise<FileManagerFolder[]>
         createFolder: (data: { name: string; isSensitive?: boolean }) => Promise<FileManagerFolder>
@@ -104,6 +108,10 @@ interface DesktopApi {
     onAuthRefreshing: (callback: (data: { provider: string; refreshing: boolean }) => void) => () => void
     // Auth error listener
     onAuthError: (callback: (data: { provider: string; error: string | null }) => void) => () => void
+    preferences: {
+        get: () => Promise<{ trayEnabled: boolean; quickPromptEnabled: boolean }>
+        set: (data: { trayEnabled?: boolean; quickPromptEnabled?: boolean }) => Promise<{ trayEnabled: boolean; quickPromptEnabled: boolean }>
+    }
 }
 
 // Artifact live update event from main process
