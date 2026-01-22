@@ -42,8 +42,11 @@ import {
     type PdfSource
 } from '@/lib/atoms'
 
-// Configure PDF.js worker
-pdfjs.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs'
+// Configure PDF.js worker - use import.meta.url for Vite/Electron compatibility
+pdfjs.GlobalWorkerOptions.workerSrc = new URL(
+    'pdfjs-dist/build/pdf.worker.min.mjs',
+    import.meta.url
+).toString()
 
 interface PdfViewerEnhancedProps {
     source: PdfSource | null
