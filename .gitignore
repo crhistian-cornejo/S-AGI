@@ -54,6 +54,7 @@ coverage/
 
 # Reference project (not part of S-AGI)
 1code/
+midday/
 
 # Bun
 bun.lockb
@@ -67,7 +68,4 @@ dist-electron/
 # Secure storage (auto-generated, contains encrypted auth)
 secure/
 .claude/
-
-midday
-midday
 midday

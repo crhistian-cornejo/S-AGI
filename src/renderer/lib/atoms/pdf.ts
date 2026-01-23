@@ -128,14 +128,115 @@ export const pdfChatPanelOpenAtom = atomWithStorage('pdf-chat-panel-open', false
 export const pdfSelectedTextAtom = atom<{
     text: string
     pageNumber: number
+    /** Selection rect for bookmark creation */
+    rect?: { x: number; y: number; width: number; height: number }
 } | null>(null)
 
+// === PDF BOOKMARKS ===
+
+export interface PdfBookmark {
+    /** Unique ID */
+    id: string
+    /** Display title */
+    title: string
+    /** Page index (0-based) */
+    pageIndex: number
+    /** Position on page (in PDF coordinates) */
+    position?: { x: number; y: number; zoom?: number }
+    /** Highlighted text (if created from selection) */
+    highlightText?: string
+    /** Highlight rect (for visual indicator) */
+    highlightRect?: { x: number; y: number; width: number; height: number }
+    /** Color for the bookmark marker */
+    color?: string
+    /** Child bookmarks (for PDF outline structure) */
+    children?: PdfBookmark[]
+    /** Whether this is from the PDF's native outline or user-created */
+    source: 'pdf' | 'user'
+    /** Created timestamp */
+    createdAt?: string
+    /** Notes/description */
+    notes?: string
+}
+
 /**
- * Local PDFs loaded from filesystem (session-only, no cloud upload)
- * These are for viewing only - no processing, no AI, no vector stores
- * Cleared when the app is closed
+ * PDF outline (native bookmarks from the PDF file)
+ * Loaded from the PDF engine
  */
-export const localPdfsAtom = atom<PdfSource[]>([])
+export const pdfOutlineAtom = atom<PdfBookmark[]>([])
+
+/**
+ * User-created bookmarks for the current PDF
+ * These are saved to the database
+ */
+export const pdfUserBookmarksAtom = atom<PdfBookmark[]>([])
+
+/**
+ * Combined bookmarks (outline + user bookmarks)
+ */
+export const pdfAllBookmarksAtom = atom((get) => {
+    const outline = get(pdfOutlineAtom)
+    const userBookmarks = get(pdfUserBookmarksAtom)
+    return { outline, userBookmarks }
+})
+
+/**
+ * Bookmark navigation request
+ * When set, the viewer will navigate to this bookmark
+ */
+export const pdfBookmarkNavigationAtom = atom<{
+    bookmarkId: string
+    pageIndex: number
+    position?: { x: number; y: number; zoom?: number }
+    highlightRect?: { x: number; y: number; width: number; height: number }
+} | null>(null)
+
+// === PDF SEARCH ===
+
+export interface PdfSearchResult {
+    /** Page index (0-based) */
+    pageIndex: number
+    /** Character index within the page */
+    charIndex: number
+    /** Number of characters matched */
+    charCount: number
+    /** Highlight rects for the match */
+    rects: Array<{ x: number; y: number; width: number; height: number }>
+    /** Text context around the match */
+    context?: { before: string; match: string; after: string }
+}
+
+/**
+ * Current search query
+ */
+export const pdfSearchQueryAtom = atom('')
+
+/**
+ * Search results
+ */
+export const pdfSearchResultsAtom = atom<PdfSearchResult[]>([])
+
+/**
+ * Currently focused search result index
+ */
+export const pdfSearchCurrentIndexAtom = atom(0)
+
+/**
+ * Whether search is in progress
+ */
+export const pdfSearchLoadingAtom = atom(false)
+
+/**
+ * Search panel open state
+ */
+export const pdfSearchPanelOpenAtom = atom(false)
+
+/**
+ * Local PDFs loaded from filesystem (persisted across sessions)
+ * These are for viewing only - no processing, no AI, no vector stores
+ * The actual PDF data is loaded on-demand via IPC
+ */
+export const localPdfsAtom = atomWithStorage<PdfSource[]>('local-pdfs', [])
 
 /**
  * Add a local PDF to the session list
@@ -169,6 +270,31 @@ export const clearLocalPdfsAtom = atom(
     null,
     (_get, set) => {
         set(localPdfsAtom, [])
+    }
+)
+
+/**
+ * Cache for local PDF blob URLs (in-memory only, not persisted)
+ * Maps localPath -> blob URL
+ * This allows us to reuse already-loaded PDF data without re-reading from disk
+ */
+export const localPdfBlobCacheAtom = atom<Record<string, string>>({})
+
+/**
+ * Get cached blob URL for a local PDF
+ */
+export const getLocalPdfBlobAtom = atom(
+    (get) => (localPath: string) => get(localPdfBlobCacheAtom)[localPath] ?? null
+)
+
+/**
+ * Set cached blob URL for a local PDF
+ */
+export const setLocalPdfBlobAtom = atom(
+    null,
+    (get, set, { localPath, blobUrl }: { localPath: string; blobUrl: string }) => {
+        const cache = get(localPdfBlobCacheAtom)
+        set(localPdfBlobCacheAtom, { ...cache, [localPath]: blobUrl })
     }
 )
 

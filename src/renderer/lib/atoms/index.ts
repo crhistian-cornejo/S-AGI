@@ -33,6 +33,18 @@ export const selectedChatAtom = atom<Chat | null>(null)
 // Pending message from Quick Prompt - ChatView will auto-send this
 export const pendingQuickPromptMessageAtom = atom<string | null>(null)
 
+export interface QueuedChatMessage {
+    id: string
+    chatId: string
+    message: string
+    images?: Array<{ base64Data: string; mediaType: string; filename: string }>
+    documents?: File[]
+    targetDocument?: { id: string; filename: string } | null
+    generateImage?: boolean
+    imageSize?: string
+}
+export const chatMessageQueueAtom = atom<Record<string, QueuedChatMessage[]>>({})
+
 // === ARTIFACT STATE ===
 export const selectedArtifactIdAtom = atom<string | null>(null)
 export const selectedArtifactAtom = atom<Artifact | null>(null)
@@ -189,18 +201,35 @@ export {
     pdfSelectedTextAtom,
     pdfHasExtractedContentAtom,
     pdfTotalWordCountAtom,
-    // Local PDFs (session-only, no upload)
+    // Local PDFs (persisted paths, data loaded on-demand)
     localPdfsAtom,
     addLocalPdfAtom,
     removeLocalPdfAtom,
     clearLocalPdfsAtom,
+    localPdfBlobCacheAtom,
+    getLocalPdfBlobAtom,
+    setLocalPdfBlobAtom,
+    // Bookmarks
+    pdfOutlineAtom,
+    pdfUserBookmarksAtom,
+    pdfAllBookmarksAtom,
+    pdfBookmarkNavigationAtom,
+    // Search
+    pdfSearchQueryAtom,
+    pdfSearchResultsAtom,
+    pdfSearchCurrentIndexAtom,
+    pdfSearchLoadingAtom,
+    pdfSearchPanelOpenAtom,
     // Helper functions
     createPdfSourceFromArtifact,
     createPdfSourceFromChatFile,
     createPdfSourceFromLocalFile,
+    // Types
     type PdfSource,
     type PdfChatMessage,
-    type PdfNavigationRequest
+    type PdfNavigationRequest,
+    type PdfBookmark,
+    type PdfSearchResult
 } from './pdf'
 
 // === INPUT STATE ===
@@ -361,6 +390,7 @@ export interface DocumentCitation {
 
 // Document citations for the current streaming response
 export const streamingDocumentCitationsAtom = atom<DocumentCitation[]>([])
+export const streamingSuggestionsAtom = atom<string[]>([])
 
 // === SOUND EFFECTS ===
 // Enable/disable chat sound effects

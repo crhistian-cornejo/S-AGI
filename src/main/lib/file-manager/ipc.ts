@@ -176,4 +176,42 @@ export function registerFileManagerIpc(getTrayPopover: () => Electron.BrowserWin
 
         return { files }
     })
+
+    // Read a local PDF file as base64 for the viewer
+    ipcMain.handle('pdf:read-local', async (_event, input: unknown) => {
+        const { filePath } = z.object({
+            filePath: z.string().min(1)
+        }).parse(input)
+
+        try {
+            // Verify file exists and is a PDF
+            if (!fs.existsSync(filePath)) {
+                return { success: false, error: 'File not found' }
+            }
+
+            const stats = fs.statSync(filePath)
+            const ext = path.extname(filePath).toLowerCase()
+            if (ext !== '.pdf') {
+                return { success: false, error: 'File is not a PDF' }
+            }
+
+            // Use async read for better performance (doesn't block main thread)
+            const buffer = await fs.promises.readFile(filePath)
+            const base64 = buffer.toString('base64')
+
+            console.log(`[PDF IPC] Read ${filePath}: ${(stats.size / 1024 / 1024).toFixed(2)}MB`)
+
+            return {
+                success: true,
+                data: base64,
+                size: stats.size
+            }
+        } catch (error) {
+            console.error('[PDF IPC] Error reading file:', error)
+            return {
+                success: false,
+                error: error instanceof Error ? error.message : 'Failed to read file'
+            }
+        }
+    })
 }

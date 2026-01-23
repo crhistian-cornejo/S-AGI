@@ -20,6 +20,7 @@ import {
     DEFAULT_MODELS, 
     getModelById
 } from '@shared/ai-types'
+import { generateSuggestions } from '../../ai/suggestions'
 
 // Re-export type for consumers
 export type { AIStreamEvent } from '@shared/ai-types'
@@ -2186,6 +2187,25 @@ CITATION REQUIREMENTS (MANDATORY):
                             },
                             totalSteps: currentStepNumber
                         })
+
+                        // Generate follow-up suggestions in background
+                        if (fullText && !abortController.signal.aborted) {
+                            const suggestionApiKey = input.apiKey || getSecureApiKeyStore().getOpenAIKey()
+                            if (suggestionApiKey) {
+                                generateSuggestions(
+                                    fullText, 
+                                    input.messages || [], 
+                                    suggestionApiKey,
+                                    (provider as string) === 'zai' ? zaiBaseURL || undefined : undefined
+                                )
+                                    .then(suggestions => {
+                                        if (suggestions.length > 0 && !abortController.signal.aborted) {
+                                            emit({ type: 'suggestions', suggestions })
+                                        }
+                                    })
+                                    .catch(err => log.error('[AI] Failed to generate suggestions:', err))
+                            }
+                        }
                     }
 
                     if (provider === 'zai') {
@@ -2656,9 +2676,48 @@ CITATION REQUIREMENTS (MANDATORY):
                         // For OpenAI/Responses API: pass to next turn via previous_response_id (store: true)
                         responseId: currentResponseId ?? undefined
                     })
+
+                    // Generate follow-up suggestions in background
+                    if (fullText && !abortController.signal.aborted) {
+                        const suggestionApiKey = input.apiKey || getSecureApiKeyStore().getOpenAIKey()
+                        if (suggestionApiKey) {
+                            const suggestionBaseURL = input.provider === 'zai' ? ZAI_GENERAL_BASE_URL : undefined
+                            generateSuggestions(
+                                fullText, 
+                                input.messages || [], 
+                                suggestionApiKey,
+                                suggestionBaseURL
+                            )
+                                .then(suggestions => {
+                                    if (suggestions.length > 0 && !abortController.signal.aborted) {
+                                        emit({ type: 'suggestions', suggestions })
+                                    }
+                                })
+                                .catch(err => log.error('[AI] Failed to generate suggestions:', err))
+                        }
+                    }
+
                     log.info(`[AI] Agent loop finished in ${Date.now() - startTime}ms, totalSteps=${currentStepNumber}, responseId=${currentResponseId ?? 'none'}`)
 
-                } catch (error) {
+                        // Generate follow-up suggestions in background (for non-zai/openai providers)
+                        if (fullText && !abortController.signal.aborted) {
+                            const suggestionApiKey = input.apiKey || getSecureApiKeyStore().getOpenAIKey()
+                            if (suggestionApiKey) {
+                                generateSuggestions(
+                                    fullText, 
+                                    input.messages || [], 
+                                    suggestionApiKey,
+                                    (provider as string) === 'zai' ? zaiBaseURL || undefined : undefined
+                                )
+                                    .then(suggestions => {
+                                        if (suggestions.length > 0 && !abortController.signal.aborted) {
+                                            emit({ type: 'suggestions', suggestions })
+                                        }
+                                    })
+                                    .catch(err => log.error('[AI] Failed to generate suggestions:', err))
+                            }
+                        }
+                    } catch (error) {
                     if (error instanceof Error && error.name === 'AbortError') {
                         log.info('[AI] Agent loop aborted')
                         return

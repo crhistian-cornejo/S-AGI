@@ -310,6 +310,7 @@ export type AIStreamEvent =
     | { type: 'code-interpreter-code-delta'; executionId: string; delta: string }
     | { type: 'code-interpreter-code-done'; executionId: string; code: string }
     | { type: 'code-interpreter-done'; executionId: string; output: string }
+    | { type: 'suggestions'; suggestions: string[] }
     | { type: 'file-search-start'; searchId: string }
     | { type: 'file-search-searching'; searchId: string }
     | { type: 'file-search-done'; searchId: string; results?: unknown }

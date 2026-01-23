@@ -34,8 +34,11 @@ import {
   streamingAnnotationsAtom,
   streamingFileSearchesAtom,
   streamingDocumentCitationsAtom,
+  streamingSuggestionsAtom,
   imageEditDialogAtom,
   pendingQuickPromptMessageAtom,
+  chatMessageQueueAtom,
+  type QueuedChatMessage,
   chatSoundsEnabledAtom,
   type WebSearchInfo,
   type FileSearchInfo,
@@ -57,6 +60,7 @@ import {
 import { MessageList } from "./message-list";
 import { MessageTableOfContents } from "./message-table-of-contents";
 import { ChatInput } from "./chat-input";
+import { SuggestedPrompts } from "./suggested-prompts";
 import { ChatFilesPanel } from "./chat-files-panel";
 import { ImageEditDialog } from "@/features/agent/image-edit-dialog";
 import { useSmoothStream } from "@/hooks/use-smooth-stream";
@@ -115,8 +119,11 @@ export function ChatView() {
   const setStreamingDocumentCitations = useSetAtom(
     streamingDocumentCitationsAtom,
   );
+  const [streamingSuggestions, setStreamingSuggestions] = useAtom(
+    streamingSuggestionsAtom,
+  );
 
-  // Artifact state
+  // Settings state
   const setSelectedArtifact = useSetAtom(selectedArtifactAtom);
   const setArtifactPanelOpen = useSetAtom(artifactPanelOpenAtom);
   const setActiveTab = useSetAtom(activeTabAtom);
@@ -127,6 +134,7 @@ export function ChatView() {
 
   // Document upload for file search
   const documentUpload = useDocumentUpload({ chatId: selectedChatId });
+  const [messageQueue, setMessageQueue] = useAtom(chatMessageQueueAtom);
 
   // Abort controller and scroll refs
   const abortRef = useRef<(() => void) | null>(null);
@@ -253,22 +261,44 @@ export function ChatView() {
     documents?: File[],
     targetDocument?: { id: string; filename: string } | null,
     messageOverride?: string,
+    options?: { generateImage?: boolean; imageSize?: string },
   ) => {
     const messageToSend = messageOverride ?? input.trim();
-    if ((!messageToSend && !images?.length) || !selectedChatId || isStreaming)
+    if ((!messageToSend && !images?.length) || !selectedChatId)
       return;
+
+    const shouldGenerateImage = options?.generateImage ?? isImageMode;
+    const imageSize =
+      options?.imageSize ??
+      (shouldGenerateImage
+        ? ASPECT_RATIO_TO_SIZE[imageAspectRatio]
+        : undefined);
+
+    if (isStreaming) {
+      const queuedItem: QueuedChatMessage = {
+        id: crypto.randomUUID(),
+        chatId: selectedChatId,
+        message: messageToSend,
+        images,
+        documents,
+        targetDocument,
+        generateImage: shouldGenerateImage,
+        imageSize,
+      };
+      setMessageQueue((prev) => ({
+        ...prev,
+        [selectedChatId]: [...(prev[selectedChatId] || []), queuedItem],
+      }));
+      setInput("");
+      setIsImageMode(false);
+      return;
+    }
 
     const userMessage = messageToSend;
     const existingMessages = messages;
 
     // Store target document for file search filtering
     const targetDocumentForSearch = targetDocument || null;
-
-    // Capture isImageMode and aspect ratio BEFORE resetting (closure issue fix)
-    const shouldGenerateImage = isImageMode;
-    const imageSize = shouldGenerateImage
-      ? ASPECT_RATIO_TO_SIZE[imageAspectRatio]
-      : undefined;
 
     setInput("");
     setIsStreaming(true);
@@ -282,7 +312,8 @@ export function ChatView() {
     setStreamingWebSearches([]); // Clear previous web searches
     setStreamingFileSearches([]); // Clear previous file searches
     setStreamingAnnotations([]); // Clear previous annotations
-    setStreamingDocumentCitations([]); // Clear previous document citations
+    setStreamingDocumentCitations([]); // Clear previous citations
+    setStreamingSuggestions([]); // Clear previous suggestions
 
     // Play thinking sound (single, not loop)
     stopThinkingRef.current = chatSounds.playThinking(false);
@@ -655,6 +686,16 @@ export function ChatView() {
                     ...docCitationsFromFiles,
                   ];
                   setStreamingDocumentCitations(collectedDocumentCitations);
+                }
+                break;
+              }
+
+              case "suggestions": {
+                console.log("[ChatView] Suggestions event received:", event.suggestions);
+                if (event.suggestions && Array.isArray(event.suggestions)) {
+                  setStreamingSuggestions(event.suggestions);
+                } else {
+                  console.warn("[ChatView] Received invalid suggestions format:", event);
                 }
                 break;
               }
@@ -1162,6 +1203,27 @@ export function ChatView() {
   // Keep ref updated for use in callbacks
   handleSendRef.current = handleSend;
 
+  useEffect(() => {
+    if (!selectedChatId || isStreaming) return;
+    const queue = messageQueue[selectedChatId];
+    if (!queue || queue.length === 0) return;
+    const nextItem = queue[0];
+    setMessageQueue((prev) => ({
+      ...prev,
+      [selectedChatId]: (prev[selectedChatId] || []).slice(1),
+    }));
+    handleSendRef.current?.(
+      nextItem.images,
+      nextItem.documents,
+      nextItem.targetDocument ?? null,
+      nextItem.message,
+      {
+        generateImage: nextItem.generateImage,
+        imageSize: nextItem.imageSize,
+      },
+    );
+  }, [isStreaming, messageQueue, selectedChatId, setMessageQueue]);
+
   // === QUICK PROMPT AUTO-SEND ===
   // Watch for pending messages from Quick Prompt and auto-send them
   const [pendingMessage, setPendingMessage] = useAtom(
@@ -1169,12 +1231,7 @@ export function ChatView() {
   );
 
   useEffect(() => {
-    if (
-      pendingMessage &&
-      selectedChatId &&
-      !isStreaming &&
-      handleSendRef.current
-    ) {
+    if (pendingMessage && selectedChatId && handleSendRef.current) {
       console.log(
         "[ChatView] Auto-sending pending Quick Prompt message:",
         pendingMessage.substring(0, 50) + "...",
@@ -1186,7 +1243,7 @@ export function ChatView() {
       // Call handleSend with the message override (4th param)
       handleSendRef.current(undefined, undefined, null, pendingMessage);
     }
-  }, [pendingMessage, selectedChatId, isStreaming, setPendingMessage]);
+  }, [pendingMessage, selectedChatId, setPendingMessage]);
 
   // Handle plan approval - sends "Implement plan" message and switches to agent mode
   const handleApprovePlan = useCallback(() => {
@@ -1239,7 +1296,6 @@ export function ChatView() {
     utils,
     setSelectedArtifact,
     setArtifactPanelOpen,
-    messages,
   ]);
 
   const getScrollViewport = useCallback(() => {
@@ -1573,6 +1629,18 @@ export function ChatView() {
               {/* Files panel - shows uploaded documents */}
               {documentUpload.files.length > 0 && (
                 <ChatFilesPanel className="px-4 pb-2 max-w-3xl mx-auto" />
+              )}
+
+              {/* Suggestions panel */}
+              {!isStreaming && streamingSuggestions.length > 0 && (
+                <div className="px-4 pb-2 max-w-3xl mx-auto w-full">
+                  <SuggestedPrompts
+                    suggestions={streamingSuggestions}
+                    onSelect={(suggestion) => {
+                      handleSend(undefined, undefined, null, suggestion);
+                    }}
+                  />
+                </div>
               )}
 
               {/* Show "Implement Plan" button when there's an unapproved plan and input is empty */}

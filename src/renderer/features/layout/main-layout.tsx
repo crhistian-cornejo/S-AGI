@@ -4,6 +4,7 @@ import {
     IconLayoutSidebarLeftExpand,
     IconHistory,
 } from '@tabler/icons-react'
+import { ChatQueueProcessor } from '@/features/chat/components/queue-processor'
 import { trpc } from '@/lib/trpc'
 import {
     sidebarOpenAtom,
@@ -217,6 +218,8 @@ export function MainLayout() {
 
     return (
         <div className="h-screen w-screen bg-background relative overflow-hidden">
+            {/* Global queue processor for chat messages */}
+            <ChatQueueProcessor />
             <TitleBar 
                 className={cn(
                     "absolute top-0 right-0 z-50 h-10 transition-all duration-300",

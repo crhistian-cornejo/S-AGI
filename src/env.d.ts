@@ -59,6 +59,12 @@ interface DesktopApi {
     }
     pdf: {
         pickLocal: () => Promise<{ files: Array<{ path: string; name: string; size: number }> }>
+        readLocal: (filePath: string) => Promise<{
+            success: boolean
+            data?: string
+            size?: number
+            error?: string
+        }>
         onOpenLocalPdfs: (callback: (data: { files: Array<{ path: string; name: string; size: number }> }) => void) => () => void
     }
     files: {

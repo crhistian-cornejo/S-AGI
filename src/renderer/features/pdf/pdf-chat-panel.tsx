@@ -2,9 +2,9 @@ import { useState, useCallback, useRef, useEffect, memo } from 'react'
 import { useAtom, useAtomValue } from 'jotai'
 import {
     IconSend,
+    IconArrowUp,
     IconSparkles,
     IconFileText,
-    IconLoader2,
     IconX,
     IconMessageCircle,
     IconUser,
@@ -28,6 +28,11 @@ import { Textarea } from '@/components/ui/textarea'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { ChatMarkdownRenderer } from '@/components/chat-markdown-renderer'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { useMessageQueueStore } from './stores/message-queue-store'
+import { useStreamingStatusStore } from './stores/streaming-status-store'
+import { generateQueueId, createQueueItem, type PdfQueueItem } from './lib/queue-utils'
+import { PdfQueueIndicator } from './ui/pdf-queue-indicator'
+import { Kbd } from '@/components/ui/kbd'
 
 interface PdfChatPanelProps {
     source: PdfSource
@@ -60,9 +65,22 @@ export const PdfChatPanel = memo(function PdfChatPanel({
     const selectedText = useAtomValue(pdfSelectedTextAtom)
     const currentPage = useAtomValue(pdfCurrentPageAtom)
 
+    // Queue and streaming state
+    const queue = useMessageQueueStore(state => state.getQueue(source.id))
+    const addToQueue = useMessageQueueStore(state => state.addToQueue)
+    const removeFromQueue = useMessageQueueStore(state => state.removeFromQueue)
+    const streamingStatus = useStreamingStatusStore(state => state.getStatus(source.id))
+
     const [input, setInput] = useState('')
     const inputRef = useRef<HTMLTextAreaElement>(null)
     const messagesEndRef = useRef<HTMLDivElement>(null)
+
+    // Keep input focused after sending (controlled component loses focus on value change)
+    useEffect(() => {
+        if (!input && inputRef.current) {
+            inputRef.current.focus()
+        }
+    }, [input])
 
     // Query PDF mutation for AI answers
     const queryPdf = trpc.pdf.queryPdf.useMutation()
@@ -77,82 +95,104 @@ export const PdfChatPanel = memo(function PdfChatPanel({
         inputRef.current?.focus()
     }, [])
 
-    const handleSendMessage = useCallback(async (messageText?: string) => {
+    const handleSendMessage = useCallback(async (messageText?: string, skipQueue = false) => {
         const text = messageText || input.trim()
-        if (!text || isStreaming) return
+        if (!text) return
 
-        // Add user message
-        const userMessage: PdfChatMessage = {
-            id: `msg-${Date.now()}`,
-            role: 'user',
-            content: text,
-            createdAt: new Date()
-        }
-
-        setMessages(prev => [...prev, userMessage])
-        setInput('')
-        setIsStreaming(true)
-
-        try {
-            // Only call AI for artifact or chat_file sources
-            if (source.type === 'artifact' || source.type === 'chat_file') {
-                const result = await queryPdf.mutateAsync({
-                    pdfId: source.id,
-                    sourceType: source.type,
-                    query: text,
-                    context: {
-                        currentPage,
-                        selectedText: selectedText?.text,
-                        pageCount: source.pageCount || undefined
-                    }
-                })
-
-                // Transform backend citations to CitationData format
-                const citations = result.citations?.map((c: { pageNumber: number; text: string }, idx: number) => ({
-                    id: idx + 1,
-                    filename: source.name,
-                    pageNumber: c.pageNumber,
-                    text: c.text
-                })) || undefined
-
-                // Add AI response
-                const aiMessage: PdfChatMessage = {
-                    id: `msg-${Date.now()}`,
-                    role: 'assistant',
-                    content: result.answer,
-                    createdAt: new Date(),
-                    citations
-                }
-
-                setMessages(prev => [...prev, aiMessage])
-            } else {
-                // For local PDFs, show a note about limitations
-                const aiMessage: PdfChatMessage = {
-                    id: `msg-${Date.now()}`,
-                    role: 'assistant',
-                    content: 'This is a local PDF that hasn\'t been uploaded to the cloud. AI features require the document to be processed first. Upload it to your chats to enable AI-powered Q&A.',
-                    createdAt: new Date()
-                }
-                setMessages(prev => [...prev, aiMessage])
-            }
-        } catch (error) {
-            console.error('PDF query error:', error)
-            const errorMessage: PdfChatMessage = {
+        // Skip queue flag: Alt+Enter sends immediately even when streaming
+        if (skipQueue || (!isStreaming && streamingStatus !== 'processing')) {
+            // Send immediately
+            const userMessage: PdfChatMessage = {
                 id: `msg-${Date.now()}`,
-                role: 'assistant',
-                content: 'Sorry, I encountered an error while processing your question. Please try again.',
+                role: 'user',
+                content: text,
                 createdAt: new Date()
             }
-            setMessages(prev => [...prev, errorMessage])
-        } finally {
-            setIsStreaming(false)
+
+            setMessages(prev => [...prev, userMessage])
+            setInput('')
+            setIsStreaming(true)
+            useStreamingStatusStore.getState().setStatus(source.id, 'processing')
+
+            try {
+                // Only call AI for artifact or chat_file sources
+                if (source.type === 'artifact' || source.type === 'chat_file') {
+                    const result = await queryPdf.mutateAsync({
+                        pdfId: source.id,
+                        sourceType: source.type,
+                        query: text,
+                        context: {
+                            currentPage,
+                            selectedText: selectedText?.text,
+                            pageCount: source.pageCount || undefined
+                        }
+                    })
+
+                    // Transform backend citations to CitationData format
+                    const citations = result.citations?.map((c: { pageNumber: number; text: string }, idx: number) => ({
+                        id: idx + 1,
+                        filename: source.name,
+                        pageNumber: c.pageNumber,
+                        text: c.text
+                    })) || undefined
+
+                    // Add AI response
+                    const aiMessage: PdfChatMessage = {
+                        id: `msg-${Date.now()}`,
+                        role: 'assistant',
+                        content: result.answer,
+                        createdAt: new Date(),
+                        citations
+                    }
+
+                    setMessages(prev => [...prev, aiMessage])
+                } else {
+                    // For local PDFs, show a note about limitations
+                    const aiMessage: PdfChatMessage = {
+                        id: `msg-${Date.now()}`,
+                        role: 'assistant',
+                        content: 'This is a local PDF that hasn\'t been uploaded to the cloud. AI features require the document to be processed first. Upload it to your chats to enable AI-powered Q&A.',
+                        createdAt: new Date()
+                    }
+                    setMessages(prev => [...prev, aiMessage])
+                }
+            } catch (error) {
+                console.error('PDF query error:', error)
+                const errorMessage: PdfChatMessage = {
+                    id: `msg-${Date.now()}`,
+                    role: 'assistant',
+                    content: 'Sorry, I encountered an error while processing your question. Please try again.',
+                    createdAt: new Date()
+                }
+                setMessages(prev => [...prev, errorMessage])
+            } finally {
+                setIsStreaming(false)
+                useStreamingStatusStore.getState().setStatus(source.id, 'ready')
+            }
+        } else {
+            // Add to queue (when streaming)
+            const queueItem: PdfQueueItem = createQueueItem(
+                generateQueueId(),
+                source.id,
+                text,
+                selectedText || undefined,
+                currentPage
+            )
+            addToQueue(source.id, queueItem)
+            setInput('')
         }
-    }, [input, isStreaming, source, currentPage, selectedText, setMessages, setIsStreaming, queryPdf])
+    }, [input, isStreaming, streamingStatus, source, currentPage, selectedText, setMessages, setIsStreaming, queryPdf, addToQueue])
 
     const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
         if (e.key === 'Enter' && !e.shiftKey) {
-            e.preventDefault()
-            handleSendMessage()
+            // Alt+Enter: send immediately (skip queue)
+            if (e.altKey) {
+                e.preventDefault()
+                handleSendMessage(undefined, true)
+            } else {
+                e.preventDefault()
+                handleSendMessage()
+            }
         }
     }, [handleSendMessage])
 
@@ -164,6 +204,10 @@ export const PdfChatPanel = memo(function PdfChatPanel({
     const handleClearChat = useCallback(() => {
         setMessages([])
     }, [setMessages])
+
+    const handleRemoveQueuedItem = useCallback((itemId: string) => {
+        removeFromQueue(source.id, itemId)
+    }, [source.id, removeFromQueue])
 
     const hasExtractedContent = source.type === 'chat_file' && source.pages && source.pages.length > 0
     const isLocalPdf = source.type === 'local'
@@ -206,6 +250,12 @@ export const PdfChatPanel = memo(function PdfChatPanel({
                     )}
                 </div>
             </div>
+
+            {/* Queue Indicator */}
+            <PdfQueueIndicator
+                queue={queue}
+                onRemoveItem={handleRemoveQueuedItem}
+            />
 
             {/* Messages Area */}
             <ScrollArea className="flex-1">
@@ -270,22 +320,62 @@ export const PdfChatPanel = memo(function PdfChatPanel({
                         value={input}
                         onChange={(e) => setInput(e.target.value)}
                         onKeyDown={handleKeyDown}
-                        placeholder={isLocalPdf ? "AI features require cloud upload..." : "Ask about this document..."}
+                        placeholder={
+                            isLocalPdf
+                                ? "AI features require cloud upload..."
+                                : (isStreaming || streamingStatus === 'processing')
+                                    ? "Add to queue..."
+                                    : "Ask about this document..."
+                        }
                         className="min-h-[56px] max-h-[120px] pr-10 resize-none text-sm rounded-xl"
-                        disabled={isStreaming}
                     />
-                    <Button
-                        size="icon"
-                        className="absolute right-2 bottom-2 h-7 w-7 rounded-lg"
-                        onClick={() => handleSendMessage()}
-                        disabled={!input.trim() || isStreaming}
-                    >
-                        {isStreaming ? (
-                            <IconLoader2 size={14} className="animate-spin" />
-                        ) : (
-                            <IconSend size={14} />
-                        )}
-                    </Button>
+                    <Tooltip>
+                        <TooltipTrigger asChild>
+                            <Button
+                                size="icon"
+                                className="absolute right-2 bottom-2 h-7 w-7 rounded-lg"
+                                onClick={() => handleSendMessage()}
+                                disabled={!input.trim()}
+                            >
+                                {isStreaming || streamingStatus === 'processing' ? (
+                                    <IconArrowUp size={14} />
+                                ) : (
+                                    <IconSend size={14} />
+                                )}
+                            </Button>
+                        </TooltipTrigger>
+                        <TooltipContent side="left">
+                            {(isStreaming || streamingStatus === 'processing') ? (
+                                <span className="flex items-center gap-1">
+                                    Add to queue
+                                    <Kbd className="ms-0.5">
+                                        <div className="flex items-center gap-0.5">
+                                            <span className="text-[10px]">⌘</span>
+                                            <span className="text-[10px]">↵</span>
+                                        </div>
+                                    </Kbd>
+                                    <span className="text-muted-foreground/60 mx-1">or</span>
+                                    Send now
+                                    <Kbd className="ms-0.5">
+                                        <div className="flex items-center gap-0.5">
+                                            <span className="text-[10px]">⌥</span>
+                                            <span className="text-[10px]">↵</span>
+                                        </div>
+                                    </Kbd>
+                                </span>
+                            ) : (
+                                <span className="flex items-center gap-1">
+                                    Send
+                                    <Kbd className="ms-0.5">
+                                        <div className="flex items-center gap-0.5">
+                                            <span className="text-[10px]">⌘</span>
+                                            <span className="text-[10px]">↵</span>
+                                        </div>
+                                    </Kbd>
+                                </span>
+                            )}
+                        </TooltipContent>
+                    </Tooltip>
                 </div>
             </div>
         </div>

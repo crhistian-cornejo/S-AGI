@@ -124,6 +124,13 @@ const desktopApi = {
         pickLocal: () => ipcRenderer.invoke('pdf:pick-local') as Promise<{
             files: Array<{ path: string; name: string; size: number }>
         }>,
+        // Read a local PDF file as base64 for viewing
+        readLocal: (filePath: string) => ipcRenderer.invoke('pdf:read-local', { filePath }) as Promise<{
+            success: boolean
+            data?: string  // base64 encoded PDF data
+            size?: number
+            error?: string
+        }>,
         // Listener for tray-opened local PDFs
         onOpenLocalPdfs: (callback: (data: { files: Array<{ path: string; name: string; size: number }> }) => void) => {
             const handler = (_: unknown, data: { files: Array<{ path: string; name: string; size: number }> }) => callback(data)

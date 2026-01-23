@@ -62,16 +62,18 @@ export const pdfRouter = router({
       const { chatId, limit = 50, offset = 0 } = input || {};
 
       try {
-        // Fetch PDF artifacts
+        // Fetch PDF artifacts - artifacts table has: id, chat_id, user_id, type, name, content, created_at, updated_at
+        // For PDF artifacts, 'content' may contain the PDF URL or data
         let artifactsQuery = supabase
           .from("artifacts")
           .select(
-            "id, chat_id, name, pdf_url, pdf_page_count, created_at, updated_at",
+            "id, chat_id, user_id, name, content, type, created_at, updated_at",
           )
           .eq("type", "pdf")
+          .eq("user_id", ctx.userId)
           .order("created_at", { ascending: false });
 
-        // Filter by user_id or chat ownership
+        // Filter by chat if provided
         if (chatId) {
           artifactsQuery = artifactsQuery.eq("chat_id", chatId);
         }
@@ -83,14 +85,14 @@ export const pdfRouter = router({
           log.error("[PdfRouter] Error fetching artifacts:", artifactsError);
         }
 
-        // Fetch PDF chat_files
+        // Fetch PDF chat_files - also check for PDF files by extension in case content_type varies
         let filesQuery = supabase
           .from("chat_files")
           .select(
-            "id, chat_id, filename, storage_path, file_size, pages, metadata, processing_status, created_at",
+            "id, chat_id, filename, storage_path, file_size, pages, metadata, processing_status, created_at, content_type",
           )
           .eq("user_id", ctx.userId)
-          .eq("content_type", "application/pdf")
+          .or("content_type.eq.application/pdf,content_type.ilike.%pdf%,filename.ilike.%.pdf")
           .order("created_at", { ascending: false });
 
         if (chatId) {
@@ -106,19 +108,48 @@ export const pdfRouter = router({
           log.error("[PdfRouter] Error fetching chat_files:", filesError);
         }
 
+        log.info("[PdfRouter] listAll query results:", {
+          userId: ctx.userId,
+          chatId,
+          artifactsCount: artifacts?.length || 0,
+          chatFilesCount: chatFiles?.length || 0,
+          artifactsError: artifactsError?.message,
+          filesError: filesError?.message,
+        });
+
         // Transform artifacts to PdfSource format
+        // For PDF artifacts, the 'content' field may contain a URL or JSON with PDF data
         const artifactPdfs: PdfSourceType[] = (artifacts || []).map(
-          (artifact) => ({
-            type: "artifact" as const,
-            id: artifact.id,
-            name: artifact.name,
-            url: artifact.pdf_url || undefined,
-            chatId: artifact.chat_id || undefined,
-            pageCount: artifact.pdf_page_count || undefined,
-            metadata: {
-              createdAt: artifact.created_at,
-            },
-          }),
+          (artifact) => {
+            // Try to extract URL from content - it might be a direct URL or JSON
+            let pdfUrl: string | undefined;
+            try {
+              if (artifact.content) {
+                if (artifact.content.startsWith("http")) {
+                  pdfUrl = artifact.content;
+                } else {
+                  const parsed = JSON.parse(artifact.content);
+                  pdfUrl = parsed.url || parsed.pdf_url;
+                }
+              }
+            } catch {
+              // Content is not JSON, use as-is if it looks like a URL
+              if (artifact.content?.startsWith("http")) {
+                pdfUrl = artifact.content;
+              }
+            }
+
+            return {
+              type: "artifact" as const,
+              id: artifact.id,
+              name: artifact.name,
+              url: pdfUrl,
+              chatId: artifact.chat_id || undefined,
+              metadata: {
+                createdAt: artifact.created_at,
+              },
+            };
+          },
         );
 
         // Transform chat_files to PdfSource format

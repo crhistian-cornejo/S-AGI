@@ -1,6 +1,7 @@
-import { memo } from 'react'
+import { memo, useState, useRef } from 'react'
 import { cn } from '@/lib/utils'
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
+import { Popover, PopoverContent, PopoverAnchor } from '@/components/ui/popover'
+import { overlayContent, overlayItem } from '@/lib/overlay-styles'
 
 const LINE_WIDTH_MIN = 8
 const LINE_WIDTH_MAX = 32
@@ -58,18 +59,42 @@ export const MessageTableOfContents = memo(function MessageTableOfContents({
     .map((m) => ({ id: m.id, prompt: getPromptText(m.content) }))
     .filter((e) => e.prompt.length > 0)
 
+  const [open, setOpen] = useState(false)
+  const closeTimerRef = useRef<number | null>(null)
+
+  const handleMouseEnter = () => {
+    if (closeTimerRef.current) {
+      clearTimeout(closeTimerRef.current)
+      closeTimerRef.current = null
+    }
+    setOpen(true)
+  }
+
+  const handleMouseLeave = () => {
+    closeTimerRef.current = window.setTimeout(() => setOpen(false), 150)
+  }
+
   if (entries.length === 0) return null
 
   return (
-    <nav aria-label="Table of contents" className={cn('flex flex-col items-end gap-y-1.5 animate-in fade-in duration-300', className)}>
-      {entries.map(({ id, prompt }) => {
-        const isActive = activeId === id
-        return (
-          <Tooltip key={id} delayDuration={200}>
-            <TooltipTrigger asChild>
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverAnchor asChild>
+        <nav
+          aria-label="Table of contents"
+          className={cn('flex flex-col items-end gap-y-1.5 animate-in fade-in duration-300', className)}
+          onMouseEnter={handleMouseEnter}
+          onMouseLeave={handleMouseLeave}
+        >
+          {entries.map(({ id, prompt }) => {
+            const isActive = activeId === id
+            return (
               <button
+                key={id}
                 type="button"
-                onClick={() => onScrollToMessage?.(id)}
+                onClick={() => {
+                  onScrollToMessage?.(id)
+                  setOpen(false)
+                }}
                 className={cn(
                   'group w-full flex justify-end py-0.5 rounded-sm transition-all',
                   isActive ? 'opacity-100 scale-x-110 translate-x-[-2px]' : 'opacity-40 hover:opacity-100',
@@ -87,18 +112,34 @@ export const MessageTableOfContents = memo(function MessageTableOfContents({
                   aria-hidden
                 />
               </button>
-            </TooltipTrigger>
-            <TooltipContent
-              side={tooltipSide}
-              align="end"
-              sideOffset={8}
-              className="max-w-sm text-xs leading-relaxed whitespace-pre-wrap break-words"
+            )
+          })}
+        </nav>
+      </PopoverAnchor>
+      <PopoverContent
+        side={tooltipSide}
+        align="start"
+        sideOffset={8}
+        className={cn(overlayContent, 'w-[280px] p-1')}
+        onMouseEnter={handleMouseEnter}
+        onMouseLeave={handleMouseLeave}
+      >
+        <div className="py-1">
+          {entries.map(({ id, prompt }) => (
+            <button
+              key={id}
+              type="button"
+              className={cn(overlayItem, 'w-full text-left')}
+              onClick={() => {
+                onScrollToMessage?.(id)
+                setOpen(false)
+              }}
             >
-              {prompt}
-            </TooltipContent>
-          </Tooltip>
-        )
-      })}
-    </nav>
+              <span className="truncate">{prompt}</span>
+            </button>
+          ))}
+        </div>
+      </PopoverContent>
+    </Popover>
   )
 })

@@ -174,16 +174,23 @@ const Sidebar = React.forwardRef<
             )
         }
 
+        // For icon collapsible mode, show a narrow strip with icons
+        const isIconMode = collapsible === 'icon'
+
         return (
             <div
                 ref={ref}
                 className={cn(
                     'group peer flex h-full shrink-0 text-sidebar-foreground transition-[width] duration-200 ease-linear',
-                    // Width handling
-                    isCollapsed ? 'w-0' : 'w-[--sidebar-width]',
+                    // Width handling - icon mode stays narrow, offcanvas collapses to 0
+                    isCollapsed
+                        ? isIconMode
+                            ? 'w-[--sidebar-width-icon]'  // Keep narrow width for icons (52px default)
+                            : 'w-0'
+                        : 'w-[--sidebar-width]',
                     // Padding for inset/floating - left and bottom only (no top gap)
                     (isInset || isFloating) && !isCollapsed && 'pl-2 pb-2',
-                    (isInset || isFloating) && isCollapsed && 'p-0',
+                    (isInset || isFloating) && isCollapsed && !isIconMode && 'p-0',
                     className
                 )}
                 data-state={state}
@@ -201,8 +208,8 @@ const Sidebar = React.forwardRef<
                         // Standard sidebar border
                         !isInset && !isFloating && side === 'left' && 'border-r border-sidebar-border',
                         !isInset && !isFloating && side === 'right' && 'border-l border-sidebar-border',
-                        // Collapsed state
-                        isCollapsed && 'opacity-0'
+                        // Collapsed state - only hide for offcanvas, not icon mode
+                        isCollapsed && !isIconMode && 'opacity-0'
                     )}
                 >
                     {children}

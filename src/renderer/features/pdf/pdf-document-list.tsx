@@ -22,7 +22,6 @@ import {
     createPdfSourceFromLocalFile,
     type PdfSource
 } from '@/lib/atoms'
-import { selectedChatIdAtom } from '@/lib/atoms'
 import {
     SidebarGroup,
     SidebarGroupLabel,
@@ -54,14 +53,12 @@ export const PdfDocumentList = memo(function PdfDocumentList({
 }: PdfDocumentListProps) {
     const [selectedPdf, setSelectedPdf] = useAtom(selectedPdfAtom)
     const [, setCurrentPage] = useAtom(pdfCurrentPageAtom)
-    const selectedChatId = useAtomValue(selectedChatIdAtom)
     const localPdfs = useAtomValue(localPdfsAtom)
     const addLocalPdf = useSetAtom(addLocalPdfAtom)
     const removeLocalPdf = useSetAtom(removeLocalPdfAtom)
 
-    // Fetch all PDFs from cloud
+    // Fetch all PDFs from cloud (all chats, not filtered by current chat)
     const { data, isLoading, error } = trpc.pdf.listAll.useQuery({
-        chatId: selectedChatId || undefined,
         limit: 50
     })
 
