@@ -7,7 +7,7 @@
     "author": "S-AGI",
     "main": "out/main/index.js",
     "scripts": {
-        "predev": "node scripts/predev.cjs",
+        "predev": "bun scripts/predev.ts",
         "dev": "electron-vite dev",
         "dev:web": "vite --config vite.config.ts",
         "build": "electron-vite build",
