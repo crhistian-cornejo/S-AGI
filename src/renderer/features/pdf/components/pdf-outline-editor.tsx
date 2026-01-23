@@ -1,6 +1,7 @@
 import { memo, useState, useEffect, useCallback } from 'react';
 import { useRegistry } from '@embedpdf/core/react';
 import { useLoaderCapability } from '@embedpdf/plugin-loader/react';
+import type { PdfEngine, PdfBookmarkObject } from '@embedpdf/models';
 import {
   Dialog,
   DialogContent,
@@ -24,13 +25,7 @@ import {
 } from '@tabler/icons-react';
 import { cn } from '@/lib/utils';
 
-interface BookmarkNode {
-  /** Bookmark handle from PDFium */
-  handle: number;
-  /** Display title */
-  title: string;
-  /** Page index (0-based) */
-  pageIndex: number;
+interface BookmarkNode extends PdfBookmarkObject {
   /** Child bookmarks */
   children: BookmarkNode[];
   /** Whether expanded in UI */
@@ -73,73 +68,22 @@ export const PdfOutlineEditor = memo(function PdfOutlineEditor({
           throw new Error('No document loaded');
         }
 
-        const engine = registry.getEngine() as any;
-        if (!engine || !engine.pdfium) {
-          throw new Error('PDFium engine not available');
+        const engine = registry.getEngine() as PdfEngine;
+        if (!engine) {
+          throw new Error('PDF engine not available');
         }
 
-        const pdfium = engine.pdfium;
+        // Use the engine's getBookmarks API
+        const bookmarksData = await engine.getBookmarks(doc).toPromise();
 
-        // Read bookmarks recursively using native PDFium APIs
-        const readBookmark = (bookmarkHandle: number): BookmarkNode | null => {
-          if (!bookmarkHandle) return null;
+        // Convert PdfBookmarkObject to BookmarkNode with expanded state
+        const convertToNode = (bookmark: PdfBookmarkObject): BookmarkNode => ({
+          ...bookmark,
+          children: bookmark.children?.map(convertToNode) || [],
+          expanded: true,
+        });
 
-          try {
-            // Get bookmark title
-            const titleLength = pdfium.FPDFBookmark_GetTitle(
-              bookmarkHandle,
-              null,
-              0,
-            );
-            if (titleLength <= 0) return null;
-
-            const titleBuffer = pdfium.wasmExports.malloc(titleLength * 2);
-            pdfium.FPDFBookmark_GetTitle(bookmarkHandle, titleBuffer, titleLength);
-            const title = pdfium.UTF16ToString(titleBuffer);
-            pdfium.wasmExports.free(titleBuffer);
-
-            // Get destination page
-            const dest = pdfium.FPDFBookmark_GetDest(doc.handle, bookmarkHandle);
-            const pageIndex = dest
-              ? pdfium.FPDFDest_GetDestPageIndex(doc.handle, dest)
-              : -1;
-
-            // Get child bookmarks
-            const children: BookmarkNode[] = [];
-            let childHandle = pdfium.FPDFBookmark_GetFirstChild(
-              doc.handle,
-              bookmarkHandle,
-            );
-            while (childHandle) {
-              const child = readBookmark(childHandle);
-              if (child) children.push(child);
-              childHandle = pdfium.FPDFBookmark_GetNextSibling(
-                doc.handle,
-                childHandle,
-              );
-            }
-
-            return {
-              handle: bookmarkHandle,
-              title,
-              pageIndex,
-              children,
-              expanded: true,
-            };
-          } catch (err) {
-            console.warn('Failed to read bookmark:', err);
-            return null;
-          }
-        };
-
-        // Read root bookmarks
-        const rootBookmarks: BookmarkNode[] = [];
-        let rootHandle = pdfium.FPDFBookmark_GetFirstChild(doc.handle, null);
-        while (rootHandle) {
-          const bookmark = readBookmark(rootHandle);
-          if (bookmark) rootBookmarks.push(bookmark);
-          rootHandle = pdfium.FPDFBookmark_GetNextSibling(doc.handle, rootHandle);
-        }
+        const rootBookmarks = bookmarksData.bookmarks.map(convertToNode);
 
         setBookmarks(rootBookmarks);
         console.log('[PDF Outline] Loaded bookmarks:', rootBookmarks);
@@ -187,34 +131,6 @@ export const PdfOutlineEditor = memo(function PdfOutlineEditor({
       if (!registry || !loaderApi) return;
 
       try {
-        const doc = loaderApi.getDocument();
-        if (!doc) return;
-
-        const engine = registry.getEngine() as any;
-        const pdfium = engine.pdfium;
-
-        // Find the bookmark to delete
-        const findBookmark = (
-          nodes: BookmarkNode[],
-          currentPath: number[],
-        ): BookmarkNode | null => {
-          if (currentPath.length === 0) return null;
-          const [index, ...rest] = currentPath;
-          const node = nodes[index];
-          if (!node) return null;
-          if (rest.length === 0) return node;
-          return findBookmark(node.children, rest);
-        };
-
-        const bookmark = findBookmark(bookmarks, path);
-        if (!bookmark) return;
-
-        // Delete using native API
-        const success = pdfium.EPDFBookmark_Delete(doc.handle, bookmark.handle);
-        if (!success) {
-          throw new Error('Failed to delete bookmark');
-        }
-
         // Remove from state
         setBookmarks((prev) => {
           const removeNode = (
@@ -239,13 +155,13 @@ export const PdfOutlineEditor = memo(function PdfOutlineEditor({
           return removeNode(prev, path);
         });
 
-        console.log('[PDF Outline] Deleted bookmark:', bookmark.title);
+        console.log('[PDF Outline] Deleted bookmark at path:', path);
       } catch (err) {
         console.error('[PDF Outline] Error deleting bookmark:', err);
         setError(err instanceof Error ? err.message : 'Failed to delete bookmark');
       }
     },
-    [registry, loaderApi, bookmarks],
+    [registry, loaderApi],
   );
 
   // Add new bookmark
@@ -253,29 +169,8 @@ export const PdfOutlineEditor = memo(function PdfOutlineEditor({
     if (!registry || !loaderApi) return;
 
     try {
-      const doc = loaderApi.getDocument();
-      if (!doc) return;
-
-      const engine = registry.getEngine() as any;
-      const pdfium = engine.pdfium;
-
-      // Create new bookmark at root level
-      const titleBuffer = pdfium.stringToUTF16('New Bookmark');
-      const bookmarkHandle = pdfium.EPDFBookmark_Create(doc.handle, 0);
-
-      if (!bookmarkHandle) {
-        throw new Error('Failed to create bookmark');
-      }
-
-      // Set title
-      pdfium.EPDFBookmark_SetTitle(bookmarkHandle, titleBuffer);
-
-      // Set destination to page 0
-      pdfium.EPDFBookmark_SetDest(bookmarkHandle, doc.handle, 0);
-
-      // Add to state
+      // Add to state - will be saved when user clicks Save
       const newBookmark: BookmarkNode = {
-        handle: bookmarkHandle,
         title: 'New Bookmark',
         pageIndex: 0,
         children: [],
@@ -292,12 +187,35 @@ export const PdfOutlineEditor = memo(function PdfOutlineEditor({
 
   // Save changes
   const handleSave = async () => {
+    if (!registry || !loaderApi) return;
+
     setIsSaving(true);
     setError(null);
 
     try {
-      // Bookmarks are modified directly in PDFium
-      // Just show success and close
+      const doc = loaderApi.getDocument();
+      if (!doc) {
+        throw new Error('No document loaded');
+      }
+
+      const engine = registry.getEngine() as PdfEngine;
+      if (!engine) {
+        throw new Error('PDF engine not available');
+      }
+
+      // Convert BookmarkNode back to PdfBookmarkObject (remove UI state)
+      const convertToBookmark = (node: BookmarkNode): PdfBookmarkObject => ({
+        title: node.title,
+        pageIndex: node.pageIndex,
+        children: node.children?.map(convertToBookmark),
+      });
+
+      const bookmarksToSave = bookmarks.map(convertToBookmark);
+
+      // Use the engine's setBookmarks API
+      await engine.setBookmarks(doc, bookmarksToSave).toPromise();
+
+      console.log('[PDF Outline] Saved bookmarks successfully');
       setSuccess(true);
       setTimeout(() => {
         onOpenChange(false);

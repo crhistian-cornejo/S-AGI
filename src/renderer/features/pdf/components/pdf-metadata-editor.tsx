@@ -1,6 +1,7 @@
 import { memo, useState, useEffect } from 'react';
 import { useRegistry } from '@embedpdf/core/react';
 import { useLoaderCapability } from '@embedpdf/plugin-loader/react';
+import type { PdfEngine } from '@embedpdf/models';
 import {
   Dialog,
   DialogContent,
@@ -71,42 +72,23 @@ export const PdfMetadataEditor = memo(function PdfMetadataEditor({
           throw new Error('No document loaded');
         }
 
-        const engine = registry.getEngine() as any;
-        if (!engine || !engine.pdfium) {
-          throw new Error('PDFium engine not available');
+        const engine = registry.getEngine() as PdfEngine;
+        if (!engine) {
+          throw new Error('PDF engine not available');
         }
 
-        const pdfium = engine.pdfium;
-
-        // Read metadata using native PDFium APIs
-        const readMetaText = (key: string): string => {
-          try {
-            // Get the length first
-            const length = pdfium.FPDF_GetMetaText(doc.handle, key, null, 0);
-            if (length <= 0) return '';
-
-            // Allocate buffer and read the value
-            const buffer = pdfium.wasmExports.malloc(length * 2); // UTF-16 = 2 bytes per char
-            pdfium.FPDF_GetMetaText(doc.handle, key, buffer, length);
-            const value = pdfium.UTF16ToString(buffer);
-            pdfium.wasmExports.free(buffer);
-
-            return value;
-          } catch (err) {
-            console.warn(`Failed to read metadata "${key}":`, err);
-            return '';
-          }
-        };
+        // Use the engine's getMetadata API
+        const meta = await engine.getMetadata(doc).toPromise();
 
         setMetadata({
-          title: readMetaText('Title'),
-          author: readMetaText('Author'),
-          subject: readMetaText('Subject'),
-          keywords: readMetaText('Keywords'),
-          creator: readMetaText('Creator'),
-          producer: readMetaText('Producer'),
-          creationDate: readMetaText('CreationDate'),
-          modificationDate: readMetaText('ModDate'),
+          title: meta.title || '',
+          author: meta.author || '',
+          subject: meta.subject || '',
+          keywords: meta.keywords || '',
+          creator: meta.creator || '',
+          producer: meta.producer || '',
+          creationDate: meta.creationDate ? (typeof meta.creationDate === 'string' ? meta.creationDate : meta.creationDate.toISOString()) : '',
+          modificationDate: meta.modificationDate ? (typeof meta.modificationDate === 'string' ? meta.modificationDate : meta.modificationDate.toISOString()) : '',
         });
 
         console.log('[PDF Metadata] Loaded metadata successfully');
@@ -134,43 +116,20 @@ export const PdfMetadataEditor = memo(function PdfMetadataEditor({
         throw new Error('No document loaded');
       }
 
-      const engine = registry.getEngine() as any;
-      if (!engine || !engine.pdfium) {
-        throw new Error('PDFium engine not available');
+      const engine = registry.getEngine() as PdfEngine;
+      if (!engine) {
+        throw new Error('PDFium engine not initialized. Please wait for the PDF to fully load.');
       }
 
-      const pdfium = engine.pdfium;
-
-      // Write metadata using native PDFium APIs
-      const writeMetaText = (key: string, value: string) => {
-        try {
-          if (!value) return; // Skip empty values
-
-          // Convert string to UTF-16 buffer
-          const buffer = pdfium.stringToUTF16(value);
-          const length = value.length;
-
-          // Set the metadata
-          const success = pdfium.EPDF_SetMetaText(doc.handle, key, length);
-
-          if (!success) {
-            console.warn(`Failed to set metadata "${key}"`);
-          }
-        } catch (err) {
-          console.warn(`Error setting metadata "${key}":`, err);
-        }
-      };
-
-      // Write all metadata fields
-      writeMetaText('Title', metadata.title);
-      writeMetaText('Author', metadata.author);
-      writeMetaText('Subject', metadata.subject);
-      writeMetaText('Keywords', metadata.keywords);
-      writeMetaText('Creator', metadata.creator);
-      writeMetaText('Producer', metadata.producer);
-
-      // Note: CreationDate and ModDate are typically read-only or require special formatting
-      // The PDFium API doesn't provide direct setters for dates
+      // Use the engine's setMetadata API
+      await engine.setMetadata(doc, {
+        title: metadata.title || undefined,
+        author: metadata.author || undefined,
+        subject: metadata.subject || undefined,
+        keywords: metadata.keywords || undefined,
+        creator: metadata.creator || undefined,
+        producer: metadata.producer || undefined,
+      }).toPromise();
 
       console.log('[PDF Metadata] Saved metadata successfully');
       setSuccess(true);

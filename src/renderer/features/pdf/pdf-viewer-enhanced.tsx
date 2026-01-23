@@ -1438,22 +1438,22 @@ const TextSelectionToolbar = memo(function TextSelectionToolbar({
         console.error("[PDF] Error committing annotations:", error);
       }
 
-      // Clear text selection
+      // Clear the text selection so it doesn't interfere with the new annotation
       if (selectionApi) {
         selectionApi.clear();
-        console.log("[PDF] Text selection cleared");
+        console.log("[PDF] Text selection cleared after creating annotation");
       }
 
       // Reset selection tracking state
       hasSelectionRef.current = false;
-
-      // Clear cache
       cachedSelectionRef.current = null;
 
-      // Hide toolbar
-      setShowToolbar(false);
-
-      console.log("[PDF] Toolbar hidden. Ready for new selection.");
+      // Hide toolbar after a short delay to give user feedback
+      // This makes the transition smoother
+      setTimeout(() => {
+        setShowToolbar(false);
+        console.log("[PDF] Toolbar hidden. Ready for new selection.");
+      }, 150);
     },
     [annotationApi, selectionApi],
   );
@@ -1998,230 +1998,93 @@ const AnnotationToolbar = memo(function AnnotationToolbar({
     }
   }, [annotationApi]);
 
-  // Determine which tools to show based on available width
-  // Approximate button width: 32px + 4px gap = ~36px per button
-  // We need to reserve space for:
-  // - Primary tools (3): ~120px
-  // - Actions (3): ~120px
-  // - Right controls (min): ~150px (Search, Thumbnails, basic Zoom)
-  // Total reserved: ~400px
-  // So secondary tools should only start appearing when width > 400 + margin
+  // Define all annotation tools in order of priority (left to right)
+  // Most important tools first - these should always be visible
+  const allAnnotationTools = [
+    { id: 'select', icon: IconPointer, tooltip: 'Select', toolId: null },
+    { id: 'highlight', icon: IconHighlight, tooltip: 'Highlight', toolId: 'highlight' },
+    { id: 'ink', icon: IconPencil, tooltip: 'Pen', toolId: 'ink' },
+    { id: 'underline', icon: IconUnderline, tooltip: 'Underline', toolId: 'underline' },
+    { id: 'strikeout', icon: IconStrikethrough, tooltip: 'Strikeout', toolId: 'strikeout' },
+    { id: 'inkHighlighter', icon: IconBrush, tooltip: 'Brush', toolId: 'inkHighlighter' },
+    { id: 'square', icon: IconSquare, tooltip: 'Rectangle', toolId: 'square' },
+    { id: 'circle', icon: IconCircle, tooltip: 'Circle', toolId: 'circle' },
+    { id: 'line', icon: IconLine, tooltip: 'Line', toolId: 'line' },
+    { id: 'freeText', icon: IconTextCaption, tooltip: 'Text', toolId: 'freeText' },
+  ];
 
-  // Increase thresholds to ensure right-side controls are not pushed off
-  const showUnderline = availableWidth > 580;
-  const showStrikeout = availableWidth > 620;
-  const showBrush = availableWidth > 660;
-  const showSquare = availableWidth > 700;
-  const showCircle = availableWidth > 740;
-  const showLine = availableWidth > 780;
-  const showText = availableWidth > 820;
+  // Calculate how many tools can fit
+  // Button width: ~32px, gap: 4px = 36px per button
+  // Reserve space for: Separator (20px) + Actions (3*36=108) + Separator (20px) + Right controls (300px) + Overflow button (40px) = ~488px
+  const reservedSpace = 488;
+  const buttonWidth = 36;
+  const overflowButtonWidth = 40;
 
+  const availableSpaceForTools = Math.max(0, availableWidth - reservedSpace - overflowButtonWidth);
+  const maxVisibleTools = Math.floor(availableSpaceForTools / buttonWidth);
+
+  // Split tools into visible and overflow
+  const visibleTools = allAnnotationTools.slice(0, Math.max(3, maxVisibleTools)); // Always show at least 3 primary tools
+  const overflowTools = allAnnotationTools.slice(visibleTools.length);
+  const showDropdown = overflowTools.length > 0;
+
+  // Right-side controls visibility
   const showThumbnails = availableWidth > 450;
-  const showZoomControls = availableWidth > 500; // Show zoom earlier if possible
+  const showZoomControls = availableWidth > 500;
   const showZoomReset = availableWidth > 900;
   const showAreaZoom = availableWidth > 950;
-
-  // Show dropdown if any tool is hidden
-  const showDropdown =
-    !showUnderline ||
-    !showStrikeout ||
-    !showBrush ||
-    !showSquare ||
-    !showCircle ||
-    !showLine ||
-    !showText;
 
   return (
     <div
       ref={toolbarRef}
       className="flex items-center gap-1 px-2 py-2 border-b border-border bg-background shrink-0 min-h-[48px]"
     >
-      {/* Primary tools - always visible */}
-      <ToolButton
-        icon={IconPointer}
-        tooltip="Select"
-        isActive={!activeTool}
-        onClick={() => handleToolSelect(null)}
-      />
-      <ToolButton
-        icon={IconHighlight}
-        tooltip="Highlight"
-        isActive={activeTool === "highlight"}
-        onClick={() => handleToolSelect("highlight")}
-      />
-      <ToolButton
-        icon={IconPencil}
-        tooltip="Pen"
-        isActive={activeTool === "ink"}
-        onClick={() => handleToolSelect("ink")}
-      />
+      {/* Visible annotation tools - dynamically determined by available width */}
+      {visibleTools.map((tool) => (
+        <ToolButton
+          key={tool.id}
+          icon={tool.icon}
+          tooltip={tool.tooltip}
+          isActive={tool.toolId === null ? !activeTool : activeTool === tool.toolId}
+          onClick={() => handleToolSelect(tool.toolId)}
+        />
+      ))}
 
-      {/* Secondary tools - shown when width allows */}
-      {showUnderline && (
-        <ToolButton
-          icon={IconUnderline}
-          tooltip="Underline"
-          isActive={activeTool === "underline"}
-          onClick={() => handleToolSelect("underline")}
-        />
-      )}
-      {showStrikeout && (
-        <ToolButton
-          icon={IconStrikethrough}
-          tooltip="Strikeout"
-          isActive={activeTool === "strikeout"}
-          onClick={() => handleToolSelect("strikeout")}
-        />
-      )}
-      {showBrush && (
-        <ToolButton
-          icon={IconBrush}
-          tooltip="Highlighter Brush"
-          isActive={activeTool === "inkHighlighter"}
-          onClick={() => handleToolSelect("inkHighlighter")}
-        />
-      )}
-      {showSquare && (
-        <ToolButton
-          icon={IconSquare}
-          tooltip="Rectangle"
-          isActive={activeTool === "square"}
-          onClick={() => handleToolSelect("square")}
-        />
-      )}
-      {showCircle && (
-        <ToolButton
-          icon={IconCircle}
-          tooltip="Circle"
-          isActive={activeTool === "circle"}
-          onClick={() => handleToolSelect("circle")}
-        />
-      )}
-      {showLine && (
-        <ToolButton
-          icon={IconLine}
-          tooltip="Line"
-          isActive={activeTool === "line"}
-          onClick={() => handleToolSelect("line")}
-        />
-      )}
-      {showText && (
-        <ToolButton
-          icon={IconTextCaption}
-          tooltip="Text"
-          isActive={activeTool === "freeText"}
-          onClick={() => handleToolSelect("freeText")}
-        />
-      )}
-
-      {/* More tools dropdown - visible when tools are hidden */}
+      {/* Overflow dropdown - contains tools that don't fit */}
       {showDropdown && (
         <Popover>
           <PopoverTrigger asChild>
-            <Button variant="ghost" size="icon" className="h-8 w-8">
+            <Button
+              variant="ghost"
+              size="icon"
+              className={cn(
+                "h-8 w-8",
+                overflowTools.some(t => t.toolId === activeTool) && "bg-accent"
+              )}
+            >
               <IconDotsVertical size={16} />
             </Button>
           </PopoverTrigger>
           <PopoverContent className="w-48 p-1" align="start">
             <div className="grid gap-0.5">
-              {!showUnderline && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className={cn(
-                    "justify-start h-8",
-                    activeTool === "underline" && "bg-accent",
-                  )}
-                  onClick={() => handleToolSelect("underline")}
-                >
-                  <IconUnderline size={14} className="mr-2" />
-                  Underline
-                </Button>
-              )}
-              {!showStrikeout && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className={cn(
-                    "justify-start h-8",
-                    activeTool === "strikeout" && "bg-accent",
-                  )}
-                  onClick={() => handleToolSelect("strikeout")}
-                >
-                  <IconStrikethrough size={14} className="mr-2" />
-                  Strikeout
-                </Button>
-              )}
-              {!showBrush && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className={cn(
-                    "justify-start h-8",
-                    activeTool === "inkHighlighter" && "bg-accent",
-                  )}
-                  onClick={() => handleToolSelect("inkHighlighter")}
-                >
-                  <IconBrush size={14} className="mr-2" />
-                  Brush
-                </Button>
-              )}
-              {!showSquare && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className={cn(
-                    "justify-start h-8",
-                    activeTool === "square" && "bg-accent",
-                  )}
-                  onClick={() => handleToolSelect("square")}
-                >
-                  <IconSquare size={14} className="mr-2" />
-                  Rectangle
-                </Button>
-              )}
-              {!showCircle && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className={cn(
-                    "justify-start h-8",
-                    activeTool === "circle" && "bg-accent",
-                  )}
-                  onClick={() => handleToolSelect("circle")}
-                >
-                  <IconCircle size={14} className="mr-2" />
-                  Circle
-                </Button>
-              )}
-              {!showLine && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className={cn(
-                    "justify-start h-8",
-                    activeTool === "line" && "bg-accent",
-                  )}
-                  onClick={() => handleToolSelect("line")}
-                >
-                  <IconLine size={14} className="mr-2" />
-                  Line
-                </Button>
-              )}
-              {!showText && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className={cn(
-                    "justify-start h-8",
-                    activeTool === "freeText" && "bg-accent",
-                  )}
-                  onClick={() => handleToolSelect("freeText")}
-                >
-                  <IconTextCaption size={14} className="mr-2" />
-                  Text
-                </Button>
-              )}
+              {overflowTools.map((tool) => {
+                const Icon = tool.icon;
+                return (
+                  <Button
+                    key={tool.id}
+                    variant="ghost"
+                    size="sm"
+                    className={cn(
+                      "justify-start h-8",
+                      (tool.toolId === null ? !activeTool : activeTool === tool.toolId) && "bg-accent",
+                    )}
+                    onClick={() => handleToolSelect(tool.toolId)}
+                  >
+                    <Icon size={14} className="mr-2" />
+                    {tool.tooltip}
+                  </Button>
+                );
+              })}
             </div>
           </PopoverContent>
         </Popover>
@@ -2229,6 +2092,7 @@ const AnnotationToolbar = memo(function AnnotationToolbar({
 
       <Separator orientation="vertical" className="h-6 mx-1" />
 
+      {/* Action buttons */}
       <ToolButton
         icon={IconArrowBackUp}
         tooltip="Undo"
@@ -2240,138 +2104,185 @@ const AnnotationToolbar = memo(function AnnotationToolbar({
         tooltip="Delete"
         onClick={handleDelete}
         disabled={!hasSelection}
-        variant="destructive"
       />
-      <ToolButton icon={IconDownload} tooltip="Save" onClick={handleCommit} />
+      <ToolButton
+        icon={IconRotateClockwise}
+        tooltip={`Rotate (${currentRotation * 90}°)`}
+        onClick={handleRotate}
+      />
 
-      <div className="flex-1 min-w-4" />
+      {/* Spacer */}
+      <div className="flex-1" />
 
-      {/* Save Status Indicator */}
+      {/* Right-side controls */}
       <SaveStatusIndicator status={saveStatus} pdfName={pdfName} />
 
-      {/* Right-aligned essential controls */}
-      <div className="flex items-center gap-1 shrink-0">
-        {/* Search - always visible */}
+      {showThumbnails && (
         <ToolButton
-          icon={IconSearch}
-          tooltip="Search (Ctrl+F)"
-          isActive={isSearchOpen}
-          onClick={onToggleSearch}
+          icon={IconLayoutSidebarRight}
+          tooltip="Thumbnails"
+          isActive={isThumbnailsOpen}
+          onClick={onToggleThumbnails}
         />
+      )}
 
-        {/* Metadata Editor */}
-        <ToolButton
-          icon={IconInfoCircle}
-          tooltip="Edit PDF Metadata"
-          onClick={() => setIsMetadataEditorOpen(true)}
-        />
+      <ToolButton
+        icon={IconSearch}
+        tooltip="Search"
+        isActive={isSearchOpen}
+        onClick={onToggleSearch}
+      />
 
-        {/* Outline Editor */}
-        <ToolButton
-          icon={IconBookmark}
-          tooltip="Edit PDF Outline"
-          onClick={() => setIsOutlineEditorOpen(true)}
-        />
-
-        {/* Merge Tool */}
-        <ToolButton
-          icon={IconFilesOff}
-          tooltip="Merge PDFs"
-          onClick={() => setIsMergeToolOpen(true)}
-        />
-
-        {/* Attachment Editor */}
-        <ToolButton
-          icon={IconPaperclip}
-          tooltip="Manage Attachments"
-          onClick={() => setIsAttachmentEditorOpen(true)}
-        />
-
-        {/* Thumbnails - shown when width allows */}
-        {showThumbnails && (
-          <ToolButton
-            icon={IconLayoutSidebarRight}
-            tooltip="Thumbnails"
-            isActive={isThumbnailsOpen}
-            onClick={onToggleThumbnails}
-          />
-        )}
-
-        {showZoomControls && (
+      {showZoomControls && (
+        <>
           <Separator orientation="vertical" className="h-6 mx-1" />
-        )}
-
-        {/* Zoom Controls - shown when width allows */}
-        {showAreaZoom && (
           <ToolButton
-            icon={IconZoomScan}
-            tooltip="Area Zoom (Click & Drag)"
-            isActive={isMarqueeZoomActive}
-            onClick={handleToggleMarqueeZoom}
+            icon={IconZoomOut}
+            tooltip="Zoom Out"
+            onClick={handleZoomOut}
           />
-        )}
-        {showZoomControls && (
-          <>
+          <span className="text-xs font-medium text-muted-foreground min-w-[45px] text-center">
+            {Math.round(currentZoom * 100)}%
+          </span>
+          <ToolButton icon={IconZoomIn} tooltip="Zoom In" onClick={handleZoomIn} />
+          {showZoomReset && (
             <ToolButton
-              icon={IconZoomOut}
-              tooltip="Zoom Out (Ctrl + Wheel)"
-              onClick={handleZoomOut}
+              icon={IconZoomReset}
+              tooltip="Reset Zoom"
+              onClick={handleZoomReset}
             />
-            <span className="text-xs text-muted-foreground min-w-[3rem] text-center tabular-nums">
-              {Math.round(currentZoom * 100)}%
-            </span>
+          )}
+          {showAreaZoom && (
             <ToolButton
-              icon={IconZoomIn}
-              tooltip="Zoom In (Ctrl + Wheel)"
-              onClick={handleZoomIn}
+              icon={IconZoomScan}
+              tooltip="Area Zoom"
+              isActive={isMarqueeZoomActive}
+              onClick={handleToggleMarqueeZoom}
             />
-          </>
-        )}
-        {showZoomReset && (
-          <ToolButton
-            icon={IconZoomReset}
-            tooltip="Reset Zoom (100%)"
-            onClick={handleZoomReset}
-          />
-        )}
+          )}
+        </>
+      )}
 
-        {/* Rotation - shown with zoom controls */}
-        {showZoomControls && (
-          <>
-            <Separator orientation="vertical" className="h-6 mx-1" />
-            <ToolButton
-              icon={IconRotateClockwise}
-              tooltip="Rotate 90°"
-              onClick={handleRotate}
-            />
-          </>
-        )}
-      </div>
-
-      {/* PDF Metadata Editor Dialog */}
-      <PdfMetadataEditor
-        open={isMetadataEditorOpen}
-        onOpenChange={setIsMetadataEditorOpen}
-      />
-
-      {/* PDF Outline Editor Dialog */}
-      <PdfOutlineEditor
-        open={isOutlineEditorOpen}
-        onOpenChange={setIsOutlineEditorOpen}
-      />
-
-      {/* PDF Merge Tool Dialog */}
-      <PdfMergeTool open={isMergeToolOpen} onOpenChange={setIsMergeToolOpen} />
-
-      {/* PDF Attachment Editor Dialog */}
-      <PdfAttachmentEditor
-        open={isAttachmentEditorOpen}
-        onOpenChange={setIsAttachmentEditorOpen}
-      />
+      {/* Additional tools dropdown - for metadata, merge, etc. */}
+      <Popover>
+        <PopoverTrigger asChild>
+          <Button variant="ghost" size="icon" className="h-8 w-8">
+            <IconDotsVertical size={16} />
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent className="w-52 p-1" align="end">
+          <div className="grid gap-0.5">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="justify-start h-8"
+              onClick={() => setIsMetadataEditorOpen(true)}
+            >
+              <IconInfoCircle size={14} className="mr-2" />
+              Edit Metadata
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="justify-start h-8"
+              onClick={() => setIsOutlineEditorOpen(true)}
+            >
+              <IconBookmark size={14} className="mr-2" />
+              Edit Outline
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="justify-start h-8"
+              onClick={() => setIsMergeToolOpen(true)}
+            >
+              <IconFilesOff size={14} className="mr-2" />
+              Merge PDFs
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="justify-start h-8"
+              onClick={() => setIsAttachmentEditorOpen(true)}
+            >
+              <IconPaperclip size={14} className="mr-2" />
+              Attachments
+            </Button>
+            {isElectron() && (
+              <>
+                <Separator className="my-1" />
+                <DownloadButton />
+              </>
+            )}
+          </div>
+        </PopoverContent>
+      </Popover>
     </div>
   );
 });
 
+/**
+ * Download Button Component
+ */
+const DownloadButton = memo(function DownloadButton() {
+  const { provides: loaderApi } = useLoaderCapability();
+  const [isDownloading, setIsDownloading] = useState(false);
+
+  const handleDownload = useCallback(async () => {
+    if (!loaderApi || !isElectron()) return;
+
+    setIsDownloading(true);
+    try {
+      const doc = loaderApi.getDocument();
+      if (!doc?.source?.data) {
+        console.error('[PDF] No document data available for download');
+        return;
+      }
+
+      // Get the ArrayBuffer from the document
+      const arrayBuffer = doc.source.data;
+      const uint8Array = new Uint8Array(arrayBuffer);
+
+      // Open save dialog
+      const result = await window.desktopApi!.showSaveDialog({
+        defaultPath: 'document.pdf',
+        filters: [{ name: 'PDF Files', extensions: ['pdf'] }],
+      });
+
+      if (!result.canceled && result.filePath) {
+        // Save file using IPC
+        await window.desktopApi!.saveFile(result.filePath, uint8Array);
+        console.log('[PDF] File downloaded successfully:', result.filePath);
+      }
+    } catch (error) {
+      console.error('[PDF] Error downloading file:', error);
+    } finally {
+      setIsDownloading(false);
+    }
+  }, [loaderApi]);
+
+  return (
+    <Button
+      variant="ghost"
+      size="sm"
+      className="justify-start h-8"
+      onClick={handleDownload}
+      disabled={isDownloading}
+    >
+      {isDownloading ? (
+        <IconLoader2 size={14} className="mr-2 animate-spin" />
+      ) : (
+        <IconDownload size={14} className="mr-2" />
+      )}
+      Download PDF
+    </Button>
+  );
+});
+
+
+/**
+ * Tool Button Props - Enhanced version with more options
+ */
 interface ToolButtonProps {
   icon: React.ComponentType<{ size?: number; className?: string }>;
   tooltip: string;
