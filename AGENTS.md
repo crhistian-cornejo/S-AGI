@@ -6,9 +6,11 @@ Guía para agentes AI que trabajan en este repositorio (Claude Code, Cursor, etc
 
 **S-AGI** - Aplicación Electron/Web para crear spreadsheets con AI usando Univer. Los usuarios chatean con Claude para generar, editar y manipular hojas de cálculo en tiempo real.
 
-##
+## Reglas de Oro
 
-always use bun for everithing
+- **SIEMPRE** usar `bun` para todo (instalación, scripts, ejecución).
+- **SIEMPRE** usar `TypeScript` para todo el código nuevo.
+- **NADA DE JAVA**: Este proyecto no usa Java. Si encuentras archivos `.java`, `.jar` o referencias a Java que no sean puramente descriptivas (iconos, diccionarios), ignóralas o elimínalas si estorban. No instales dependencias que requieran JDK.
 
 ## Comandos
 
