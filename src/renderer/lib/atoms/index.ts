@@ -393,7 +393,7 @@ export const chatSoundsEnabledAtom = atomWithStorage('chat-sounds-enabled', true
 
 // === SETTINGS MODAL ===
 export const settingsModalOpenAtom = atom(false)
-export type SettingsTab = 'account' | 'appearance' | 'api-keys' | 'advanced' | 'shortcuts' | 'debug'
+export type SettingsTab = 'account' | 'appearance' | 'api-keys' | 'advanced' | 'shortcuts' | 'debug' | 'usage'
 export const settingsActiveTabAtom = atom<SettingsTab>('account')
 
 // === HELP & SHORTCUTS ===

@@ -12,7 +12,10 @@ import {
   ScrollPluginPackage,
   type RenderPageProps,
 } from "@embedpdf/plugin-scroll/react";
-import { LoaderPluginPackage, useLoaderCapability } from "@embedpdf/plugin-loader/react";
+import {
+  LoaderPluginPackage,
+  useLoaderCapability,
+} from "@embedpdf/plugin-loader/react";
 import {
   RenderLayer,
   RenderPluginPackage,
@@ -41,7 +44,11 @@ import {
   AnnotationLayer,
   type AnnotationState,
 } from "@embedpdf/plugin-annotation/react";
-import { PdfAnnotationSubtype, Rotation } from "@embedpdf/models";
+import {
+  PdfAnnotationSubtype,
+  Rotation,
+  type PdfEngine,
+} from "@embedpdf/models";
 import type { ZoomChangeEvent, ZoomState } from "@embedpdf/plugin-zoom";
 import {
   IconZoomIn,
@@ -159,6 +166,20 @@ export const PdfViewerEnhanced = memo(function PdfViewerEnhanced({
     setLocalPdfUrl(null);
     setLocalError(null);
 
+    // For local files, check if source already has a blob URL (browser upload)
+    if (
+      sourceType === "local" &&
+      source?.url &&
+      source.url.startsWith("blob:")
+    ) {
+      console.log(
+        "[PDF Local] Using existing blob URL from source:",
+        source.url,
+      );
+      setLocalPdfUrl(source.url);
+      return;
+    }
+
     // For local files in Electron, check cache first, then read via IPC
     if (sourceType === "local" && localPath && isElectron()) {
       // Check if we have a cached blob URL
@@ -237,7 +258,7 @@ export const PdfViewerEnhanced = memo(function PdfViewerEnhanced({
 
       loadLocalPdf();
     }
-  }, [sourceType, localPath, blobCache, setLocalPdfBlob]);
+  }, [sourceType, localPath, source, blobCache, setLocalPdfBlob]);
 
   // Get PDF URL from source
   const pdfUrl = useMemo(() => {
@@ -441,7 +462,11 @@ const PdfViewerCore = memo(function PdfViewerCore({
  * Inner content - must be inside EmbedPDF provider to access hooks
  * Handles keyboard shortcuts for the PDF viewer
  */
-const PdfViewerContent = memo(function PdfViewerContent({ source }: { source: PdfSource | null }) {
+const PdfViewerContent = memo(function PdfViewerContent({
+  source,
+}: {
+  source: PdfSource | null;
+}) {
   const viewportContainerRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const { registry } = useRegistry();
@@ -461,7 +486,8 @@ const PdfViewerContent = memo(function PdfViewerContent({ source }: { source: Pd
   const setLastSave = useSetAtom(pdfLastSaveAtom);
 
   // tRPC mutation for saving PDFs
-  const saveWithAnnotationsMutation = trpc.pdf.saveWithAnnotations.useMutation();
+  const saveWithAnnotationsMutation =
+    trpc.pdf.saveWithAnnotations.useMutation();
 
   // Track rotation for Scroller key
   const [scrollerKey, setScrollerKey] = useState(0);
@@ -621,7 +647,9 @@ const PdfViewerContent = memo(function PdfViewerContent({ source }: { source: Pd
         lastRotation = rotation;
         // Force Scroller to re-render by changing its key
         setScrollerKey((prev) => prev + 1);
-        console.log(`[PDF] Scroller key updated for rotation: ${rotation * 90}°`);
+        console.log(
+          `[PDF] Scroller key updated for rotation: ${rotation * 90}°`,
+        );
       }
     });
 
@@ -635,7 +663,10 @@ const PdfViewerContent = memo(function PdfViewerContent({ source }: { source: Pd
     const handleAnnotationChange = async (event: any) => {
       // Only save when annotation is committed (already saved to PDF in memory)
       if (event.committed) {
-        console.log(`[PDF Auto-Save] Annotation ${event.type}d and committed`, event);
+        console.log(
+          `[PDF Auto-Save] Annotation ${event.type}d and committed`,
+          event,
+        );
 
         // Clear any pending save timeout
         if (saveTimeoutRef.current) {
@@ -653,13 +684,27 @@ const PdfViewerContent = memo(function PdfViewerContent({ source }: { source: Pd
 
             const engine = registry.getEngine() as any;
             if (!engine || !engine.saveAsCopy) {
-              console.warn("[PDF Auto-Save] Engine does not support saveAsCopy");
+              console.warn(
+                "[PDF Auto-Save] Engine does not support saveAsCopy",
+              );
               return;
             }
 
             // External PDFs can't be saved
-            if (source.type === 'external') {
+            if (source.type === "external") {
               console.warn("[PDF Auto-Save] External PDFs cannot be saved");
+              return;
+            }
+
+            // Local session-only PDFs (uploaded via browser) can't be saved to backend
+            // These have chatId: "local-knowledge" and are identified by blob URLs
+            if (
+              source.type === "chat_file" &&
+              source.chatId === "local-knowledge"
+            ) {
+              console.warn(
+                "[PDF Auto-Save] Local session-only PDFs cannot be saved to backend storage",
+              );
               return;
             }
 
@@ -667,23 +712,30 @@ const PdfViewerContent = memo(function PdfViewerContent({ source }: { source: Pd
 
             // Export PDF with embedded annotations
             const task = engine.saveAsCopy(doc);
-            const pdfArrayBuffer = await new Promise<ArrayBuffer>((resolve, reject) => {
-              task.wait(resolve, reject);
-            });
+            const pdfArrayBuffer = await new Promise<ArrayBuffer>(
+              (resolve, reject) => {
+                task.wait(resolve, reject);
+              },
+            );
 
-            console.log(`[PDF Auto-Save] PDF exported successfully (${pdfArrayBuffer.byteLength} bytes)`);
+            console.log(
+              `[PDF Auto-Save] PDF exported successfully (${pdfArrayBuffer.byteLength} bytes)`,
+            );
 
-            setSaveStatus('saving');
+            setSaveStatus("saving");
             setHasUnsavedChanges(false);
 
             try {
               // Convert ArrayBuffer to base64 in chunks to avoid stack overflow
               const uint8Array = new Uint8Array(pdfArrayBuffer);
               const chunkSize = 0x8000; // 32KB chunks
-              let base64 = '';
+              let base64 = "";
 
               for (let i = 0; i < uint8Array.length; i += chunkSize) {
-                const chunk = uint8Array.subarray(i, Math.min(i + chunkSize, uint8Array.length));
+                const chunk = uint8Array.subarray(
+                  i,
+                  Math.min(i + chunkSize, uint8Array.length),
+                );
                 base64 += String.fromCharCode.apply(null, Array.from(chunk));
               }
 
@@ -697,25 +749,27 @@ const PdfViewerContent = memo(function PdfViewerContent({ source }: { source: Pd
                 localPath: source.metadata?.localPath,
               });
 
-              setSaveStatus('saved');
+              setSaveStatus("saved");
               setLastSave(new Date());
-              console.log('[PDF Auto-Save] Successfully saved to storage');
+              console.log("[PDF Auto-Save] Successfully saved to storage");
 
               // Reset to idle after 2 seconds
-              setTimeout(() => setSaveStatus('idle'), 2000);
+              setTimeout(() => setSaveStatus("idle"), 2000);
             } catch (saveError) {
-              console.error('[PDF Auto-Save] Failed to save to storage:', saveError);
-              setSaveStatus('error');
+              console.error(
+                "[PDF Auto-Save] Failed to save to storage:",
+                saveError,
+              );
+              setSaveStatus("error");
               setHasUnsavedChanges(true);
 
               // Reset to idle after 3 seconds
-              setTimeout(() => setSaveStatus('idle'), 3000);
+              setTimeout(() => setSaveStatus("idle"), 3000);
             }
-
           } catch (error) {
             console.error("[PDF Auto-Save] Failed to export PDF:", error);
-            setSaveStatus('error');
-            setTimeout(() => setSaveStatus('idle'), 3000);
+            setSaveStatus("error");
+            setTimeout(() => setSaveStatus("idle"), 3000);
           }
         }, 2000);
       }
@@ -730,7 +784,14 @@ const PdfViewerContent = memo(function PdfViewerContent({ source }: { source: Pd
         clearTimeout(saveTimeoutRef.current);
       }
     };
-  }, [annotationApi, registry, loaderApi, source?.id, source?.type, source?.metadata?.localPath]);
+  }, [
+    annotationApi,
+    registry,
+    loaderApi,
+    source?.id,
+    source?.type,
+    source?.metadata?.localPath,
+  ]);
 
   return (
     <div
@@ -940,12 +1001,20 @@ const AnnotationSelectionMenu = memo(function AnnotationSelectionMenu({
   // Don't show menu if annotation hasn't been committed yet (no ID)
   // NOTE: With autoCommit: true, annotations get IDs immediately after creation
   if (!annotation.object.id) {
-    console.log("[PDF] Annotation menu hidden - waiting for commit. CommitState:", annotation.commitState);
+    console.log(
+      "[PDF] Annotation menu hidden - waiting for commit. CommitState:",
+      annotation.commitState,
+    );
     return null;
   }
 
   // DEBUG: Log when menu appears
-  console.log("[PDF] Annotation menu visible for ID:", annotation.object.id, "Type:", annotation.object.type);
+  console.log(
+    "[PDF] Annotation menu visible for ID:",
+    annotation.object.id,
+    "Type:",
+    annotation.object.type,
+  );
 
   // Get current annotation color for the indicator
   const currentColor =
@@ -988,7 +1057,12 @@ const AnnotationSelectionMenu = memo(function AnnotationSelectionMenu({
     e.preventDefault();
     e.stopPropagation();
     if (annotationApi && annotation.object.id) {
-      console.log("[PDF] Changing annotation color to:", color, "ID:", annotation.object.id);
+      console.log(
+        "[PDF] Changing annotation color to:",
+        color,
+        "ID:",
+        annotation.object.id,
+      );
       annotationApi.updateAnnotation(
         annotation.object.pageIndex,
         annotation.object.id,
@@ -1695,29 +1769,29 @@ const SaveStatusIndicator = memo(function SaveStatusIndicator({
   status,
   pdfName,
 }: {
-  status: 'idle' | 'saving' | 'saved' | 'error';
+  status: "idle" | "saving" | "saved" | "error";
   pdfName?: string;
 }) {
-  if (status === 'idle') return null;
+  if (status === "idle") return null;
 
   const statusConfig = {
     saving: {
       icon: IconCloudUpload,
-      text: 'Saving...',
-      color: 'text-blue-500',
-      bgColor: 'bg-blue-500/10',
+      text: "Saving...",
+      color: "text-blue-500",
+      bgColor: "bg-blue-500/10",
     },
     saved: {
       icon: IconCloudCheck,
-      text: 'Saved to cloud',
-      color: 'text-green-500',
-      bgColor: 'bg-green-500/10',
+      text: "Saved to cloud",
+      color: "text-green-500",
+      bgColor: "bg-green-500/10",
     },
     error: {
       icon: IconCloudX,
-      text: 'Save failed',
-      color: 'text-red-500',
-      bgColor: 'bg-red-500/10',
+      text: "Save failed",
+      color: "text-red-500",
+      bgColor: "bg-red-500/10",
     },
   };
 
@@ -1727,15 +1801,12 @@ const SaveStatusIndicator = memo(function SaveStatusIndicator({
   return (
     <div
       className={cn(
-        'flex items-center gap-1.5 px-2 py-1 rounded-md text-xs font-medium transition-all',
+        "flex items-center gap-1.5 px-2 py-1 rounded-md text-xs font-medium transition-all",
         config.color,
         config.bgColor,
       )}
     >
-      <Icon
-        size={14}
-        className={status === 'saving' ? 'animate-pulse' : ''}
-      />
+      <Icon size={14} className={status === "saving" ? "animate-pulse" : ""} />
       <span>{config.text}</span>
     </div>
   );
@@ -1746,7 +1817,7 @@ interface AnnotationToolbarProps {
   onToggleThumbnails: () => void;
   isSearchOpen: boolean;
   isThumbnailsOpen: boolean;
-  saveStatus: 'idle' | 'saving' | 'saved' | 'error';
+  saveStatus: "idle" | "saving" | "saved" | "error";
   pdfName?: string;
 }
 
@@ -1773,7 +1844,9 @@ const AnnotationToolbar = memo(function AnnotationToolbar({
   const [, setCanRedo] = useState(false);
   const [currentZoom, setCurrentZoom] = useState(1);
   const [isMarqueeZoomActive, setIsMarqueeZoomActive] = useState(false);
-  const [currentRotation, setCurrentRotation] = useState<Rotation>(Rotation.Degree0);
+  const [currentRotation, setCurrentRotation] = useState<Rotation>(
+    Rotation.Degree0,
+  );
   const [isMetadataEditorOpen, setIsMetadataEditorOpen] = useState(false);
   const [isOutlineEditorOpen, setIsOutlineEditorOpen] = useState(false);
   const [isMergeToolOpen, setIsMergeToolOpen] = useState(false);
@@ -1827,13 +1900,16 @@ const AnnotationToolbar = memo(function AnnotationToolbar({
 
     const unsubscribe = annotationApi.onAnnotationEvent((event) => {
       // Only handle 'create' events that are committed
-      if (event.type === 'create' && event.committed) {
+      if (event.type === "create" && event.committed) {
         const activeTool = annotationApi.getActiveTool();
 
         // If a drawing/markup tool is active, deselect the newly created annotation
         // This allows the user to immediately create another annotation
-        if (activeTool && activeTool.id !== 'select') {
-          console.log('[PDF] Auto-deselecting annotation to continue with active tool:', activeTool.id);
+        if (activeTool && activeTool.id !== "select") {
+          console.log(
+            "[PDF] Auto-deselecting annotation to continue with active tool:",
+            activeTool.id,
+          );
 
           // Small delay to ensure the annotation is fully processed
           setTimeout(() => {
@@ -1936,26 +2012,28 @@ const AnnotationToolbar = memo(function AnnotationToolbar({
     try {
       const doc = loaderApi.getDocument();
       if (!doc) {
-        console.warn('[PDF] No document loaded');
+        console.warn("[PDF] No document loaded");
         return;
       }
 
       const engine = registry.getEngine() as any;
       if (!engine || !engine.pdfium) {
-        console.warn('[PDF] PDFium engine not available');
+        console.warn("[PDF] PDFium engine not available");
         return;
       }
 
       const pdfium = engine.pdfium;
 
       // Get current page
-      const viewportState = registry.getStore().getState().viewport;
+      const store = registry.getStore();
+      const state = store.getState();
+      const viewportState = state.viewport;
       const currentPageIndex = viewportState?.focusedPageIndex ?? 0;
 
       // Get page handle
       const pageHandle = pdfium.FPDF_LoadPage(doc.handle, currentPageIndex);
       if (!pageHandle) {
-        console.warn('[PDF] Failed to load page for rotation');
+        console.warn("[PDF] Failed to load page for rotation");
         return;
       }
 
@@ -1964,7 +2042,9 @@ const AnnotationToolbar = memo(function AnnotationToolbar({
       const nextRotation = (currentRotation + 1) % 4;
       const rotationDegrees = nextRotation * 90;
 
-      console.log(`[PDF] Rotating page ${currentPageIndex} from ${currentRotation * 90}° to ${rotationDegrees}° using native API`);
+      console.log(
+        `[PDF] Rotating page ${currentPageIndex} from ${currentRotation * 90}° to ${rotationDegrees}° using native API`,
+      );
 
       // Set rotation using native PDFium API
       pdfium.FPDFPage_SetRotation(pageHandle, nextRotation);
@@ -1975,14 +2055,15 @@ const AnnotationToolbar = memo(function AnnotationToolbar({
       // Update state to trigger re-render
       setCurrentRotation(nextRotation as Rotation);
 
-      // Also dispatch to core for UI update
-      const store = registry.getStore();
+      // Also dispatch to core for UI update (reuse store from line 2016)
       store.dispatchToCore({
         type: "SET_ROTATION",
         payload: nextRotation as Rotation,
       });
 
-      console.log(`[PDF] Native rotation applied successfully to ${rotationDegrees}°`);
+      console.log(
+        `[PDF] Native rotation applied successfully to ${rotationDegrees}°`,
+      );
     } catch (error) {
       console.error("[PDF] Native rotation error:", error);
     }
@@ -2001,16 +2082,41 @@ const AnnotationToolbar = memo(function AnnotationToolbar({
   // Define all annotation tools in order of priority (left to right)
   // Most important tools first - these should always be visible
   const allAnnotationTools = [
-    { id: 'select', icon: IconPointer, tooltip: 'Select', toolId: null },
-    { id: 'highlight', icon: IconHighlight, tooltip: 'Highlight', toolId: 'highlight' },
-    { id: 'ink', icon: IconPencil, tooltip: 'Pen', toolId: 'ink' },
-    { id: 'underline', icon: IconUnderline, tooltip: 'Underline', toolId: 'underline' },
-    { id: 'strikeout', icon: IconStrikethrough, tooltip: 'Strikeout', toolId: 'strikeout' },
-    { id: 'inkHighlighter', icon: IconBrush, tooltip: 'Brush', toolId: 'inkHighlighter' },
-    { id: 'square', icon: IconSquare, tooltip: 'Rectangle', toolId: 'square' },
-    { id: 'circle', icon: IconCircle, tooltip: 'Circle', toolId: 'circle' },
-    { id: 'line', icon: IconLine, tooltip: 'Line', toolId: 'line' },
-    { id: 'freeText', icon: IconTextCaption, tooltip: 'Text', toolId: 'freeText' },
+    { id: "select", icon: IconPointer, tooltip: "Select", toolId: null },
+    {
+      id: "highlight",
+      icon: IconHighlight,
+      tooltip: "Highlight",
+      toolId: "highlight",
+    },
+    { id: "ink", icon: IconPencil, tooltip: "Pen", toolId: "ink" },
+    {
+      id: "underline",
+      icon: IconUnderline,
+      tooltip: "Underline",
+      toolId: "underline",
+    },
+    {
+      id: "strikeout",
+      icon: IconStrikethrough,
+      tooltip: "Strikeout",
+      toolId: "strikeout",
+    },
+    {
+      id: "inkHighlighter",
+      icon: IconBrush,
+      tooltip: "Brush",
+      toolId: "inkHighlighter",
+    },
+    { id: "square", icon: IconSquare, tooltip: "Rectangle", toolId: "square" },
+    { id: "circle", icon: IconCircle, tooltip: "Circle", toolId: "circle" },
+    { id: "line", icon: IconLine, tooltip: "Line", toolId: "line" },
+    {
+      id: "freeText",
+      icon: IconTextCaption,
+      tooltip: "Text",
+      toolId: "freeText",
+    },
   ];
 
   // Calculate how many tools can fit
@@ -2020,11 +2126,17 @@ const AnnotationToolbar = memo(function AnnotationToolbar({
   const buttonWidth = 36;
   const overflowButtonWidth = 40;
 
-  const availableSpaceForTools = Math.max(0, availableWidth - reservedSpace - overflowButtonWidth);
+  const availableSpaceForTools = Math.max(
+    0,
+    availableWidth - reservedSpace - overflowButtonWidth,
+  );
   const maxVisibleTools = Math.floor(availableSpaceForTools / buttonWidth);
 
   // Split tools into visible and overflow
-  const visibleTools = allAnnotationTools.slice(0, Math.max(3, maxVisibleTools)); // Always show at least 3 primary tools
+  const visibleTools = allAnnotationTools.slice(
+    0,
+    Math.max(3, maxVisibleTools),
+  ); // Always show at least 3 primary tools
   const overflowTools = allAnnotationTools.slice(visibleTools.length);
   const showDropdown = overflowTools.length > 0;
 
@@ -2045,7 +2157,9 @@ const AnnotationToolbar = memo(function AnnotationToolbar({
           key={tool.id}
           icon={tool.icon}
           tooltip={tool.tooltip}
-          isActive={tool.toolId === null ? !activeTool : activeTool === tool.toolId}
+          isActive={
+            tool.toolId === null ? !activeTool : activeTool === tool.toolId
+          }
           onClick={() => handleToolSelect(tool.toolId)}
         />
       ))}
@@ -2059,7 +2173,8 @@ const AnnotationToolbar = memo(function AnnotationToolbar({
               size="icon"
               className={cn(
                 "h-8 w-8",
-                overflowTools.some(t => t.toolId === activeTool) && "bg-accent"
+                overflowTools.some((t) => t.toolId === activeTool) &&
+                  "bg-accent",
               )}
             >
               <IconDotsVertical size={16} />
@@ -2076,7 +2191,9 @@ const AnnotationToolbar = memo(function AnnotationToolbar({
                     size="sm"
                     className={cn(
                       "justify-start h-8",
-                      (tool.toolId === null ? !activeTool : activeTool === tool.toolId) && "bg-accent",
+                      (tool.toolId === null
+                        ? !activeTool
+                        : activeTool === tool.toolId) && "bg-accent",
                     )}
                     onClick={() => handleToolSelect(tool.toolId)}
                   >
@@ -2144,7 +2261,11 @@ const AnnotationToolbar = memo(function AnnotationToolbar({
           <span className="text-xs font-medium text-muted-foreground min-w-[45px] text-center">
             {Math.round(currentZoom * 100)}%
           </span>
-          <ToolButton icon={IconZoomIn} tooltip="Zoom In" onClick={handleZoomIn} />
+          <ToolButton
+            icon={IconZoomIn}
+            tooltip="Zoom In"
+            onClick={handleZoomIn}
+          />
           {showZoomReset && (
             <ToolButton
               icon={IconZoomReset}
@@ -2217,6 +2338,27 @@ const AnnotationToolbar = memo(function AnnotationToolbar({
           </div>
         </PopoverContent>
       </Popover>
+
+      {/* PDF Metadata Editor Dialog */}
+      <PdfMetadataEditor
+        open={isMetadataEditorOpen}
+        onOpenChange={setIsMetadataEditorOpen}
+      />
+
+      {/* PDF Outline Editor Dialog */}
+      <PdfOutlineEditor
+        open={isOutlineEditorOpen}
+        onOpenChange={setIsOutlineEditorOpen}
+      />
+
+      {/* PDF Merge Tool Dialog */}
+      <PdfMergeTool open={isMergeToolOpen} onOpenChange={setIsMergeToolOpen} />
+
+      {/* PDF Attachment Editor Dialog */}
+      <PdfAttachmentEditor
+        open={isAttachmentEditorOpen}
+        onOpenChange={setIsAttachmentEditorOpen}
+      />
     </div>
   );
 });
@@ -2225,60 +2367,101 @@ const AnnotationToolbar = memo(function AnnotationToolbar({
  * Download Button Component
  */
 const DownloadButton = memo(function DownloadButton() {
+  const { registry } = useRegistry();
   const { provides: loaderApi } = useLoaderCapability();
   const [isDownloading, setIsDownloading] = useState(false);
+  const [progress, setProgress] = useState(0);
 
   const handleDownload = useCallback(async () => {
-    if (!loaderApi || !isElectron()) return;
+    if (!loaderApi || !registry) {
+      console.error("[PDF Download] Loader API or registry not available");
+      return;
+    }
 
     setIsDownloading(true);
+    setProgress(10);
+
     try {
       const doc = loaderApi.getDocument();
-      if (!doc?.source?.data) {
-        console.error('[PDF] No document data available for download');
+      if (!doc) {
+        console.error("[PDF Download] No document loaded");
+        setIsDownloading(false);
+        setProgress(0);
         return;
       }
 
-      // Get the ArrayBuffer from the document
-      const arrayBuffer = doc.source.data;
-      const uint8Array = new Uint8Array(arrayBuffer);
+      setProgress(30);
 
-      // Open save dialog
-      const result = await window.desktopApi!.showSaveDialog({
-        defaultPath: 'document.pdf',
-        filters: [{ name: 'PDF Files', extensions: ['pdf'] }],
-      });
-
-      if (!result.canceled && result.filePath) {
-        // Save file using IPC
-        await window.desktopApi!.saveFile(result.filePath, uint8Array);
-        console.log('[PDF] File downloaded successfully:', result.filePath);
+      const engine = registry.getEngine() as PdfEngine;
+      if (!engine) {
+        console.error("[PDF Download] PDF engine not available");
+        setIsDownloading(false);
+        setProgress(0);
+        return;
       }
+
+      // Check if saveAsCopy exists
+      if (typeof engine.saveAsCopy !== "function") {
+        console.error(
+          "[PDF Download] saveAsCopy method not available on engine",
+        );
+        setIsDownloading(false);
+        setProgress(0);
+        return;
+      }
+
+      setProgress(50);
+
+      // Use saveAsCopy to get the current PDF with all annotations
+      console.log("[PDF Download] Generating PDF copy...");
+      const arrayBuffer = await engine.saveAsCopy(doc).toPromise();
+
+      setProgress(80);
+
+      // Use downloadPdf utility to trigger browser download
+      const { downloadPdf } = await import("./utils/pdf-save");
+      downloadPdf(arrayBuffer, doc.name || "document.pdf");
+
+      setProgress(100);
+      console.log("[PDF Download] File download initiated successfully");
+
+      // Reset progress after a brief moment
+      setTimeout(() => {
+        setProgress(0);
+      }, 500);
     } catch (error) {
-      console.error('[PDF] Error downloading file:', error);
+      console.error("[PDF Download] Error downloading file:", error);
+      setProgress(0);
     } finally {
       setIsDownloading(false);
     }
-  }, [loaderApi]);
+  }, [loaderApi, registry]);
 
   return (
     <Button
       variant="ghost"
       size="sm"
-      className="justify-start h-8"
+      className="justify-start h-8 relative overflow-hidden"
       onClick={handleDownload}
       disabled={isDownloading}
     >
-      {isDownloading ? (
-        <IconLoader2 size={14} className="mr-2 animate-spin" />
-      ) : (
-        <IconDownload size={14} className="mr-2" />
+      {isDownloading && progress > 0 && (
+        <div
+          className="absolute inset-0 bg-primary/10 transition-all duration-300"
+          style={{ width: `${progress}%` }}
+        />
       )}
-      Download PDF
+      <div className="relative flex items-center">
+        {isDownloading ? (
+          <IconLoader2 size={14} className="mr-2 animate-spin" />
+        ) : (
+          <IconDownload size={14} className="mr-2" />
+        )}
+        {isDownloading ? "Downloading..." : "Download PDF"}
+      </div>
     </Button>
   );
 });
-
 
 /**
  * Tool Button Props - Enhanced version with more options

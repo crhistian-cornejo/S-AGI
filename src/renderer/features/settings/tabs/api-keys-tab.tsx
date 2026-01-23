@@ -27,6 +27,7 @@ import {
     currentProviderAtom
 } from '@/lib/atoms'
 import type { AIProvider } from '@shared/ai-types'
+import { TokenUsageChart } from '../components/token-usage-chart'
 
 export function ApiKeysTab() {
     const [selectedModel, setSelectedModel] = useAtom(selectedModelAtom)

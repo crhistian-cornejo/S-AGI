@@ -86,7 +86,7 @@ export function DebugTab() {
     }
 
     return (
-        <div className="p-6 space-y-6 overflow-y-auto max-h-[70vh]">
+        <div className="p-6 space-y-6">
             <div className="flex flex-col space-y-1.5 text-center sm:text-left">
                 <div className="flex items-center gap-2">
                     <IconBug size={18} className="text-orange-500" />

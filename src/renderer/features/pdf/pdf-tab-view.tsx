@@ -44,6 +44,7 @@ import { cn } from "@/lib/utils";
 import { PdfDocumentList } from "./pdf-document-list";
 import { PdfViewerEnhanced } from "./pdf-viewer-enhanced";
 import { PdfQueueProcessor } from "./components/queue-processor";
+import { KnowledgeDropZone } from "./components/knowledge-drop-zone";
 
 /**
  * Main PDF Tab View Component
@@ -152,6 +153,11 @@ const PdfSidebar = memo(function PdfSidebar() {
       {/* Document list - only show when expanded */}
       {open ? (
         <SidebarContent>
+          {/* Knowledge Drop Zone */}
+          <div className="px-2 pt-2">
+            <KnowledgeDropZone onUploadComplete={() => handleRefresh()} />
+          </div>
+
           <SidebarGroup className="p-1">
             <SidebarGroupContent>
               <PdfDocumentList className="px-0" />

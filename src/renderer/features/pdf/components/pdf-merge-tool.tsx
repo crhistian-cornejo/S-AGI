@@ -1,6 +1,6 @@
 import { memo, useState, useCallback } from 'react';
 import { useRegistry } from '@embedpdf/core/react';
-import { useLoaderCapability } from '@embedpdf/plugin-loader/react';
+import type { PdfEngine, PdfFile } from '@embedpdf/models';
 import {
   Dialog,
   DialogContent,
@@ -10,8 +10,6 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import {
   IconLoader2,
   IconCheck,
@@ -24,7 +22,7 @@ import {
 } from '@tabler/icons-react';
 import { cn, isElectron } from '@/lib/utils';
 
-interface PdfFile {
+interface PdfMergeFile {
   id: string;
   name: string;
   path?: string; // For local files
@@ -38,78 +36,60 @@ interface PdfMergeToolProps {
 
 /**
  * PDF Merge Tool Dialog
- * Uses native PDFium FPDF_ImportPages API to merge multiple PDFs
+ * Uses PdfEngine merge API to combine multiple PDFs
  */
 export const PdfMergeTool = memo(function PdfMergeTool({
   open,
   onOpenChange,
 }: PdfMergeToolProps) {
   const { registry, pluginsReady } = useRegistry();
-  const { provides: loaderApi } = useLoaderCapability();
 
-  const [pdfFiles, setPdfFiles] = useState<PdfFile[]>([]);
+  const [pdfFiles, setPdfFiles] = useState<PdfMergeFile[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isMerging, setIsMerging] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
 
-  // Add PDF files from file system
+  // Add PDF files from file system (browser file picker)
   const handleAddFiles = useCallback(async () => {
-    if (!isElectron()) {
-      setError('File selection only available in desktop app');
-      return;
-    }
-
     try {
-      // Use Electron IPC to open file dialog
-      // @ts-expect-error - Electron IPC API
-      const result = await window.electron.openFileDialog({
-        filters: [{ name: 'PDF Files', extensions: ['pdf'] }],
-        properties: ['openFile', 'multiSelections'],
-      });
+      // Create file input for browser
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.accept = 'application/pdf';
+      input.multiple = true;
 
-      if (result.canceled || !result.filePaths || result.filePaths.length === 0) {
-        return;
-      }
+      input.onchange = async (e) => {
+        const target = e.target as HTMLInputElement;
+        const files = target.files;
+        if (!files || files.length === 0) return;
 
-      // Load PDF files
-      setIsLoading(true);
-      const newFiles: PdfFile[] = [];
+        setIsLoading(true);
+        const newFiles: PdfMergeFile[] = [];
 
-      for (const filePath of result.filePaths) {
-        try {
-          // @ts-expect-error - Electron IPC API
-          const fileResult = await window.electron.readFile(filePath);
-          if (!fileResult.success || !fileResult.data) {
-            console.warn('Failed to read file:', filePath);
-            continue;
+        for (let i = 0; i < files.length; i++) {
+          const file = files[i];
+          try {
+            const arrayBuffer = await file.arrayBuffer();
+            newFiles.push({
+              id: `${Date.now()}-${Math.random()}`,
+              name: file.name,
+              arrayBuffer,
+            });
+          } catch (err) {
+            console.error('Error loading file:', file.name, err);
           }
-
-          // Convert base64 to ArrayBuffer
-          const binaryString = window.atob(fileResult.data);
-          const bytes = new Uint8Array(binaryString.length);
-          for (let i = 0; i < binaryString.length; i++) {
-            bytes[i] = binaryString.charCodeAt(i);
-          }
-
-          const fileName = filePath.split(/[/\\]/).pop() || 'Unknown.pdf';
-          newFiles.push({
-            id: `${Date.now()}-${Math.random()}`,
-            name: fileName,
-            path: filePath,
-            arrayBuffer: bytes.buffer,
-          });
-        } catch (err) {
-          console.error('Error loading file:', filePath, err);
         }
-      }
 
-      setPdfFiles((prev) => [...prev, ...newFiles]);
-      setError(null);
+        setPdfFiles((prev) => [...prev, ...newFiles]);
+        setError(null);
+        setIsLoading(false);
+      };
+
+      input.click();
     } catch (err) {
       console.error('Error adding files:', err);
       setError(err instanceof Error ? err.message : 'Failed to add files');
-    } finally {
       setIsLoading(false);
     }
   }, []);
@@ -139,9 +119,9 @@ export const PdfMergeTool = memo(function PdfMergeTool({
     });
   }, []);
 
-  // Merge PDFs using native PDFium API
+  // Merge PDFs using PdfEngine merge API
   const handleMerge = async () => {
-    if (!registry || !loaderApi || !pluginsReady) {
+    if (!registry || !pluginsReady) {
       setError('PDF engine not ready');
       return;
     }
@@ -155,78 +135,38 @@ export const PdfMergeTool = memo(function PdfMergeTool({
     setError(null);
 
     try {
-      const engine = registry.getEngine() as any;
-      if (!engine || !engine.pdfium) {
-        throw new Error('PDFium engine not available');
+      const engine = registry.getEngine() as PdfEngine;
+      if (!engine) {
+        throw new Error('PDF engine not available');
       }
 
-      const pdfium = engine.pdfium;
+      // Convert PdfMergeFile to PdfFile format
+      const filesToMerge: PdfFile[] = pdfFiles
+        .filter((f) => f.arrayBuffer)
+        .map((f) => ({
+          id: f.id,
+          name: f.name,
+          content: f.arrayBuffer!,
+        }));
 
-      // Create a new destination document
-      const destDoc = pdfium.FPDF_CreateNewDocument();
-      if (!destDoc) {
-        throw new Error('Failed to create new document');
+      if (filesToMerge.length < 2) {
+        throw new Error('Not enough valid PDF files to merge');
       }
 
-      // Import pages from each PDF
-      for (let i = 0; i < pdfFiles.length; i++) {
-        const file = pdfFiles[i];
-        if (!file.arrayBuffer) continue;
+      // Use the engine's merge API
+      console.log('[PDF Merge] Merging', filesToMerge.length, 'PDFs...');
+      const mergedFile = await engine.merge(filesToMerge).toPromise();
 
-        // Load source document
-        const uint8Array = new Uint8Array(file.arrayBuffer);
-        const dataPtr = pdfium.wasmExports.malloc(uint8Array.length);
-        pdfium.HEAPU8.set(uint8Array, dataPtr);
-
-        const srcDoc = pdfium.FPDF_LoadMemDocument(dataPtr, uint8Array.length, null);
-        pdfium.wasmExports.free(dataPtr);
-
-        if (!srcDoc) {
-          console.warn('Failed to load source document:', file.name);
-          continue;
-        }
-
-        // Get page count
-        const pageCount = pdfium.FPDF_GetPageCount(srcDoc);
-
-        // Import all pages (null = all pages)
-        const success = pdfium.FPDF_ImportPages(
-          destDoc,
-          srcDoc,
-          null, // Import all pages
-          i === 0 ? 0 : -1, // Insert at end
-        );
-
-        // Close source document
-        pdfium.FPDF_CloseDocument(srcDoc);
-
-        if (!success) {
-          console.warn('Failed to import pages from:', file.name);
-        } else {
-          console.log(`[PDF Merge] Imported ${pageCount} pages from ${file.name}`);
-        }
-      }
-
-      // Save the merged document to ArrayBuffer
-      // Use FPDF_SaveAsCopy to get the PDF data
-      const saveResult = pdfium.FPDF_SaveAsCopy(destDoc);
-
-      // Close destination document
-      pdfium.FPDF_CloseDocument(destDoc);
-
-      if (!saveResult || !saveResult.data) {
-        throw new Error('Failed to save merged document');
-      }
-
-      // Download the merged PDF
-      const blob = new Blob([saveResult.data], { type: 'application/pdf' });
+      // Download the merged PDF using browser API
+      const blob = new Blob([mergedFile.content], { type: 'application/pdf' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = 'merged.pdf';
+      a.download = mergedFile.name || 'merged.pdf';
       a.click();
       URL.revokeObjectURL(url);
 
+      console.log('[PDF Merge] Successfully merged PDFs');
       setSuccess(true);
       setTimeout(() => {
         onOpenChange(false);
@@ -257,18 +197,12 @@ export const PdfMergeTool = memo(function PdfMergeTool({
             variant="outline"
             size="sm"
             onClick={handleAddFiles}
-            disabled={isLoading || !isElectron()}
+            disabled={isLoading}
             className="w-fit"
           >
             <IconPlus size={16} className="mr-2" />
             {isLoading ? 'Loading...' : 'Add PDF Files'}
           </Button>
-
-          {!isElectron() && (
-            <div className="text-sm text-muted-foreground">
-              PDF merge is only available in the desktop app
-            </div>
-          )}
 
           {/* File list */}
           {pdfFiles.length === 0 ? (
