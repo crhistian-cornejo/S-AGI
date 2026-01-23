@@ -5,7 +5,6 @@ import { toast } from 'sonner'
 import { useMessageQueueStore } from '../stores/message-queue-store'
 import { useStreamingStatusStore } from '../stores/streaming-status-store'
 import { useSendCallbackStore } from '../stores/send-callback-store'
-import type { ChatQueueItem } from '../lib/queue-utils'
 
 // Delay between processing queue items (ms)
 const QUEUE_PROCESS_DELAY = 500

@@ -2,7 +2,6 @@ import React, { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { IconSparkles } from "@tabler/icons-react";
 
 interface SuggestedPromptsProps {
   suggestions: string[];
