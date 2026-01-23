@@ -15,14 +15,14 @@ export function SuggestedPrompts({
   className,
 }: SuggestedPromptsProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
-  const [showLeftShadow, setShowLeftShadow] = useState(false);
-  const [showRightShadow, setShowRightShadow] = useState(false);
+  const [showTopShadow, setShowTopShadow] = useState(false);
+  const [showBottomShadow, setShowBottomShadow] = useState(false);
 
   const checkScroll = React.useCallback(() => {
     if (!scrollRef.current) return;
-    const { scrollLeft, scrollWidth, clientWidth } = scrollRef.current;
-    setShowLeftShadow(scrollLeft > 0);
-    setShowRightShadow(scrollLeft < scrollWidth - clientWidth - 5);
+    const { scrollTop, scrollHeight, clientHeight } = scrollRef.current;
+    setShowTopShadow(scrollTop > 10);
+    setShowBottomShadow(scrollTop < scrollHeight - clientHeight - 10);
   }, []);
 
   useEffect(() => {
@@ -40,23 +40,23 @@ export function SuggestedPrompts({
       exit={{ opacity: 0, y: 10, scale: 0.98 }}
       className={cn("w-full", className)}
     >
-      <div className="relative">
-        {/* Shadow gradients for horizontal scroll */}
+      <div className="relative group/prompts">
+        {/* Shadow gradients for vertical scroll */}
         <AnimatePresence>
-          {showLeftShadow && (
+          {showTopShadow && (
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="absolute left-0 top-0 bottom-0 w-16 bg-gradient-to-r from-background via-background/60 to-transparent z-10 pointer-events-none"
+              className="absolute top-0 left-0 right-0 h-12 bg-gradient-to-b from-background/90 via-background/40 to-transparent z-10 pointer-events-none"
             />
           )}
-          {showRightShadow && (
+          {showBottomShadow && (
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="absolute right-0 top-0 bottom-0 w-16 bg-gradient-to-l from-background via-background/60 to-transparent z-10 pointer-events-none"
+              className="absolute bottom-0 left-0 right-0 h-12 bg-gradient-to-t from-background/90 via-background/40 to-transparent z-10 pointer-events-none"
             />
           )}
         </AnimatePresence>
@@ -64,24 +64,24 @@ export function SuggestedPrompts({
         <div
           ref={scrollRef}
           onScroll={checkScroll}
-          className="flex gap-2 overflow-x-auto py-1 px-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+          className="flex flex-col gap-0.5 overflow-y-auto max-h-[180px] py-1 px-1 scrollbar-none hover:scrollbar-thin scrollbar-thumb-border/40 scrollbar-track-transparent pr-1"
         >
           {suggestions.map((suggestion, index) => (
             <motion.div
               key={suggestion}
-              initial={{ opacity: 0, x: 10 }}
+              initial={{ opacity: 0, x: -5 }}
               animate={{ opacity: 1, x: 0 }}
-              transition={{ 
-                delay: index * 0.03,
-                duration: 0.2,
-                ease: "easeOut"
+              transition={{
+                delay: index * 0.015,
+                duration: 0.12,
+                ease: "easeOut",
               }}
             >
               <Button
-                variant="outline"
+                variant="ghost"
                 size="sm"
                 onClick={() => onSelect(suggestion)}
-                className="rounded-full text-[13px] h-8 px-4 bg-background border-border/60 hover:bg-accent/50 hover:border-border hover:text-accent-foreground transition-all duration-200 whitespace-nowrap font-normal text-muted-foreground/90 shadow-sm"
+                className="w-full justify-start text-left text-[11px] h-6 px-2.5 bg-background/20 border border-transparent hover:bg-accent/40 hover:border-border/20 hover:text-accent-foreground transition-all duration-150 truncate font-medium text-muted-foreground/70 hover:text-muted-foreground shadow-none rounded-md"
               >
                 {suggestion}
               </Button>

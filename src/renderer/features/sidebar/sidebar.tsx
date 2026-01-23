@@ -404,15 +404,22 @@ function ChatItem({
   }
 
   return (
-    <button
-      type="button"
+    <div
+      role="button"
+      tabIndex={0}
       className={cn(
-        "group relative flex flex-col gap-1.5 px-3 py-2.5 rounded-lg text-sm transition-all duration-200 cursor-pointer select-none w-full text-left",
+        "group relative flex flex-col gap-1.5 px-3 py-2.5 rounded-lg text-sm transition-all duration-200 cursor-pointer select-none w-full text-left outline-none focus-visible:ring-2 focus-visible:ring-primary",
         isSelected
           ? "bg-accent/80 text-accent-foreground ring-1 ring-primary/20 shadow-sm"
           : "text-foreground/80 hover:bg-accent/50 hover:shadow-sm",
       )}
       onClick={onSelect}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onSelect();
+        }
+      }}
     >
       {/* First row: timestamp (always visible), actions (on hover) */}
       <div className="flex items-center gap-1.5 w-full">
@@ -526,7 +533,7 @@ function ChatItem({
           </p>
         </CursorTooltip>
       </div>
-    </button>
+    </div>
   );
 }
 

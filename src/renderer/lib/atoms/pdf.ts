@@ -379,8 +379,11 @@ export function createPdfSourceFromLocalFile(file: {
     name: string
     size?: number
 }): PdfSource {
-    // Create a unique ID from the path
-    const id = `local-${btoa(file.path).slice(0, 16)}-${Date.now()}`
+    // Create a unique ID from the path (safely handle non-Latin1 characters)
+    const pathHash = btoa(encodeURIComponent(file.path).replace(/%([0-9A-F]{2})/g, (_, p1) => 
+        String.fromCharCode(parseInt(p1, 16))
+    )).slice(0, 16)
+    const id = `local-${pathHash}-${Date.now()}`
 
     return {
         type: 'local',

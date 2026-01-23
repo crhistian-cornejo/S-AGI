@@ -23,6 +23,7 @@ import { Button } from "@/components/ui/button";
 import { ImageAttachmentItem } from "@/components/image-attachment-item";
 import { FileAttachmentItem } from "@/components/file-attachment-item";
 import { GhostTextOverlay, TabHint } from "@/components/ghost-text-overlay";
+import { SuggestedPrompts } from "./suggested-prompts";
 import {
   DocumentMentionPopover,
   DocumentMentionBadge,
@@ -82,6 +83,7 @@ interface ChatInputProps {
   onStop?: () => void;
   isLoading: boolean;
   streamingText?: string;
+  suggestions?: string[];
 }
 
 export const ChatInput = memo(function ChatInput({
@@ -91,6 +93,7 @@ export const ChatInput = memo(function ChatInput({
   onStop,
   isLoading,
   streamingText,
+  suggestions,
 }: ChatInputProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -116,7 +119,10 @@ export const ChatInput = memo(function ChatInput({
 
   const debouncedValue = useDebounce(value, 150);
 
-  const { autocomplete, applyTab } = useSpellCheck(debouncedValue, cursorPosition);
+  const { autocomplete, applyTab } = useSpellCheck(
+    debouncedValue,
+    cursorPosition,
+  );
 
   // Get API key status to filter providers
   const { data: keyStatus } = trpc.settings.getApiKeyStatus.useQuery();
@@ -621,6 +627,21 @@ export const ChatInput = memo(function ChatInput({
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
     >
+      {/* Suggested Prompts - Now positioned above the input */}
+      {!isLoading && (
+        <div className="absolute bottom-full left-0 right-0 mb-3 px-4 pointer-events-none z-40">
+          <div className="max-w-md ml-auto pointer-events-auto">
+            <SuggestedPrompts
+              suggestions={suggestions || []}
+              onSelect={(suggestion) => {
+                onChange(suggestion);
+                textareaRef.current?.focus();
+              }}
+            />
+          </div>
+        </div>
+      )}
+
       {/* Hidden file input */}
       <input
         ref={fileInputRef}
@@ -794,9 +815,7 @@ export const ChatInput = memo(function ChatInput({
           )}
 
           {/* Tab hint indicator */}
-          {!isLoading && (
-            <TabHint hasAutocomplete={!!autocomplete} />
-          )}
+          {!isLoading && <TabHint hasAutocomplete={!!autocomplete} />}
         </div>
 
         {/* Bottom Bar Controls */}

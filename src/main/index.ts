@@ -625,7 +625,7 @@ function attachNavigationGuards(
 function registerContentSecurityPolicy(): void {
   const rendererOrigins = getRendererOrigins();
   const devOrigins = rendererOrigins.join(" ");
-  
+
   // Script src needs blob: for Web Workers (used by PDFium engine)
   const scriptSrc = is.dev
     ? `'self' 'unsafe-eval' 'unsafe-inline' blob: ${devOrigins}`
@@ -637,9 +637,9 @@ function registerContentSecurityPolicy(): void {
     `style-src 'self' 'unsafe-inline' ${devOrigins}`,
     `img-src 'self' data: blob: https: file:`,
     `font-src 'self' data:`,
-    `connect-src 'self' https: wss: blob: ${devOrigins}`,
+    `connect-src 'self' https: wss: blob: data: ${devOrigins}`,
     `media-src 'self' blob: data:`,
-    `worker-src 'self' blob:`,  // Required for PDFium Web Workers
+    `worker-src 'self' blob:`, // Required for PDFium Web Workers
     `object-src 'none'`,
     `base-uri 'self'`,
     `frame-ancestors 'none'`,

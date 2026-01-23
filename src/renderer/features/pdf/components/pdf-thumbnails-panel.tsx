@@ -1,10 +1,9 @@
 import { memo, useCallback, useEffect, useState, useRef } from 'react'
-import { useAtom } from 'jotai'
 import { IconLoader2, IconAlertCircle } from '@tabler/icons-react'
 import { useRegistry } from '@embedpdf/core/react'
 import { useLoaderCapability } from '@embedpdf/plugin-loader/react'
+import { useScroll } from '@embedpdf/plugin-scroll/react'
 import type { PdfEngine } from '@embedpdf/models'
-import { pdfCurrentPageAtom } from '@/lib/atoms'
 import { cn } from '@/lib/utils'
 
 interface ThumbnailData {
@@ -30,7 +29,7 @@ export const PdfThumbnailsPanel = memo(function PdfThumbnailsPanel({
 }: PdfThumbnailsPanelProps) {
     const { registry, pluginsReady } = useRegistry()
     const { provides: loaderApi } = useLoaderCapability()
-    const [currentPage, setCurrentPage] = useAtom(pdfCurrentPageAtom)
+    const { provides: scrollApi, state: scrollState } = useScroll()
 
     const [thumbnails, setThumbnails] = useState<ThumbnailData[]>([])
     const [pageCount, setPageCount] = useState(0)
@@ -158,17 +157,18 @@ export const PdfThumbnailsPanel = memo(function PdfThumbnailsPanel({
         }
     }, [thumbnails, loadThumbnail])
 
-    // Scroll to current page thumbnail
+    // Scroll to current page thumbnail when page changes
     useEffect(() => {
-        if (!containerRef.current || currentPage < 1) return
+        if (!containerRef.current || !scrollState.currentPage) return
 
+        const currentPageIndex = scrollState.currentPage - 1
         const targetElement = containerRef.current.querySelector(
-            `[data-page-index="${currentPage - 1}"]`
+            `[data-page-index="${currentPageIndex}"]`
         )
         if (targetElement) {
             targetElement.scrollIntoView({ behavior: 'smooth', block: 'center' })
         }
-    }, [currentPage])
+    }, [scrollState.currentPage])
 
     // Clean up blob URLs on unmount
     useEffect(() => {
@@ -181,10 +181,17 @@ export const PdfThumbnailsPanel = memo(function PdfThumbnailsPanel({
         }
     }, []) // Only on unmount
 
-    // Handle thumbnail click
+    // Handle thumbnail click - navigate to page
     const handleThumbnailClick = useCallback((pageIndex: number) => {
-        setCurrentPage(pageIndex + 1)
-    }, [setCurrentPage])
+        if (scrollApi) {
+            const pageNumber = pageIndex + 1
+            console.log(`[PDF Thumbnails] Navigating to page ${pageNumber}`)
+            scrollApi.scrollToPage({
+                pageNumber,
+                behavior: 'smooth'
+            })
+        }
+    }, [scrollApi])
 
     if (isInitializing) {
         return (
@@ -223,8 +230,8 @@ export const PdfThumbnailsPanel = memo(function PdfThumbnailsPanel({
                         type="button"
                         data-page-index={thumb.pageIndex}
                         className={cn(
-                            "relative flex flex-col items-center p-1 rounded-lg transition-all hover:bg-muted/50",
-                            currentPage === thumb.pageIndex + 1 && "ring-2 ring-primary bg-primary/5"
+                            "relative flex flex-col items-center p-1 rounded-lg transition-all hover:bg-muted/50 cursor-pointer",
+                            scrollState.currentPage === thumb.pageIndex + 1 && "ring-2 ring-primary bg-primary/5"
                         )}
                         onClick={() => handleThumbnailClick(thumb.pageIndex)}
                     >
@@ -263,7 +270,7 @@ export const PdfThumbnailsPanel = memo(function PdfThumbnailsPanel({
                         {/* Page number */}
                         <span className={cn(
                             "mt-1 text-xs tabular-nums",
-                            currentPage === thumb.pageIndex + 1
+                            scrollState.currentPage === thumb.pageIndex + 1
                                 ? "font-medium text-primary"
                                 : "text-muted-foreground"
                         )}>
