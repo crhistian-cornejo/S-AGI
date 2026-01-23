@@ -196,6 +196,7 @@ export function App() {
                             <div
                                 data-sagi-app
                                 className="h-screen w-screen bg-background text-foreground overflow-hidden"
+                                style={{ minWidth: '835px' }}
                             >
                                 <AuthGuard>
                                     <OnboardingGuard>

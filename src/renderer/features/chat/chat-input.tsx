@@ -330,18 +330,18 @@ export const ChatInput = memo(function ChatInput({
 
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
-      if (!isLoading && canSend) {
+      if (canSend) {
         handleSend();
       }
     }
   };
 
   // Block sending while documents are being processed
+  // NOTE: Removed !isLoading check to allow queueing messages during streaming
   const isDocumentProcessing =
     documentUpload.hasProcessingDocuments || documentUpload.isUploading;
   const canSend =
     (value.trim().length > 0 || images.length > 0 || files.length > 0) &&
-    !isLoading &&
     !isUploading &&
     !isDocumentProcessing;
 
@@ -801,21 +801,19 @@ export const ChatInput = memo(function ChatInput({
             }
             className="w-full bg-transparent resize-none outline-none text-[15px] leading-relaxed min-h-[60px] max-h-[400px] pt-2 pb-2 px-3 placeholder:text-muted-foreground/40 transition-all font-normal relative z-20"
             rows={1}
-            disabled={isLoading}
+            disabled={false}
             spellCheck={false}
           />
           {/* Ghost Text Overlay - Mirror element technique for autocomplete */}
-          {!isLoading && (
-            <GhostTextOverlay
-              textareaRef={textareaRef}
-              value={value}
-              autocomplete={autocomplete}
-              className="z-10"
-            />
-          )}
+          <GhostTextOverlay
+            textareaRef={textareaRef}
+            value={value}
+            autocomplete={autocomplete}
+            className="z-10"
+          />
 
           {/* Tab hint indicator */}
-          {!isLoading && <TabHint hasAutocomplete={!!autocomplete} />}
+          <TabHint hasAutocomplete={!!autocomplete} />
         </div>
 
         {/* Bottom Bar Controls */}
@@ -1303,42 +1301,42 @@ export const ChatInput = memo(function ChatInput({
               </div>
             </TooltipProvider>
 
-            {isLoading ? (
-              <Button
-                type="button"
-                size="icon"
-                className="h-8 w-8 rounded-full bg-foreground text-background hover:bg-foreground/90 transition-all shrink-0"
-                onClick={onStop}
-              >
-                <IconPlayerStop size={14} fill="currentColor" />
-              </Button>
-            ) : (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    type="button"
-                    size="icon"
-                    className={cn(
-                      "h-8 w-8 rounded-full transition-all shrink-0",
-                      canSend
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  type="button"
+                  size="icon"
+                  className={cn(
+                    "h-8 w-8 rounded-full transition-all shrink-0",
+                    isLoading
+                      ? "bg-foreground text-background hover:bg-foreground/90"
+                      : canSend
                         ? isPlanMode
                           ? "bg-[hsl(var(--plan-mode))] text-[hsl(var(--plan-mode-foreground))] hover:bg-[hsl(var(--plan-mode))]/90 shadow-lg shadow-[hsl(var(--plan-mode))]/20"
                           : "bg-foreground text-background hover:bg-foreground/90 shadow-lg shadow-foreground/10"
                         : "bg-muted text-muted-foreground/40 cursor-not-allowed",
-                    )}
-                    onClick={handleSend}
-                    disabled={!canSend}
-                  >
+                  )}
+                  onClick={isLoading ? onStop : handleSend}
+                  disabled={!isLoading && !canSend}
+                >
+                  {isLoading ? (
+                    <IconPlayerStop size={14} fill="currentColor" />
+                  ) : (
                     <IconArrowUp size={18} strokeWidth={2.5} />
-                  </Button>
-                </TooltipTrigger>
-                {isDocumentProcessing && (
-                  <TooltipContent side="top">
-                    <p>Procesando documento...</p>
-                  </TooltipContent>
-                )}
-              </Tooltip>
-            )}
+                  )}
+                </Button>
+              </TooltipTrigger>
+              {isLoading && canSend && (
+                <TooltipContent side="top">
+                  <p>Mensaje será encolado</p>
+                </TooltipContent>
+              )}
+              {isDocumentProcessing && (
+                <TooltipContent side="top">
+                  <p>Procesando documento...</p>
+                </TooltipContent>
+              )}
+            </Tooltip>
           </div>
         </div>
       </div>

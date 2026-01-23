@@ -502,6 +502,26 @@ interface ChatMarkdownRendererProps {
     documentCitations?: CitationData[]
 }
 
+/**
+ * Sanitize markdown content to fix common AI model issues:
+ * - Remove empty bullet points (- with no content)
+ * - Remove bullets with only whitespace
+ * - Fix bullets that only have invisible chars
+ */
+function sanitizeMarkdown(content: string): string {
+    return content
+        // Remove lines that are just "- " or "* " with nothing meaningful after
+        .replace(/^[\t ]*[-*+][\t ]*$/gm, '')
+        // Remove lines that are just "- " followed by only whitespace/invisible chars
+        .replace(/^[\t ]*[-*+][\t ]+[\s\u200B\u200C\u200D\uFEFF]*$/gm, '')
+        // Remove numbered list items that are empty (e.g., "1. " with nothing)
+        .replace(/^[\t ]*\d+\.[\t ]*$/gm, '')
+        .replace(/^[\t ]*\d+\.[\t ]+[\s\u200B\u200C\u200D\uFEFF]*$/gm, '')
+        // Collapse multiple empty lines into max 2
+        .replace(/\n{3,}/g, '\n\n')
+        .trim()
+}
+
 export const ChatMarkdownRenderer = memo(function ChatMarkdownRenderer({
     content,
     size = 'md',
@@ -510,6 +530,9 @@ export const ChatMarkdownRenderer = memo(function ChatMarkdownRenderer({
     documentCitations = [],
 }: ChatMarkdownRendererProps) {
     const styles = sizeStyles[size]
+
+    // Sanitize content to fix AI model issues (empty bullets, etc.)
+    const sanitizedContent = useMemo(() => sanitizeMarkdown(content), [content])
 
     // Citation navigation hook - opens PDF tab when citation is clicked
     const { navigateToCitation } = useCitationNavigation()
@@ -658,7 +681,7 @@ export const ChatMarkdownRenderer = memo(function ChatMarkdownRenderer({
                     ),
                 }}
             >
-                {content}
+                {sanitizedContent}
             </Streamdown>
         </div>
     )

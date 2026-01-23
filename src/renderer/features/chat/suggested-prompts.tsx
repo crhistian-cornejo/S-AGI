@@ -1,6 +1,11 @@
-import React, { useEffect, useRef, useState } from "react";
+import { useRef, useState, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Button } from "@/components/ui/button";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
 interface SuggestedPromptsProps {
@@ -9,86 +14,153 @@ interface SuggestedPromptsProps {
   className?: string;
 }
 
+// Max characters before truncating with tooltip
+const MAX_VISIBLE_CHARS = 35;
+
 export function SuggestedPrompts({
   suggestions,
   onSelect,
   className,
 }: SuggestedPromptsProps) {
-  const scrollRef = useRef<HTMLDivElement>(null);
-  const [showTopShadow, setShowTopShadow] = useState(false);
-  const [showBottomShadow, setShowBottomShadow] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [showLeftGradient, setShowLeftGradient] = useState(false);
+  const [showRightGradient, setShowRightGradient] = useState(false);
 
-  const checkScroll = React.useCallback(() => {
-    if (!scrollRef.current) return;
-    const { scrollTop, scrollHeight, clientHeight } = scrollRef.current;
-    setShowTopShadow(scrollTop > 10);
-    setShowBottomShadow(scrollTop < scrollHeight - clientHeight - 10);
+  // Check scroll position to show/hide gradients
+  const checkScroll = useCallback(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    const { scrollLeft, scrollWidth, clientWidth } = container;
+    const hasOverflow = scrollWidth > clientWidth;
+
+    setShowLeftGradient(hasOverflow && scrollLeft > 0);
+    setShowRightGradient(
+      hasOverflow && scrollLeft < scrollWidth - clientWidth - 1
+    );
   }, []);
 
+  // Check scroll on mount and when suggestions change
   useEffect(() => {
     checkScroll();
-    window.addEventListener("resize", checkScroll);
-    return () => window.removeEventListener("resize", checkScroll);
+    // Re-check after a short delay to account for animations
+    const timer = setTimeout(checkScroll, 100);
+    return () => clearTimeout(timer);
+  }, [suggestions, checkScroll]);
+
+  // Add resize observer to handle window resizing
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    const resizeObserver = new ResizeObserver(() => {
+      checkScroll();
+    });
+
+    resizeObserver.observe(container);
+    return () => resizeObserver.disconnect();
   }, [checkScroll]);
 
   if (!suggestions || suggestions.length === 0) return null;
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 10, scale: 0.98 }}
-      animate={{ opacity: 1, y: 0, scale: 1 }}
-      exit={{ opacity: 0, y: 10, scale: 0.98 }}
-      className={cn("w-full", className)}
-    >
-      <div className="relative group/prompts">
-        {/* Shadow gradients for vertical scroll */}
-        <AnimatePresence>
-          {showTopShadow && (
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="absolute top-0 left-0 right-0 h-12 bg-gradient-to-b from-background/90 via-background/40 to-transparent z-10 pointer-events-none"
-            />
-          )}
-          {showBottomShadow && (
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="absolute bottom-0 left-0 right-0 h-12 bg-gradient-to-t from-background/90 via-background/40 to-transparent z-10 pointer-events-none"
-            />
-          )}
-        </AnimatePresence>
-
+    <AnimatePresence mode="wait">
+      <motion.div
+        key="suggestions"
+        initial={{ opacity: 0, y: 8 }}
+        animate={{ opacity: 1, y: 0 }}
+        exit={{ opacity: 0, y: 8, transition: { duration: 0.15 } }}
+        transition={{ duration: 0.2, ease: "easeOut" }}
+        className={cn("relative w-full", className)}
+      >
+        {/* Left gradient fade */}
         <div
-          ref={scrollRef}
+          className={cn(
+            "absolute left-0 top-0 bottom-0 w-8 bg-gradient-to-r from-background to-transparent z-10 pointer-events-none transition-opacity duration-200",
+            showLeftGradient ? "opacity-100" : "opacity-0"
+          )}
+        />
+
+        {/* Scrollable container */}
+        <div
+          ref={containerRef}
           onScroll={checkScroll}
-          className="flex flex-col gap-0.5 overflow-y-auto max-h-[180px] py-1 px-1 scrollbar-none hover:scrollbar-thin scrollbar-thumb-border/40 scrollbar-track-transparent pr-1"
+          className="flex flex-row gap-2 overflow-x-auto py-1 px-1 scrollbar-none"
+          style={{
+            scrollbarWidth: "none",
+            msOverflowStyle: "none",
+          }}
         >
-          {suggestions.map((suggestion, index) => (
-            <motion.div
-              key={suggestion}
-              initial={{ opacity: 0, x: -5 }}
-              animate={{ opacity: 1, x: 0 }}
-              transition={{
-                delay: index * 0.015,
-                duration: 0.12,
-                ease: "easeOut",
-              }}
-            >
+          {suggestions.map((suggestion, index) => {
+            const isLong = suggestion.length > MAX_VISIBLE_CHARS;
+            const displayText = isLong
+              ? `${suggestion.slice(0, MAX_VISIBLE_CHARS)}…`
+              : suggestion;
+
+            const buttonContent = (
               <Button
-                variant="ghost"
+                variant="outline"
                 size="sm"
                 onClick={() => onSelect(suggestion)}
-                className="w-full justify-start text-left text-[11px] h-6 px-2.5 bg-background/20 border border-transparent hover:bg-accent/40 hover:border-border/20 hover:text-accent-foreground transition-all duration-150 truncate font-medium text-muted-foreground/70 hover:text-muted-foreground shadow-none rounded-md"
+                className={cn(
+                  "rounded-full h-auto min-h-7 py-1.5 px-3.5 text-[12px] font-medium",
+                  "bg-background/60 backdrop-blur-sm",
+                  "border-border/50",
+                  "hover:bg-accent/50 hover:border-border/70 hover:text-accent-foreground",
+                  "active:scale-[0.98]",
+                  "transition-all duration-150",
+                  // For long text: allow wrapping up to 2 lines, then truncate
+                  isLong ? "max-w-[280px]" : "whitespace-nowrap"
+                )}
               >
-                {suggestion}
+                <span
+                  className={cn(
+                    isLong && "line-clamp-2 text-left leading-tight"
+                  )}
+                >
+                  {displayText}
+                </span>
               </Button>
-            </motion.div>
-          ))}
+            );
+
+            return (
+              <motion.div
+                key={`${suggestion}-${index}`}
+                initial={{ opacity: 0, scale: 0.95 }}
+                animate={{ opacity: 1, scale: 1 }}
+                transition={{
+                  delay: index * 0.03,
+                  duration: 0.15,
+                  ease: "easeOut",
+                }}
+                className="flex-shrink-0"
+              >
+                {isLong ? (
+                  <Tooltip delayDuration={300}>
+                    <TooltipTrigger asChild>{buttonContent}</TooltipTrigger>
+                    <TooltipContent
+                      side="top"
+                      className="max-w-[300px] text-xs"
+                    >
+                      {suggestion}
+                    </TooltipContent>
+                  </Tooltip>
+                ) : (
+                  buttonContent
+                )}
+              </motion.div>
+            );
+          })}
         </div>
-      </div>
-    </motion.div>
+
+        {/* Right gradient fade */}
+        <div
+          className={cn(
+            "absolute right-0 top-0 bottom-0 w-8 bg-gradient-to-l from-background to-transparent z-10 pointer-events-none transition-opacity duration-200",
+            showRightGradient ? "opacity-100" : "opacity-0"
+          )}
+        />
+      </motion.div>
+    </AnimatePresence>
   );
 }

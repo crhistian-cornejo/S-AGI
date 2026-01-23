@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect, useMemo, memo, useRef } from "react";
 import { useAtom, useSetAtom } from "jotai";
 import { createPluginRegistration } from "@embedpdf/core";
-import { EmbedPDF } from "@embedpdf/core/react";
+import { EmbedPDF, useRegistry } from "@embedpdf/core/react";
 import { usePdfiumEngine } from "@embedpdf/engines/react";
 import {
   Viewport,
@@ -12,7 +12,7 @@ import {
   ScrollPluginPackage,
   type RenderPageProps,
 } from "@embedpdf/plugin-scroll/react";
-import { LoaderPluginPackage } from "@embedpdf/plugin-loader/react";
+import { LoaderPluginPackage, useLoaderCapability } from "@embedpdf/plugin-loader/react";
 import {
   RenderLayer,
   RenderPluginPackage,
@@ -41,7 +41,7 @@ import {
   AnnotationLayer,
   type AnnotationState,
 } from "@embedpdf/plugin-annotation/react";
-import { PdfAnnotationSubtype } from "@embedpdf/models";
+import { PdfAnnotationSubtype, Rotation } from "@embedpdf/models";
 import type { ZoomChangeEvent, ZoomState } from "@embedpdf/plugin-zoom";
 import {
   IconZoomIn,
@@ -52,7 +52,6 @@ import {
   IconSquare,
   IconCircle,
   IconArrowBackUp,
-  IconArrowForwardUp,
   IconTrash,
   IconPointer,
   IconLoader2,
@@ -62,18 +61,28 @@ import {
   IconStrikethrough,
   IconLine,
   IconTextCaption,
-  IconSignature,
   IconDownload,
   IconBrush,
   IconCopy,
   IconSearch,
   IconLayoutSidebarRight,
+  IconZoomScan,
+  IconDotsVertical,
+  IconRotateClockwise,
+  IconCloudCheck,
+  IconCloudUpload,
+  IconCloudX,
+  IconInfoCircle,
+  IconBookmark,
+  IconFilesOff,
+  IconPaperclip,
 } from "@tabler/icons-react";
 import type { TrackedAnnotation } from "@embedpdf/plugin-annotation";
 import { useSelectionCapability } from "@embedpdf/plugin-selection/react";
 import { cn, isElectron } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
+import { SearchHighlights } from "./components/pdf-search-highlights";
 import {
   Tooltip,
   TooltipContent,
@@ -90,10 +99,18 @@ import {
   localPdfBlobCacheAtom,
   setLocalPdfBlobAtom,
   pdfSearchPanelOpenAtom,
+  pdfSaveStatusAtom,
+  pdfHasUnsavedChangesAtom,
+  pdfLastSaveAtom,
   type PdfSource,
 } from "@/lib/atoms";
 import { PdfSearchPanel } from "./components/pdf-search-panel";
 import { PdfThumbnailsPanel } from "./components/pdf-thumbnails-panel";
+import { PdfMetadataEditor } from "./components/pdf-metadata-editor";
+import { PdfOutlineEditor } from "./components/pdf-outline-editor";
+import { PdfMergeTool } from "./components/pdf-merge-tool";
+import { PdfAttachmentEditor } from "./components/pdf-attachment-editor";
+import { trpc } from "@/lib/trpc";
 
 interface PdfViewerEnhancedProps {
   source: PdfSource | null;
@@ -228,7 +245,10 @@ export const PdfViewerEnhanced = memo(function PdfViewerEnhanced({
 
     // For local files, use the loaded blob URL
     if (source.type === "local") {
-      console.log("[PDF] Using local blob URL:", localPdfUrl ? "Available" : "Not ready");
+      console.log(
+        "[PDF] Using local blob URL:",
+        localPdfUrl ? "Available" : "Not ready",
+      );
       return localPdfUrl;
     }
 
@@ -287,6 +307,7 @@ export const PdfViewerEnhanced = memo(function PdfViewerEnhanced({
       <PdfViewerCore
         pdfUrl={pdfUrl}
         pdfId={source.id}
+        source={source}
         onPageChange={setCurrentPage}
         onZoomChange={setZoomLevel}
       />
@@ -297,6 +318,7 @@ export const PdfViewerEnhanced = memo(function PdfViewerEnhanced({
 interface PdfViewerCoreProps {
   pdfUrl: string;
   pdfId: string;
+  source: PdfSource;
   onPageChange?: (page: number) => void;
   onZoomChange?: (zoom: number) => void;
 }
@@ -307,6 +329,7 @@ interface PdfViewerCoreProps {
 const PdfViewerCore = memo(function PdfViewerCore({
   pdfUrl,
   pdfId,
+  source,
 }: PdfViewerCoreProps) {
   console.log("[PDF Core] Initializing with URL:", pdfUrl, "ID:", pdfId);
 
@@ -354,8 +377,8 @@ const PdfViewerCore = memo(function PdfViewerCore({
       createPluginRegistration(AnnotationPluginPackage, {
         annotationAuthor: "User",
         autoCommit: true,
-        selectAfterCreate: true,
-        deactivateToolAfterCreate: false,
+        selectAfterCreate: true, // Select after create to show menu
+        deactivateToolAfterCreate: false, // Keep tool active for continuous annotation
         colorPresets: [
           "#FFEB3B",
           "#FFC107",
@@ -409,7 +432,7 @@ const PdfViewerCore = memo(function PdfViewerCore({
   return (
     <EmbedPDF engine={engine} plugins={plugins}>
       <CopyToClipboard />
-      <PdfViewerContent />
+      <PdfViewerContent source={source} />
     </EmbedPDF>
   );
 });
@@ -418,15 +441,30 @@ const PdfViewerCore = memo(function PdfViewerCore({
  * Inner content - must be inside EmbedPDF provider to access hooks
  * Handles keyboard shortcuts for the PDF viewer
  */
-const PdfViewerContent = memo(function PdfViewerContent() {
+const PdfViewerContent = memo(function PdfViewerContent({ source }: { source: PdfSource | null }) {
   const viewportContainerRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const { registry } = useRegistry();
+  const { provides: loaderApi } = useLoaderCapability();
   const { provides: selectionApi } = useSelectionCapability();
   const { provides: annotationApi } = useAnnotationCapability();
+  const { provides: zoomApi } = useZoomCapability();
 
   // Panel states
   const [searchPanelOpen, setSearchPanelOpen] = useAtom(pdfSearchPanelOpenAtom);
   const [thumbnailsPanelOpen, setThumbnailsPanelOpen] = useState(true); // Open by default
+
+  // Auto-save state
+  const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const [saveStatus, setSaveStatus] = useAtom(pdfSaveStatusAtom);
+  const setHasUnsavedChanges = useSetAtom(pdfHasUnsavedChangesAtom);
+  const setLastSave = useSetAtom(pdfLastSaveAtom);
+
+  // tRPC mutation for saving PDFs
+  const saveWithAnnotationsMutation = trpc.pdf.saveWithAnnotations.useMutation();
+
+  // Track rotation for Scroller key
+  const [scrollerKey, setScrollerKey] = useState(0);
 
   // Keyboard event handler for Escape and other shortcuts
   useEffect(() => {
@@ -495,6 +533,8 @@ const PdfViewerContent = memo(function PdfViewerContent() {
               selected.object.id,
             );
             console.log("[PDF] Deleted annotation:", selected.object.id);
+            annotationApi.commit?.();
+            annotationApi.deselectAnnotation();
           }
         }
       }
@@ -523,7 +563,9 @@ const PdfViewerContent = memo(function PdfViewerContent() {
 
     return () => {
       if (container) {
-        container.removeEventListener("keydown", handleKeyDown, { capture: true });
+        container.removeEventListener("keydown", handleKeyDown, {
+          capture: true,
+        });
       }
       document.removeEventListener("keydown", handleKeyDown, { capture: true });
     };
@@ -533,6 +575,162 @@ const PdfViewerContent = memo(function PdfViewerContent() {
   useEffect(() => {
     containerRef.current?.focus();
   }, []);
+
+  // Handle Ctrl/Cmd + Mouse Wheel for zoom
+  useEffect(() => {
+    const handleWheel = (e: WheelEvent) => {
+      // Only handle if Ctrl or Cmd is pressed
+      if (e.ctrlKey || e.metaKey) {
+        e.preventDefault();
+
+        if (!zoomApi) return;
+
+        // Determine zoom direction based on deltaY
+        // Negative deltaY = scroll up = zoom in
+        // Positive deltaY = scroll down = zoom out
+        if (e.deltaY < 0) {
+          zoomApi.zoomIn();
+          console.log("[PDF] Zoom in via Ctrl+Wheel");
+        } else if (e.deltaY > 0) {
+          zoomApi.zoomOut();
+          console.log("[PDF] Zoom out via Ctrl+Wheel");
+        }
+      }
+    };
+
+    const viewport = viewportContainerRef.current;
+    if (viewport) {
+      viewport.addEventListener("wheel", handleWheel, { passive: false });
+      return () => {
+        viewport.removeEventListener("wheel", handleWheel);
+      };
+    }
+  }, [zoomApi]);
+
+  // Listen for rotation changes to force Scroller re-render
+  useEffect(() => {
+    if (!registry) return;
+
+    const store = registry.getStore();
+    let lastRotation = (store.getState() as any)?.core?.rotation;
+
+    // Subscribe to rotation changes in core state
+    const unsubscribe = store.subscribe((state) => {
+      const rotation = (state as any)?.core?.rotation;
+      if (rotation !== undefined && rotation !== lastRotation) {
+        lastRotation = rotation;
+        // Force Scroller to re-render by changing its key
+        setScrollerKey((prev) => prev + 1);
+        console.log(`[PDF] Scroller key updated for rotation: ${rotation * 90}°`);
+      }
+    });
+
+    return unsubscribe;
+  }, [registry]);
+
+  // Auto-save annotations when they change
+  useEffect(() => {
+    if (!annotationApi || !registry || !loaderApi || !source) return;
+
+    const handleAnnotationChange = async (event: any) => {
+      // Only save when annotation is committed (already saved to PDF in memory)
+      if (event.committed) {
+        console.log(`[PDF Auto-Save] Annotation ${event.type}d and committed`, event);
+
+        // Clear any pending save timeout
+        if (saveTimeoutRef.current) {
+          clearTimeout(saveTimeoutRef.current);
+        }
+
+        // Debounce save for 2 seconds
+        saveTimeoutRef.current = setTimeout(async () => {
+          try {
+            const doc = loaderApi.getDocument();
+            if (!doc) {
+              console.warn("[PDF Auto-Save] No document available");
+              return;
+            }
+
+            const engine = registry.getEngine() as any;
+            if (!engine || !engine.saveAsCopy) {
+              console.warn("[PDF Auto-Save] Engine does not support saveAsCopy");
+              return;
+            }
+
+            // External PDFs can't be saved
+            if (source.type === 'external') {
+              console.warn("[PDF Auto-Save] External PDFs cannot be saved");
+              return;
+            }
+
+            console.log("[PDF Auto-Save] Exporting PDF with annotations...");
+
+            // Export PDF with embedded annotations
+            const task = engine.saveAsCopy(doc);
+            const pdfArrayBuffer = await new Promise<ArrayBuffer>((resolve, reject) => {
+              task.wait(resolve, reject);
+            });
+
+            console.log(`[PDF Auto-Save] PDF exported successfully (${pdfArrayBuffer.byteLength} bytes)`);
+
+            setSaveStatus('saving');
+            setHasUnsavedChanges(false);
+
+            try {
+              // Convert ArrayBuffer to base64 in chunks to avoid stack overflow
+              const uint8Array = new Uint8Array(pdfArrayBuffer);
+              const chunkSize = 0x8000; // 32KB chunks
+              let base64 = '';
+
+              for (let i = 0; i < uint8Array.length; i += chunkSize) {
+                const chunk = uint8Array.subarray(i, Math.min(i + chunkSize, uint8Array.length));
+                base64 += String.fromCharCode.apply(null, Array.from(chunk));
+              }
+
+              const base64Data = btoa(base64);
+
+              // Call tRPC mutation to save the PDF
+              await saveWithAnnotationsMutation.mutateAsync({
+                id: source.id,
+                type: source.type,
+                pdfData: base64Data,
+                localPath: source.metadata?.localPath,
+              });
+
+              setSaveStatus('saved');
+              setLastSave(new Date());
+              console.log('[PDF Auto-Save] Successfully saved to storage');
+
+              // Reset to idle after 2 seconds
+              setTimeout(() => setSaveStatus('idle'), 2000);
+            } catch (saveError) {
+              console.error('[PDF Auto-Save] Failed to save to storage:', saveError);
+              setSaveStatus('error');
+              setHasUnsavedChanges(true);
+
+              // Reset to idle after 3 seconds
+              setTimeout(() => setSaveStatus('idle'), 3000);
+            }
+
+          } catch (error) {
+            console.error("[PDF Auto-Save] Failed to export PDF:", error);
+            setSaveStatus('error');
+            setTimeout(() => setSaveStatus('idle'), 3000);
+          }
+        }, 2000);
+      }
+    };
+
+    // Listen to annotation events
+    const unsubscribe = annotationApi.onAnnotationEvent(handleAnnotationChange);
+
+    return () => {
+      unsubscribe();
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current);
+      }
+    };
+  }, [annotationApi, registry, loaderApi, source?.id, source?.type, source?.metadata?.localPath]);
 
   return (
     <div
@@ -547,6 +745,8 @@ const PdfViewerContent = memo(function PdfViewerContent() {
         onToggleThumbnails={() => setThumbnailsPanelOpen(!thumbnailsPanelOpen)}
         isSearchOpen={searchPanelOpen}
         isThumbnailsOpen={thumbnailsPanelOpen}
+        saveStatus={saveStatus}
+        pdfName={source?.name}
       />
 
       {/* Search Panel - collapsible at top */}
@@ -585,6 +785,7 @@ const PdfViewerContent = memo(function PdfViewerContent() {
               }}
             >
               <Scroller
+                key={scrollerKey}
                 renderPage={(props: RenderPageProps) => (
                   <PageRenderer {...props} />
                 )}
@@ -636,6 +837,14 @@ const PageRenderer = memo(function PageRenderer({
     >
       {/* Base PDF render layer - renders the actual PDF page image */}
       <RenderLayer pageIndex={pageIndex} scale={scale} />
+
+      {/* Search highlights layer - shows yellow highlight boxes over search results */}
+      <SearchHighlights
+        pageIndex={pageIndex}
+        scale={scale}
+        pageWidth={pageWidth}
+        pageHeight={pageHeight}
+      />
 
       {/* PagePointerProvider - captures all pointer events for interaction
                 The provider uses getBoundingClientRect() for actual dimensions
@@ -728,19 +937,43 @@ const AnnotationSelectionMenu = memo(function AnnotationSelectionMenu({
 
   if (!selected) return null;
 
+  // Don't show menu if annotation hasn't been committed yet (no ID)
+  // NOTE: With autoCommit: true, annotations get IDs immediately after creation
+  if (!annotation.object.id) {
+    console.log("[PDF] Annotation menu hidden - waiting for commit. CommitState:", annotation.commitState);
+    return null;
+  }
+
+  // DEBUG: Log when menu appears
+  console.log("[PDF] Annotation menu visible for ID:", annotation.object.id, "Type:", annotation.object.type);
+
   // Get current annotation color for the indicator
   const currentColor =
     (annotation.object as { color?: string }).color || "#FFEB3B";
 
-  const handleDelete = (e: React.MouseEvent) => {
+  const handleDelete = async (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
     if (annotationApi) {
-      console.log("[PDF] Deleting annotation from menu:", annotation.object.id);
+      console.log("[PDF] Deleting annotation from menu:", {
+        id: annotation.object.id,
+        pageIndex: annotation.object.pageIndex,
+        type: annotation.object.type,
+        commitState: annotation.commitState,
+        fullObject: annotation.object,
+      });
+
+      if (!annotation.object.id) {
+        console.error("[PDF] Cannot delete annotation - missing ID!");
+        return;
+      }
+
       annotationApi.deleteAnnotation(
         annotation.object.pageIndex,
         annotation.object.id,
       );
+      await annotationApi.commit();
+      annotationApi.deselectAnnotation();
     }
   };
 
@@ -754,13 +987,15 @@ const AnnotationSelectionMenu = memo(function AnnotationSelectionMenu({
   const handleColorChange = (e: React.MouseEvent, color: string) => {
     e.preventDefault();
     e.stopPropagation();
-    if (annotationApi) {
-      console.log("[PDF] Changing annotation color to:", color);
+    if (annotationApi && annotation.object.id) {
+      console.log("[PDF] Changing annotation color to:", color, "ID:", annotation.object.id);
       annotationApi.updateAnnotation(
         annotation.object.pageIndex,
         annotation.object.id,
         { color },
       );
+    } else if (!annotation.object.id) {
+      console.error("[PDF] Cannot update annotation color - missing ID!");
     }
     setShowColorPicker(false);
   };
@@ -1069,23 +1304,26 @@ const TextSelectionToolbar = memo(function TextSelectionToolbar({
     };
   }, [viewportRef, showToolbar, updateToolbarPosition]);
 
-  const handleCopy = useCallback((e: React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
+  const handleCopy = useCallback(
+    (e: React.MouseEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
 
-    if (selectionApi) {
-      selectionApi.copyToClipboard();
-      console.log("[PDF Toolbar] Text copied to clipboard");
-    }
+      if (selectionApi) {
+        selectionApi.copyToClipboard();
+        console.log("[PDF Toolbar] Text copied to clipboard");
+      }
 
-    // Clear selection and hide toolbar
-    if (selectionApi) {
-      selectionApi.clear();
-    }
-    setShowToolbar(false);
-    hasSelectionRef.current = false;
-    cachedSelectionRef.current = null;
-  }, [selectionApi]);
+      // Clear selection and hide toolbar
+      if (selectionApi) {
+        selectionApi.clear();
+      }
+      setShowToolbar(false);
+      hasSelectionRef.current = false;
+      cachedSelectionRef.current = null;
+    },
+    [selectionApi],
+  );
 
   // Create text markup annotation from current or cached selection
   const createTextMarkup = useCallback(
@@ -1220,38 +1458,47 @@ const TextSelectionToolbar = memo(function TextSelectionToolbar({
     [annotationApi, selectionApi],
   );
 
-  const handleHighlight = useCallback(async (e: React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setIsProcessing(true);
-    try {
-      await createTextMarkup("highlight");
-    } finally {
-      setIsProcessing(false);
-    }
-  }, [createTextMarkup]);
+  const handleHighlight = useCallback(
+    async (e: React.MouseEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      setIsProcessing(true);
+      try {
+        await createTextMarkup("highlight");
+      } finally {
+        setIsProcessing(false);
+      }
+    },
+    [createTextMarkup],
+  );
 
-  const handleUnderline = useCallback(async (e: React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setIsProcessing(true);
-    try {
-      await createTextMarkup("underline");
-    } finally {
-      setIsProcessing(false);
-    }
-  }, [createTextMarkup]);
+  const handleUnderline = useCallback(
+    async (e: React.MouseEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      setIsProcessing(true);
+      try {
+        await createTextMarkup("underline");
+      } finally {
+        setIsProcessing(false);
+      }
+    },
+    [createTextMarkup],
+  );
 
-  const handleStrikeout = useCallback(async (e: React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setIsProcessing(true);
-    try {
-      await createTextMarkup("strikeout");
-    } finally {
-      setIsProcessing(false);
-    }
-  }, [createTextMarkup]);
+  const handleStrikeout = useCallback(
+    async (e: React.MouseEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      setIsProcessing(true);
+      try {
+        await createTextMarkup("strikeout");
+      } finally {
+        setIsProcessing(false);
+      }
+    },
+    [createTextMarkup],
+  );
 
   // Handle Escape key to clear selection and hide toolbar
   useEffect(() => {
@@ -1280,7 +1527,9 @@ const TextSelectionToolbar = memo(function TextSelectionToolbar({
     if (showToolbar) {
       document.addEventListener("keydown", handleKeyDown, { capture: true });
       return () => {
-        document.removeEventListener("keydown", handleKeyDown, { capture: true });
+        document.removeEventListener("keydown", handleKeyDown, {
+          capture: true,
+        });
       };
     }
   }, [showToolbar, isProcessing, selectionApi]);
@@ -1303,7 +1552,8 @@ const TextSelectionToolbar = memo(function TextSelectionToolbar({
         e.stopPropagation();
       }}
     >
-      <div className="flex items-center gap-1 bg-zinc-800 rounded-full shadow-2xl px-2 py-1.5 border border-zinc-700"
+      <div
+        className="flex items-center gap-1 bg-zinc-800 rounded-full shadow-2xl px-2 py-1.5 border border-zinc-700"
         onMouseDown={(e) => {
           e.stopPropagation();
         }}
@@ -1437,11 +1687,67 @@ const TextSelectionToolbar = memo(function TextSelectionToolbar({
   );
 });
 
+/**
+ * Save Status Indicator Component
+ * Shows the current save status of PDF annotations
+ */
+const SaveStatusIndicator = memo(function SaveStatusIndicator({
+  status,
+  pdfName,
+}: {
+  status: 'idle' | 'saving' | 'saved' | 'error';
+  pdfName?: string;
+}) {
+  if (status === 'idle') return null;
+
+  const statusConfig = {
+    saving: {
+      icon: IconCloudUpload,
+      text: 'Saving...',
+      color: 'text-blue-500',
+      bgColor: 'bg-blue-500/10',
+    },
+    saved: {
+      icon: IconCloudCheck,
+      text: 'Saved to cloud',
+      color: 'text-green-500',
+      bgColor: 'bg-green-500/10',
+    },
+    error: {
+      icon: IconCloudX,
+      text: 'Save failed',
+      color: 'text-red-500',
+      bgColor: 'bg-red-500/10',
+    },
+  };
+
+  const config = statusConfig[status];
+  const Icon = config.icon;
+
+  return (
+    <div
+      className={cn(
+        'flex items-center gap-1.5 px-2 py-1 rounded-md text-xs font-medium transition-all',
+        config.color,
+        config.bgColor,
+      )}
+    >
+      <Icon
+        size={14}
+        className={status === 'saving' ? 'animate-pulse' : ''}
+      />
+      <span>{config.text}</span>
+    </div>
+  );
+});
+
 interface AnnotationToolbarProps {
   onToggleSearch: () => void;
   onToggleThumbnails: () => void;
   isSearchOpen: boolean;
   isThumbnailsOpen: boolean;
+  saveStatus: 'idle' | 'saving' | 'saved' | 'error';
+  pdfName?: string;
 }
 
 /**
@@ -1452,17 +1758,44 @@ const AnnotationToolbar = memo(function AnnotationToolbar({
   onToggleThumbnails,
   isSearchOpen,
   isThumbnailsOpen,
+  saveStatus,
+  pdfName,
 }: AnnotationToolbarProps) {
+  const { registry } = useRegistry();
   const { provides: annotationApi } = useAnnotationCapability();
   const { provides: zoomApi } = useZoomCapability();
   const { provides: historyApi } = useHistoryCapability();
+  const { provides: loaderApi } = useLoaderCapability();
 
   const [activeTool, setActiveTool] = useState<string | null>(null);
   const [hasSelection, setHasSelection] = useState(false);
   const [canUndo, setCanUndo] = useState(false);
-  const [canRedo, setCanRedo] = useState(false);
+  const [, setCanRedo] = useState(false);
   const [currentZoom, setCurrentZoom] = useState(1);
-  const [selectedColor, setSelectedColor] = useState("#FFEB3B");
+  const [isMarqueeZoomActive, setIsMarqueeZoomActive] = useState(false);
+  const [currentRotation, setCurrentRotation] = useState<Rotation>(Rotation.Degree0);
+  const [isMetadataEditorOpen, setIsMetadataEditorOpen] = useState(false);
+  const [isOutlineEditorOpen, setIsOutlineEditorOpen] = useState(false);
+  const [isMergeToolOpen, setIsMergeToolOpen] = useState(false);
+  const [isAttachmentEditorOpen, setIsAttachmentEditorOpen] = useState(false);
+
+  // Track available width for responsive toolbar
+  const toolbarRef = useRef<HTMLDivElement>(null);
+  const [availableWidth, setAvailableWidth] = useState(0);
+
+  // Measure available width for responsive behavior
+  useEffect(() => {
+    const updateWidth = () => {
+      if (toolbarRef.current) {
+        const width = toolbarRef.current.offsetWidth;
+        setAvailableWidth(width);
+      }
+    };
+
+    updateWidth();
+    window.addEventListener("resize", updateWidth);
+    return () => window.removeEventListener("resize", updateWidth);
+  }, []);
 
   // Log available tools on mount (for debugging)
   useEffect(() => {
@@ -1483,6 +1816,33 @@ const AnnotationToolbar = memo(function AnnotationToolbar({
         setActiveTool(state.activeToolId);
       },
     );
+    return unsubscribe;
+  }, [annotationApi]);
+
+  // Auto-deselect after annotation creation to allow continuous drawing
+  // When a tool is active and an annotation is created, deselect it immediately
+  // This allows creating multiple annotations without manual deselection
+  useEffect(() => {
+    if (!annotationApi) return;
+
+    const unsubscribe = annotationApi.onAnnotationEvent((event) => {
+      // Only handle 'create' events that are committed
+      if (event.type === 'create' && event.committed) {
+        const activeTool = annotationApi.getActiveTool();
+
+        // If a drawing/markup tool is active, deselect the newly created annotation
+        // This allows the user to immediately create another annotation
+        if (activeTool && activeTool.id !== 'select') {
+          console.log('[PDF] Auto-deselecting annotation to continue with active tool:', activeTool.id);
+
+          // Small delay to ensure the annotation is fully processed
+          setTimeout(() => {
+            annotationApi.deselectAnnotation();
+          }, 10);
+        }
+      }
+    });
+
     return unsubscribe;
   }, [annotationApi]);
 
@@ -1509,6 +1869,31 @@ const AnnotationToolbar = memo(function AnnotationToolbar({
     return unsubscribe;
   }, [zoomApi]);
 
+  // Listen to rotation changes from core state
+  useEffect(() => {
+    if (!registry) return;
+
+    const store = registry.getStore();
+    const currentState = store.getState();
+
+    // Set initial rotation from core state
+    const initialRotation = (currentState as any)?.core?.rotation;
+    if (initialRotation !== undefined) {
+      setCurrentRotation(initialRotation);
+    }
+
+    // Subscribe to state changes
+    const unsubscribe = store.subscribe((state) => {
+      const rotation = (state as any)?.core?.rotation;
+      if (rotation !== undefined && rotation !== currentRotation) {
+        setCurrentRotation(rotation);
+        console.log(`[PDF] Rotation updated to ${rotation * 90}°`);
+      }
+    });
+
+    return unsubscribe;
+  }, [registry, currentRotation]);
+
   const handleToolSelect = useCallback(
     (toolId: string | null) => {
       if (!annotationApi) return;
@@ -1518,18 +1903,7 @@ const AnnotationToolbar = memo(function AnnotationToolbar({
     [annotationApi],
   );
 
-  const handleColorChange = useCallback(
-    (color: string) => {
-      setSelectedColor(color);
-      if (activeTool && annotationApi) {
-        // Update the tool defaults with new color
-        annotationApi.setToolDefaults(activeTool, { color });
-      }
-    },
-    [activeTool, annotationApi],
-  );
-
-  const handleDelete = useCallback(() => {
+  const handleDelete = useCallback(async () => {
     if (!annotationApi) return;
     const selection = annotationApi.getSelectedAnnotation();
     if (selection) {
@@ -1537,14 +1911,82 @@ const AnnotationToolbar = memo(function AnnotationToolbar({
         selection.object.pageIndex,
         selection.object.id,
       );
+      await annotationApi.commit();
+      annotationApi.deselectAnnotation();
     }
   }, [annotationApi]);
 
   const handleZoomIn = useCallback(() => zoomApi?.zoomIn(), [zoomApi]);
   const handleZoomOut = useCallback(() => zoomApi?.zoomOut(), [zoomApi]);
   const handleZoomReset = useCallback(() => zoomApi?.requestZoom(1), [zoomApi]);
+  const handleToggleMarqueeZoom = useCallback(() => {
+    if (!zoomApi) return;
+    zoomApi.toggleMarqueeZoom();
+    // Check the new state
+    const isActive = zoomApi.isMarqueeZoomActive?.() ?? false;
+    setIsMarqueeZoomActive(isActive);
+    console.log("[PDF] Marquee zoom toggled:", isActive);
+  }, [zoomApi]);
   const handleUndo = useCallback(() => historyApi?.undo(), [historyApi]);
-  const handleRedo = useCallback(() => historyApi?.redo(), [historyApi]);
+
+  // Rotation handler - cycles through 0° → 90° → 180° → 270° → 0°
+  const handleRotate = useCallback(() => {
+    if (!registry || !loaderApi) return;
+
+    try {
+      const doc = loaderApi.getDocument();
+      if (!doc) {
+        console.warn('[PDF] No document loaded');
+        return;
+      }
+
+      const engine = registry.getEngine() as any;
+      if (!engine || !engine.pdfium) {
+        console.warn('[PDF] PDFium engine not available');
+        return;
+      }
+
+      const pdfium = engine.pdfium;
+
+      // Get current page
+      const viewportState = registry.getStore().getState().viewport;
+      const currentPageIndex = viewportState?.focusedPageIndex ?? 0;
+
+      // Get page handle
+      const pageHandle = pdfium.FPDF_LoadPage(doc.handle, currentPageIndex);
+      if (!pageHandle) {
+        console.warn('[PDF] Failed to load page for rotation');
+        return;
+      }
+
+      // Get current rotation using native API
+      const currentRotation = pdfium.FPDFPage_GetRotation(pageHandle);
+      const nextRotation = (currentRotation + 1) % 4;
+      const rotationDegrees = nextRotation * 90;
+
+      console.log(`[PDF] Rotating page ${currentPageIndex} from ${currentRotation * 90}° to ${rotationDegrees}° using native API`);
+
+      // Set rotation using native PDFium API
+      pdfium.FPDFPage_SetRotation(pageHandle, nextRotation);
+
+      // Close the page
+      pdfium.FPDF_ClosePage(pageHandle);
+
+      // Update state to trigger re-render
+      setCurrentRotation(nextRotation as Rotation);
+
+      // Also dispatch to core for UI update
+      const store = registry.getStore();
+      store.dispatchToCore({
+        type: "SET_ROTATION",
+        payload: nextRotation as Rotation,
+      });
+
+      console.log(`[PDF] Native rotation applied successfully to ${rotationDegrees}°`);
+    } catch (error) {
+      console.error("[PDF] Native rotation error:", error);
+    }
+  }, [registry, loaderApi]);
 
   const handleCommit = useCallback(async () => {
     if (!annotationApi) return;
@@ -1556,190 +1998,375 @@ const AnnotationToolbar = memo(function AnnotationToolbar({
     }
   }, [annotationApi]);
 
+  // Determine which tools to show based on available width
+  // Approximate button width: 32px + 4px gap = ~36px per button
+  // We need to reserve space for:
+  // - Primary tools (3): ~120px
+  // - Actions (3): ~120px
+  // - Right controls (min): ~150px (Search, Thumbnails, basic Zoom)
+  // Total reserved: ~400px
+  // So secondary tools should only start appearing when width > 400 + margin
+
+  // Increase thresholds to ensure right-side controls are not pushed off
+  const showUnderline = availableWidth > 580;
+  const showStrikeout = availableWidth > 620;
+  const showBrush = availableWidth > 660;
+  const showSquare = availableWidth > 700;
+  const showCircle = availableWidth > 740;
+  const showLine = availableWidth > 780;
+  const showText = availableWidth > 820;
+
+  const showThumbnails = availableWidth > 450;
+  const showZoomControls = availableWidth > 500; // Show zoom earlier if possible
+  const showZoomReset = availableWidth > 900;
+  const showAreaZoom = availableWidth > 950;
+
+  // Show dropdown if any tool is hidden
+  const showDropdown =
+    !showUnderline ||
+    !showStrikeout ||
+    !showBrush ||
+    !showSquare ||
+    !showCircle ||
+    !showLine ||
+    !showText;
+
   return (
-    <div className="flex items-center gap-1 px-3 py-2 border-b border-border bg-background shrink-0 overflow-x-auto">
-      {/* Selection Tool */}
+    <div
+      ref={toolbarRef}
+      className="flex items-center gap-1 px-2 py-2 border-b border-border bg-background shrink-0 min-h-[48px]"
+    >
+      {/* Primary tools - always visible */}
       <ToolButton
         icon={IconPointer}
-        tooltip="Select (Esc)"
+        tooltip="Select"
         isActive={!activeTool}
         onClick={() => handleToolSelect(null)}
       />
-
-      <Separator orientation="vertical" className="h-6 mx-1" />
-
-      {/* Text Markup Tools */}
       <ToolButton
         icon={IconHighlight}
-        tooltip="Highlight Text"
+        tooltip="Highlight"
         isActive={activeTool === "highlight"}
         onClick={() => handleToolSelect("highlight")}
       />
       <ToolButton
-        icon={IconUnderline}
-        tooltip="Underline Text"
-        isActive={activeTool === "underline"}
-        onClick={() => handleToolSelect("underline")}
-      />
-      <ToolButton
-        icon={IconStrikethrough}
-        tooltip="Strikethrough Text"
-        isActive={activeTool === "strikeout"}
-        onClick={() => handleToolSelect("strikeout")}
-      />
-
-      <Separator orientation="vertical" className="h-6 mx-1" />
-
-      {/* Drawing Tools */}
-      <ToolButton
         icon={IconPencil}
-        tooltip="Pen / Ink"
+        tooltip="Pen"
         isActive={activeTool === "ink"}
         onClick={() => handleToolSelect("ink")}
       />
-      <ToolButton
-        icon={IconBrush}
-        tooltip="Highlighter Brush"
-        isActive={activeTool === "inkHighlighter"}
-        onClick={() => handleToolSelect("inkHighlighter")}
-      />
+
+      {/* Secondary tools - shown when width allows */}
+      {showUnderline && (
+        <ToolButton
+          icon={IconUnderline}
+          tooltip="Underline"
+          isActive={activeTool === "underline"}
+          onClick={() => handleToolSelect("underline")}
+        />
+      )}
+      {showStrikeout && (
+        <ToolButton
+          icon={IconStrikethrough}
+          tooltip="Strikeout"
+          isActive={activeTool === "strikeout"}
+          onClick={() => handleToolSelect("strikeout")}
+        />
+      )}
+      {showBrush && (
+        <ToolButton
+          icon={IconBrush}
+          tooltip="Highlighter Brush"
+          isActive={activeTool === "inkHighlighter"}
+          onClick={() => handleToolSelect("inkHighlighter")}
+        />
+      )}
+      {showSquare && (
+        <ToolButton
+          icon={IconSquare}
+          tooltip="Rectangle"
+          isActive={activeTool === "square"}
+          onClick={() => handleToolSelect("square")}
+        />
+      )}
+      {showCircle && (
+        <ToolButton
+          icon={IconCircle}
+          tooltip="Circle"
+          isActive={activeTool === "circle"}
+          onClick={() => handleToolSelect("circle")}
+        />
+      )}
+      {showLine && (
+        <ToolButton
+          icon={IconLine}
+          tooltip="Line"
+          isActive={activeTool === "line"}
+          onClick={() => handleToolSelect("line")}
+        />
+      )}
+      {showText && (
+        <ToolButton
+          icon={IconTextCaption}
+          tooltip="Text"
+          isActive={activeTool === "freeText"}
+          onClick={() => handleToolSelect("freeText")}
+        />
+      )}
+
+      {/* More tools dropdown - visible when tools are hidden */}
+      {showDropdown && (
+        <Popover>
+          <PopoverTrigger asChild>
+            <Button variant="ghost" size="icon" className="h-8 w-8">
+              <IconDotsVertical size={16} />
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent className="w-48 p-1" align="start">
+            <div className="grid gap-0.5">
+              {!showUnderline && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className={cn(
+                    "justify-start h-8",
+                    activeTool === "underline" && "bg-accent",
+                  )}
+                  onClick={() => handleToolSelect("underline")}
+                >
+                  <IconUnderline size={14} className="mr-2" />
+                  Underline
+                </Button>
+              )}
+              {!showStrikeout && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className={cn(
+                    "justify-start h-8",
+                    activeTool === "strikeout" && "bg-accent",
+                  )}
+                  onClick={() => handleToolSelect("strikeout")}
+                >
+                  <IconStrikethrough size={14} className="mr-2" />
+                  Strikeout
+                </Button>
+              )}
+              {!showBrush && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className={cn(
+                    "justify-start h-8",
+                    activeTool === "inkHighlighter" && "bg-accent",
+                  )}
+                  onClick={() => handleToolSelect("inkHighlighter")}
+                >
+                  <IconBrush size={14} className="mr-2" />
+                  Brush
+                </Button>
+              )}
+              {!showSquare && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className={cn(
+                    "justify-start h-8",
+                    activeTool === "square" && "bg-accent",
+                  )}
+                  onClick={() => handleToolSelect("square")}
+                >
+                  <IconSquare size={14} className="mr-2" />
+                  Rectangle
+                </Button>
+              )}
+              {!showCircle && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className={cn(
+                    "justify-start h-8",
+                    activeTool === "circle" && "bg-accent",
+                  )}
+                  onClick={() => handleToolSelect("circle")}
+                >
+                  <IconCircle size={14} className="mr-2" />
+                  Circle
+                </Button>
+              )}
+              {!showLine && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className={cn(
+                    "justify-start h-8",
+                    activeTool === "line" && "bg-accent",
+                  )}
+                  onClick={() => handleToolSelect("line")}
+                >
+                  <IconLine size={14} className="mr-2" />
+                  Line
+                </Button>
+              )}
+              {!showText && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className={cn(
+                    "justify-start h-8",
+                    activeTool === "freeText" && "bg-accent",
+                  )}
+                  onClick={() => handleToolSelect("freeText")}
+                >
+                  <IconTextCaption size={14} className="mr-2" />
+                  Text
+                </Button>
+              )}
+            </div>
+          </PopoverContent>
+        </Popover>
+      )}
 
       <Separator orientation="vertical" className="h-6 mx-1" />
 
-      {/* Shape Tools */}
-      <ToolButton
-        icon={IconSquare}
-        tooltip="Rectangle"
-        isActive={activeTool === "square"}
-        onClick={() => handleToolSelect("square")}
-      />
-      <ToolButton
-        icon={IconCircle}
-        tooltip="Circle / Ellipse"
-        isActive={activeTool === "circle"}
-        onClick={() => handleToolSelect("circle")}
-      />
-      <ToolButton
-        icon={IconLine}
-        tooltip="Line"
-        isActive={activeTool === "line"}
-        onClick={() => handleToolSelect("line")}
-      />
-
-      <Separator orientation="vertical" className="h-6 mx-1" />
-
-      {/* Text & Stamp */}
-      <ToolButton
-        icon={IconTextCaption}
-        tooltip="Add Text"
-        isActive={activeTool === "freeText"}
-        onClick={() => handleToolSelect("freeText")}
-      />
-      <ToolButton
-        icon={IconSignature}
-        tooltip="Stamp / Signature"
-        isActive={activeTool === "stamp"}
-        onClick={() => handleToolSelect("stamp")}
-      />
-
-      <Separator orientation="vertical" className="h-6 mx-1" />
-
-      {/* Color Picker */}
-      <Popover>
-        <PopoverTrigger asChild>
-          <Button variant="ghost" size="icon" className="h-8 w-8">
-            <div
-              className="w-5 h-5 rounded border border-border"
-              style={{ backgroundColor: selectedColor }}
-            />
-          </Button>
-        </PopoverTrigger>
-        <PopoverContent className="w-auto p-2" align="start">
-          <div className="grid grid-cols-5 gap-1">
-            {COLOR_PRESETS.map((color) => (
-              <button
-                key={color}
-                type="button"
-                className={cn(
-                  "w-6 h-6 rounded border-2 transition-all",
-                  selectedColor === color
-                    ? "border-primary scale-110"
-                    : "border-transparent hover:scale-105",
-                )}
-                style={{ backgroundColor: color }}
-                onClick={() => handleColorChange(color)}
-              />
-            ))}
-          </div>
-        </PopoverContent>
-      </Popover>
-
-      <Separator orientation="vertical" className="h-6 mx-1" />
-
-      {/* History */}
       <ToolButton
         icon={IconArrowBackUp}
-        tooltip="Undo (Ctrl+Z)"
+        tooltip="Undo"
         onClick={handleUndo}
         disabled={!canUndo}
       />
       <ToolButton
-        icon={IconArrowForwardUp}
-        tooltip="Redo (Ctrl+Y)"
-        onClick={handleRedo}
-        disabled={!canRedo}
-      />
-
-      {/* Delete */}
-      <ToolButton
         icon={IconTrash}
-        tooltip="Delete Selected"
+        tooltip="Delete"
         onClick={handleDelete}
         disabled={!hasSelection}
         variant="destructive"
       />
+      <ToolButton icon={IconDownload} tooltip="Save" onClick={handleCommit} />
 
-      {/* Save */}
-      <ToolButton
-        icon={IconDownload}
-        tooltip="Save Annotations"
-        onClick={handleCommit}
+      <div className="flex-1 min-w-4" />
+
+      {/* Save Status Indicator */}
+      <SaveStatusIndicator status={saveStatus} pdfName={pdfName} />
+
+      {/* Right-aligned essential controls */}
+      <div className="flex items-center gap-1 shrink-0">
+        {/* Search - always visible */}
+        <ToolButton
+          icon={IconSearch}
+          tooltip="Search (Ctrl+F)"
+          isActive={isSearchOpen}
+          onClick={onToggleSearch}
+        />
+
+        {/* Metadata Editor */}
+        <ToolButton
+          icon={IconInfoCircle}
+          tooltip="Edit PDF Metadata"
+          onClick={() => setIsMetadataEditorOpen(true)}
+        />
+
+        {/* Outline Editor */}
+        <ToolButton
+          icon={IconBookmark}
+          tooltip="Edit PDF Outline"
+          onClick={() => setIsOutlineEditorOpen(true)}
+        />
+
+        {/* Merge Tool */}
+        <ToolButton
+          icon={IconFilesOff}
+          tooltip="Merge PDFs"
+          onClick={() => setIsMergeToolOpen(true)}
+        />
+
+        {/* Attachment Editor */}
+        <ToolButton
+          icon={IconPaperclip}
+          tooltip="Manage Attachments"
+          onClick={() => setIsAttachmentEditorOpen(true)}
+        />
+
+        {/* Thumbnails - shown when width allows */}
+        {showThumbnails && (
+          <ToolButton
+            icon={IconLayoutSidebarRight}
+            tooltip="Thumbnails"
+            isActive={isThumbnailsOpen}
+            onClick={onToggleThumbnails}
+          />
+        )}
+
+        {showZoomControls && (
+          <Separator orientation="vertical" className="h-6 mx-1" />
+        )}
+
+        {/* Zoom Controls - shown when width allows */}
+        {showAreaZoom && (
+          <ToolButton
+            icon={IconZoomScan}
+            tooltip="Area Zoom (Click & Drag)"
+            isActive={isMarqueeZoomActive}
+            onClick={handleToggleMarqueeZoom}
+          />
+        )}
+        {showZoomControls && (
+          <>
+            <ToolButton
+              icon={IconZoomOut}
+              tooltip="Zoom Out (Ctrl + Wheel)"
+              onClick={handleZoomOut}
+            />
+            <span className="text-xs text-muted-foreground min-w-[3rem] text-center tabular-nums">
+              {Math.round(currentZoom * 100)}%
+            </span>
+            <ToolButton
+              icon={IconZoomIn}
+              tooltip="Zoom In (Ctrl + Wheel)"
+              onClick={handleZoomIn}
+            />
+          </>
+        )}
+        {showZoomReset && (
+          <ToolButton
+            icon={IconZoomReset}
+            tooltip="Reset Zoom (100%)"
+            onClick={handleZoomReset}
+          />
+        )}
+
+        {/* Rotation - shown with zoom controls */}
+        {showZoomControls && (
+          <>
+            <Separator orientation="vertical" className="h-6 mx-1" />
+            <ToolButton
+              icon={IconRotateClockwise}
+              tooltip="Rotate 90°"
+              onClick={handleRotate}
+            />
+          </>
+        )}
+      </div>
+
+      {/* PDF Metadata Editor Dialog */}
+      <PdfMetadataEditor
+        open={isMetadataEditorOpen}
+        onOpenChange={setIsMetadataEditorOpen}
       />
 
-      <div className="flex-1" />
-
-      {/* Search */}
-      <ToolButton
-        icon={IconSearch}
-        tooltip="Search (Ctrl+F)"
-        isActive={isSearchOpen}
-        onClick={onToggleSearch}
+      {/* PDF Outline Editor Dialog */}
+      <PdfOutlineEditor
+        open={isOutlineEditorOpen}
+        onOpenChange={setIsOutlineEditorOpen}
       />
 
-      {/* Thumbnails */}
-      <ToolButton
-        icon={IconLayoutSidebarRight}
-        tooltip="Thumbnails"
-        isActive={isThumbnailsOpen}
-        onClick={onToggleThumbnails}
-      />
+      {/* PDF Merge Tool Dialog */}
+      <PdfMergeTool open={isMergeToolOpen} onOpenChange={setIsMergeToolOpen} />
 
-      <Separator orientation="vertical" className="h-6 mx-1" />
-
-      {/* Zoom Controls */}
-      <ToolButton
-        icon={IconZoomOut}
-        tooltip="Zoom Out"
-        onClick={handleZoomOut}
-      />
-      <span className="text-xs text-muted-foreground min-w-[3rem] text-center tabular-nums">
-        {Math.round(currentZoom * 100)}%
-      </span>
-      <ToolButton icon={IconZoomIn} tooltip="Zoom In" onClick={handleZoomIn} />
-      <ToolButton
-        icon={IconZoomReset}
-        tooltip="Reset Zoom (100%)"
-        onClick={handleZoomReset}
+      {/* PDF Attachment Editor Dialog */}
+      <PdfAttachmentEditor
+        open={isAttachmentEditorOpen}
+        onOpenChange={setIsAttachmentEditorOpen}
       />
     </div>
   );
@@ -1753,6 +2380,7 @@ interface ToolButtonProps {
   variant?: "default" | "destructive";
   color?: string;
   onClick: () => void;
+  className?: string;
 }
 
 const ToolButton = memo(function ToolButton({
@@ -1763,6 +2391,7 @@ const ToolButton = memo(function ToolButton({
   variant = "default",
   color,
   onClick,
+  className,
 }: ToolButtonProps) {
   // Use span wrapper if color is provided to style the icon
   const iconColor = color && isActive ? color : undefined;
@@ -1779,6 +2408,7 @@ const ToolButton = memo(function ToolButton({
             variant === "destructive" &&
               !disabled &&
               "hover:bg-destructive/10 hover:text-destructive",
+            className,
           )}
           onClick={onClick}
           disabled={disabled}

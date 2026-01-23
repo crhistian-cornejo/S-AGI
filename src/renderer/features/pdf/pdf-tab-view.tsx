@@ -7,6 +7,8 @@ import {
   IconRefresh,
   IconChevronLeft,
   IconChevronRight,
+  IconDeviceFloppy,
+  IconCloud,
 } from "@tabler/icons-react";
 import { trpc } from "@/lib/trpc";
 import {
@@ -15,6 +17,7 @@ import {
   pdfNavigationRequestAtom,
   pdfCurrentPageAtom,
   selectedChatIdAtom,
+  localPdfsAtom,
   type PdfSource,
 } from "@/lib/atoms";
 import { Button } from "@/components/ui/button";
@@ -23,6 +26,11 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import {
+  HoverCard,
+  HoverCardContent,
+  HoverCardTrigger,
+} from "@/components/ui/hover-card";
 import {
   SidebarProvider,
   Sidebar,
@@ -75,6 +83,8 @@ export const PdfTabView = memo(function PdfTabView() {
 const PdfSidebar = memo(function PdfSidebar() {
   const utils = trpc.useUtils();
   const { open, toggleSidebar } = useSidebar();
+  const [selectedPdf, setSelectedPdf] = useAtom(selectedPdfAtom);
+  const localPdfs = useAtomValue(localPdfsAtom);
 
   const handleRefresh = useCallback(() => {
     utils.pdf.listAll.invalidate();
@@ -85,6 +95,7 @@ const PdfSidebar = memo(function PdfSidebar() {
     limit: 50,
   });
   const pdfCount = pdfList?.pdfs?.length || 0;
+  const cloudPdfs = pdfList?.pdfs || [];
 
   return (
     <Sidebar collapsible="icon" className="border-r-0">
@@ -139,7 +150,7 @@ const PdfSidebar = memo(function PdfSidebar() {
       </SidebarHeader>
 
       {/* Document list - only show when expanded */}
-      {open && (
+      {open ? (
         <SidebarContent>
           <SidebarGroup className="p-1">
             <SidebarGroupContent>
@@ -147,13 +158,101 @@ const PdfSidebar = memo(function PdfSidebar() {
             </SidebarGroupContent>
           </SidebarGroup>
         </SidebarContent>
+      ) : (
+        <div className="flex flex-col items-center gap-3 mt-4 w-full px-1">
+          {/* Local PDFs */}
+          {localPdfs.length > 0 && (
+            <HoverCard openDelay={0} closeDelay={200}>
+              <HoverCardTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8 text-amber-500 hover:text-amber-600 hover:bg-amber-500/10"
+                >
+                  <IconDeviceFloppy size={18} />
+                </Button>
+              </HoverCardTrigger>
+              <HoverCardContent side="right" align="start" className="w-64 p-2">
+                <div className="flex items-center gap-2 mb-2 px-2 py-1 bg-muted/50 rounded-sm">
+                  <IconDeviceFloppy size={14} className="text-amber-500" />
+                  <span className="text-xs font-semibold">
+                    Local PDFs ({localPdfs.length})
+                  </span>
+                </div>
+                <div className="space-y-0.5 max-h-[300px] overflow-y-auto custom-scrollbar">
+                  {localPdfs.map((pdf) => (
+                    <button
+                      key={pdf.id}
+                      onClick={() => setSelectedPdf(pdf)}
+                      className={cn(
+                        "w-full text-left text-sm px-2 py-1.5 rounded-sm hover:bg-accent transition-colors truncate flex items-center gap-2",
+                        selectedPdf?.id === pdf.id &&
+                          "bg-accent text-accent-foreground font-medium",
+                      )}
+                    >
+                      <IconFileTypePdf
+                        size={14}
+                        className="shrink-0 opacity-70"
+                      />
+                      <span className="truncate">{pdf.name}</span>
+                    </button>
+                  ))}
+                </div>
+              </HoverCardContent>
+            </HoverCard>
+          )}
+
+          {/* Cloud PDFs */}
+          {cloudPdfs.length > 0 && (
+            <HoverCard openDelay={0} closeDelay={200}>
+              <HoverCardTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8 text-blue-500 hover:text-blue-600 hover:bg-blue-500/10"
+                >
+                  <IconCloud size={18} />
+                </Button>
+              </HoverCardTrigger>
+              <HoverCardContent side="right" align="start" className="w-64 p-2">
+                <div className="flex items-center gap-2 mb-2 px-2 py-1 bg-muted/50 rounded-sm">
+                  <IconCloud size={14} className="text-blue-500" />
+                  <span className="text-xs font-semibold">
+                    Cloud PDFs ({cloudPdfs.length})
+                  </span>
+                </div>
+                <div className="space-y-0.5 max-h-[300px] overflow-y-auto custom-scrollbar">
+                  {cloudPdfs.map((pdf) => (
+                    <button
+                      key={pdf.id}
+                      onClick={() =>
+                        setSelectedPdf({ ...pdf, url: pdf.url ?? "" })
+                      }
+                      className={cn(
+                        "w-full text-left text-sm px-2 py-1.5 rounded-sm hover:bg-accent transition-colors truncate flex items-center gap-2",
+                        selectedPdf?.id === pdf.id &&
+                          "bg-accent text-accent-foreground font-medium",
+                      )}
+                    >
+                      <IconFileTypePdf
+                        size={14}
+                        className="shrink-0 opacity-70"
+                      />
+                      <span className="truncate">{pdf.name}</span>
+                    </button>
+                  ))}
+                </div>
+              </HoverCardContent>
+            </HoverCard>
+          )}
+        </div>
       )}
 
       {/* Collapse/Expand toggle at bottom - always visible */}
       <div
         className={cn(
           "mt-auto border-t border-sidebar-border",
-          open ? "p-2" : "p-1",
+          open ? "p-2" : "p-1 flex justify-center",
         )}
       >
         <Tooltip>

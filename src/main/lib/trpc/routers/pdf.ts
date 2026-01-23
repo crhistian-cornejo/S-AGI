@@ -622,4 +622,118 @@ export const pdfRouter = router({
         });
       }
     }),
+
+  /**
+   * Save PDF with annotations
+   * Uploads the modified PDF with embedded annotations back to storage
+   */
+  saveWithAnnotations: protectedProcedure
+    .input(
+      z.object({
+        id: z.string(),
+        type: z.enum(["artifact", "chat_file", "local"]),
+        pdfData: z.string(), // Base64 encoded PDF data
+        localPath: z.string().optional(), // For local files
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      try {
+        // Decode base64 PDF data
+        const pdfBuffer = Buffer.from(input.pdfData, "base64");
+
+        if (input.type === "local" && input.localPath) {
+          // Save to local file system
+          const fs = await import("fs/promises");
+          await fs.writeFile(input.localPath, pdfBuffer);
+          log.info(`[PdfRouter] Saved PDF to local file: ${input.localPath}`);
+          return { success: true };
+        }
+
+        if (input.type === "chat_file") {
+          // Get file record to find storage path
+          const { data: file, error: fileError } = await supabase
+            .from("chat_files")
+            .select("storage_path, user_id")
+            .eq("id", input.id)
+            .eq("user_id", ctx.userId)
+            .single();
+
+          if (fileError || !file) {
+            throw new TRPCError({
+              code: "NOT_FOUND",
+              message: "PDF file not found",
+            });
+          }
+
+          // Upload to Supabase storage (attachments bucket)
+          const { error: uploadError } = await supabase.storage
+            .from("attachments")
+            .upload(file.storage_path, pdfBuffer, {
+              cacheControl: "3600",
+              upsert: true, // Overwrite existing
+              contentType: "application/pdf",
+            });
+
+          if (uploadError) {
+            log.error("[PdfRouter] Upload error:", uploadError);
+            throw new TRPCError({
+              code: "INTERNAL_SERVER_ERROR",
+              message: "Failed to upload PDF",
+            });
+          }
+
+          log.info(`[PdfRouter] Saved PDF to storage: ${file.storage_path}`);
+          return { success: true };
+        }
+
+        if (input.type === "artifact") {
+          // For artifacts, upload to a dedicated bucket or update the artifact record
+          const storagePath = `artifacts/${input.id}.pdf`;
+
+          const { error: uploadError } = await supabase.storage
+            .from("artifacts")
+            .upload(storagePath, pdfBuffer, {
+              cacheControl: "3600",
+              upsert: true,
+              contentType: "application/pdf",
+            });
+
+          if (uploadError) {
+            log.error("[PdfRouter] Upload error:", uploadError);
+            throw new TRPCError({
+              code: "INTERNAL_SERVER_ERROR",
+              message: "Failed to upload PDF",
+            });
+          }
+
+          // Update artifact record with new URL
+          const { data: urlData } = await supabase.storage
+            .from("artifacts")
+            .getPublicUrl(storagePath);
+
+          if (urlData) {
+            await supabase
+              .from("artifacts")
+              .update({ pdf_url: urlData.publicUrl, updated_at: new Date().toISOString() })
+              .eq("id", input.id)
+              .eq("user_id", ctx.userId);
+          }
+
+          log.info(`[PdfRouter] Saved artifact PDF: ${storagePath}`);
+          return { success: true };
+        }
+
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Invalid PDF type",
+        });
+      } catch (error) {
+        if (error instanceof TRPCError) throw error;
+        log.error("[PdfRouter] saveWithAnnotations error:", error);
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: "Failed to save PDF",
+        });
+      }
+    }),
 });

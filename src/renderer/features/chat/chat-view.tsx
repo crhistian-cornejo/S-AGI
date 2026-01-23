@@ -37,8 +37,6 @@ import {
   streamingSuggestionsAtom,
   imageEditDialogAtom,
   pendingQuickPromptMessageAtom,
-  chatMessageQueueAtom,
-  type QueuedChatMessage,
   chatSoundsEnabledAtom,
   type WebSearchInfo,
   type FileSearchInfo,
@@ -67,6 +65,10 @@ import { useSmoothStream } from "@/hooks/use-smooth-stream";
 import { useDocumentUpload } from "@/lib/use-document-upload";
 import { useChatSounds } from "@/lib/use-chat-sounds";
 import { AI_MODELS } from "@shared/ai-types";
+import { useMessageQueueStore } from "./stores/message-queue-store";
+import { useStreamingStatusStore } from "./stores/streaming-status-store";
+import { useSendCallbackStore } from "./stores/send-callback-store";
+import { generateQueueId, createQueueItem } from "./lib/queue-utils";
 
 export function ChatView() {
   // Sound effects preference
@@ -134,7 +136,16 @@ export function ChatView() {
 
   // Document upload for file search
   const documentUpload = useDocumentUpload({ chatId: selectedChatId });
-  const [messageQueue, setMessageQueue] = useAtom(chatMessageQueueAtom);
+
+  // Zustand stores for queue system
+  const addToQueue = useMessageQueueStore((state) => state.addToQueue);
+  const getQueue = useMessageQueueStore((state) => state.getQueue);
+  const registerCallback = useSendCallbackStore((state) => state.registerCallback);
+  const unregisterCallback = useSendCallbackStore((state) => state.unregisterCallback);
+  const setStreamingStatus = useStreamingStatusStore((state) => state.setStatus);
+
+  // Get current queue for this chat
+  const currentQueue = selectedChatId ? getQueue(selectedChatId) : [];
 
   // Abort controller and scroll refs
   const abortRef = useRef<(() => void) | null>(null);
@@ -267,6 +278,9 @@ export function ChatView() {
     if ((!messageToSend && !images?.length) || !selectedChatId)
       return;
 
+    // Capture chatId for type narrowing
+    const chatId = selectedChatId;
+
     const shouldGenerateImage = options?.generateImage ?? isImageMode;
     const imageSize =
       options?.imageSize ??
@@ -275,20 +289,31 @@ export function ChatView() {
         : undefined);
 
     if (isStreaming) {
-      const queuedItem: QueuedChatMessage = {
-        id: crypto.randomUUID(),
-        chatId: selectedChatId,
-        message: messageToSend,
-        images,
-        documents,
-        targetDocument,
-        generateImage: shouldGenerateImage,
-        imageSize,
-      };
-      setMessageQueue((prev) => ({
-        ...prev,
-        [selectedChatId]: [...(prev[selectedChatId] || []), queuedItem],
-      }));
+      // Queue the message using Zustand store
+      const queuedItem = createQueueItem(
+        generateQueueId(),
+        chatId,
+        messageToSend,
+        {
+          images: images?.map((img) => ({
+            id: crypto.randomUUID(),
+            base64Data: img.base64Data,
+            mediaType: img.mediaType,
+            filename: img.filename,
+          })),
+          documents: documents?.map((doc) => ({
+            id: crypto.randomUUID(),
+            file: doc,
+          })),
+          targetDocument: targetDocument ? {
+            id: crypto.randomUUID(),
+            filename: targetDocument.filename,
+          } : undefined,
+          generateImage: shouldGenerateImage,
+          imageSize,
+        }
+      );
+      addToQueue(chatId, queuedItem);
       setInput("");
       setIsImageMode(false);
       return;
@@ -302,6 +327,7 @@ export function ChatView() {
 
     setInput("");
     setIsStreaming(true);
+    setStreamingStatus(chatId, 'streaming'); // Sync with Zustand
     setIsImageMode(false); // Reset image mode after capturing its value
     smoothStream.startStream();
     setStreamingToolCalls([]);
@@ -439,6 +465,7 @@ export function ChatView() {
             "ChatGPT Plus not connected. Please connect in Settings.",
           );
           setIsStreaming(false);
+          setStreamingStatus(chatId, 'error');
           return;
         }
         // No API key needed - backend uses OAuth token directly
@@ -458,6 +485,7 @@ export function ChatView() {
         if (!result.key) {
           setStreamingError("Z.AI API key not configured");
           setIsStreaming(false);
+          setStreamingStatus(chatId, 'error');
           chatSounds.playError();
           return;
         }
@@ -467,6 +495,7 @@ export function ChatView() {
         if (!result.key) {
           setStreamingError("OpenAI API key not configured");
           setIsStreaming(false);
+          setStreamingStatus(chatId, 'error');
           chatSounds.playError();
           return;
         }
@@ -477,6 +506,7 @@ export function ChatView() {
         if (!result.key) {
           setStreamingError("API key not configured");
           setIsStreaming(false);
+          setStreamingStatus(chatId, 'error');
           chatSounds.playError();
           return;
         }
@@ -542,6 +572,8 @@ export function ChatView() {
       let collectedAnnotations: Annotation[] = [];
       // Collect document citations for local RAG
       let collectedDocumentCitations: DocumentCitation[] = [];
+      // Collect suggestions to persist them with the message
+      let collectedSuggestions: string[] = [];
 
       try {
         const streamStartedAt = Date.now();
@@ -693,6 +725,9 @@ export function ChatView() {
               case "suggestions": {
                 console.log("[ChatView] Suggestions event received:", event.suggestions);
                 if (event.suggestions && Array.isArray(event.suggestions)) {
+                  // Store in local variable for persistence
+                  collectedSuggestions = event.suggestions;
+                  // Update UI state
                   setStreamingSuggestions(event.suggestions);
                 } else {
                   console.warn("[ChatView] Received invalid suggestions format:", event);
@@ -897,6 +932,7 @@ export function ChatView() {
                 chatSounds.playError();
                 // Reset streaming state (same as finish, but without saving message)
                 setIsStreaming(false);
+                setStreamingStatus(chatIdForStream, 'error'); // Sync with Zustand
                 smoothStream.stopStream();
                 setStreamingToolCalls([]);
                 if (fullReasoning) {
@@ -1023,6 +1059,11 @@ export function ChatView() {
                         collectedDocumentCitations.length > 0
                           ? collectedDocumentCitations
                           : undefined,
+                      // Persist suggestions for later retrieval
+                      suggestions:
+                        collectedSuggestions.length > 0
+                          ? collectedSuggestions
+                          : undefined,
                       ...(event.responseId && {
                         openaiResponseId: event.responseId,
                       }),
@@ -1043,6 +1084,7 @@ export function ChatView() {
                 }
 
                 setIsStreaming(false);
+                setStreamingStatus(chatIdForStream, 'ready'); // Sync with Zustand - ready for next message
                 smoothStream.stopStream();
                 setStreamingToolCalls([]);
                 // Save reasoning from local variable before clearing
@@ -1139,14 +1181,14 @@ export function ChatView() {
     };
 
     try {
-      await sendWithChatId(selectedChatId, existingMessages);
+      await sendWithChatId(chatId, existingMessages);
 
       const uploadedAttachments = imageUploadPromise
         ? await imageUploadPromise
         : [];
       if (uploadedAttachments.length > 0) {
         const latestMessages = await trpcClient.messages.list.query({
-          chatId: selectedChatId,
+          chatId: chatId,
         });
         const lastUserMessage = [...latestMessages]
           .reverse()
@@ -1191,38 +1233,58 @@ export function ChatView() {
           setSelectedChatId(null);
           setStreamingError("Chat not found. Please create a new chat.");
           setIsStreaming(false);
+          if (chatId) {
+            setStreamingStatus(chatId, 'error');
+          }
           return;
         }
       }
 
       setStreamingError(errorMessage);
       setIsStreaming(false);
+      if (chatId) {
+        setStreamingStatus(chatId, 'error');
+      }
     }
   };
 
   // Keep ref updated for use in callbacks
   handleSendRef.current = handleSend;
 
+  // Register send callback for queue processor
   useEffect(() => {
-    if (!selectedChatId || isStreaming) return;
-    const queue = messageQueue[selectedChatId];
-    if (!queue || queue.length === 0) return;
-    const nextItem = queue[0];
-    setMessageQueue((prev) => ({
-      ...prev,
-      [selectedChatId]: (prev[selectedChatId] || []).slice(1),
-    }));
-    handleSendRef.current?.(
-      nextItem.images,
-      nextItem.documents,
-      nextItem.targetDocument ?? null,
-      nextItem.message,
-      {
-        generateImage: nextItem.generateImage,
-        imageSize: nextItem.imageSize,
-      },
-    );
-  }, [isStreaming, messageQueue, selectedChatId, setMessageQueue]);
+    if (!selectedChatId) return;
+
+    // Create a wrapper that converts ChatQueueItem to handleSend parameters
+    const sendCallback = async (item: any) => {
+      const images = item.images?.map((img: any) => ({
+        base64Data: img.base64Data,
+        mediaType: img.mediaType,
+        filename: img.filename,
+      }));
+      const documents = item.documents?.map((doc: any) => doc.file);
+      const targetDocument = item.targetDocument
+        ? { id: item.targetDocument.id, filename: item.targetDocument.filename }
+        : null;
+
+      await handleSendRef.current?.(
+        images,
+        documents,
+        targetDocument,
+        item.message,
+        {
+          generateImage: item.generateImage,
+          imageSize: item.imageSize,
+        }
+      );
+    };
+
+    registerCallback(selectedChatId, sendCallback);
+
+    return () => {
+      unregisterCallback(selectedChatId);
+    };
+  }, [selectedChatId, registerCallback, unregisterCallback]);
 
   // === QUICK PROMPT AUTO-SEND ===
   // Watch for pending messages from Quick Prompt and auto-send them
@@ -1280,6 +1342,9 @@ export function ChatView() {
       abortRef.current = null;
     }
     setIsStreaming(false);
+    if (selectedChatId) {
+      setStreamingStatus(selectedChatId, 'ready');
+    }
   };
 
   // Invalidate queries when chat changes and clear artifact selection
@@ -1408,6 +1473,32 @@ export function ChatView() {
 
     return () => observer.disconnect();
   }, [messages, getScrollViewport]);
+
+  // Load suggestions from the last assistant message when chat history is loaded
+  // This ensures suggestions persist across page refreshes and chat switches
+  useEffect(() => {
+    // Don't load suggestions while streaming (we're generating new ones)
+    if (isStreaming || !messages || messages.length === 0) return;
+
+    // Find the last assistant message
+    const lastAssistantMessage = [...messages]
+      .reverse()
+      .find((m) => m.role === "assistant");
+
+    if (lastAssistantMessage?.metadata?.suggestions) {
+      const savedSuggestions = lastAssistantMessage.metadata.suggestions;
+      if (Array.isArray(savedSuggestions) && savedSuggestions.length > 0) {
+        console.log(
+          "[ChatView] Loading suggestions from last message:",
+          savedSuggestions,
+        );
+        setStreamingSuggestions(savedSuggestions);
+      }
+    } else {
+      // Clear suggestions if no saved suggestions found
+      setStreamingSuggestions([]);
+    }
+  }, [messages, selectedChatId, isStreaming, setStreamingSuggestions]);
 
   // Error state - chat not found (stale localStorage)
   if (messagesError && selectedChatId) {
@@ -1611,6 +1702,23 @@ export function ChatView() {
         </div>
       </div>
 
+      {/* Queue indicator - shows when messages are queued - MOVED OUTSIDE INPUT AREA */}
+      {currentQueue.length > 0 && (
+        <div className="absolute bottom-[calc(100%-4rem)] left-1/2 -translate-x-1/2 z-30 w-full max-w-3xl px-4 pointer-events-none">
+          <div className="flex items-center justify-center gap-2 text-sm text-foreground bg-blue-500/90 backdrop-blur-sm rounded-lg px-4 py-2.5 shadow-lg border border-blue-400/50 pointer-events-auto">
+            <div className="flex items-center gap-2">
+              <div className="h-2.5 w-2.5 rounded-full bg-white animate-pulse" />
+              <span className="font-semibold text-white">
+                {currentQueue.length} {currentQueue.length === 1 ? 'mensaje en cola' : 'mensajes en cola'}
+              </span>
+            </div>
+            <span className="text-xs text-white/90 hidden sm:inline">
+              · Se enviarán cuando termine el streaming
+            </span>
+          </div>
+        </div>
+      )}
+
       {/* Input area */}
       <div className="relative z-20">
         <div className="max-w-3xl mx-auto">
@@ -1626,6 +1734,7 @@ export function ChatView() {
             </div>
           ) : (
             <>
+
               {/* Files panel - shows uploaded documents */}
               {documentUpload.files.length > 0 && (
                 <ChatFilesPanel className="px-4 pb-2 max-w-3xl mx-auto" />

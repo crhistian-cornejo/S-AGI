@@ -1,5 +1,5 @@
 import { memo, useCallback, useEffect, useState, useRef } from 'react'
-import { useAtom, useSetAtom } from 'jotai'
+import { useAtom } from 'jotai'
 import {
     IconSearch,
     IconX,
@@ -10,13 +10,13 @@ import {
 } from '@tabler/icons-react'
 import { useRegistry } from '@embedpdf/core/react'
 import { useLoaderCapability } from '@embedpdf/plugin-loader/react'
+import { useScroll } from '@embedpdf/plugin-scroll/react'
 import type { PdfEngine, SearchResult } from '@embedpdf/models'
 import {
     pdfSearchQueryAtom,
     pdfSearchResultsAtom,
     pdfSearchCurrentIndexAtom,
     pdfSearchLoadingAtom,
-    pdfCurrentPageAtom,
     type PdfSearchResult
 } from '@/lib/atoms'
 import { Input } from '@/components/ui/input'
@@ -38,12 +38,12 @@ export const PdfSearchPanel = memo(function PdfSearchPanel({
 }: PdfSearchPanelProps) {
     const { registry, pluginsReady } = useRegistry()
     const { provides: loaderApi } = useLoaderCapability()
+    const { provides: scrollApi } = useScroll()
 
     const [query, setQuery] = useAtom(pdfSearchQueryAtom)
     const [results, setResults] = useAtom(pdfSearchResultsAtom)
     const [currentIndex, setCurrentIndex] = useAtom(pdfSearchCurrentIndexAtom)
     const [isLoading, setIsLoading] = useAtom(pdfSearchLoadingAtom)
-    const setCurrentPage = useSetAtom(pdfCurrentPageAtom)
 
     const [localQuery, setLocalQuery] = useState(query)
     const [error, setError] = useState<string | null>(null)
@@ -122,8 +122,13 @@ export const PdfSearchPanel = memo(function PdfSearchPanel({
             console.log(`[PDF Search] Found ${searchResults.length} results`)
 
             // Navigate to first result if any
-            if (searchResults.length > 0) {
-                setCurrentPage(searchResults[0].pageIndex + 1)
+            if (searchResults.length > 0 && scrollApi) {
+                const pageNumber = searchResults[0].pageIndex + 1
+                console.log(`[PDF Search] Navigating to page ${pageNumber}`)
+                scrollApi.scrollToPage({
+                    pageNumber,
+                    behavior: 'smooth'
+                })
             }
         } catch (err) {
             if ((err as Error).name === 'AbortError') {
@@ -135,11 +140,11 @@ export const PdfSearchPanel = memo(function PdfSearchPanel({
         } finally {
             setIsLoading(false)
         }
-    }, [localQuery, registry, loaderApi, pluginsReady, setQuery, setResults, setCurrentIndex, setIsLoading, setCurrentPage])
+    }, [localQuery, registry, loaderApi, pluginsReady, setQuery, setResults, setCurrentIndex, setIsLoading, scrollApi])
 
     // Navigate to next/previous result
     const goToResult = useCallback((direction: 'next' | 'prev') => {
-        if (results.length === 0) return
+        if (results.length === 0 || !scrollApi) return
 
         let newIndex: number
         if (direction === 'next') {
@@ -151,9 +156,14 @@ export const PdfSearchPanel = memo(function PdfSearchPanel({
         setCurrentIndex(newIndex)
         const result = results[newIndex]
         if (result) {
-            setCurrentPage(result.pageIndex + 1)
+            const pageNumber = result.pageIndex + 1
+            console.log(`[PDF Search] Navigating to result ${newIndex + 1} on page ${pageNumber}`)
+            scrollApi.scrollToPage({
+                pageNumber,
+                behavior: 'smooth'
+            })
         }
-    }, [results, currentIndex, setCurrentIndex, setCurrentPage])
+    }, [results, currentIndex, setCurrentIndex, scrollApi])
 
     // Handle Enter key to search
     const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
@@ -291,7 +301,14 @@ export const PdfSearchPanel = memo(function PdfSearchPanel({
                             )}
                             onClick={() => {
                                 setCurrentIndex(idx)
-                                setCurrentPage(result.pageIndex + 1)
+                                if (scrollApi) {
+                                    const pageNumber = result.pageIndex + 1
+                                    console.log(`[PDF Search] Navigating to result ${idx + 1} on page ${pageNumber}`)
+                                    scrollApi.scrollToPage({
+                                        pageNumber,
+                                        behavior: 'smooth'
+                                    })
+                                }
                             }}
                         >
                             <span className="font-medium text-muted-foreground">

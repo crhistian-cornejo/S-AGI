@@ -33,17 +33,8 @@ export const selectedChatAtom = atom<Chat | null>(null)
 // Pending message from Quick Prompt - ChatView will auto-send this
 export const pendingQuickPromptMessageAtom = atom<string | null>(null)
 
-export interface QueuedChatMessage {
-    id: string
-    chatId: string
-    message: string
-    images?: Array<{ base64Data: string; mediaType: string; filename: string }>
-    documents?: File[]
-    targetDocument?: { id: string; filename: string } | null
-    generateImage?: boolean
-    imageSize?: string
-}
-export const chatMessageQueueAtom = atom<Record<string, QueuedChatMessage[]>>({})
+// Note: Message queue moved to Zustand store (message-queue-store.ts)
+// for better global state management and subscription support
 
 // === ARTIFACT STATE ===
 export const selectedArtifactIdAtom = atom<string | null>(null)
@@ -220,6 +211,10 @@ export {
     pdfSearchCurrentIndexAtom,
     pdfSearchLoadingAtom,
     pdfSearchPanelOpenAtom,
+    // Save state
+    pdfHasUnsavedChangesAtom,
+    pdfLastSaveAtom,
+    pdfSaveStatusAtom,
     // Helper functions
     createPdfSourceFromArtifact,
     createPdfSourceFromChatFile,

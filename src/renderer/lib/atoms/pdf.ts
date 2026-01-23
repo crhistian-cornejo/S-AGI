@@ -232,6 +232,21 @@ export const pdfSearchLoadingAtom = atom(false)
 export const pdfSearchPanelOpenAtom = atom(false)
 
 /**
+ * PDF Save state - tracks if there are unsaved changes
+ */
+export const pdfHasUnsavedChangesAtom = atom(false)
+
+/**
+ * Last save timestamp
+ */
+export const pdfLastSaveAtom = atom<Date | null>(null)
+
+/**
+ * Save status
+ */
+export const pdfSaveStatusAtom = atom<'idle' | 'saving' | 'saved' | 'error'>('idle')
+
+/**
  * Local PDFs loaded from filesystem (persisted across sessions)
  * These are for viewing only - no processing, no AI, no vector stores
  * The actual PDF data is loaded on-demand via IPC
