@@ -10,8 +10,6 @@ import {
 import { trpc } from "@/lib/trpc";
 import { cn } from "@/lib/utils";
 import {
-  IconTrendingUp,
-  IconTrendingDown,
   IconCalendarStats,
   IconChevronLeft,
   IconChevronRight,

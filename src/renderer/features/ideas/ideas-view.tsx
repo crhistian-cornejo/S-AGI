@@ -44,38 +44,20 @@ import {
 import { useTheme } from "next-themes";
 import { cn } from "@/lib/utils";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import { Button } from "@/components/ui/button";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
-import { currentProviderAtom } from "@/lib/atoms";
-import { useAtom } from "jotai";
+import { NotesPageHeader } from "@/features/notes/notes-page-header";
+import { 
+  currentProviderAtom, 
+  selectedNotePageIdAtom, 
+  notePagesCacheAtom,
+  notesSelectedModelIdAtom,
+  notesEditorRefAtom,
+  notesIsExportingPdfAtom,
+} from "@/lib/atoms";
+import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import { trpc } from "@/lib/trpc";
 import { getCustomAIMenuItems } from "./custom-ai-menu";
-import {
-  RiSparklingLine,
-  RiArrowDownSLine,
-  RiFilePdf2Line,
-} from "react-icons/ri";
-
-const STORAGE_KEY = "ideas-content";
-
-// Available AI models
-const AI_MODELS = {
-  openai: [
-    { id: "gpt-5-mini", name: "GPT-5 Mini", description: "Fast & capable" },
-    { id: "gpt-5-nano", name: "GPT-5 Nano", description: "Ultra fast" },
-  ],
-  zai: [{ id: "GLM-4.7-Flash", name: "GLM-4.7 Flash", description: "Fast" }],
-};
+import { getPageById, savePage } from "@/lib/notes-storage";
+import { updateTabPage } from "@/lib/notes-tabs";
 
 interface IdeasEditorProps {
   initialContent: PartialBlock[];
@@ -83,6 +65,7 @@ interface IdeasEditorProps {
   aiServerPort: number;
   modelId: string;
   onEditorReady: (editor: BlockNoteEditor<any, any, any>) => void;
+  pageId?: string;
 }
 
 // Custom AI Menu that uses our streamTools configuration
@@ -157,8 +140,10 @@ const IdeasEditor = ({
   aiServerPort,
   modelId,
   onEditorReady,
-}: IdeasEditorProps) => {
+  pageId,
+}: IdeasEditorProps & { pageId?: string }) => {
   const [provider] = useAtom(currentProviderAtom);
+  const setNotePage = useSetAtom(notePagesCacheAtom);
 
   // Get API key status from settings
   const { data: keyStatus } = trpc.settings.getApiKeyStatus.useQuery();
@@ -174,6 +159,7 @@ const IdeasEditor = ({
   }, [aiServerPort, provider, modelId]);
 
   // Create editor with AI extension
+  // IMPORTANT: Recreate editor when pageId changes to ensure independent content per page
   const editor = useCreateBlockNote(
     {
       dictionary: {
@@ -201,8 +187,25 @@ const IdeasEditor = ({
         });
       },
     },
-    [aiTransport],
+    // Recreate editor when pageId or initialContent changes to ensure each page has independent content
+    [aiTransport, pageId],
   );
+
+  // Update editor content when initialContent changes (for same pageId)
+  useEffect(() => {
+    if (editor && pageId && initialContent && initialContent.length > 0) {
+      try {
+        // Replace all blocks with the new page content
+        // This ensures each page maintains its own independent content
+        const currentBlocks = editor.document;
+        if (JSON.stringify(currentBlocks) !== JSON.stringify(initialContent)) {
+          editor.replaceBlocks(editor.document, initialContent);
+        }
+      } catch (error) {
+        console.error("[IdeasEditor] Error updating editor content:", error);
+      }
+    }
+  }, [editor, initialContent, pageId]);
 
   // Notify parent when editor is ready
   useEffect(() => {
@@ -211,13 +214,26 @@ const IdeasEditor = ({
     }
   }, [editor, onEditorReady]);
 
-  // Save to localStorage on change
+  // Save to page storage on change
+  // IMPORTANT: Each page saves its own independent content
   const handleOnChange = useCallback(() => {
-    if (editor) {
+    if (editor && pageId) {
       const blocks = editor.document;
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(blocks));
+      // Deep clone blocks to ensure independence
+      const clonedBlocks = JSON.parse(JSON.stringify(blocks));
+      
+      const page = getPageById(pageId);
+      if (page) {
+        // Save independent content for this specific page
+        page.content = clonedBlocks;
+        page.updatedAt = Date.now();
+        savePage(page);
+        // Update cache and tabs with the saved page
+        setNotePage((prev) => ({ ...prev, [pageId]: { ...page } }));
+        updateTabPage(page);
+      }
     }
-  }, [editor]);
+  }, [editor, pageId, setNotePage]);
 
   // Show message if no API key
   if (!keyStatus?.hasOpenAI && !keyStatus?.hasZai) {
@@ -257,34 +273,24 @@ const IdeasEditor = ({
 export const IdeasView = () => {
   const { resolvedTheme } = useTheme();
   const isDark = resolvedTheme === "dark";
+  const [selectedPageId] = useAtom(selectedNotePageIdAtom);
+  const pagesCache = useAtomValue(notePagesCacheAtom);
   const [initialContent, setInitialContent] = useState<PartialBlock[] | null>(
     null,
   );
   const [isLoading, setIsLoading] = useState(true);
   const [aiServerPort, setAiServerPort] = useState<number>(0);
-  const [isExportingPdf, setIsExportingPdf] = useState(false);
-  const [selectedModelId, setSelectedModelId] = useState<string>("gpt-5-mini");
+  const [isExportingPdf, setIsExportingPdf] = useAtom(notesIsExportingPdfAtom);
+  const [selectedModelId, setSelectedModelId] = useAtom(notesSelectedModelIdAtom);
   const editorRef = useRef<BlockNoteEditor<any, any, any> | null>(null);
-  const [provider, setProvider] = useAtom(currentProviderAtom);
-
-  // Get available models for current provider
-  const availableModels = useMemo(() => {
-    return provider === "zai" ? AI_MODELS.zai : AI_MODELS.openai;
-  }, [provider]);
-
-  // Get current model info
-  const currentModel = useMemo(() => {
-    return (
-      availableModels.find((m) => m.id === selectedModelId) ||
-      availableModels[0]
-    );
-  }, [availableModels, selectedModelId]);
+  const setEditorRef = useSetAtom(notesEditorRefAtom);
+  const [provider] = useAtom(currentProviderAtom);
 
   // Update selected model when provider changes
   useEffect(() => {
     const defaultModel = provider === "zai" ? "GLM-4.7-Flash" : "gpt-5-mini";
     setSelectedModelId(defaultModel);
-  }, [provider]);
+  }, [provider, setSelectedModelId]);
 
   const handleEditorReady = useCallback(
     (editor: BlockNoteEditor<any, any, any>) => {
@@ -318,7 +324,17 @@ export const IdeasView = () => {
     } finally {
       setIsExportingPdf(false);
     }
-  }, [isExportingPdf]);
+  }, [isExportingPdf, setIsExportingPdf]);
+
+  // Update editor ref atom when editor or export function changes
+  useEffect(() => {
+    if (editorRef.current) {
+      setEditorRef({
+        editor: editorRef.current,
+        exportPdf: handleExportPdf,
+      });
+    }
+  }, [handleExportPdf, setEditorRef]);
 
   const getDefaultContent = useCallback(
     (): PartialBlock[] => [
@@ -335,6 +351,39 @@ export const IdeasView = () => {
     [],
   );
 
+  const setNotePage = useSetAtom(notePagesCacheAtom);
+
+  // Load page content when selected page changes
+  useEffect(() => {
+    setIsLoading(true);
+    if (selectedPageId) {
+      // Try to get from cache first
+      let page = pagesCache[selectedPageId];
+      if (!page) {
+        // Load from storage
+        const loadedPage = getPageById(selectedPageId);
+        if (loadedPage) {
+          page = loadedPage;
+          // Update cache
+          setNotePage((prev) => ({ ...prev, [selectedPageId]: loadedPage }));
+        }
+      }
+      
+      // Each page has its own independent content
+      if (page?.content && Array.isArray(page.content) && page.content.length > 0) {
+        // Deep clone to ensure independence - each page maintains its own content
+        setInitialContent(JSON.parse(JSON.stringify(page.content)));
+      } else {
+        // New page - use default content
+        setInitialContent(getDefaultContent());
+      }
+    } else {
+      // No page selected, show default
+      setInitialContent(getDefaultContent());
+    }
+    setIsLoading(false);
+  }, [selectedPageId, pagesCache, getDefaultContent, setNotePage]);
+
   useEffect(() => {
     const desktopApi = window.desktopApi as
       | { getAIServerPort?: () => Promise<number> }
@@ -347,19 +396,7 @@ export const IdeasView = () => {
       .catch((err: Error) => {
         console.error("[IdeasView] Failed to get AI server port:", err);
       });
-
-    const saved = localStorage.getItem(STORAGE_KEY);
-    if (saved) {
-      try {
-        setInitialContent(JSON.parse(saved));
-      } catch {
-        setInitialContent(getDefaultContent());
-      }
-    } else {
-      setInitialContent(getDefaultContent());
-    }
-    setIsLoading(false);
-  }, [getDefaultContent]);
+  }, []);
 
   if (isLoading) {
     return (
@@ -386,78 +423,12 @@ export const IdeasView = () => {
         "h-full w-full bg-background transition-colors duration-300 flex flex-col",
       )}
     >
-      {/* Subtle inline toolbar - positioned below content header area */}
-      <div className="flex items-center justify-end gap-1 px-6 py-1.5 border-b bg-muted/20">
-        {/* Model selector dropdown */}
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-6 px-2 text-xs gap-1 font-normal text-muted-foreground hover:text-foreground"
-                >
-                  <RiSparklingLine className="h-3 w-3 text-purple-500" />
-                  <span className="max-w-[80px] truncate">
-                    {currentModel.name}
-                  </span>
-                  <RiArrowDownSLine className="h-3 w-3 opacity-50" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-48">
-                {availableModels.map((model) => (
-                  <DropdownMenuItem
-                    key={model.id}
-                    onClick={() => setSelectedModelId(model.id)}
-                    className={cn(
-                      "text-xs",
-                      model.id === selectedModelId && "bg-accent",
-                    )}
-                  >
-                    <div className="flex flex-col">
-                      <span className="font-medium">{model.name}</span>
-                      <span className="text-[10px] text-muted-foreground">
-                        {model.description}
-                      </span>
-                    </div>
-                  </DropdownMenuItem>
-                ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </TooltipTrigger>
-          <TooltipContent side="bottom">
-            <p>AI Model</p>
-          </TooltipContent>
-        </Tooltip>
-
-        <div className="w-px h-3 bg-border" />
-
-        {/* PDF export button */}
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-6 w-6 text-muted-foreground hover:text-foreground"
-              onClick={handleExportPdf}
-              disabled={isExportingPdf}
-            >
-              {isExportingPdf ? (
-                <div className="w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin" />
-              ) : (
-                <RiFilePdf2Line className="h-3.5 w-3.5" />
-              )}
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent side="bottom">
-            <p>Export to PDF</p>
-          </TooltipContent>
-        </Tooltip>
-      </div>
-
+      {/* Page Header */}
+      {selectedPageId && <NotesPageHeader />}
+      
+      {/* Editor Content */}
       <ScrollArea className="flex-1 w-full">
-        <div className="w-full h-full min-h-[calc(100vh-60px)] py-4 px-6">
+        <div className="w-full max-w-4xl mx-auto h-full min-h-[calc(100vh-60px)] py-8 px-12">
           {initialContent && (
             <IdeasEditor
               initialContent={initialContent}
@@ -465,6 +436,7 @@ export const IdeasView = () => {
               aiServerPort={aiServerPort}
               modelId={selectedModelId}
               onEditorReady={handleEditorReady}
+              pageId={selectedPageId || undefined}
             />
           )}
         </div>
