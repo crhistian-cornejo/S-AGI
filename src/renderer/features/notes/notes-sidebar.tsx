@@ -571,10 +571,10 @@ export function NotesSidebar() {
   const availableModels = useMemo(() => {
     const models = {
       openai: [
-        { id: "gpt-5-mini", name: "GPT-5 Mini", description: "Fast & capable" },
-        { id: "gpt-5-nano", name: "GPT-5 Nano", description: "Ultra fast" },
+        { id: "gpt-5-mini", name: "GPT-5 Mini", description: "Fast & capable", provider: "openai" as AIProvider },
+        { id: "gpt-5-nano", name: "GPT-5 Nano", description: "Ultra fast", provider: "openai" as AIProvider },
       ],
-      zai: [{ id: "GLM-4.7-Flash", name: "GLM-4.7 Flash", description: "Fast" }],
+      zai: [{ id: "GLM-4.7-Flash", name: "GLM-4.7 Flash", description: "Fast", provider: "zai" as AIProvider }],
     };
     return provider === "zai" ? models.zai : models.openai;
   }, [provider]);
@@ -896,11 +896,21 @@ export function NotesSidebar() {
                               model.id === selectedModelId && "bg-accent",
                             )}
                           >
-                            <div className="flex flex-col">
-                              <span className="font-medium">{model.name}</span>
-                              <span className="text-[10px] text-muted-foreground">
-                                {model.description}
-                              </span>
+                            <div className="flex items-center gap-2 w-full">
+                              <ModelIcon
+                                provider={model.provider || providerForIcon}
+                                size={14}
+                                className={cn(
+                                  "shrink-0",
+                                  model.provider === "zai" ? "text-amber-500" : ""
+                                )}
+                              />
+                              <div className="flex flex-col min-w-0">
+                                <span className="font-medium">{model.name}</span>
+                                <span className="text-[10px] text-muted-foreground">
+                                  {model.description}
+                                </span>
+                              </div>
                             </div>
                           </DropdownMenuItem>
                         ))}

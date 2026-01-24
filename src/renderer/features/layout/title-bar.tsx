@@ -47,7 +47,8 @@ import {
 } from '@tabler/icons-react'
 import { Button } from '@/components/ui/button'
 import { Logo } from '@/components/ui/logo'
-import { ZaiIcon, OpenAIIcon } from '@/components/icons/model-icons'
+import { ZaiIcon, OpenAIIcon, ModelIcon } from '@/components/icons/model-icons'
+import type { AIProvider } from '@shared/ai-types'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn, isMacOS, isElectron, isWindows } from '@/lib/utils'
 
@@ -104,10 +105,10 @@ export function TitleBar({ className, noTrafficLightSpace }: TitleBarProps) {
     const availableModels = useMemo(() => {
       const models = {
         openai: [
-          { id: "gpt-5-mini", name: "GPT-5 Mini", description: "Fast & capable" },
-          { id: "gpt-5-nano", name: "GPT-5 Nano", description: "Ultra fast" },
+          { id: "gpt-5-mini", name: "GPT-5 Mini", description: "Fast & capable", provider: "openai" as AIProvider },
+          { id: "gpt-5-nano", name: "GPT-5 Nano", description: "Ultra fast", provider: "openai" as AIProvider },
         ],
-        zai: [{ id: "GLM-4.7-Flash", name: "GLM-4.7 Flash", description: "Fast" }],
+        zai: [{ id: "GLM-4.7-Flash", name: "GLM-4.7 Flash", description: "Fast", provider: "zai" as AIProvider }],
       };
       return provider === "zai" ? models.zai : models.openai;
     }, [provider]);
@@ -198,7 +199,11 @@ export function TitleBar({ className, noTrafficLightSpace }: TitleBarProps) {
                                                     "hover:bg-accent/50 text-muted-foreground hover:text-foreground"
                                                 )}
                                             >
-                                                <span className="text-purple-500">✨</span>
+                                                <ModelIcon
+                                                    provider={currentModel.provider || provider}
+                                                    size={14}
+                                                    className={currentModel.provider === "zai" ? "text-amber-500" : ""}
+                                                />
                                                 <span className="max-w-[80px] truncate text-xs">
                                                     {currentModel.name}
                                                 </span>
@@ -215,11 +220,21 @@ export function TitleBar({ className, noTrafficLightSpace }: TitleBarProps) {
                                                         model.id === selectedModelId && "bg-accent",
                                                     )}
                                                 >
-                                                    <div className="flex flex-col">
-                                                        <span className="font-medium">{model.name}</span>
-                                                        <span className="text-[10px] text-muted-foreground">
-                                                            {model.description}
-                                                        </span>
+                                                    <div className="flex items-center gap-2 w-full">
+                                                        <ModelIcon
+                                                            provider={model.provider || provider}
+                                                            size={14}
+                                                            className={cn(
+                                                                "shrink-0",
+                                                                model.provider === "zai" ? "text-amber-500" : ""
+                                                            )}
+                                                        />
+                                                        <div className="flex flex-col min-w-0">
+                                                            <span className="font-medium">{model.name}</span>
+                                                            <span className="text-[10px] text-muted-foreground">
+                                                                {model.description}
+                                                            </span>
+                                                        </div>
                                                     </div>
                                                 </DropdownMenuItem>
                                             ))}
