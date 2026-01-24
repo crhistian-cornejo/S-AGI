@@ -503,7 +503,7 @@ function createTrayPopover(): BrowserWindow {
     vibrancy: process.platform === "darwin" ? "popover" : undefined,
     visualEffectState: "active",
     webPreferences: {
-      preload: join(__dirname, "../preload/index.js"),
+      preload: join(__dirname, "../preload/index.cjs"),
       sandbox: true,
       contextIsolation: true,
       nodeIntegration: false,
@@ -569,7 +569,7 @@ function createQuickPromptWindow(): BrowserWindow {
     thickFrame: false, // Prevents Windows default resize/shadow behavior
     autoHideMenuBar: true,
     webPreferences: {
-      preload: join(__dirname, "../preload/index.js"),
+      preload: join(__dirname, "../preload/index.cjs"),
       sandbox: true,
       contextIsolation: true,
       nodeIntegration: false,
@@ -970,8 +970,8 @@ function createTray(): void {
 function createWindow(): void {
   // Create the browser window
   mainWindow = new BrowserWindow({
-    width: 930,
-    height: 800,
+    width: 980,
+    height: 850,
     minWidth: 835,
     minHeight: 400,
     show: false,
@@ -985,7 +985,7 @@ function createWindow(): void {
           ? join(__dirname, "icon.ico")
           : join(__dirname, "logo.svg"),
     webPreferences: {
-      preload: join(__dirname, "../preload/index.js"),
+      preload: join(__dirname, "../preload/index.cjs"),
       sandbox: true,
       contextIsolation: true,
       nodeIntegration: false,
