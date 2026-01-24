@@ -1,0 +1,10 @@
+{
+  "name": "@s-agi/electron",
+  "version": "0.1.0",
+  "description": "S-AGI Electron desktop application",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@s-agi/core": "workspace:*"
+  }
+}

@@ -88,7 +88,8 @@ export default defineConfig({
         resolve: {
             alias: {
                 '@main': resolve('apps/electron/main'),
-                '@shared': resolve('apps/electron/shared')
+                '@shared': resolve('apps/electron/shared'),
+                '@s-agi/core': resolve('packages/core/src')
             }
         },
         build: {
@@ -128,6 +129,7 @@ export default defineConfig({
             alias: {
                 '@': resolve('apps/electron/renderer'),
                 '@shared': resolve('apps/electron/shared'),
+                '@s-agi/core': resolve('packages/core/src'),
                 // Subpaths of numfmt must resolve to the real package (facade, etc.)
                 '@univerjs/sheets-numfmt/facade': resolve(__dirname, 'node_modules/@univerjs/sheets-numfmt/lib/es/facade.js'),
                 // Real package for the patch (avoids circular alias; TS: see tsconfig paths)

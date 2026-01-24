@@ -32,6 +32,12 @@
             "@shared/*": [
                 "./apps/electron/shared/*"
             ],
+            "@s-agi/core": [
+                "./packages/core/src/index.ts"
+            ],
+            "@s-agi/core/*": [
+                "./packages/core/src/*"
+            ],
             "@univerjs/sheets-numfmt$real": [
                 "./node_modules/@univerjs/sheets-numfmt"
             ]

@@ -1,4 +1,4 @@
-import type { AIProvider } from '@shared/ai-types'
+import type { AIProvider } from '@s-agi/core/types/ai'
 
 interface ModelIconProps {
     provider: AIProvider
