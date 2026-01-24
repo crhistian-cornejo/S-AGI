@@ -10,8 +10,8 @@ function copyTrayIcons() {
     const copyIcons = () => {
         const trayIcons = ['trayTemplate.png', 'trayTemplate@2x.png', 'trayTemplate.svg']
         const appIcons = ['icon.icns', 'icon.ico']
-        
-        const srcMainDir = resolve(__dirname, 'src/main')
+
+        const srcMainDir = resolve(__dirname, 'apps/electron/main')
         const srcBuildDir = resolve(__dirname, 'build')
         const outDir = resolve(__dirname, 'out/main')
         
@@ -75,14 +75,14 @@ export default defineConfig({
         ],
         resolve: {
             alias: {
-                '@main': resolve('src/main'),
-                '@shared': resolve('src/shared')
+                '@main': resolve('apps/electron/main'),
+                '@shared': resolve('apps/electron/shared')
             }
         },
         build: {
             rollupOptions: {
                 input: {
-                    index: resolve(__dirname, 'src/main/index.ts')
+                    index: resolve(__dirname, 'apps/electron/main/index.ts')
                 },
                 external: ['electron', 'better-sqlite3'],
                 output: {
@@ -100,7 +100,7 @@ export default defineConfig({
         build: {
             rollupOptions: {
                 input: {
-                    index: resolve(__dirname, 'src/preload/index.ts')
+                    index: resolve(__dirname, 'apps/electron/preload/index.ts')
                 },
                 external: ['electron'],
                 output: {
@@ -110,16 +110,17 @@ export default defineConfig({
         }
     },
     renderer: {
+        root: resolve(__dirname, 'apps/electron/renderer'),
         resolve: {
             alias: {
-                '@': resolve('src/renderer'),
-                '@shared': resolve('src/shared'),
+                '@': resolve('apps/electron/renderer'),
+                '@shared': resolve('apps/electron/shared'),
                 // Subpaths of numfmt must resolve to the real package (facade, etc.)
                 '@univerjs/sheets-numfmt/facade': resolve(__dirname, 'node_modules/@univerjs/sheets-numfmt/lib/es/facade.js'),
                 // Real package for the patch (avoids circular alias; TS: see tsconfig paths)
                 '@univerjs/sheets-numfmt$real': resolve(__dirname, 'node_modules/@univerjs/sheets-numfmt'),
                 // Main entry: extended currency symbols (PEN, MX$, R$, etc.)
-                '@univerjs/sheets-numfmt': resolve(__dirname, 'src/renderer/features/univer/numfmt-currency-patch.ts'),
+                '@univerjs/sheets-numfmt': resolve(__dirname, 'apps/electron/renderer/features/univer/numfmt-currency-patch.ts'),
             },
             // Dedupe redi so all Univer packages share one @wendellhu/redi instance.
             // Prevents "Identifier rpc.remote-sync.service already exists" and
@@ -134,9 +135,9 @@ export default defineConfig({
         build: {
             rollupOptions: {
                 input: {
-                    index: resolve(__dirname, 'src/renderer/index.html'),
-                    'tray-popover': resolve(__dirname, 'src/renderer/tray-popover.html'),
-                    'quick-prompt': resolve(__dirname, 'src/renderer/quick-prompt.html')
+                    index: resolve(__dirname, 'apps/electron/renderer/index.html'),
+                    'tray-popover': resolve(__dirname, 'apps/electron/renderer/tray-popover.html'),
+                    'quick-prompt': resolve(__dirname, 'apps/electron/renderer/quick-prompt.html')
                 }
             }
         }
