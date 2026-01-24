@@ -1,5 +1,6 @@
 export * from './claude-code-store'
 export * from './claude-code-manager'
+export * from './claude-cli-import'
 export * from './chatgpt-store'
 export * from './chatgpt-manager'
 export * from './zai-store'

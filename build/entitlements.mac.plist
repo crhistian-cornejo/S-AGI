@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  macOS Hardened Runtime Entitlements for S-AGI
+
+  These entitlements are required for the app to function properly:
+  - JIT Compilation: Required for V8 engine and AI model execution
+  - Unsigned Memory: Required for Univer spreadsheet engine
+  - Library Validation: Required for native modules (better-sqlite3, sharp)
+  - Network: Required for Supabase, OpenAI, Anthropic API calls
+-->
+<plist version="1.0">
+<dict>
+    <!-- Required for V8 JavaScript engine (Electron) -->
+    <key>com.apple.security.cs.allow-jit</key>
+    <true/>
+
+    <!-- Required for Univer spreadsheet engine dynamic code generation -->
+    <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+    <true/>
+
+    <!-- Required for loading native modules (better-sqlite3, sharp, etc.) -->
+    <key>com.apple.security.cs.disable-library-validation</key>
+    <true/>
+
+    <!-- Required for API calls to Supabase, OpenAI, Anthropic, etc. -->
+    <key>com.apple.security.network.client</key>
+    <true/>
+
+    <!-- Required for local HTTP server (BlockNote AI integration) -->
+    <key>com.apple.security.network.server</key>
+    <true/>
+</dict>
+</plist>

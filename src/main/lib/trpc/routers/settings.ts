@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { router, publicProcedure } from '../trpc'
-import { getSecureApiKeyStore } from '../../auth/api-key-store'
+import { getCredentialManager } from '../../shared/credentials'
+import { getAuthState, getSetupNeeds, importClaudeFromCli } from '../../shared/auth'
 import { getChatGPTAuthManager, getClaudeCodeAuthManager, getZaiAuthManager } from '../../auth'
 import { supabase } from '../../supabase/client'
 import os from 'os'
@@ -8,24 +9,48 @@ import { app } from 'electron'
 
 /**
  * Settings router for secure API key management and OAuth status
+ *
+ * SECURITY: This router NEVER returns raw credentials to the renderer.
+ * All credential usage happens in the main process only.
  */
 export const settingsRouter = router({
-    // Get API key status (not the actual keys for security)
-    getApiKeyStatus: publicProcedure.query(() => {
-        const store = getSecureApiKeyStore()
+    // Get comprehensive credential status (secure - no raw values)
+    getApiKeyStatus: publicProcedure.query(async () => {
+        const manager = getCredentialManager()
+        const status = await manager.getAllStatus()
         const chatGPTAuth = getChatGPTAuthManager()
         const claudeCodeAuth = getClaudeCodeAuthManager()
-        const zaiAuth = getZaiAuthManager()
-        
+
         return {
-            hasOpenAI: store.hasOpenAIKey(),
-            hasAnthropic: store.hasAnthropicKey(),
-            hasTavily: store.hasTavilyKey(),
-            hasZai: zaiAuth.hasApiKey(),
-            // OAuth provider status
+            // New secure credential manager
+            hasOpenAI: status.hasOpenAIKey,
+            hasAnthropic: status.hasAnthropicKey,
+            hasTavily: status.hasTavilyKey,
+            hasZai: status.hasZaiKey,
+            hasClaudeOAuth: status.hasClaudeOAuth,
+            isClaudeTokenExpired: status.isClaudeTokenExpired,
+            hasChatGPTOAuth: status.hasChatGPTOAuth,
+            isChatGPTTokenExpired: status.isChatGPTTokenExpired,
+            // Legacy managers (for backwards compatibility)
             hasChatGPTPlus: chatGPTAuth.isConnected(),
             hasClaudeCode: claudeCodeAuth.isConnected()
         }
+    }),
+
+    // Get full auth state
+    getAuthState: publicProcedure.query(async () => {
+        return getAuthState()
+    }),
+
+    // Get setup needs
+    getSetupNeeds: publicProcedure.query(async () => {
+        return getSetupNeeds()
+    }),
+
+    // Import Claude CLI credentials
+    importClaudeCli: publicProcedure.mutation(async () => {
+        const success = await importClaudeFromCli()
+        return { success }
     }),
 
     // Get system and app info for debug
@@ -72,72 +97,50 @@ export const settingsRouter = router({
         return results
     }),
 
-    // Set OpenAI API key
+    // Set OpenAI API key (secure - key stored in encrypted storage)
     setOpenAIKey: publicProcedure
         .input(z.object({ key: z.string().nullable() }))
-        .mutation(({ input }) => {
-            const store = getSecureApiKeyStore()
-            store.setOpenAIKey(input.key)
+        .mutation(async ({ input }) => {
+            const manager = getCredentialManager()
+            await manager.setOpenAIKey(input.key)
             return { success: true }
         }),
 
-    // Set Anthropic API key
+    // Set Anthropic API key (secure - key stored in encrypted storage)
     setAnthropicKey: publicProcedure
         .input(z.object({ key: z.string().nullable() }))
-        .mutation(({ input }) => {
-            const store = getSecureApiKeyStore()
-            store.setAnthropicKey(input.key)
+        .mutation(async ({ input }) => {
+            const manager = getCredentialManager()
+            await manager.setAnthropicKey(input.key)
             return { success: true }
         }),
 
-    // Get OpenAI key (for AI requests in main process)
-    getOpenAIKey: publicProcedure.query(() => {
-        const store = getSecureApiKeyStore()
-        return { key: store.getOpenAIKey() }
-    }),
-
-    // Get Anthropic key (for AI requests in main process)
-    getAnthropicKey: publicProcedure.query(() => {
-        const store = getSecureApiKeyStore()
-        return { key: store.getAnthropicKey() }
-    }),
-
-    // Set Z.AI API key
+    // Set Z.AI API key (secure - key stored in encrypted storage)
     setZaiKey: publicProcedure
         .input(z.object({ key: z.string().nullable() }))
-        .mutation(({ input }) => {
-            const zaiAuth = getZaiAuthManager()
-            zaiAuth.setApiKey(input.key)
+        .mutation(async ({ input }) => {
+            const manager = getCredentialManager()
+            await manager.setZaiKey(input.key)
             return { success: true }
         }),
 
-    // Get Z.AI key (for AI requests in main process)
-    getZaiKey: publicProcedure.query(() => {
-        const zaiAuth = getZaiAuthManager()
-        return { key: zaiAuth.getApiKey() }
-    }),
-
-    // Set Tavily API key (for web search)
+    // Set Tavily API key (secure - key stored in encrypted storage)
     setTavilyKey: publicProcedure
         .input(z.object({ key: z.string().nullable() }))
-        .mutation(({ input }) => {
-            const store = getSecureApiKeyStore()
-            store.setTavilyKey(input.key)
+        .mutation(async ({ input }) => {
+            const manager = getCredentialManager()
+            await manager.setTavilyKey(input.key)
             return { success: true }
         }),
 
-    // Get Tavily key (for web search in main process)
-    getTavilyKey: publicProcedure.query(() => {
-        const store = getSecureApiKeyStore()
-        return { key: store.getTavilyKey() }
-    }),
-
-    // Clear all API keys
-    clearAllKeys: publicProcedure.mutation(() => {
-        const store = getSecureApiKeyStore()
-        const zaiAuth = getZaiAuthManager()
-        store.clear()
-        zaiAuth.clear()
+    // Clear all API keys (secure - clears encrypted storage)
+    clearAllKeys: publicProcedure.mutation(async () => {
+        const manager = getCredentialManager()
+        await manager.clearAll()
         return { success: true }
     })
+
+    // SECURITY NOTE: We intentionally do NOT expose getOpenAIKey, getAnthropicKey,
+    // getZaiKey, getTavilyKey endpoints. Credentials should NEVER be sent to the
+    // renderer process. All AI requests are handled in the main process only.
 })

@@ -58,8 +58,12 @@ win:
     - msi
     - portable
 nsis:
-  oneClick: false
-  allowToChangeInstallationDirectory: true
+  oneClick: true
+  # Per-user installation (AppData\Local) - required for Bun subprocess compatibility
+  # Bun cannot read/write files in Program Files due to Windows UAC permissions
+  perMachine: false
+  allowToChangeInstallationDirectory: false
+  deleteAppDataOnUninstall: true
 publish:
   provider: generic
   url: https://releases.sagi.app

@@ -5,8 +5,12 @@ import log from 'electron-log'
 
 export interface ClaudeCodeCredentials {
     oauthToken: string
+    refreshToken?: string
+    expiresAt?: number  // Unix timestamp in milliseconds
     connectedAt: string
     userId?: string
+    scopes?: string[]
+    source?: 'oauth' | 'cli_import'  // How credentials were obtained
 }
 
 /**
@@ -85,6 +89,57 @@ export class ClaudeCodeAuthStore {
     getToken(): string | null {
         const credentials = this.load()
         return credentials?.oauthToken || null
+    }
+
+    /**
+     * Get refresh token if available
+     */
+    getRefreshToken(): string | null {
+        const credentials = this.load()
+        return credentials?.refreshToken || null
+    }
+
+    /**
+     * Get token expiration time
+     */
+    getExpiresAt(): number | null {
+        const credentials = this.load()
+        return credentials?.expiresAt || null
+    }
+
+    /**
+     * Check if token is expired or will expire soon (within 5 minutes)
+     */
+    isTokenExpired(): boolean {
+        const expiresAt = this.getExpiresAt()
+        if (!expiresAt) {
+            // If no expiry info, assume token is still valid
+            return false
+        }
+        // Consider expired if less than 5 minutes remaining
+        const bufferMs = 5 * 60 * 1000
+        return Date.now() + bufferMs >= expiresAt
+    }
+
+    /**
+     * Update token after refresh
+     */
+    updateToken(accessToken: string, refreshToken?: string, expiresAt?: number): void {
+        const existing = this.load()
+        if (!existing) {
+            log.warn('[ClaudeCodeAuth] Cannot update token - no existing credentials')
+            return
+        }
+
+        const updated: ClaudeCodeCredentials = {
+            ...existing,
+            oauthToken: accessToken,
+            refreshToken: refreshToken || existing.refreshToken,
+            expiresAt: expiresAt || existing.expiresAt
+        }
+
+        this.save(updated)
+        log.info('[ClaudeCodeAuth] Token updated after refresh')
     }
 
     /**
