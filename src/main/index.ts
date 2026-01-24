@@ -951,8 +951,8 @@ function createTray(): void {
 function createWindow(): void {
   // Create the browser window
   mainWindow = new BrowserWindow({
-    width: 860,
-    height: 730,
+    width: 930,
+    height: 800,
     minWidth: 835,
     minHeight: 400,
     show: false,
