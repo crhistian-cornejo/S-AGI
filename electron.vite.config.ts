@@ -57,12 +57,13 @@ export default defineConfig({
             externalizeDepsPlugin({
                 // Don't externalize these - bundle them instead
                 exclude: [
-                    'superjson', 
-                    'trpc-electron', 
-                    'jose', 
-                    'ai', 
-                    '@ai-sdk/openai', 
+                    'superjson',
+                    'trpc-electron',
+                    'jose',
+                    'ai',
+                    '@ai-sdk/openai',
                     'unpdf',
+                    '@libpdf/core',
                     '@blocknote/xl-ai',
                     '@blocknote/core',
                     'prosemirror-highlight',
