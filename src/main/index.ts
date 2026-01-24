@@ -35,6 +35,25 @@ import log from "electron-log";
 const appDisplayName = "S-AGI";
 app.setName(appDisplayName);
 
+// Helper to safely show and focus main window
+function showMainWindow(): boolean {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.show();
+    mainWindow.focus();
+    return true;
+  }
+  return false;
+}
+
+// Helper to safely send IPC to main window
+function sendToMainWindow(channel: string, ...args: unknown[]): boolean {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send(channel, ...args);
+    return true;
+  }
+  return false;
+}
+
 // Security recommendation #19: Electron fuses
 // NOTE: Fuses must be configured at BUILD TIME, not runtime.
 // They are configured in the electron-builder process or via @electron/fuses CLI.
@@ -1064,7 +1083,7 @@ if (!gotTheLock) {
     }
 
     // Focus the main window
-    if (mainWindow) {
+    if (mainWindow && !mainWindow.isDestroyed()) {
       if (mainWindow.isMinimized()) mainWindow.restore();
       mainWindow.focus();
     }
@@ -1178,7 +1197,7 @@ app.whenReady().then(() => {
     // macOS: Re-create or restore window when dock icon is clicked
     if (BrowserWindow.getAllWindows().length === 0) {
       createWindow();
-    } else if (mainWindow) {
+    } else if (mainWindow && !mainWindow.isDestroyed()) {
       // Restore minimized window and bring to focus
       if (mainWindow.isMinimized()) {
         mainWindow.restore();
@@ -1468,7 +1487,7 @@ ipcMain.handle("quick-prompt:send", async (event, message: string) => {
   }
   log.info("[QuickPrompt] Received message:", message.substring(0, 50) + "...");
 
-  if (mainWindow) {
+  if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.show();
     mainWindow.focus();
     mainWindow.webContents.send("quick-prompt:create-chat", message);
@@ -1488,52 +1507,51 @@ ipcMain.handle(
       case "open-main":
         // Hide popover and show main window
         trayPopover?.hide();
-        mainWindow?.show();
-        mainWindow?.focus();
+        showMainWindow();
         break;
 
       case "new-chat":
         // Hide popover, show main window, and trigger new chat via IPC
         trayPopover?.hide();
-        mainWindow?.show();
-        mainWindow?.focus();
-        mainWindow?.webContents.send("tray:new-chat");
+        if (showMainWindow()) {
+          sendToMainWindow("tray:new-chat");
+        }
         break;
 
       case "new-spreadsheet":
         // Hide popover, show main window, and trigger new spreadsheet
         trayPopover?.hide();
-        mainWindow?.show();
-        mainWindow?.focus();
-        mainWindow?.webContents.send("tray:new-spreadsheet");
+        if (showMainWindow()) {
+          sendToMainWindow("tray:new-spreadsheet");
+        }
         break;
 
       case "new-document":
         // Hide popover, show main window, and trigger new document
         trayPopover?.hide();
-        mainWindow?.show();
-        mainWindow?.focus();
-        mainWindow?.webContents.send("tray:new-document");
+        if (showMainWindow()) {
+          sendToMainWindow("tray:new-document");
+        }
         break;
 
       case "open-item":
         // Open a specific item (artifact or chat)
         trayPopover?.hide();
-        mainWindow?.show();
-        mainWindow?.focus();
-        mainWindow?.webContents.send("tray:open-item", {
-          itemId: data.itemId,
-          type: data.type,
-          chatId: data.chatId,
-        });
+        if (showMainWindow()) {
+          sendToMainWindow("tray:open-item", {
+            itemId: data.itemId,
+            type: data.type,
+            chatId: data.chatId,
+          });
+        }
         break;
 
       case "settings":
         // Open settings
         trayPopover?.hide();
-        mainWindow?.show();
-        mainWindow?.focus();
-        mainWindow?.webContents.send("tray:open-settings");
+        if (showMainWindow()) {
+          sendToMainWindow("tray:open-settings");
+        }
         break;
 
       case "open-local-pdf": {
@@ -1555,9 +1573,9 @@ ipcMain.handle(
               size: stats.size,
             };
           });
-          mainWindow?.show();
-          mainWindow?.focus();
-          mainWindow?.webContents.send("tray:open-local-pdfs", { files });
+          if (showMainWindow()) {
+            sendToMainWindow("tray:open-local-pdfs", { files });
+          }
         }
         break;
       }

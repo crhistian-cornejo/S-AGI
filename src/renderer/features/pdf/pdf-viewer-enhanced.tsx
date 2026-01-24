@@ -1825,6 +1825,7 @@ interface AnnotationToolbarProps {
   isSearchOpen: boolean;
   isThumbnailsOpen: boolean;
   saveStatus: "idle" | "saving" | "saved" | "error";
+  pdfName?: string;
 }
 
 /**
@@ -1836,7 +1837,7 @@ const AnnotationToolbar = memo(function AnnotationToolbar({
   isSearchOpen,
   isThumbnailsOpen,
   saveStatus,
-  pdfName,
+  pdfName: _pdfName,
 }: AnnotationToolbarProps) {
   const { registry } = useRegistry();
   const { provides: annotationApi } = useAnnotationCapability();
@@ -2033,11 +2034,17 @@ const AnnotationToolbar = memo(function AnnotationToolbar({
       // Get current page
       const store = registry.getStore();
       const state = store.getState();
-      const viewportState = state.viewport;
+      // Access viewport state with type assertion for internal API
+      const viewportState = (state as unknown as { viewport?: { focusedPageIndex?: number } }).viewport;
       const currentPageIndex = viewportState?.focusedPageIndex ?? 0;
 
-      // Get page handle
-      const pageHandle = pdfium.FPDF_LoadPage(doc.handle, currentPageIndex);
+      // Get page handle - use type assertion for internal PDFium handle
+      const docHandle = (doc as unknown as { handle?: unknown }).handle;
+      if (!docHandle) {
+        console.warn("[PDF] Document handle not available");
+        return;
+      }
+      const pageHandle = pdfium.FPDF_LoadPage(docHandle, currentPageIndex);
       if (!pageHandle) {
         console.warn("[PDF] Failed to load page for rotation");
         return;
@@ -2075,6 +2082,8 @@ const AnnotationToolbar = memo(function AnnotationToolbar({
     }
   }, [registry, loaderApi]);
 
+  // Commit handler available for future use (e.g., save button)
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const handleCommit = useCallback(async () => {
     if (!annotationApi) return;
     try {
@@ -2084,6 +2093,7 @@ const AnnotationToolbar = memo(function AnnotationToolbar({
       console.error("[PDF] Failed to commit annotations:", err);
     }
   }, [annotationApi]);
+  void handleCommit; // Preserved for future use
 
   // Define all annotation tools in order of priority (left to right)
   // Most important tools first - these should always be visible

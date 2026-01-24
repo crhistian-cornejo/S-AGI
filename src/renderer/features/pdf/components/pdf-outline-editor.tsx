@@ -20,6 +20,7 @@ import {
   IconChevronRight,
   IconChevronDown,
 } from '@tabler/icons-react';
+import { cn } from '@/lib/utils';
 
 interface BookmarkNode extends PdfBookmarkObject {
   /** Child bookmarks */
@@ -202,11 +203,17 @@ export const PdfOutlineEditor = memo(function PdfOutlineEditor({
       }
 
       // Convert BookmarkNode back to PdfBookmarkObject (remove UI state)
-      const convertToBookmark = (node: BookmarkNode): PdfBookmarkObject => ({
-        title: node.title,
-        pageIndex: node.pageIndex,
-        children: node.children?.map(convertToBookmark),
-      });
+      const convertToBookmark = (node: BookmarkNode): PdfBookmarkObject => {
+        const base: PdfBookmarkObject = {
+          title: node.title,
+          children: node.children?.map(convertToBookmark),
+        };
+        // Only add pageIndex if it's defined (PdfBookmarkObject may not have it in types)
+        if (node.pageIndex !== undefined) {
+          (base as unknown as { pageIndex: number }).pageIndex = node.pageIndex;
+        }
+        return base;
+      };
 
       const bookmarksToSave = bookmarks.map(convertToBookmark);
 
@@ -361,7 +368,7 @@ const BookmarkTree = memo(function BookmarkTree({
               <div className="flex-1 min-w-0">
                 <div className="text-sm font-medium truncate">{bookmark.title}</div>
                 <div className="text-xs text-muted-foreground">
-                  Page {bookmark.pageIndex + 1}
+                  Page {(bookmark.pageIndex ?? 0) + 1}
                 </div>
               </div>
 

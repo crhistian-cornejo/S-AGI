@@ -10,10 +10,12 @@
 import log from "electron-log";
 import {
   extractTextWithPositions,
-  type PageContent as LibPDFPageContent,
   type TextWithPosition,
   type BoundingBox,
 } from "../pdf/pdf-service";
+
+// Re-export position types for consumers
+export type { TextWithPosition, BoundingBox };
 
 // ============================================================================
 // Configuration
@@ -78,9 +80,6 @@ export interface PageContent {
   /** Text lines with bounding box positions for highlighting */
   lines?: TextWithPosition[];
 }
-
-// Re-export position types for consumers
-export type { TextWithPosition, BoundingBox };
 
 export interface ProcessedDocument {
   success: boolean;

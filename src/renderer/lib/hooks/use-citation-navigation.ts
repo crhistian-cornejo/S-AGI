@@ -6,8 +6,6 @@ import {
   selectedChatIdAtom,
   activeSourceHighlightsAtom,
   type PdfNavigationRequest,
-  type SourceHighlight,
-  type HighlightBoundingBox,
 } from "@/lib/atoms";
 import type { CitationData } from "@/components/inline-citation";
 import { createSourceHighlight } from "@/features/pdf/components/source-highlight-layer";

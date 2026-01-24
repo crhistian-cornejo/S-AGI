@@ -6,7 +6,6 @@
  */
 
 import {
-  loadPdf,
   getFormFields,
   fillFormFields,
   flattenForm,

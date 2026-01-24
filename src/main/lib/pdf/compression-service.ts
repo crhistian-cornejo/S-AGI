@@ -5,7 +5,7 @@
  * Reduces file size by removing unused objects and optimizing streams.
  */
 
-import { loadPdf, compressPdf, getMetadata } from "./pdf-service";
+import { compressPdf, getMetadata } from "./pdf-service";
 import log from "electron-log";
 
 export interface CompressionResult {
