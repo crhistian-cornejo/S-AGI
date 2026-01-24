@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import { router, protectedProcedure } from '../trpc'
-import { OpenAIFileService } from '../../ai/openai-files'
+import { OpenAIFileService } from '../../ai'
 import log from 'electron-log'
 import { supabase } from '../../supabase/client'
 import { quickHash, hashBuffer } from '../../security/encryption'

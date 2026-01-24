@@ -2,9 +2,11 @@ import { ipcMain, systemPreferences } from 'electron'
 import { z } from 'zod'
 import { getSensitiveUnlockUntil, lockSensitiveNow, unlockSensitiveFor } from './sensitive-lock'
 import { getSensitivePinStore } from './pin-store'
+import { validateIPCSender } from './ipc-validation'
 
 export function registerSecurityIpc(): void {
-    ipcMain.handle('security:sensitive-status', async () => {
+    ipcMain.handle('security:sensitive-status', async (event) => {
+        if (!validateIPCSender(event.sender)) return { unlockedUntil: null, canBiometric: false, pinEnabled: false }
         const canBiometric = process.platform === 'darwin' && systemPreferences.canPromptTouchID()
         const pinEnabled = getSensitivePinStore().hasPin()
         return {
@@ -14,7 +16,8 @@ export function registerSecurityIpc(): void {
         }
     })
 
-    ipcMain.handle('security:unlock-sensitive', async (_event, input: unknown) => {
+    ipcMain.handle('security:unlock-sensitive', async (event, input: unknown) => {
+        if (!validateIPCSender(event.sender)) return { success: false, error: 'Unauthorized', unlockedUntil: getSensitiveUnlockUntil() }
         const { ttlMs, reason } = z.object({
             ttlMs: z.number().int().min(10_000).max(60 * 60 * 1000).optional().default(5 * 60 * 1000),
             reason: z.string().min(1).max(120).optional().default('Unlock sensitive files')
@@ -33,7 +36,8 @@ export function registerSecurityIpc(): void {
         return { success: false, error: 'Biometric not supported on this OS', unlockedUntil: getSensitiveUnlockUntil() }
     })
 
-    ipcMain.handle('security:set-pin', async (_event, input: unknown) => {
+    ipcMain.handle('security:set-pin', async (event, input: unknown) => {
+        if (!validateIPCSender(event.sender)) return { success: false }
         const { pin } = z.object({
             pin: z.string().min(4).max(32)
         }).parse(input)
@@ -41,13 +45,15 @@ export function registerSecurityIpc(): void {
         return { success: true }
     })
 
-    ipcMain.handle('security:clear-pin', async () => {
+    ipcMain.handle('security:clear-pin', async (event) => {
+        if (!validateIPCSender(event.sender)) return { success: false }
         getSensitivePinStore().clear()
         lockSensitiveNow()
         return { success: true }
     })
 
-    ipcMain.handle('security:unlock-with-pin', async (_event, input: unknown) => {
+    ipcMain.handle('security:unlock-with-pin', async (event, input: unknown) => {
+        if (!validateIPCSender(event.sender)) return { success: false, unlockedUntil: getSensitiveUnlockUntil(), error: 'Unauthorized' }
         const { pin, ttlMs } = z.object({
             pin: z.string().min(4).max(32),
             ttlMs: z.number().int().min(10_000).max(60 * 60 * 1000).optional().default(5 * 60 * 1000)
@@ -60,7 +66,8 @@ export function registerSecurityIpc(): void {
         return { success: true, unlockedUntil: getSensitiveUnlockUntil() }
     })
 
-    ipcMain.handle('security:lock-sensitive', async () => {
+    ipcMain.handle('security:lock-sensitive', async (event) => {
+        if (!validateIPCSender(event.sender)) return { success: false }
         lockSensitiveNow()
         return { success: true }
     })

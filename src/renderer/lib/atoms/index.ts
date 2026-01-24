@@ -625,3 +625,39 @@ export const claudeCodeConnectedAtom = atom((get) => {
   const hasKey = get(hasOpenaiKeyAtom);
   return hasKey;
 });
+
+// === NOTES STATE ===
+import type { NotePage } from "@/lib/notes-storage";
+import type { OpenNoteTab } from "@/lib/notes-tabs";
+
+export const selectedNotePageIdAtom = atomWithStorage<string | null>(
+  "selected-note-page-id",
+  null,
+);
+
+export const notesSidebarOpenAtom = atomWithStorage("notes-sidebar-open", true);
+
+// Cache for note pages content (loaded on demand)
+export const notePagesCacheAtom = atom<Record<string, NotePage>>({});
+
+// Open tabs for notes (Notion-style)
+export const openNoteTabsAtom = atom<OpenNoteTab[]>([]);
+
+// Notes editor state (for titlebar controls)
+export const notesSelectedModelIdAtom = atomWithStorage<string>(
+  "notes-selected-model-id",
+  "gpt-5-mini",
+);
+
+export const notesEditorRefAtom = atom<{
+  editor: any;
+  exportPdf: () => Promise<void>;
+} | null>(null);
+
+export const notesIsExportingPdfAtom = atom(false);
+
+// Action atom for creating new pages (set by sidebar, called by tabs)
+export const createNotePageActionAtom = atom<((spaceId?: string | null, parentId?: string | null) => void) | null>(null);
+
+// Notification atom for sidebar refresh when pages are updated externally (from header, etc.)
+export const notesPageUpdatedAtom = atom<number>(0);

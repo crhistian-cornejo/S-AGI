@@ -8,6 +8,7 @@ import { ChatQueueProcessor } from '@/features/chat/components/queue-processor'
 import { trpc } from '@/lib/trpc'
 import {
     sidebarOpenAtom,
+    notesSidebarOpenAtom,
     artifactPanelOpenAtom,
     selectedArtifactAtom,
     selectedChatIdAtom,
@@ -25,6 +26,8 @@ import {
     type ReasoningEffort,
 } from '@/lib/atoms'
 import { Sidebar } from '@/features/sidebar/sidebar'
+import { NotesSidebar } from '@/features/notes/notes-sidebar'
+import { NotesPageTabs } from '@/features/notes/notes-page-tabs'
 import { ChatView } from '@/features/chat/chat-view'
 import { GalleryView } from '@/features/gallery/gallery-view'
 import { TitleBar } from './title-bar'
@@ -57,6 +60,7 @@ function PanelLoadingFallback() {
 
 export function MainLayout() {
     const [sidebarOpen, setSidebarOpen] = useAtom(sidebarOpenAtom)
+    const [notesSidebarOpen] = useAtom(notesSidebarOpenAtom)
     const [artifactPanelOpen] = useAtom(artifactPanelOpenAtom)
     const [agentPanelOpen] = useAtom(agentPanelOpenAtom)
     const selectedArtifact = useAtomValue(selectedArtifactAtom)
@@ -250,9 +254,13 @@ export function MainLayout() {
             <TitleBar 
                 className={cn(
                     "absolute top-0 right-0 z-50 h-10 transition-all duration-300",
-                    sidebarOpen ? "left-72" : "left-0"
+                    (activeTab === 'chat' || activeTab === 'gallery') && sidebarOpen
+                        ? "left-72"
+                        : activeTab === 'ideas' && notesSidebarOpen
+                        ? "left-72"
+                        : "left-0"
                 )} 
-                noTrafficLightSpace={sidebarOpen}
+                noTrafficLightSpace={((activeTab === 'chat' || activeTab === 'gallery') && sidebarOpen) || (activeTab === 'ideas' && notesSidebarOpen)}
             />
             <ShortcutsDialog />
             <CommandKDialog />
@@ -523,17 +531,28 @@ export function MainLayout() {
                 )}
 
                 {/*
-                 * Ideas Tab - Markdown Notes
+                 * Ideas Tab - Notes with BlockNote
                  */}
                 {activeTab === 'ideas' && (
-                    <div className="flex-1 flex pt-10 animate-in fade-in zoom-in-95 duration-300 overflow-hidden">
-                        {/* Main content */}
-                        <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-                            <Suspense fallback={<PanelLoadingFallback />}>
-                                <IdeasView />
-                            </Suspense>
+                    <>
+                        {/* Sidebar - always rendered, handles its own visibility */}
+                        <NotesSidebar />
+
+                        {/* Content area */}
+                        <div className="flex-1 flex flex-col min-w-0 overflow-hidden relative pt-10">
+                            {/* Page tabs - below titlebar */}
+                            <div className="h-9 border-b border-border/50 bg-background flex items-center px-4 shrink-0">
+                                <NotesPageTabs />
+                            </div>
+                            
+                            {/* Editor content */}
+                            <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+                                <Suspense fallback={<PanelLoadingFallback />}>
+                                    <IdeasView />
+                                </Suspense>
+                            </div>
                         </div>
-                    </div>
+                    </>
                 )}
             </div>
         </div>

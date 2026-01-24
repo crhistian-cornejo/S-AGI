@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo, useCallback } from 'react'
 import { useAtom, useAtomValue, useSetAtom } from 'jotai'
 import {
     artifactPanelOpenAtom,
@@ -7,9 +7,13 @@ import {
     settingsModalOpenAtom,
     currentProviderAtom,
     sidebarOpenAtom,
+    notesSidebarOpenAtom,
     agentPanelOpenAtom,
+    shortcutsDialogOpenAtom,
+    notesSelectedModelIdAtom,
+    notesEditorRefAtom,
+    notesIsExportingPdfAtom,
 } from '@/lib/atoms'
-import { shortcutsDialogOpenAtom } from '@/lib/atoms'
 import { trpc } from '@/lib/trpc'
 import {
     DropdownMenu,
@@ -32,13 +36,14 @@ import {
     IconSettings,
     IconLogout,
     IconChevronDown,
+    IconLayoutSidebarLeftExpand,
     IconLayoutSidebarRightCollapse,
+    IconArrowsDiagonalMinimize2,
     IconMinus,
     IconSquare,
     IconX,
-    IconArrowsDiagonalMinimize2,
-    IconCommand,
-    IconNotes
+    IconNotes,
+    IconCommand
 } from '@tabler/icons-react'
 import { Button } from '@/components/ui/button'
 import { Logo } from '@/components/ui/logo'
@@ -86,8 +91,39 @@ export function TitleBar({ className, noTrafficLightSpace }: TitleBarProps) {
 
     const provider = useAtomValue(currentProviderAtom)
     const sidebarOpen = useAtomValue(sidebarOpenAtom)
+    const [notesSidebarOpen, setNotesSidebarOpen] = useAtom(notesSidebarOpenAtom)
     const [agentPanelOpen, setAgentPanelOpen] = useAtom(agentPanelOpenAtom)
     const { data: keyStatus } = trpc.settings.getApiKeyStatus.useQuery()
+    
+    // Notes editor controls (for titlebar)
+    const [selectedModelId, setSelectedModelId] = useAtom(notesSelectedModelIdAtom)
+    const editorRef = useAtomValue(notesEditorRefAtom)
+    const [isExportingPdf] = useAtom(notesIsExportingPdfAtom)
+    
+    // Available models for notes
+    const availableModels = useMemo(() => {
+      const models = {
+        openai: [
+          { id: "gpt-5-mini", name: "GPT-5 Mini", description: "Fast & capable" },
+          { id: "gpt-5-nano", name: "GPT-5 Nano", description: "Ultra fast" },
+        ],
+        zai: [{ id: "GLM-4.7-Flash", name: "GLM-4.7 Flash", description: "Fast" }],
+      };
+      return provider === "zai" ? models.zai : models.openai;
+    }, [provider]);
+    
+    const currentModel = useMemo(() => {
+      return (
+        availableModels.find((m) => m.id === selectedModelId) ||
+        availableModels[0]
+      );
+    }, [availableModels, selectedModelId]);
+    
+    const handleExportPdf = useCallback(async () => {
+      if (editorRef?.exportPdf) {
+        await editorRef.exportPdf();
+      }
+    }, [editorRef]);
 
     // Agent panel is available for excel, doc, pdf tabs
     const isAgentEnabled = activeTab === 'excel' || activeTab === 'doc' || activeTab === 'pdf'
@@ -119,8 +155,114 @@ export function TitleBar({ className, noTrafficLightSpace }: TitleBarProps) {
                 className
             )}
         >
-            {/* Left side - Logo (clickable for agent panel in excel/doc/pdf tabs) */}
-            {!showTrafficLights && (!isWindows() || !sidebarOpen) && (
+            {/* Left side - Logo or Sidebar toggle with Notes controls based on active tab */}
+            {activeTab === 'ideas' && !notesSidebarOpen && (
+                /* Only show in titlebar when sidebar is collapsed */
+                <div className={cn(
+                    "flex items-center gap-2 no-drag shrink-0 z-10",
+                    showTrafficLights ? "ml-4" : "ml-2"
+                )}>
+                    {/* Sidebar toggle button */}
+                    <Tooltip>
+                        <TooltipTrigger asChild>
+                            <button
+                                type="button"
+                                onClick={() => setNotesSidebarOpen(true)}
+                                className={cn(
+                                    "flex items-center justify-center w-7 h-7 rounded-md transition-all duration-200",
+                                    "hover:bg-accent/50 text-muted-foreground hover:text-foreground"
+                                )}
+                            >
+                                <IconLayoutSidebarLeftExpand size={16} />
+                            </button>
+                        </TooltipTrigger>
+                        <TooltipContent side="bottom">
+                            Show sidebar
+                        </TooltipContent>
+                    </Tooltip>
+
+                    {/* Model selector and PDF export - only when sidebar is collapsed */}
+                    {currentModel && (
+                        <>
+                            <div className="w-px h-4 bg-border" />
+
+                            {/* Model selector */}
+                            <Tooltip>
+                                <TooltipTrigger asChild>
+                                    <DropdownMenu>
+                                        <DropdownMenuTrigger asChild>
+                                            <button
+                                                type="button"
+                                                className={cn(
+                                                    "flex items-center gap-1.5 px-2 h-7 rounded-md text-xs transition-all duration-200",
+                                                    "hover:bg-accent/50 text-muted-foreground hover:text-foreground"
+                                                )}
+                                            >
+                                                <span className="text-purple-500">✨</span>
+                                                <span className="max-w-[80px] truncate text-xs">
+                                                    {currentModel.name}
+                                                </span>
+                                                <IconChevronDown size={12} className="opacity-50" />
+                                            </button>
+                                        </DropdownMenuTrigger>
+                                        <DropdownMenuContent align="start" className="w-48">
+                                            {availableModels.map((model) => (
+                                                <DropdownMenuItem
+                                                    key={model.id}
+                                                    onClick={() => setSelectedModelId(model.id)}
+                                                    className={cn(
+                                                        "text-xs",
+                                                        model.id === selectedModelId && "bg-accent",
+                                                    )}
+                                                >
+                                                    <div className="flex flex-col">
+                                                        <span className="font-medium">{model.name}</span>
+                                                        <span className="text-[10px] text-muted-foreground">
+                                                            {model.description}
+                                                        </span>
+                                                    </div>
+                                                </DropdownMenuItem>
+                                            ))}
+                                        </DropdownMenuContent>
+                                    </DropdownMenu>
+                                </TooltipTrigger>
+                                <TooltipContent side="bottom">
+                                    <p>AI Model</p>
+                                </TooltipContent>
+                            </Tooltip>
+
+                            <div className="w-px h-4 bg-border" />
+
+                            {/* PDF export button */}
+                            <Tooltip>
+                                <TooltipTrigger asChild>
+                                    <button
+                                        type="button"
+                                        onClick={handleExportPdf}
+                                        disabled={isExportingPdf || !editorRef}
+                                        className={cn(
+                                            "flex items-center justify-center w-7 h-7 rounded-md transition-all duration-200",
+                                            "hover:bg-accent/50 text-muted-foreground hover:text-foreground",
+                                            (isExportingPdf || !editorRef) && "opacity-50 cursor-not-allowed"
+                                        )}
+                                    >
+                                        {isExportingPdf ? (
+                                            <div className="w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin" />
+                                        ) : (
+                                            <IconFileTypePdf size={16} />
+                                        )}
+                                    </button>
+                                </TooltipTrigger>
+                                <TooltipContent side="bottom">
+                                    <p>Export to PDF</p>
+                                </TooltipContent>
+                            </Tooltip>
+                        </>
+                    )}
+                </div>
+            )}
+            {activeTab !== 'ideas' && !showTrafficLights && (!isWindows() || !sidebarOpen) && (
+                /* Logo (clickable for agent panel in excel/doc/pdf tabs) */
                 <Tooltip>
                     <TooltipTrigger asChild>
                         <button

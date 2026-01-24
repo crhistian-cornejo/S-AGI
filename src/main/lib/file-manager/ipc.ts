@@ -4,6 +4,7 @@ import * as fs from 'node:fs'
 import * as path from 'node:path'
 import { getFileManager } from './file-manager'
 import { isSensitiveUnlocked } from '../security/sensitive-lock'
+import { validateIPCSender } from '../security/ipc-validation'
 
 export function registerFileManagerIpc(getTrayPopover: () => Electron.BrowserWindow | null): void {
     const fm = getFileManager()
@@ -24,11 +25,13 @@ export function registerFileManagerIpc(getTrayPopover: () => Electron.BrowserWin
         if (isSensitive && !isSensitiveUnlocked()) throw new Error('Sensitive file locked')
     }
 
-    ipcMain.handle('files:list-folders', async () => {
+    ipcMain.handle('files:list-folders', async (event) => {
+        if (!validateIPCSender(event.sender)) return []
         return await fm.listFolders()
     })
 
-    ipcMain.handle('files:create-folder', async (_event, input: unknown) => {
+    ipcMain.handle('files:create-folder', async (event, input: unknown) => {
+        if (!validateIPCSender(event.sender)) throw new Error('Unauthorized')
         const { name, isSensitive } = z.object({
             name: z.string().min(1).max(64),
             isSensitive: z.boolean().optional().default(false)
@@ -38,7 +41,8 @@ export function registerFileManagerIpc(getTrayPopover: () => Electron.BrowserWin
         return folder
     })
 
-    ipcMain.handle('files:rename-folder', async (_event, input: unknown) => {
+    ipcMain.handle('files:rename-folder', async (event, input: unknown) => {
+        if (!validateIPCSender(event.sender)) throw new Error('Unauthorized')
         const { folderId, name } = z.object({
             folderId: z.string().min(1),
             name: z.string().min(1).max(64)
@@ -48,7 +52,8 @@ export function registerFileManagerIpc(getTrayPopover: () => Electron.BrowserWin
         return folder
     })
 
-    ipcMain.handle('files:delete-folder', async (_event, input: unknown) => {
+    ipcMain.handle('files:delete-folder', async (event, input: unknown) => {
+        if (!validateIPCSender(event.sender)) throw new Error('Unauthorized')
         const { folderId } = z.object({
             folderId: z.string().min(1)
         }).parse(input)
@@ -57,7 +62,8 @@ export function registerFileManagerIpc(getTrayPopover: () => Electron.BrowserWin
         return { success: true }
     })
 
-    ipcMain.handle('files:list-files', async (_event, input: unknown) => {
+    ipcMain.handle('files:list-files', async (event, input: unknown) => {
+        if (!validateIPCSender(event.sender)) return []
         const { folderId } = z.object({
             folderId: z.string().min(1)
         }).parse(input)
@@ -65,16 +71,19 @@ export function registerFileManagerIpc(getTrayPopover: () => Electron.BrowserWin
         return await fm.listFiles(folderId)
     })
 
-    ipcMain.handle('files:list-all', async () => {
+    ipcMain.handle('files:list-all', async (event) => {
+        if (!validateIPCSender(event.sender)) return []
         const allowSensitive = isSensitiveUnlocked()
         return await fm.listAllFiles(allowSensitive)
     })
 
-    ipcMain.handle('files:get-quick-access', async () => {
+    ipcMain.handle('files:get-quick-access', async (event) => {
+        if (!validateIPCSender(event.sender)) return []
         return await fm.getQuickAccess()
     })
 
-    ipcMain.handle('files:import-paths', async (_event, input: unknown) => {
+    ipcMain.handle('files:import-paths', async (event, input: unknown) => {
+        if (!validateIPCSender(event.sender)) throw new Error('Unauthorized')
         const { folderId, paths } = z.object({
             folderId: z.string().min(1),
             paths: z.array(z.string().min(1)).min(1).max(200)
@@ -85,7 +94,8 @@ export function registerFileManagerIpc(getTrayPopover: () => Electron.BrowserWin
         return files
     })
 
-    ipcMain.handle('files:pick-and-import', async (_event, input: unknown) => {
+    ipcMain.handle('files:pick-and-import', async (event, input: unknown) => {
+        if (!validateIPCSender(event.sender)) return []
         const { folderId } = z.object({
             folderId: z.string().min(1)
         }).parse(input)
@@ -100,7 +110,8 @@ export function registerFileManagerIpc(getTrayPopover: () => Electron.BrowserWin
         return files
     })
 
-    ipcMain.handle('files:delete-file', async (_event, input: unknown) => {
+    ipcMain.handle('files:delete-file', async (event, input: unknown) => {
+        if (!validateIPCSender(event.sender)) throw new Error('Unauthorized')
         const { fileId } = z.object({
             fileId: z.string().min(1)
         }).parse(input)
@@ -110,7 +121,8 @@ export function registerFileManagerIpc(getTrayPopover: () => Electron.BrowserWin
         return { success: true }
     })
 
-    ipcMain.handle('files:open-file', async (_event, input: unknown) => {
+    ipcMain.handle('files:open-file', async (event, input: unknown) => {
+        if (!validateIPCSender(event.sender)) return { success: false }
         const { fileId } = z.object({
             fileId: z.string().min(1)
         }).parse(input)
@@ -123,7 +135,8 @@ export function registerFileManagerIpc(getTrayPopover: () => Electron.BrowserWin
         return { success: true }
     })
 
-    ipcMain.handle('files:show-in-folder', async (_event, input: unknown) => {
+    ipcMain.handle('files:show-in-folder', async (event, input: unknown) => {
+        if (!validateIPCSender(event.sender)) return { success: false }
         const { fileId } = z.object({
             fileId: z.string().min(1)
         }).parse(input)
@@ -134,7 +147,8 @@ export function registerFileManagerIpc(getTrayPopover: () => Electron.BrowserWin
         return { success: true }
     })
 
-    ipcMain.handle('files:export', async (_event, input: unknown) => {
+    ipcMain.handle('files:export', async (event, input: unknown) => {
+        if (!validateIPCSender(event.sender)) return { exported: 0 }
         const { fileIds } = z.object({
             fileIds: z.array(z.string().min(1)).min(1).max(200)
         }).parse(input)
@@ -151,7 +165,8 @@ export function registerFileManagerIpc(getTrayPopover: () => Electron.BrowserWin
     })
 
     // Pick local PDF files for viewing only (no import, just returns paths)
-    ipcMain.handle('pdf:pick-local', async () => {
+    ipcMain.handle('pdf:pick-local', async (event) => {
+        if (!validateIPCSender(event.sender)) return { files: [] }
         const result = await dialog.showOpenDialog({
             title: 'Select PDF files to view',
             filters: [
@@ -178,7 +193,8 @@ export function registerFileManagerIpc(getTrayPopover: () => Electron.BrowserWin
     })
 
     // Read a local PDF file as base64 for the viewer
-    ipcMain.handle('pdf:read-local', async (_event, input: unknown) => {
+    ipcMain.handle('pdf:read-local', async (event, input: unknown) => {
+        if (!validateIPCSender(event.sender)) return { success: false, error: 'Unauthorized' }
         const { filePath } = z.object({
             filePath: z.string().min(1)
         }).parse(input)

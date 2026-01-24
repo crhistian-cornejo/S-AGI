@@ -21,8 +21,8 @@ import {
   toolDefinitionsToToolSet,
 } from "@blocknote/xl-ai/server";
 import log from "electron-log";
-import { getSecureApiKeyStore } from "./auth/api-key-store";
-import { getChatGPTAuthManager } from "./auth";
+import { getSecureApiKeyStore } from "../auth/api-key-store";
+import { getChatGPTAuthManager } from "../auth";
 import type { AIProvider } from "@shared/ai-types";
 
 let server: ReturnType<typeof createServer> | null = null;

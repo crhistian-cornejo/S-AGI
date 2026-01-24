@@ -11,7 +11,7 @@ import { getChatGPTAuthManager } from "../../auth";
 
 import OpenAI from "openai";
 import type { Responses } from "openai/resources/responses/responses";
-import { OpenAIFileService } from "../../ai/openai-files";
+import { OpenAIFileService } from "../../ai";
 import {
   getDocumentContext,
   shouldUseLocalContext,
@@ -33,7 +33,7 @@ import type {
   AIProvider,
 } from "@shared/ai-types";
 import { AI_MODELS, DEFAULT_MODELS, getModelById } from "@shared/ai-types";
-import { generateSuggestions } from "../../ai/suggestions";
+import { generateSuggestions } from "../../ai";
 import {
   selectAgent,
   executeSpecializedAgent,

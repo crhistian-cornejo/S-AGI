@@ -2,7 +2,7 @@ import { z } from 'zod'
 import { router, protectedProcedure } from '../trpc'
 import { supabase } from '../../supabase/client'
 import path from 'path'
-import { processBase64Image, isProcessableImage, getExtensionForFormat } from '../../ai/image-processor'
+import { processBase64Image, isProcessableImage, getExtensionForFormat } from '../../ai'
 import log from 'electron-log'
 
 // Signed URL TTL for attachments (24 hours - long enough for sessions, short enough for security)

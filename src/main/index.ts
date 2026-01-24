@@ -10,6 +10,7 @@ import {
   shell,
   dialog,
 } from "electron";
+import { validateIPCSender } from "./lib/security/ipc-validation";
 import { join } from "path";
 import { existsSync } from "fs";
 import { electronApp, optimizer, is } from "@electron-toolkit/utils";
@@ -28,11 +29,17 @@ import {
   startAIServer,
   stopAIServer,
   waitForAIServerReady,
-} from "./lib/ai-server";
+} from "./lib/ai";
 import log from "electron-log";
 
 const appDisplayName = "S-AGI";
 app.setName(appDisplayName);
+
+// Security recommendation #19: Electron fuses
+// NOTE: Fuses must be configured at BUILD TIME, not runtime.
+// They are configured in the electron-builder process or via @electron/fuses CLI.
+// See: https://www.electronjs.org/docs/latest/tutorial/fuses
+// For this app, fuses should be configured in the build process.
 
 // Basic menu to enable standard shortcuts like Copy/Paste
 function updateApplicationMenu() {
@@ -662,6 +669,7 @@ function isAllowedNavigation(url: string, allowedOrigins: string[]): boolean {
   return allowedOrigins.some((origin) => url.startsWith(origin));
 }
 
+
 function attachNavigationGuards(
   window: BrowserWindow,
   allowedOrigins: string[],
@@ -670,16 +678,79 @@ function attachNavigationGuards(
     if (isAllowedNavigation(url, allowedOrigins)) {
       return { action: "allow" };
     }
-    shell.openExternal(url);
+    // Security recommendation #15: Validate URLs before using shell.openExternal
+    if (isSafeForExternalOpen(url)) {
+      shell.openExternal(url);
+    } else {
+      log.warn(`[Security] Blocked unsafe external URL: ${url}`);
+    }
     return { action: "deny" };
   });
 
   window.webContents.on("will-navigate", (event, url) => {
     if (!isAllowedNavigation(url, allowedOrigins)) {
       event.preventDefault();
-      shell.openExternal(url);
+      // Security recommendation #15: Validate URLs before using shell.openExternal
+      if (isSafeForExternalOpen(url)) {
+        shell.openExternal(url);
+      } else {
+        log.warn(`[Security] Blocked unsafe navigation to: ${url}`);
+      }
     }
   });
+}
+
+/**
+ * Validate if a URL is safe to open externally
+ * Security recommendation #15: Do not use shell.openExternal with untrusted content
+ */
+function isSafeForExternalOpen(url: string): boolean {
+  try {
+    const { URL } = require("node:url");
+    const parsedUrl = new URL(url);
+
+    // Only allow http/https protocols
+    if (parsedUrl.protocol !== "http:" && parsedUrl.protocol !== "https:") {
+      log.warn(`[Security] Blocked non-HTTP(S) protocol: ${parsedUrl.protocol}`);
+      return false;
+    }
+
+    // Block localhost/private IP ranges (except 127.0.0.1 which is used for dev server)
+    const hostname = parsedUrl.hostname.toLowerCase();
+    if (
+      hostname === "localhost" ||
+      hostname.startsWith("127.") ||
+      hostname.startsWith("192.168.") ||
+      hostname.startsWith("10.") ||
+      hostname.startsWith("172.16.") ||
+      hostname.startsWith("172.17.") ||
+      hostname.startsWith("172.18.") ||
+      hostname.startsWith("172.19.") ||
+      hostname.startsWith("172.20.") ||
+      hostname.startsWith("172.21.") ||
+      hostname.startsWith("172.22.") ||
+      hostname.startsWith("172.23.") ||
+      hostname.startsWith("172.24.") ||
+      hostname.startsWith("172.25.") ||
+      hostname.startsWith("172.26.") ||
+      hostname.startsWith("172.27.") ||
+      hostname.startsWith("172.28.") ||
+      hostname.startsWith("172.29.") ||
+      hostname.startsWith("172.30.") ||
+      hostname.startsWith("172.31.")
+    ) {
+      // Allow 127.0.0.1 for dev server, but log others
+      if (hostname !== "127.0.0.1") {
+        log.warn(`[Security] Blocked private IP range: ${hostname}`);
+        return false;
+      }
+    }
+
+    return true;
+  } catch (error) {
+    log.error(`[Security] Invalid URL for external open: ${url}`, error);
+    return false;
+  }
 }
 
 function registerContentSecurityPolicy(): void {
@@ -687,6 +758,7 @@ function registerContentSecurityPolicy(): void {
   const devOrigins = rendererOrigins.join(" ");
 
   // Script src needs blob: for Web Workers (used by PDFium engine)
+  // In production, we should avoid 'unsafe-eval' and 'unsafe-inline' if possible
   const scriptSrc = is.dev
     ? `'self' 'unsafe-eval' 'unsafe-inline' blob: ${devOrigins}`
     : `'self' blob:`;
@@ -711,6 +783,44 @@ function registerContentSecurityPolicy(): void {
     responseHeaders["Content-Security-Policy"] = [csp];
     callback({ responseHeaders });
   });
+}
+
+/**
+ * Register permission request handler for session
+ * Security recommendation #5: Handle session permission requests from remote content
+ */
+function registerPermissionRequestHandler(): void {
+  session.defaultSession.setPermissionRequestHandler(
+    (webContents, permission, callback) => {
+      const url = webContents.getURL();
+
+      // Only allow permissions for local content (file://) or trusted dev origins
+      const rendererOrigins = getRendererOrigins();
+      const isLocal = url.startsWith("file://");
+      const isTrustedOrigin = rendererOrigins.some((origin) =>
+        url.startsWith(origin),
+      );
+
+      if (!isLocal && !isTrustedOrigin) {
+        log.warn(
+          `[Security] Permission request denied for untrusted origin: ${url}`,
+        );
+        return callback(false);
+      }
+
+      // Allow notifications for trusted origins
+      if (permission === "notifications" && (isLocal || isTrustedOrigin)) {
+        log.info(`[Security] Allowing notification permission for: ${url}`);
+        return callback(true);
+      }
+
+      // Deny all other permissions by default
+      log.warn(
+        `[Security] Permission '${permission}' denied for: ${url}`,
+      );
+      callback(false);
+    },
+  );
 }
 
 function createTray(): void {
@@ -1008,6 +1118,7 @@ app.whenReady().then(() => {
   });
 
   registerContentSecurityPolicy();
+  registerPermissionRequestHandler();
 
   // Start local AI server for BlockNote AI
   startAIServer()
@@ -1019,7 +1130,10 @@ app.whenReady().then(() => {
     });
 
   // IPC handler to get AI server port (waits for server to be ready)
-  ipcMain.handle("ai:get-port", () => waitForAIServerReady());
+  ipcMain.handle("ai:get-port", (event) => {
+    if (!validateIPCSender(event.sender)) return null;
+    return waitForAIServerReady();
+  });
 
   // Setup tRPC
   setupTRPC();
@@ -1145,11 +1259,14 @@ process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
 process.on("SIGHUP", () => gracefulShutdown("SIGHUP"));
 
 // IPC handlers for window controls
-ipcMain.handle("window:minimize", () => {
+// Security recommendation #17: Validate sender for all IPC messages
+ipcMain.handle("window:minimize", (event) => {
+  if (!validateIPCSender(event.sender)) return;
   mainWindow?.minimize();
 });
 
-ipcMain.handle("window:maximize", () => {
+ipcMain.handle("window:maximize", (event) => {
+  if (!validateIPCSender(event.sender)) return;
   if (mainWindow?.isMaximized()) {
     mainWindow?.unmaximize();
   } else {
@@ -1157,22 +1274,30 @@ ipcMain.handle("window:maximize", () => {
   }
 });
 
-ipcMain.handle("window:isMaximized", () => mainWindow?.isMaximized() ?? false);
+ipcMain.handle("window:isMaximized", (event) => {
+  if (!validateIPCSender(event.sender)) return false;
+  return mainWindow?.isMaximized() ?? false;
+});
 
-ipcMain.handle("window:close", () => {
+ipcMain.handle("window:close", (event) => {
+  if (!validateIPCSender(event.sender)) return;
   mainWindow?.close();
 });
 
-ipcMain.handle("app:getVersion", () => {
+ipcMain.handle("app:getVersion", (event) => {
+  if (!validateIPCSender(event.sender)) return null;
   return app.getVersion();
 });
 
 ipcMain.handle(
   "auth:set-session",
   async (
-    _,
+    event,
     session: { access_token?: string; refresh_token?: string } | null,
   ) => {
+    if (!validateIPCSender(event.sender)) {
+      return { success: false, error: "Unauthorized" };
+    }
     log.info(
       "[Auth] Synchronizing session from renderer, has tokens:",
       !!session?.access_token,
@@ -1211,22 +1336,28 @@ ipcMain.handle(
   },
 );
 
-ipcMain.handle("theme:get", () => {
+ipcMain.handle("theme:get", (event) => {
+  if (!validateIPCSender(event.sender)) return "system";
   return nativeTheme.themeSource;
 });
 
-ipcMain.handle("theme:set", (_, theme: "system" | "light" | "dark") => {
+ipcMain.handle("theme:set", (event, theme: "system" | "light" | "dark") => {
+  if (!validateIPCSender(event.sender)) return false;
   nativeTheme.themeSource = theme;
   return nativeTheme.shouldUseDarkColors;
 });
 
-ipcMain.handle("preferences:get", () => {
+ipcMain.handle("preferences:get", (event) => {
+  if (!validateIPCSender(event.sender)) return null;
   return getAppPreferences();
 });
 
 ipcMain.handle(
   "preferences:set",
-  (_event, patch: { trayEnabled?: boolean; quickPromptEnabled?: boolean }) => {
+  (event, patch: { trayEnabled?: boolean; quickPromptEnabled?: boolean }) => {
+    if (!validateIPCSender(event.sender)) {
+      return getAppPreferences();
+    }
     const safePatch = patch && typeof patch === "object" ? patch : {};
     const next = preferencesStore.set({
       trayEnabled:
@@ -1247,20 +1378,23 @@ ipcMain.handle(
 );
 
 // Clipboard handlers
-ipcMain.handle("clipboard:write-text", (_, text: string) => {
+ipcMain.handle("clipboard:write-text", (event, text: string) => {
+  if (!validateIPCSender(event.sender)) return false;
   const { clipboard } = require("electron");
   clipboard.writeText(text);
   return true;
 });
 
-ipcMain.handle("clipboard:read-text", () => {
+ipcMain.handle("clipboard:read-text", (event) => {
+  if (!validateIPCSender(event.sender)) return "";
   const { clipboard } = require("electron");
   return clipboard.readText();
 });
 
 // Haptic feedback handler (macOS only)
 // Uses Electron's built-in haptic feedback support on macOS
-ipcMain.handle("haptic:perform", (_, type: string) => {
+ipcMain.handle("haptic:perform", (event, type: string) => {
+  if (!validateIPCSender(event.sender)) return false;
   if (process.platform !== "darwin") {
     return false;
   }
@@ -1287,11 +1421,13 @@ ipcMain.handle("haptic:perform", (_, type: string) => {
 });
 
 // Tray Popover IPC handlers
-ipcMain.handle("tray:get-recent-items", async () => {
+ipcMain.handle("tray:get-recent-items", async (event) => {
+  if (!validateIPCSender(event.sender)) return [];
   return await getRecentItems();
 });
 
-ipcMain.handle("tray:get-user", async () => {
+ipcMain.handle("tray:get-user", async (event) => {
+  if (!validateIPCSender(event.sender)) return null;
   try {
     const { data } = await supabase.auth.getUser();
     const user = data.user;
@@ -1306,24 +1442,30 @@ ipcMain.handle("tray:get-user", async () => {
   }
 });
 
-ipcMain.handle("tray:get-spreadsheets", async () => {
+ipcMain.handle("tray:get-spreadsheets", async (event) => {
+  if (!validateIPCSender(event.sender)) return [];
   return await getTraySpreadsheets();
 });
 
 ipcMain.handle(
   "tray:get-spreadsheet-data",
-  async (_event, input: { id: string }) => {
+  async (event, input: { id: string }) => {
+    if (!validateIPCSender(event.sender)) return null;
     if (!input?.id) return null;
     return await getTraySpreadsheetData(input.id);
   },
 );
 
-ipcMain.handle("tray:get-citations", async () => {
+ipcMain.handle("tray:get-citations", async (event) => {
+  if (!validateIPCSender(event.sender)) return [];
   return await getTrayCitations();
 });
 
 // ═══ QUICK PROMPT IPC HANDLER ═══
-ipcMain.handle("quick-prompt:send", async (_, message: string) => {
+ipcMain.handle("quick-prompt:send", async (event, message: string) => {
+  if (!validateIPCSender(event.sender)) {
+    return { success: false };
+  }
   log.info("[QuickPrompt] Received message:", message.substring(0, 50) + "...");
 
   if (mainWindow) {
@@ -1337,7 +1479,8 @@ ipcMain.handle("quick-prompt:send", async (_, message: string) => {
 
 ipcMain.handle(
   "tray:action",
-  async (_, data: { action: string; [key: string]: unknown }) => {
+  async (event, data: { action: string; [key: string]: unknown }) => {
+    if (!validateIPCSender(event.sender)) return;
     const { action } = data;
     log.info("[Tray] Action received:", action);
 
