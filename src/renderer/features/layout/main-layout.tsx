@@ -14,6 +14,8 @@ import {
     activeTabAtom,
     shortcutsDialogOpenAtom,
     settingsModalOpenAtom,
+    settingsActiveTabAtom,
+    type SettingsTab,
     commandKOpenAtom,
     reasoningEffortAtom,
     supportsReasoningAtom,
@@ -42,6 +44,7 @@ const UniverDocument = lazy(() => import('@/features/univer/univer-document').th
 const PdfTabView = lazy(() => import('@/features/pdf/pdf-tab-view').then(m => ({ default: m.PdfTabView })))
 const IdeasView = lazy(() => import('@/features/ideas/ideas-view').then(m => ({ default: m.IdeasView })))
 const AgentPanel = lazy(() => import('@/features/agent/agent-panel').then(m => ({ default: m.AgentPanel })))
+const settingsTabs: SettingsTab[] = ['account', 'appearance', 'api-keys', 'advanced', 'shortcuts', 'debug', 'usage']
 
 // Loading fallback for lazy components
 function PanelLoadingFallback() {
@@ -61,6 +64,7 @@ export function MainLayout() {
     const [activeTab, setActiveTab] = useAtom(activeTabAtom)
     const [, setShortcutsOpen] = useAtom(shortcutsDialogOpenAtom)
     const setSettingsOpen = useSetAtom(settingsModalOpenAtom)
+    const setSettingsTab = useSetAtom(settingsActiveTabAtom)
     const setSelectedArtifact = useSetAtom(selectedArtifactAtom)
     const setCommandKOpen = useSetAtom(commandKOpenAtom)
     const setReasoningEffort = useSetAtom(reasoningEffortAtom)
@@ -114,7 +118,10 @@ export function MainLayout() {
                     setActiveTab('doc')
                 }
             }),
-            api.tray.onAction('open-settings', () => {
+            api.tray.onAction('open-settings', (data?: { tab?: string }) => {
+                if (data?.tab && settingsTabs.includes(data.tab as SettingsTab)) {
+                    setSettingsTab(data.tab as SettingsTab)
+                }
                 setSettingsOpen(true)
             })
         ]
@@ -141,7 +148,23 @@ export function MainLayout() {
                 cleanup()
             }
         }
-    }, [handleNewChat, setActiveTab, setSelectedArtifact, setSelectedChatId, setSettingsOpen, addLocalPdf])
+    }, [handleNewChat, setActiveTab, setSelectedArtifact, setSelectedChatId, setSettingsOpen, setSettingsTab, addLocalPdf])
+
+    useEffect(() => {
+        const api = window.desktopApi
+        if (!api?.app) return
+
+        const cleanup = api.app.onOpenSettings((data?: { tab?: string }) => {
+            if (data?.tab && settingsTabs.includes(data.tab as SettingsTab)) {
+                setSettingsTab(data.tab as SettingsTab)
+            }
+            setSettingsOpen(true)
+        })
+
+        return () => {
+            cleanup()
+        }
+    }, [setSettingsOpen, setSettingsTab])
 
     // Global Listeners for Agent-controlled UI Navigation
     useEffect(() => {

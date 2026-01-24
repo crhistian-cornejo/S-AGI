@@ -140,9 +140,15 @@ export function ChatView() {
   // Zustand stores for queue system
   const addToQueue = useMessageQueueStore((state) => state.addToQueue);
   const getQueue = useMessageQueueStore((state) => state.getQueue);
-  const registerCallback = useSendCallbackStore((state) => state.registerCallback);
-  const unregisterCallback = useSendCallbackStore((state) => state.unregisterCallback);
-  const setStreamingStatus = useStreamingStatusStore((state) => state.setStatus);
+  const registerCallback = useSendCallbackStore(
+    (state) => state.registerCallback,
+  );
+  const unregisterCallback = useSendCallbackStore(
+    (state) => state.unregisterCallback,
+  );
+  const setStreamingStatus = useStreamingStatusStore(
+    (state) => state.setStatus,
+  );
 
   // Get current queue for this chat
   const currentQueue = selectedChatId ? getQueue(selectedChatId) : [];
@@ -275,8 +281,7 @@ export function ChatView() {
     options?: { generateImage?: boolean; imageSize?: string },
   ) => {
     const messageToSend = messageOverride ?? input.trim();
-    if ((!messageToSend && !images?.length) || !selectedChatId)
-      return;
+    if ((!messageToSend && !images?.length) || !selectedChatId) return;
 
     // Capture chatId for type narrowing
     const chatId = selectedChatId;
@@ -305,13 +310,15 @@ export function ChatView() {
             id: crypto.randomUUID(),
             file: doc,
           })),
-          targetDocument: targetDocument ? {
-            id: crypto.randomUUID(),
-            filename: targetDocument.filename,
-          } : undefined,
+          targetDocument: targetDocument
+            ? {
+                id: crypto.randomUUID(),
+                filename: targetDocument.filename,
+              }
+            : undefined,
           generateImage: shouldGenerateImage,
           imageSize,
-        }
+        },
       );
       addToQueue(chatId, queuedItem);
       setInput("");
@@ -327,7 +334,7 @@ export function ChatView() {
 
     setInput("");
     setIsStreaming(true);
-    setStreamingStatus(chatId, 'streaming'); // Sync with Zustand
+    setStreamingStatus(chatId, "streaming"); // Sync with Zustand
     setIsImageMode(false); // Reset image mode after capturing its value
     smoothStream.startStream();
     setStreamingToolCalls([]);
@@ -465,7 +472,7 @@ export function ChatView() {
             "ChatGPT Plus not connected. Please connect in Settings.",
           );
           setIsStreaming(false);
-          setStreamingStatus(chatId, 'error');
+          setStreamingStatus(chatId, "error");
           return;
         }
         // No API key needed - backend uses OAuth token directly
@@ -485,7 +492,7 @@ export function ChatView() {
         if (!result.key) {
           setStreamingError("Z.AI API key not configured");
           setIsStreaming(false);
-          setStreamingStatus(chatId, 'error');
+          setStreamingStatus(chatId, "error");
           chatSounds.playError();
           return;
         }
@@ -495,7 +502,7 @@ export function ChatView() {
         if (!result.key) {
           setStreamingError("OpenAI API key not configured");
           setIsStreaming(false);
-          setStreamingStatus(chatId, 'error');
+          setStreamingStatus(chatId, "error");
           chatSounds.playError();
           return;
         }
@@ -506,7 +513,7 @@ export function ChatView() {
         if (!result.key) {
           setStreamingError("API key not configured");
           setIsStreaming(false);
-          setStreamingStatus(chatId, 'error');
+          setStreamingStatus(chatId, "error");
           chatSounds.playError();
           return;
         }
@@ -723,14 +730,20 @@ export function ChatView() {
               }
 
               case "suggestions": {
-                console.log("[ChatView] Suggestions event received:", event.suggestions);
+                console.log(
+                  "[ChatView] Suggestions event received:",
+                  event.suggestions,
+                );
                 if (event.suggestions && Array.isArray(event.suggestions)) {
                   // Store in local variable for persistence
                   collectedSuggestions = event.suggestions;
                   // Update UI state
                   setStreamingSuggestions(event.suggestions);
                 } else {
-                  console.warn("[ChatView] Received invalid suggestions format:", event);
+                  console.warn(
+                    "[ChatView] Received invalid suggestions format:",
+                    event,
+                  );
                 }
                 break;
               }
@@ -932,7 +945,7 @@ export function ChatView() {
                 chatSounds.playError();
                 // Reset streaming state (same as finish, but without saving message)
                 setIsStreaming(false);
-                setStreamingStatus(chatIdForStream, 'error'); // Sync with Zustand
+                setStreamingStatus(chatIdForStream, "error"); // Sync with Zustand
                 smoothStream.stopStream();
                 setStreamingToolCalls([]);
                 if (fullReasoning) {
@@ -1084,7 +1097,7 @@ export function ChatView() {
                 }
 
                 setIsStreaming(false);
-                setStreamingStatus(chatIdForStream, 'ready'); // Sync with Zustand - ready for next message
+                setStreamingStatus(chatIdForStream, "ready"); // Sync with Zustand - ready for next message
                 smoothStream.stopStream();
                 setStreamingToolCalls([]);
                 // Save reasoning from local variable before clearing
@@ -1234,7 +1247,7 @@ export function ChatView() {
           setStreamingError("Chat not found. Please create a new chat.");
           setIsStreaming(false);
           if (chatId) {
-            setStreamingStatus(chatId, 'error');
+            setStreamingStatus(chatId, "error");
           }
           return;
         }
@@ -1243,7 +1256,7 @@ export function ChatView() {
       setStreamingError(errorMessage);
       setIsStreaming(false);
       if (chatId) {
-        setStreamingStatus(chatId, 'error');
+        setStreamingStatus(chatId, "error");
       }
     }
   };
@@ -1275,7 +1288,7 @@ export function ChatView() {
         {
           generateImage: item.generateImage,
           imageSize: item.imageSize,
-        }
+        },
       );
     };
 
@@ -1343,7 +1356,7 @@ export function ChatView() {
     }
     setIsStreaming(false);
     if (selectedChatId) {
-      setStreamingStatus(selectedChatId, 'ready');
+      setStreamingStatus(selectedChatId, "ready");
     }
   };
 
@@ -1356,12 +1369,7 @@ export function ChatView() {
     // The new chat may have different artifacts
     setSelectedArtifact(null);
     setArtifactPanelOpen(false);
-  }, [
-    selectedChatId,
-    utils,
-    setSelectedArtifact,
-    setArtifactPanelOpen,
-  ]);
+  }, [selectedChatId, utils, setSelectedArtifact, setArtifactPanelOpen]);
 
   const getScrollViewport = useCallback(() => {
     const root = scrollContainerRef.current;
@@ -1590,7 +1598,7 @@ export function ChatView() {
   if (isEmptyChat) {
     return (
       <div className="flex-1 flex flex-col items-center justify-center overflow-hidden relative px-4">
-        <div className="w-full max-w-5xl flex flex-col items-center">
+        <div className="w-full max-w-[740px] flex flex-col items-center">
           {/* Welcome message */}
           <div className="flex flex-col items-center text-muted-foreground mb-8 animate-in fade-in duration-700">
             <div className="mb-6">
@@ -1703,12 +1711,15 @@ export function ChatView() {
 
       {/* Queue indicator - shows when messages are queued - MOVED OUTSIDE INPUT AREA */}
       {currentQueue.length > 0 && (
-        <div className="absolute bottom-[calc(100%-4rem)] left-1/2 -translate-x-1/2 z-30 w-full max-w-5xl px-4 pointer-events-none">
+        <div className="absolute bottom-[calc(100%-4rem)] left-1/2 -translate-x-1/2 z-30 w-full max-w-[740px] px-4 pointer-events-none">
           <div className="flex items-center justify-center gap-2 text-sm text-foreground bg-blue-500/90 backdrop-blur-sm rounded-lg px-4 py-2.5 shadow-lg border border-blue-400/50 pointer-events-auto">
             <div className="flex items-center gap-2">
               <div className="h-2.5 w-2.5 rounded-full bg-white animate-pulse" />
               <span className="font-semibold text-white">
-                {currentQueue.length} {currentQueue.length === 1 ? 'mensaje en cola' : 'mensajes en cola'}
+                {currentQueue.length}{" "}
+                {currentQueue.length === 1
+                  ? "mensaje en cola"
+                  : "mensajes en cola"}
               </span>
             </div>
             <span className="text-xs text-white/90 hidden sm:inline">
@@ -1720,7 +1731,7 @@ export function ChatView() {
 
       {/* Input area */}
       <div className="relative z-20">
-        <div className="max-w-5xl mx-auto">
+        <div className="max-w-[740px] mx-auto">
           {!isConfigured ? (
             <div className="px-4 pb-4">
               <Button
@@ -1733,15 +1744,14 @@ export function ChatView() {
             </div>
           ) : (
             <>
-
               {/* Files panel - shows uploaded documents */}
               {documentUpload.files.length > 0 && (
-                <ChatFilesPanel className="px-4 pb-2 max-w-5xl mx-auto" />
+                <ChatFilesPanel className="px-4 pb-2 max-w-[740px] mx-auto" />
               )}
 
               {/* Suggestions panel */}
               {!isStreaming && streamingSuggestions.length > 0 && (
-                <div className="px-4 pb-2 max-w-5xl mx-auto w-full">
+                <div className="px-4 pb-2 max-w-[740px] mx-auto w-full">
                   <SuggestedPrompts
                     suggestions={streamingSuggestions}
                     onSelect={(suggestion) => {
@@ -1753,7 +1763,7 @@ export function ChatView() {
 
               {/* Show "Implement Plan" button when there's an unapproved plan and input is empty */}
               {hasUnapprovedPlan && !input.trim() && !isStreaming ? (
-                <div className="px-4 pb-4 max-w-5xl mx-auto w-full">
+                <div className="px-4 pb-4 max-w-[740px] mx-auto w-full">
                   <Button
                     type="button"
                     onClick={handleApprovePlan}

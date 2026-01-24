@@ -477,7 +477,7 @@ const PdfViewerContent = memo(function PdfViewerContent({
 
   // Panel states
   const [searchPanelOpen, setSearchPanelOpen] = useAtom(pdfSearchPanelOpenAtom);
-  const [thumbnailsPanelOpen, setThumbnailsPanelOpen] = useState(true); // Open by default
+  const [thumbnailsPanelOpen, setThumbnailsPanelOpen] = useState(false); // Closed by default
 
   // Auto-save state
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);

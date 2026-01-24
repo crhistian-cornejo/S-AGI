@@ -131,6 +131,9 @@ export interface DesktopApi {
   onAuthError: (
     callback: (data: { provider: string; error: string | null }) => void,
   ) => () => void;
+  app: {
+    onOpenSettings: (callback: (data?: { tab?: string }) => void) => () => void;
+  };
   preferences: {
     get: () => Promise<{ trayEnabled: boolean; quickPromptEnabled: boolean }>;
     set: (data: {

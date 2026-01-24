@@ -24,18 +24,42 @@ import { registerSecurityIpc } from "./lib/security/ipc";
 import { getFileManager } from "./lib/file-manager/file-manager";
 import { lockSensitiveNow } from "./lib/security/sensitive-lock";
 import { getPreferencesStore } from "./lib/preferences-store";
-import { startAIServer, stopAIServer, waitForAIServerReady } from "./lib/ai-server";
+import {
+  startAIServer,
+  stopAIServer,
+  waitForAIServerReady,
+} from "./lib/ai-server";
 import log from "electron-log";
+
+const appDisplayName = "S-AGI";
+app.setName(appDisplayName);
 
 // Basic menu to enable standard shortcuts like Copy/Paste
 function updateApplicationMenu() {
+  const openSettings = (tab?: string) => {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    mainWindow.show();
+    mainWindow.focus();
+    mainWindow.webContents.send("app:open-settings", { tab });
+  };
+
   const template: Electron.MenuItemConstructorOptions[] = [
     ...(process.platform === "darwin"
       ? [
           {
-            label: app.name,
+            label: app.getName(),
             submenu: [
               { role: "about" } as const,
+              { type: "separator" } as const,
+              {
+                label: "Settings...",
+                accelerator: "Command+,",
+                click: () => openSettings("account"),
+              },
+              {
+                label: "API Keys...",
+                click: () => openSettings("api-keys"),
+              },
               { type: "separator" } as const,
               { role: "services" } as const,
               { type: "separator" } as const,
@@ -100,7 +124,7 @@ function updateApplicationMenu() {
             applyQuickPromptPreference(newValue);
             updateApplicationMenu();
             // Notify renderer if needed
-             if (mainWindow && !mainWindow.isDestroyed()) {
+            if (mainWindow && !mainWindow.isDestroyed()) {
               mainWindow.webContents.send("preferences:updated", next);
             }
           },
@@ -668,7 +692,7 @@ function registerContentSecurityPolicy(): void {
     : `'self' blob:`;
 
   const csp = [
-    `default-src 'self' ${devOrigins}`,
+    `default-src 'self' blob: ${devOrigins}`,
     `script-src ${scriptSrc}`,
     `style-src 'self' 'unsafe-inline' ${devOrigins}`,
     `img-src 'self' data: blob: https: file:`,
@@ -676,6 +700,7 @@ function registerContentSecurityPolicy(): void {
     `connect-src 'self' https: wss: http://127.0.0.1:* blob: data: ${devOrigins}`,
     `media-src 'self' blob: data:`,
     `worker-src 'self' blob:`, // Required for PDFium Web Workers
+    `frame-src 'self' blob: data: ${devOrigins}`, // Required for PDF preview iframe
     `object-src 'none'`,
     `base-uri 'self'`,
     `frame-ancestors 'none'`,
@@ -955,8 +980,7 @@ if (process.defaultApp) {
 
 // App lifecycle
 app.whenReady().then(() => {
-  // Set app name to avoid "Electron" in dock/menu bar
-  app.setName("S-AGI");
+  app.setAboutPanelOptions({ applicationName: app.getName() });
 
   // Set app icon for macOS dock in development
   if (process.platform === "darwin") {
@@ -986,11 +1010,13 @@ app.whenReady().then(() => {
   registerContentSecurityPolicy();
 
   // Start local AI server for BlockNote AI
-  startAIServer().then((port) => {
-    log.info(`[App] AI Server started on port ${port}`);
-  }).catch((error) => {
-    log.error("[App] Failed to start AI server:", error);
-  });
+  startAIServer()
+    .then((port) => {
+      log.info(`[App] AI Server started on port ${port}`);
+    })
+    .catch((error) => {
+      log.error("[App] Failed to start AI server:", error);
+    });
 
   // IPC handler to get AI server port (waits for server to be ready)
   ipcMain.handle("ai:get-port", () => waitForAIServerReady());

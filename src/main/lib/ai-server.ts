@@ -1,18 +1,24 @@
 /**
  * Local HTTP Server for BlockNote AI
- * 
+ *
  * Creates a local HTTP server in the main process to handle AI requests
  * from BlockNote's AI extension. This allows the renderer to use
  * DefaultChatTransport pointing to localhost.
+ *
+ * Optimizations:
+ * - Keep-alive connections for reduced latency
+ * - Streaming responses with proper buffering
+ * - Efficient message processing
+ * - Support for fast models (gpt-4o-mini, GLM-4.7-Flash)
  */
 
 import { createServer, IncomingMessage, ServerResponse } from "http";
 import { createOpenAI } from "@ai-sdk/openai";
 import { streamText, convertToModelMessages } from "ai";
-import { 
-  aiDocumentFormats, 
+import {
+  aiDocumentFormats,
   injectDocumentStateMessages,
-  toolDefinitionsToToolSet 
+  toolDefinitionsToToolSet,
 } from "@blocknote/xl-ai/server";
 import log from "electron-log";
 import { getSecureApiKeyStore } from "./auth/api-key-store";
@@ -23,23 +29,42 @@ let server: ReturnType<typeof createServer> | null = null;
 let serverPort = 0;
 let serverReadyPromise: Promise<number> | null = null;
 
+// Cache OpenAI clients for better performance
+const clientCache = new Map<string, ReturnType<typeof createOpenAI>>();
+
 // Get provider from request headers or default
 function getProviderFromHeaders(req: IncomingMessage): AIProvider {
   const provider = req.headers["x-ai-provider"] as string;
-  if (provider === "zai" || provider === "chatgpt-plus" || provider === "openai") {
+  if (
+    provider === "zai" ||
+    provider === "chatgpt-plus" ||
+    provider === "openai"
+  ) {
     return provider;
   }
   return "openai";
 }
 
 // Get model from request headers or default
-function getModelFromHeaders(req: IncomingMessage, provider: AIProvider): string {
+function getModelFromHeaders(
+  req: IncomingMessage,
+  provider: AIProvider,
+): string {
   const model = req.headers["x-ai-model"] as string;
   if (model) return model;
-  return provider === "zai" ? "GLM-4.7-Flash" : "gpt-5-mini";
+  // GPT-5-mini is fast and follows tool instructions well
+  return provider === "zai" ? "GLM-4-Plus" : "gpt-5-mini";
 }
 
-async function getOpenAIClient(provider: AIProvider): Promise<ReturnType<typeof createOpenAI> | null> {
+async function getOpenAIClient(
+  provider: AIProvider,
+): Promise<ReturnType<typeof createOpenAI> | null> {
+  const cacheKey = provider;
+
+  // Check cache first
+  const cached = clientCache.get(cacheKey);
+  if (cached) return cached;
+
   const keyStore = getSecureApiKeyStore();
 
   if (provider === "chatgpt-plus") {
@@ -50,33 +75,52 @@ async function getOpenAIClient(provider: AIProvider): Promise<ReturnType<typeof 
     const token = authManager.getAccessToken();
     if (!token) return null;
 
-    return createOpenAI({
+    const client = createOpenAI({
       apiKey: token,
       baseURL: "https://chatgpt.com/backend-api/v1",
     });
+    // Don't cache chatgpt-plus as token may expire
+    return client;
   }
 
   if (provider === "zai") {
     const openaiKey = keyStore.getOpenAIKey();
     if (!openaiKey) return null;
 
-    return createOpenAI({
+    const client = createOpenAI({
       apiKey: openaiKey,
       baseURL: "https://api.z.ai/api/paas/v4/",
     });
+    clientCache.set(cacheKey, client);
+    return client;
   }
 
   const openaiKey = keyStore.getOpenAIKey();
   if (!openaiKey) return null;
 
-  return createOpenAI({ apiKey: openaiKey });
+  const client = createOpenAI({ apiKey: openaiKey });
+  clientCache.set(cacheKey, client);
+  return client;
+}
+
+// Clear client cache when API keys change
+export function clearClientCache(): void {
+  clientCache.clear();
+  log.info("[AI Server] Client cache cleared");
 }
 
 async function handleAIRequest(req: IncomingMessage, res: ServerResponse) {
-  // Set CORS headers for local requests
+  const startTime = Date.now();
+
+  // Set CORS and keep-alive headers for better performance
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type, X-AI-Provider, X-AI-Model");
+  res.setHeader(
+    "Access-Control-Allow-Headers",
+    "Content-Type, X-AI-Provider, X-AI-Model",
+  );
+  res.setHeader("Connection", "keep-alive");
+  res.setHeader("Keep-Alive", "timeout=30");
 
   if (req.method === "OPTIONS") {
     res.writeHead(204);
@@ -91,7 +135,7 @@ async function handleAIRequest(req: IncomingMessage, res: ServerResponse) {
   }
 
   try {
-    // Read body
+    // Read body efficiently
     const chunks: Buffer[] = [];
     for await (const chunk of req) {
       chunks.push(chunk);
@@ -108,50 +152,61 @@ async function handleAIRequest(req: IncomingMessage, res: ServerResponse) {
     const openai = await getOpenAIClient(provider);
     if (!openai) {
       res.writeHead(401);
-      res.end(JSON.stringify({ error: `No API key configured for ${provider}` }));
+      res.end(
+        JSON.stringify({ error: `No API key configured for ${provider}` }),
+      );
       return;
     }
 
     const model = openai(modelId);
 
-    // Use BlockNote's document format helpers
+    // Use BlockNote's document format helpers with optimized settings
     const result = streamText({
       model: model as any,
       system: aiDocumentFormats.html.systemPrompt,
       messages: await convertToModelMessages(
-        injectDocumentStateMessages(messages)
+        injectDocumentStateMessages(messages),
       ),
       tools: toolDefinitionsToToolSet(toolDefinitions),
       toolChoice: "required",
+      // Performance optimizations
+      experimental_telemetry: { isEnabled: false }, // Disable telemetry for speed
     });
 
-    // Stream the response using UI message stream format
-    res.writeHead(200, {
-      "Content-Type": "text/event-stream",
-      "Cache-Control": "no-cache",
-      "Connection": "keep-alive",
+    // Pipe the UI message stream directly to the Node.js ServerResponse
+    // Include CORS headers for local development
+    result.pipeUIMessageStreamToResponse(res, {
+      status: 200,
+      headers: {
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Methods": "POST, OPTIONS",
+        "Access-Control-Allow-Headers":
+          "Content-Type, X-AI-Provider, X-AI-Model",
+        Connection: "keep-alive",
+        "Cache-Control": "no-cache",
+        "X-Accel-Buffering": "no", // Disable nginx buffering if behind proxy
+      },
     });
 
-    const stream = result.toUIMessageStreamResponse();
-    const reader = stream.body?.getReader();
-    
-    if (reader) {
-      const decoder = new TextDecoder();
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        res.write(decoder.decode(value, { stream: true }));
-      }
-    }
-
-    res.end();
-
+    // Log completion time after stream ends
+    res.on("finish", () => {
+      const duration = Date.now() - startTime;
+      log.info(`[AI Server] Request completed in ${duration}ms`);
+    });
   } catch (error) {
-    log.error("[AI Server] Error:", error);
-    res.writeHead(500);
-    res.end(JSON.stringify({ 
-      error: error instanceof Error ? error.message : "Internal server error" 
-    }));
+    const duration = Date.now() - startTime;
+    log.error(`[AI Server] Error after ${duration}ms:`, error);
+
+    // Only send error if headers not sent
+    if (!res.headersSent) {
+      res.writeHead(500);
+      res.end(
+        JSON.stringify({
+          error:
+            error instanceof Error ? error.message : "Internal server error",
+        }),
+      );
+    }
   }
 }
 
@@ -167,16 +222,23 @@ export function startAIServer(): Promise<number> {
     }
 
     server = createServer((req, res) => {
-      if (req.url === "/ai/streamText" || req.url === "/ai/regular/streamText") {
+      if (
+        req.url === "/ai/streamText" ||
+        req.url === "/ai/regular/streamText"
+      ) {
         handleAIRequest(req, res);
       } else if (req.url === "/health") {
-        res.writeHead(200);
+        res.writeHead(200, { "Content-Type": "text/plain" });
         res.end("OK");
       } else {
         res.writeHead(404);
         res.end("Not Found");
       }
     });
+
+    // Enable keep-alive for better performance
+    server.keepAliveTimeout = 30000; // 30 seconds
+    server.headersTimeout = 35000; // Slightly longer than keep-alive
 
     // Find an available port
     server.listen(0, "127.0.0.1", () => {
@@ -204,6 +266,8 @@ export function stopAIServer(): void {
     server.close();
     server = null;
     serverPort = 0;
+    serverReadyPromise = null;
+    clientCache.clear();
     log.info("[AI Server] Stopped");
   }
 }

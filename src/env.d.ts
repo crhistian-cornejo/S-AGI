@@ -114,6 +114,9 @@ interface DesktopApi {
     onAuthRefreshing: (callback: (data: { provider: string; refreshing: boolean }) => void) => () => void
     // Auth error listener
     onAuthError: (callback: (data: { provider: string; error: string | null }) => void) => () => void
+    app: {
+        onOpenSettings: (callback: (data?: { tab?: string }) => void) => () => void
+    }
     preferences: {
         get: () => Promise<{ trayEnabled: boolean; quickPromptEnabled: boolean }>
         set: (data: { trayEnabled?: boolean; quickPromptEnabled?: boolean }) => Promise<{ trayEnabled: boolean; quickPromptEnabled: boolean }>

@@ -138,6 +138,15 @@ const desktopApi = {
       };
     },
   },
+  app: {
+    onOpenSettings: (callback: (data?: { tab?: string }) => void) => {
+      const handler = (_: unknown, data: { tab?: string }) => callback(data);
+      ipcRenderer.on("app:open-settings", handler);
+      return () => {
+        ipcRenderer.removeListener("app:open-settings", handler);
+      };
+    },
+  },
 
   files: {
     listFolders: () => ipcRenderer.invoke("files:list-folders"),
