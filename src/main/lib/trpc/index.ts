@@ -17,6 +17,7 @@ import { pdfRouter } from "./routers/pdf";
 import { usageRouter } from "./routers/usage";
 import { agentPanelRouter } from "./routers/agent-panel";
 import { ideasRouter } from "./routers/ideas";
+import { permissionsRouter } from "./routers/permissions";
 
 // Main app router
 export const appRouter = router({
@@ -34,6 +35,7 @@ export const appRouter = router({
   usage: usageRouter,
   agentPanel: agentPanelRouter,
   ideas: ideasRouter,
+  permissions: permissionsRouter,
 });
 
 // Export type for client

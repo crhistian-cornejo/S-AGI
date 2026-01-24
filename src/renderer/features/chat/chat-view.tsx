@@ -488,40 +488,46 @@ export function ChatView() {
         //     }
         //     apiKey = undefined
       } else if (provider === "zai") {
-        const result = await trpcClient.settings.getZaiKey.query();
-        if (!result.key) {
+        // SECURITY: Credentials are managed in main process only
+        // We just check status here - backend fetches keys directly
+        const status = await trpcClient.settings.getApiKeyStatus.query();
+        if (!status.hasZai) {
           setStreamingError("Z.AI API key not configured");
           setIsStreaming(false);
           setStreamingStatus(chatId, "error");
           chatSounds.playError();
           return;
         }
-        apiKey = result.key;
+        // API key is fetched by main process
+        apiKey = undefined;
       } else if (provider === "openai") {
-        const result = await trpcClient.settings.getOpenAIKey.query();
-        if (!result.key) {
+        // SECURITY: Credentials are managed in main process only
+        const status = await trpcClient.settings.getApiKeyStatus.query();
+        if (!status.hasOpenAI) {
           setStreamingError("OpenAI API key not configured");
           setIsStreaming(false);
           setStreamingStatus(chatId, "error");
           chatSounds.playError();
           return;
         }
-        apiKey = result.key;
+        // API key is fetched by main process
+        apiKey = undefined;
       } else {
         // Anthropic or other providers
-        const result = await trpcClient.settings.getAnthropicKey.query();
-        if (!result.key) {
+        // SECURITY: Credentials are managed in main process only
+        const status = await trpcClient.settings.getApiKeyStatus.query();
+        if (!status.hasAnthropic) {
           setStreamingError("API key not configured");
           setIsStreaming(false);
           setStreamingStatus(chatId, "error");
           chatSounds.playError();
           return;
         }
-        apiKey = result.key;
+        // API key is fetched by main process
+        apiKey = undefined;
       }
 
-      // Get Tavily key for web search (optional)
-      const tavilyKeyResult = await trpcClient.settings.getTavilyKey.query();
+      // Tavily key availability is checked in main process
 
       if (isFirstMessage && apiKey) {
         generateAutoTitle(chatIdForStream, userMessage, apiKey, provider);
@@ -1162,7 +1168,7 @@ export function ChatView() {
           mode,
           provider,
           apiKey,
-          tavilyApiKey: tavilyKeyResult.key || undefined,
+          // SECURITY: Tavily key is fetched by main process from credential manager
           model: selectedModel,
           messages: messageHistory,
           images:

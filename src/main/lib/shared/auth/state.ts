@@ -5,7 +5,7 @@
  * Based on craft-agents-oss patterns.
  */
 
-import { getCredentialManager, ClaudeOAuthCredentials, ChatGPTOAuthCredentials } from '../credentials'
+import { getCredentialManager } from '../credentials'
 import { getExistingClaudeCredentials, isTokenExpired as isClaudeCliTokenExpired } from '../../auth/claude-cli-import'
 import log from 'electron-log'
 

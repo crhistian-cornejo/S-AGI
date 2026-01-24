@@ -7,7 +7,7 @@
  * Based on craft-agents-oss patterns.
  */
 
-import { getSecureStorage, CredentialId, StoredCredential, CredentialType } from './secure-storage'
+import { getSecureStorage, CredentialType } from './secure-storage'
 import log from 'electron-log'
 
 export interface ClaudeOAuthCredentials {

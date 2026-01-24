@@ -13,6 +13,7 @@ import {
     type DocumentMetadata,
     type PageContent
 } from '../../documents/document-processor'
+import { getCredentialManager } from '../../shared/credentials'
 
 // Supported file types for OpenAI file search
 const SUPPORTED_FILE_TYPES = [
@@ -59,18 +60,27 @@ export const filesRouter = router({
             chatId: z.string().uuid(),
             fileName: z.string(),
             fileBase64: z.string(), // Send file as base64 from renderer
-            apiKey: z.string()
+            apiKey: z.string().optional() // SECURITY: Now fetched from credential manager if not provided
         }))
         .mutation(async ({ ctx, input }) => {
             try {
-                log.info('[FilesRouter] uploadForChat called:', { 
-                    chatId: input.chatId, 
+                // SECURITY: Get API key from credential manager if not provided
+                let apiKey: string | undefined = input.apiKey
+                if (!apiKey) {
+                    const credentialManager = getCredentialManager()
+                    const storedKey = await credentialManager.getOpenAIKey()
+                    apiKey = storedKey ?? undefined
+                }
+
+                log.info('[FilesRouter] uploadForChat called:', {
+                    chatId: input.chatId,
                     fileName: input.fileName,
-                    apiKeyLength: input.apiKey?.length || 0,
-                    userId: ctx.userId 
+                    apiKeyLength: apiKey?.length || 0,
+                    userId: ctx.userId,
+                    apiKeySource: input.apiKey ? 'provided' : 'credential_manager'
                 })
-                
-                if (!input.apiKey) {
+
+                if (!apiKey) {
                     throw new Error('OpenAI API key is required for file upload')
                 }
                 
@@ -141,8 +151,8 @@ export const filesRouter = router({
                     }
                 }
                 
-                const service = new OpenAIFileService({ apiKey: input.apiKey })
-                
+                const service = new OpenAIFileService({ apiKey })
+
                 // 1. Get or create vector store
                 log.info('[FilesRouter] Getting or creating vector store...')
                 const vectorStoreId = await service.getOrCreateVectorStore(input.chatId, ctx.userId)
@@ -314,7 +324,7 @@ export const filesRouter = router({
     listForChat: protectedProcedure
         .input(z.object({
             chatId: z.string().uuid(),
-            apiKey: z.string()
+            apiKey: z.string().optional() // SECURITY: Now optional - fetched from credential manager if needed
         }))
         .query(async ({ ctx, input }) => {
             // Get the vector store ID for context
@@ -367,8 +377,16 @@ export const filesRouter = router({
             } else {
                 // Fallback: fetch from OpenAI if no local files found (migration/legacy support)
                 try {
-                    const service = new OpenAIFileService({ apiKey: input.apiKey })
-                    files = await service.listVectorStoreFiles(chat.openai_vector_store_id)
+                    // Get API key from credential manager if not provided
+                    let apiKey = input.apiKey
+                    if (!apiKey) {
+                        const credentialManager = getCredentialManager()
+                        apiKey = await credentialManager.getOpenAIKey() ?? undefined
+                    }
+                    if (apiKey) {
+                        const service = new OpenAIFileService({ apiKey })
+                        files = await service.listVectorStoreFiles(chat.openai_vector_store_id)
+                    }
                 } catch (e) {
                     log.warn('[FilesRouter] Fallback to OpenAI list failed:', e)
                 }
@@ -387,7 +405,7 @@ export const filesRouter = router({
         .input(z.object({
             chatId: z.string().uuid(),
             fileId: z.string(),
-            apiKey: z.string()
+            apiKey: z.string().optional() // SECURITY: Now optional - fetched from credential manager if needed
         }))
         .mutation(async ({ ctx, input }) => {
             const { data: chat, error } = await supabase
@@ -412,10 +430,19 @@ export const filesRouter = router({
             const vectorStoreFileId = fileData?.openai_vector_store_file_id || input.fileId
             const openaiFileId = fileData?.openai_file_id || undefined
 
-            // 2. Delete from OpenAI
+            // 2. Delete from OpenAI - get API key from credential manager if not provided
             try {
-                const service = new OpenAIFileService({ apiKey: input.apiKey })
-                await service.deleteFile(chat.openai_vector_store_id, vectorStoreFileId, openaiFileId)
+                let apiKey = input.apiKey
+                if (!apiKey) {
+                    const credentialManager = getCredentialManager()
+                    apiKey = await credentialManager.getOpenAIKey() ?? undefined
+                }
+                if (apiKey) {
+                    const service = new OpenAIFileService({ apiKey })
+                    await service.deleteFile(chat.openai_vector_store_id, vectorStoreFileId, openaiFileId)
+                } else {
+                    log.warn('[FilesRouter] No OpenAI API key available for delete operation')
+                }
             } catch (err) {
                 log.warn('[FilesRouter] Failed to delete from OpenAI, proceeding to local delete:', err)
             }

@@ -142,7 +142,7 @@ function getStableMachineId(): string {
  * Convert credential ID to account string for storage
  */
 export function credentialIdToAccount(id: CredentialId): string {
-    const parts = [id.type]
+    const parts: string[] = [id.type]
     if (id.workspaceId) parts.push(id.workspaceId)
     if (id.name) parts.push(id.name)
     return parts.join('::')

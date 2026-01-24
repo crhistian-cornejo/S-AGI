@@ -40,8 +40,8 @@ export function ImageEditDialog({
     const [isEditing, setIsEditing] = useState(false)
     const [editedImageUrl, setEditedImageUrl] = useState<string | null>(null)
 
-    // Get API key from secure storage
-    const { data: apiKeyData } = trpc.settings.getOpenAIKey.useQuery()
+    // SECURITY: Credentials are managed in main process only - just check status
+    const { data: apiKeyStatus } = trpc.settings.getApiKeyStatus.useQuery()
 
     // tRPC mutation for executing the edit_image tool
     const executeToolMutation = trpc.tools.execute.useMutation()
@@ -52,7 +52,7 @@ export function ImageEditDialog({
             return
         }
 
-        if (!apiKeyData?.key) {
+        if (!apiKeyStatus?.hasOpenAI) {
             toast.error('OpenAI API key is required. Please configure it in Settings.')
             return
         }
@@ -80,11 +80,10 @@ export function ImageEditDialog({
                 reader.readAsDataURL(blob)
             })
 
-            // Call the edit_image tool with API key
+            // Call the edit_image tool - API key is fetched by main process from credential manager
             const result = await executeToolMutation.mutateAsync({
                 toolName: 'edit_image',
                 chatId,
-                apiKey: apiKeyData.key,
                 args: {
                     prompt: editPrompt,
                     imageBase64: base64,
@@ -108,7 +107,7 @@ export function ImageEditDialog({
         } finally {
             setIsEditing(false)
         }
-    }, [editPrompt, chatId, imageUrl, executeToolMutation, onEditComplete, apiKeyData?.key])
+    }, [editPrompt, chatId, imageUrl, executeToolMutation, onEditComplete, apiKeyStatus?.hasOpenAI])
 
     const handleClose = useCallback(() => {
         setEditPrompt('')

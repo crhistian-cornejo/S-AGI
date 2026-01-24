@@ -76,14 +76,15 @@ export function useDocumentUpload({ chatId }: UseDocumentUploadOptions) {
     const [documents, setDocuments] = useState<UploadedDocument[]>([])
     const [isUploading, setIsUploading] = useState(false)
     
-    // Get API key from settings
-    const { data: apiKeyData } = trpc.settings.getOpenAIKey.useQuery()
-    const apiKey = apiKeyData?.key || null
-    
+    // SECURITY: Credentials are managed in main process only - just check status
+    const { data: apiKeyStatus } = trpc.settings.getApiKeyStatus.useQuery()
+    const hasApiKey = apiKeyStatus?.hasOpenAI || false
+
     // Query to list existing files in the vector store
+    // API key is fetched by main process from credential manager
     const { data: filesData, refetch: refetchFiles } = trpc.files.listForChat.useQuery(
-        { chatId: chatId!, apiKey: apiKey! },
-        { enabled: !!chatId && !!apiKey }
+        { chatId: chatId! },
+        { enabled: !!chatId && hasApiKey }
     )
 
     // Mutation to upload files
@@ -109,7 +110,7 @@ export function useDocumentUpload({ chatId }: UseDocumentUploadOptions) {
             throw new Error('No chat selected. Please select or create a chat first.')
         }
         
-        if (!apiKey) {
+        if (!hasApiKey) {
             console.error('[useDocumentUpload] Missing OpenAI API key')
             throw new Error('OpenAI API key not configured. Please add your API key in Settings to upload documents.')
         }
@@ -167,12 +168,11 @@ export function useDocumentUpload({ chatId }: UseDocumentUploadOptions) {
                 // Convert to base64
                 const base64Data = await fileToBase64(file)
 
-                // Upload via tRPC
+                // Upload via tRPC - API key is fetched by main process from credential manager
                 const result = await uploadMutation.mutateAsync({
                     chatId,
                     fileName: file.name,
-                    fileBase64: base64Data,
-                    apiKey
+                    fileBase64: base64Data
                 })
 
                 // Update status to processing
@@ -197,19 +197,19 @@ export function useDocumentUpload({ chatId }: UseDocumentUploadOptions) {
 
         await runWithConcurrency(files, MAX_CONCURRENT_UPLOADS, processFile)
         setIsUploading(false)
-    }, [chatId, apiKey, uploadMutation])
+    }, [chatId, hasApiKey, uploadMutation])
 
     /**
      * Delete a document from the vector store
      */
     const deleteDocument = useCallback(async (fileId: string) => {
-        if (!chatId || !apiKey) return
+        if (!chatId || !hasApiKey) return
 
         try {
+            // API key is fetched by main process from credential manager
             await deleteMutation.mutateAsync({
                 chatId,
-                fileId,
-                apiKey
+                fileId
             })
             
             // Remove from local state
@@ -217,7 +217,7 @@ export function useDocumentUpload({ chatId }: UseDocumentUploadOptions) {
         } catch (error) {
             console.error('[useDocumentUpload] Delete error:', error)
         }
-    }, [chatId, apiKey, deleteMutation])
+    }, [chatId, hasApiKey, deleteMutation])
 
     /**
      * Clear local document state

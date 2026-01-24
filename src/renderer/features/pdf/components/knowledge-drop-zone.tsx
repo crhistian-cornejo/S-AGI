@@ -65,9 +65,9 @@ export function KnowledgeDropZone({
   const setSelectedPdf = useSetAtom(selectedPdfAtom);
   const setLocalPdfBlob = useSetAtom(setLocalPdfBlobAtom);
 
-  // tRPC hooks for cloud upload
-  const { data: apiKeyData } = trpc.settings.getOpenAIKey.useQuery();
-  const apiKey = apiKeyData?.key || null;
+  // SECURITY: Credentials are managed in main process only - just check status
+  const { data: apiKeyStatus } = trpc.settings.getApiKeyStatus.useQuery();
+  const hasApiKey = apiKeyStatus?.hasOpenAI || false;
 
   // For cloud upload, we need a knowledge base chat ID
   // We'll create a special "knowledge-base" chat for this purpose
@@ -149,7 +149,8 @@ export function KnowledgeDropZone({
     try {
       if (uploadType === "cloud") {
         // Cloud upload - use OpenAI vector store (same as chat uploads)
-        if (!apiKey) {
+        // SECURITY: Credentials are managed in main process only
+        if (!hasApiKey) {
           toast.error(
             "OpenAI API key not configured. Please add your API key in Settings.",
           );
@@ -161,11 +162,11 @@ export function KnowledgeDropZone({
         const base64Data = await fileToBase64(selectedFile);
 
         // Upload to knowledge base using the same infrastructure as chat files
+        // API key is fetched by main process from credential manager
         await uploadMutation.mutateAsync({
           chatId: KNOWLEDGE_BASE_CHAT_ID,
           fileName: selectedFile.name,
           fileBase64: base64Data,
-          apiKey,
         });
 
         // Success handled by mutation callbacks
@@ -217,7 +218,7 @@ export function KnowledgeDropZone({
       );
       setIsUploading(false);
     }
-  }, [selectedFile, uploadType, apiKey, uploadMutation, addLocalPdf, setSelectedPdf, setLocalPdfBlob, onUploadComplete]);
+  }, [selectedFile, uploadType, hasApiKey, uploadMutation, addLocalPdf, setSelectedPdf, setLocalPdfBlob, onUploadComplete]);
 
   const handleCancel = useCallback(() => {
     setShowDialog(false);

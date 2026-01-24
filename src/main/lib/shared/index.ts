@@ -10,3 +10,6 @@ export * from './credentials'
 
 // Authentication
 export * from './auth'
+
+// Agent permission system
+export * from './agent'
