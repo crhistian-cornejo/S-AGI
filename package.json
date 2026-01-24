@@ -6,8 +6,12 @@
     "description": "S-AGI - AI Agent for Spreadsheets with Univer",
     "author": "S-AGI",
     "main": "out/main/index.js",
+    "workspaces": [
+        "apps/*",
+        "packages/*"
+    ],
     "scripts": {
-        "predev": "bun scripts/predev.ts",
+        "predev": "bun apps/electron/scripts/predev.ts",
         "dev": "electron-vite dev",
         "dev:web": "vite --config vite.config.ts",
         "build": "electron-vite build",
