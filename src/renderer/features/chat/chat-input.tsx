@@ -622,7 +622,7 @@ export const ChatInput = memo(function ChatInput({
     <div
       role="region"
       aria-label="Chat input with file drop zone"
-      className="relative flex flex-col gap-2 w-full max-w-3xl mx-auto px-4 pb-4"
+      className="relative flex flex-col gap-2 w-full max-w-5xl mx-auto px-4 pb-4"
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}

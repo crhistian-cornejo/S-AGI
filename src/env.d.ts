@@ -117,6 +117,7 @@ interface DesktopApi {
     preferences: {
         get: () => Promise<{ trayEnabled: boolean; quickPromptEnabled: boolean }>
         set: (data: { trayEnabled?: boolean; quickPromptEnabled?: boolean }) => Promise<{ trayEnabled: boolean; quickPromptEnabled: boolean }>
+        onPreferencesUpdated: (callback: (data: { trayEnabled: boolean; quickPromptEnabled: boolean }) => void) => () => void
     }
 }
 

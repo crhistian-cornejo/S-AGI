@@ -1,244 +1,346 @@
-import { contextBridge, ipcRenderer } from 'electron'
-import { exposeElectronTRPC } from 'trpc-electron/main'
+import { contextBridge, ipcRenderer } from "electron";
+import { exposeElectronTRPC } from "trpc-electron/main";
 
 // Expose tRPC
-exposeElectronTRPC()
+exposeElectronTRPC();
 
 // Desktop API exposed to renderer
 const desktopApi = {
-    // Window controls
-    minimize: () => ipcRenderer.invoke('window:minimize'),
-    maximize: () => ipcRenderer.invoke('window:maximize'),
-    close: () => ipcRenderer.invoke('window:close'),
-    isMaximized: () => ipcRenderer.invoke('window:isMaximized') as Promise<boolean>,
-    onMaximizeChange: (callback: (maximized: boolean) => void) => {
-        const handler = (_: unknown, maximized: boolean) => callback(maximized)
-        ipcRenderer.on('window:maximize-changed', handler)
-        return () => ipcRenderer.removeListener('window:maximize-changed', handler)
+  // Window controls
+  minimize: () => ipcRenderer.invoke("window:minimize"),
+  maximize: () => ipcRenderer.invoke("window:maximize"),
+  close: () => ipcRenderer.invoke("window:close"),
+  isMaximized: () =>
+    ipcRenderer.invoke("window:isMaximized") as Promise<boolean>,
+  onMaximizeChange: (callback: (maximized: boolean) => void) => {
+    const handler = (_: unknown, maximized: boolean) => callback(maximized);
+    ipcRenderer.on("window:maximize-changed", handler);
+    return () => ipcRenderer.removeListener("window:maximize-changed", handler);
+  },
+
+  // App info
+  getVersion: () => ipcRenderer.invoke("app:getVersion"),
+
+  // Auth synchronization
+  setSession: (session: any) => ipcRenderer.invoke("auth:set-session", session),
+
+  // Theme
+  getTheme: () => ipcRenderer.invoke("theme:get"),
+  setTheme: (theme: "system" | "light" | "dark") =>
+    ipcRenderer.invoke("theme:set", theme),
+
+  // AI Server
+  getAIServerPort: () => ipcRenderer.invoke("ai:get-port") as Promise<number>,
+
+  // Platform detection
+  platform: process.platform,
+
+  // Haptic feedback (macOS only)
+  haptic: (
+    type:
+      | "light"
+      | "medium"
+      | "heavy"
+      | "selection"
+      | "success"
+      | "warning"
+      | "error",
+  ) => ipcRenderer.invoke("haptic:perform", type),
+
+  // Auth callback listener (for deep link code flow)
+  onAuthCallback: (callback: (data: { code: string }) => void) => {
+    ipcRenderer.on("auth:callback", (_, data) => callback(data));
+    return () => {
+      ipcRenderer.removeAllListeners("auth:callback");
+    };
+  },
+
+  // OAuth tokens listener (for Electron window OAuth flow)
+  onOAuthTokens: (
+    callback: (data: { access_token: string; refresh_token: string }) => void,
+  ) => {
+    ipcRenderer.on("auth:oauth-tokens", (_, data) => callback(data));
+    return () => {
+      ipcRenderer.removeAllListeners("auth:oauth-tokens");
+    };
+  },
+
+  // AI Stream listener
+  onAIStreamEvent: (callback: (event: any) => void) => {
+    const handler = (_: any, event: any) => callback(event);
+    ipcRenderer.on("ai:stream", handler);
+    return () => {
+      ipcRenderer.removeListener("ai:stream", handler);
+    };
+  },
+
+  // Agent Panel Stream listener (for document-contextual AI agents)
+  onAgentPanelStream: (callback: (event: any) => void) => {
+    const handler = (_: any, event: any) => callback(event);
+    ipcRenderer.on("agent-panel:stream", handler);
+    return () => {
+      ipcRenderer.removeListener("agent-panel:stream", handler);
+    };
+  },
+
+  // Ideas Tab Stream listener
+  onIdeasStream: (callback: (event: any) => void) => {
+    const handler = (_: any, event: any) => callback(event);
+    ipcRenderer.on("ideas:stream", handler);
+    return () => {
+      ipcRenderer.removeListener("ideas:stream", handler);
+    };
+  },
+
+  // ChatGPT Plus connected listener (OAuth callback)
+  onChatGPTConnected: (
+    callback: (data: { isConnected: boolean; accountId?: string }) => void,
+  ) => {
+    const handler = (_: any, data: any) => callback(data);
+    ipcRenderer.on("chatgpt:connected", handler);
+    return () => {
+      ipcRenderer.removeListener("chatgpt:connected", handler);
+    };
+  },
+
+  // Gemini Advanced connected listener (OAuth callback)
+  onGeminiConnected: (callback: (data: { isConnected: boolean }) => void) => {
+    const handler = (_: any, data: any) => callback(data);
+    ipcRenderer.on("gemini:connected", handler);
+    return () => {
+      ipcRenderer.removeListener("gemini:connected", handler);
+    };
+  },
+
+  // Tray Popover API
+  tray: {
+    getRecentItems: () => ipcRenderer.invoke("tray:get-recent-items"),
+    getUser: () => ipcRenderer.invoke("tray:get-user"),
+    getSpreadsheets: () => ipcRenderer.invoke("tray:get-spreadsheets"),
+    getSpreadsheetData: (data: { id: string }) =>
+      ipcRenderer.invoke("tray:get-spreadsheet-data", data),
+    getCitations: () => ipcRenderer.invoke("tray:get-citations"),
+    action: (data: { action: string; [key: string]: unknown }) =>
+      ipcRenderer.invoke("tray:action", data),
+    onRefresh: (callback: () => void) => {
+      ipcRenderer.on("tray:refresh", callback);
+      return () => {
+        ipcRenderer.removeListener("tray:refresh", callback);
+      };
     },
-
-    // App info
-    getVersion: () => ipcRenderer.invoke('app:getVersion'),
-
-    // Auth synchronization
-    setSession: (session: any) => ipcRenderer.invoke('auth:set-session', session),
-
-    // Theme
-    getTheme: () => ipcRenderer.invoke('theme:get'),
-    setTheme: (theme: 'system' | 'light' | 'dark') => ipcRenderer.invoke('theme:set', theme),
-
-    // Platform detection
-    platform: process.platform,
-
-    // Haptic feedback (macOS only)
-    haptic: (type: 'light' | 'medium' | 'heavy' | 'selection' | 'success' | 'warning' | 'error') => 
-        ipcRenderer.invoke('haptic:perform', type),
-
-    // Auth callback listener (for deep link code flow)
-    onAuthCallback: (callback: (data: { code: string }) => void) => {
-        ipcRenderer.on('auth:callback', (_, data) => callback(data))
-        return () => {
-            ipcRenderer.removeAllListeners('auth:callback')
-        }
+    // Callbacks for tray actions aimed at the main window
+    onAction: (action: string, callback: (data?: any) => void) => {
+      const channel = `tray:${action}`;
+      const listener = (_: any, data: any) => callback(data);
+      ipcRenderer.on(channel, listener);
+      return () => {
+        ipcRenderer.removeListener(channel, listener);
+      };
     },
+  },
 
-    // OAuth tokens listener (for Electron window OAuth flow)
-    onOAuthTokens: (callback: (data: { access_token: string; refresh_token: string }) => void) => {
-        ipcRenderer.on('auth:oauth-tokens', (_, data) => callback(data))
-        return () => {
-            ipcRenderer.removeAllListeners('auth:oauth-tokens')
-        }
-    },
+  files: {
+    listFolders: () => ipcRenderer.invoke("files:list-folders"),
+    createFolder: (data: { name: string; isSensitive?: boolean }) =>
+      ipcRenderer.invoke("files:create-folder", data),
+    renameFolder: (data: { folderId: string; name: string }) =>
+      ipcRenderer.invoke("files:rename-folder", data),
+    deleteFolder: (data: { folderId: string }) =>
+      ipcRenderer.invoke("files:delete-folder", data),
+    listFiles: (data: { folderId: string }) =>
+      ipcRenderer.invoke("files:list-files", data),
+    listAllFiles: () => ipcRenderer.invoke("files:list-all"),
+    getQuickAccess: () => ipcRenderer.invoke("files:get-quick-access"),
+    importPaths: (data: { folderId: string; paths: string[] }) =>
+      ipcRenderer.invoke("files:import-paths", data),
+    pickAndImport: (data: { folderId: string }) =>
+      ipcRenderer.invoke("files:pick-and-import", data),
+    deleteFile: (data: { fileId: string }) =>
+      ipcRenderer.invoke("files:delete-file", data),
+    openFile: (data: { fileId: string }) =>
+      ipcRenderer.invoke("files:open-file", data),
+    showInFolder: (data: { fileId: string }) =>
+      ipcRenderer.invoke("files:show-in-folder", data),
+    exportFiles: (data: { fileIds: string[] }) =>
+      ipcRenderer.invoke("files:export", data),
+  },
 
-    // AI Stream listener
-    onAIStreamEvent: (callback: (event: any) => void) => {
-        const handler = (_: any, event: any) => callback(event)
-        ipcRenderer.on('ai:stream', handler)
-        return () => {
-            ipcRenderer.removeListener('ai:stream', handler)
-        }
+  // PDF local file picker (view only, no import)
+  pdf: {
+    pickLocal: () =>
+      ipcRenderer.invoke("pdf:pick-local") as Promise<{
+        files: Array<{ path: string; name: string; size: number }>;
+      }>,
+    // Read a local PDF file as base64 for viewing
+    readLocal: (filePath: string) =>
+      ipcRenderer.invoke("pdf:read-local", { filePath }) as Promise<{
+        success: boolean;
+        data?: string; // base64 encoded PDF data
+        size?: number;
+        error?: string;
+      }>,
+    // Listener for tray-opened local PDFs
+    onOpenLocalPdfs: (
+      callback: (data: {
+        files: Array<{ path: string; name: string; size: number }>;
+      }) => void,
+    ) => {
+      const handler = (
+        _: unknown,
+        data: { files: Array<{ path: string; name: string; size: number }> },
+      ) => callback(data);
+      ipcRenderer.on("tray:open-local-pdfs", handler);
+      return () => {
+        ipcRenderer.removeListener("tray:open-local-pdfs", handler);
+      };
     },
+  },
 
-    // ChatGPT Plus connected listener (OAuth callback)
-    onChatGPTConnected: (callback: (data: { isConnected: boolean; accountId?: string }) => void) => {
-        const handler = (_: any, data: any) => callback(data)
-        ipcRenderer.on('chatgpt:connected', handler)
-        return () => {
-            ipcRenderer.removeListener('chatgpt:connected', handler)
-        }
-    },
+  security: {
+    getSensitiveStatus: () => ipcRenderer.invoke("security:sensitive-status"),
+    unlockSensitive: (data: { ttlMs?: number; reason?: string }) =>
+      ipcRenderer.invoke("security:unlock-sensitive", data),
+    unlockWithPin: (data: { pin: string; ttlMs?: number }) =>
+      ipcRenderer.invoke("security:unlock-with-pin", data),
+    setPin: (data: { pin: string }) =>
+      ipcRenderer.invoke("security:set-pin", data),
+    clearPin: () => ipcRenderer.invoke("security:clear-pin"),
+    lockSensitive: () => ipcRenderer.invoke("security:lock-sensitive"),
+  },
 
-    // Gemini Advanced connected listener (OAuth callback)
-    onGeminiConnected: (callback: (data: { isConnected: boolean }) => void) => {
-        const handler = (_: any, data: any) => callback(data)
-        ipcRenderer.on('gemini:connected', handler)
-        return () => {
-            ipcRenderer.removeListener('gemini:connected', handler)
-        }
-    },
+  // Clipboard
+  clipboard: {
+    writeText: (text: string) =>
+      ipcRenderer.invoke("clipboard:write-text", text),
+    readText: () => ipcRenderer.invoke("clipboard:read-text"),
+  },
 
-    // Tray Popover API
-    tray: {
-        getRecentItems: () => ipcRenderer.invoke('tray:get-recent-items'),
-        getUser: () => ipcRenderer.invoke('tray:get-user'),
-        getSpreadsheets: () => ipcRenderer.invoke('tray:get-spreadsheets'),
-        getSpreadsheetData: (data: { id: string }) => ipcRenderer.invoke('tray:get-spreadsheet-data', data),
-        getCitations: () => ipcRenderer.invoke('tray:get-citations'),
-        action: (data: { action: string; [key: string]: unknown }) => 
-            ipcRenderer.invoke('tray:action', data),
-        onRefresh: (callback: () => void) => {
-            ipcRenderer.on('tray:refresh', callback)
-            return () => {
-                ipcRenderer.removeListener('tray:refresh', callback)
-            }
-        },
-        // Callbacks for tray actions aimed at the main window
-        onAction: (action: string, callback: (data?: any) => void) => {
-            const channel = `tray:${action}`
-            const listener = (_: any, data: any) => callback(data)
-            ipcRenderer.on(channel, listener)
-            return () => {
-                ipcRenderer.removeListener(channel, listener)
-            }
-        }
+  // Quick Prompt
+  quickPrompt: {
+    sendMessage: (message: string) =>
+      ipcRenderer.invoke("quick-prompt:send", message),
+    onCreateChat: (callback: (message: string) => void) => {
+      const handler = (_: any, message: string) => callback(message);
+      ipcRenderer.on("quick-prompt:create-chat", handler);
+      return () => {
+        ipcRenderer.removeListener("quick-prompt:create-chat", handler);
+      };
     },
+  },
 
-    files: {
-        listFolders: () => ipcRenderer.invoke('files:list-folders'),
-        createFolder: (data: { name: string; isSensitive?: boolean }) => ipcRenderer.invoke('files:create-folder', data),
-        renameFolder: (data: { folderId: string; name: string }) => ipcRenderer.invoke('files:rename-folder', data),
-        deleteFolder: (data: { folderId: string }) => ipcRenderer.invoke('files:delete-folder', data),
-        listFiles: (data: { folderId: string }) => ipcRenderer.invoke('files:list-files', data),
-        listAllFiles: () => ipcRenderer.invoke('files:list-all'),
-        getQuickAccess: () => ipcRenderer.invoke('files:get-quick-access'),
-        importPaths: (data: { folderId: string; paths: string[] }) => ipcRenderer.invoke('files:import-paths', data),
-        pickAndImport: (data: { folderId: string }) => ipcRenderer.invoke('files:pick-and-import', data),
-        deleteFile: (data: { fileId: string }) => ipcRenderer.invoke('files:delete-file', data),
-        openFile: (data: { fileId: string }) => ipcRenderer.invoke('files:open-file', data),
-        showInFolder: (data: { fileId: string }) => ipcRenderer.invoke('files:show-in-folder', data),
-        exportFiles: (data: { fileIds: string[] }) => ipcRenderer.invoke('files:export', data)
-    },
+  // Artifact live updates listener (for real-time sync when AI modifies artifacts)
+  onArtifactUpdate: (
+    callback: (data: {
+      artifactId: string;
+      univerData: any;
+      type: "spreadsheet" | "document";
+    }) => void,
+  ) => {
+    const handler = (_: any, data: any) => callback(data);
+    ipcRenderer.on("artifact:update", handler);
+    return () => {
+      ipcRenderer.removeListener("artifact:update", handler);
+    };
+  },
 
-    // PDF local file picker (view only, no import)
-    pdf: {
-        pickLocal: () => ipcRenderer.invoke('pdf:pick-local') as Promise<{
-            files: Array<{ path: string; name: string; size: number }>
-        }>,
-        // Read a local PDF file as base64 for viewing
-        readLocal: (filePath: string) => ipcRenderer.invoke('pdf:read-local', { filePath }) as Promise<{
-            success: boolean
-            data?: string  // base64 encoded PDF data
-            size?: number
-            error?: string
-        }>,
-        // Listener for tray-opened local PDFs
-        onOpenLocalPdfs: (callback: (data: { files: Array<{ path: string; name: string; size: number }> }) => void) => {
-            const handler = (_: unknown, data: { files: Array<{ path: string; name: string; size: number }> }) => callback(data)
-            ipcRenderer.on('tray:open-local-pdfs', handler)
-            return () => {
-                ipcRenderer.removeListener('tray:open-local-pdfs', handler)
-            }
-        }
-    },
+  // Artifact created listener (for auto-selecting newly created artifacts like charts)
+  onArtifactCreated: (
+    callback: (data: {
+      artifactId: string;
+      type: string;
+      name: string;
+    }) => void,
+  ) => {
+    const handler = (_: any, data: any) => callback(data);
+    ipcRenderer.on("artifact:created", handler);
+    return () => {
+      ipcRenderer.removeListener("artifact:created", handler);
+    };
+  },
 
-    security: {
-        getSensitiveStatus: () => ipcRenderer.invoke('security:sensitive-status'),
-        unlockSensitive: (data: { ttlMs?: number; reason?: string }) => ipcRenderer.invoke('security:unlock-sensitive', data),
-        unlockWithPin: (data: { pin: string; ttlMs?: number }) => ipcRenderer.invoke('security:unlock-with-pin', data),
-        setPin: (data: { pin: string }) => ipcRenderer.invoke('security:set-pin', data),
-        clearPin: () => ipcRenderer.invoke('security:clear-pin'),
-        lockSensitive: () => ipcRenderer.invoke('security:lock-sensitive')
-    },
-    
-    // Clipboard
-    clipboard: {
-        writeText: (text: string) => ipcRenderer.invoke('clipboard:write-text', text),
-        readText: () => ipcRenderer.invoke('clipboard:read-text')
-    },
+  // UI Navigation listeners (for agent-controlled UI changes)
+  onNavigateTab: (
+    callback: (data: { tab: "chat" | "excel" | "doc" | "gallery" }) => void,
+  ) => {
+    const handler = (_: any, data: any) => callback(data);
+    ipcRenderer.on("ui:navigate-tab", handler);
+    return () => {
+      ipcRenderer.removeListener("ui:navigate-tab", handler);
+    };
+  },
 
-    // Quick Prompt
-    quickPrompt: {
-        sendMessage: (message: string) => ipcRenderer.invoke('quick-prompt:send', message),
-        onCreateChat: (callback: (message: string) => void) => {
-            const handler = (_: any, message: string) => callback(message)
-            ipcRenderer.on('quick-prompt:create-chat', handler)
-            return () => {
-                ipcRenderer.removeListener('quick-prompt:create-chat', handler)
-            }
-        }
-    },
+  onSelectArtifact: (
+    callback: (data: {
+      artifactId: string;
+      openInFullTab: boolean;
+      targetTab?: string;
+    }) => void,
+  ) => {
+    const handler = (_: any, data: any) => callback(data);
+    ipcRenderer.on("ui:select-artifact", handler);
+    return () => {
+      ipcRenderer.removeListener("ui:select-artifact", handler);
+    };
+  },
 
-    // Artifact live updates listener (for real-time sync when AI modifies artifacts)
-    onArtifactUpdate: (callback: (data: { artifactId: string; univerData: any; type: 'spreadsheet' | 'document' }) => void) => {
-        const handler = (_: any, data: any) => callback(data)
-        ipcRenderer.on('artifact:update', handler)
-        return () => {
-            ipcRenderer.removeListener('artifact:update', handler)
-        }
-    },
+  // Notification listener (for agent-triggered notifications)
+  onNotification: (
+    callback: (data: {
+      message: string;
+      type: "info" | "success" | "warning" | "error";
+      duration?: number;
+    }) => void,
+  ) => {
+    const handler = (_: any, data: any) => callback(data);
+    ipcRenderer.on("ui:notification", handler);
+    return () => {
+      ipcRenderer.removeListener("ui:notification", handler);
+    };
+  },
 
-    // Artifact created listener (for auto-selecting newly created artifacts like charts)
-    onArtifactCreated: (callback: (data: { artifactId: string; type: string; name: string }) => void) => {
-        const handler = (_: any, data: any) => callback(data)
-        ipcRenderer.on('artifact:created', handler)
-        return () => {
-            ipcRenderer.removeListener('artifact:created', handler)
-        }
-    },
+  // Auth refresh state listener
+  onAuthRefreshing: (
+    callback: (data: { provider: string; refreshing: boolean }) => void,
+  ) => {
+    const handler = (_: any, data: any) => callback(data);
+    ipcRenderer.on("auth:refreshing", handler);
+    return () => {
+      ipcRenderer.removeListener("auth:refreshing", handler);
+    };
+  },
 
-    // UI Navigation listeners (for agent-controlled UI changes)
-    onNavigateTab: (callback: (data: { tab: 'chat' | 'excel' | 'doc' | 'gallery' }) => void) => {
-        const handler = (_: any, data: any) => callback(data)
-        ipcRenderer.on('ui:navigate-tab', handler)
-        return () => {
-            ipcRenderer.removeListener('ui:navigate-tab', handler)
-        }
-    },
+  // Auth error listener
+  onAuthError: (
+    callback: (data: { provider: string; error: string | null }) => void,
+  ) => {
+    const handler = (_: any, data: any) => callback(data);
+    ipcRenderer.on("auth:error", handler);
+    return () => {
+      ipcRenderer.removeListener("auth:error", handler);
+    };
+  },
 
-    onSelectArtifact: (callback: (data: { artifactId: string; openInFullTab: boolean; targetTab?: string }) => void) => {
-        const handler = (_: any, data: any) => callback(data)
-        ipcRenderer.on('ui:select-artifact', handler)
-        return () => {
-            ipcRenderer.removeListener('ui:select-artifact', handler)
-        }
+  preferences: {
+    get: () => ipcRenderer.invoke("preferences:get"),
+    set: (data: { trayEnabled?: boolean; quickPromptEnabled?: boolean }) =>
+      ipcRenderer.invoke("preferences:set", data),
+    onPreferencesUpdated: (
+      callback: (data: {
+        trayEnabled: boolean;
+        quickPromptEnabled: boolean;
+      }) => void,
+    ) => {
+      const handler = (_: any, data: any) => callback(data);
+      ipcRenderer.on("preferences:updated", handler);
+      return () => {
+        ipcRenderer.removeListener("preferences:updated", handler);
+      };
     },
-
-    // Notification listener (for agent-triggered notifications)
-    onNotification: (callback: (data: { message: string; type: 'info' | 'success' | 'warning' | 'error'; duration?: number }) => void) => {
-        const handler = (_: any, data: any) => callback(data)
-        ipcRenderer.on('ui:notification', handler)
-        return () => {
-            ipcRenderer.removeListener('ui:notification', handler)
-        }
-    },
-
-    // Auth refresh state listener
-    onAuthRefreshing: (callback: (data: { provider: string; refreshing: boolean }) => void) => {
-        const handler = (_: any, data: any) => callback(data)
-        ipcRenderer.on('auth:refreshing', handler)
-        return () => {
-            ipcRenderer.removeListener('auth:refreshing', handler)
-        }
-    },
-
-    // Auth error listener
-    onAuthError: (callback: (data: { provider: string; error: string | null }) => void) => {
-        const handler = (_: any, data: any) => callback(data)
-        ipcRenderer.on('auth:error', handler)
-        return () => {
-            ipcRenderer.removeListener('auth:error', handler)
-        }
-    },
-
-    preferences: {
-        get: () => ipcRenderer.invoke('preferences:get'),
-        set: (data: { trayEnabled?: boolean; quickPromptEnabled?: boolean }) =>
-            ipcRenderer.invoke('preferences:set', data)
-    }
-}
+  },
+};
 
 // Expose to renderer process
-contextBridge.exposeInMainWorld('desktopApi', desktopApi)
+contextBridge.exposeInMainWorld("desktopApi", desktopApi);
 
 // Type declaration for renderer
-export type DesktopApi = typeof desktopApi
+export type DesktopApi = typeof desktopApi;

@@ -35,10 +35,22 @@ export function AdvancedTab() {
 
     useEffect(() => {
         if (!preferencesAvailable) return
+        
+        // Initial load
         window.desktopApi?.preferences?.get().then((prefs) => {
             setTrayEnabled(prefs.trayEnabled)
             setQuickPromptEnabled(prefs.quickPromptEnabled)
         }).catch(() => {})
+
+        // Subscribe to updates
+        const cleanup = window.desktopApi?.preferences?.onPreferencesUpdated?.((prefs) => {
+            setTrayEnabled(prefs.trayEnabled)
+            setQuickPromptEnabled(prefs.quickPromptEnabled)
+        })
+
+        return () => {
+            cleanup?.()
+        }
     }, [preferencesAvailable])
 
     const updatePreferences = async (patch: { trayEnabled?: boolean; quickPromptEnabled?: boolean }) => {

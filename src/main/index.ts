@@ -24,73 +24,109 @@ import { registerSecurityIpc } from "./lib/security/ipc";
 import { getFileManager } from "./lib/file-manager/file-manager";
 import { lockSensitiveNow } from "./lib/security/sensitive-lock";
 import { getPreferencesStore } from "./lib/preferences-store";
+import { startAIServer, stopAIServer, waitForAIServerReady } from "./lib/ai-server";
 import log from "electron-log";
 
 // Basic menu to enable standard shortcuts like Copy/Paste
-const template: Electron.MenuItemConstructorOptions[] = [
-  ...(process.platform === "darwin"
-    ? [
+function updateApplicationMenu() {
+  const template: Electron.MenuItemConstructorOptions[] = [
+    ...(process.platform === "darwin"
+      ? [
+          {
+            label: app.name,
+            submenu: [
+              { role: "about" } as const,
+              { type: "separator" } as const,
+              { role: "services" } as const,
+              { type: "separator" } as const,
+              { role: "hide" } as const,
+              { role: "hideOthers" } as const,
+              { role: "unhide" } as const,
+              { type: "separator" } as const,
+              { role: "quit" } as const,
+            ],
+          },
+        ]
+      : []),
+    {
+      label: "Edit",
+      submenu: [
+        { role: "undo" } as const,
+        { role: "redo" } as const,
+        { type: "separator" } as const,
+        { role: "cut" } as const,
+        { role: "copy" } as const,
+        { role: "paste" } as const,
+        { role: "selectAll" } as const,
+      ],
+    },
+    {
+      label: "View",
+      submenu: [
+        { role: "reload" } as const,
+        { role: "forceReload" } as const,
+        { role: "toggleDevTools" } as const,
+        { type: "separator" } as const,
+        { role: "resetZoom" } as const,
+        { role: "zoomIn" } as const,
+        { role: "zoomOut" } as const,
+        { type: "separator" } as const,
+        { role: "togglefullscreen" } as const,
+        { type: "separator" } as const,
         {
-          label: app.name,
-          submenu: [
-            { role: "about" } as const,
-            { type: "separator" } as const,
-            { role: "services" } as const,
-            { type: "separator" } as const,
-            { role: "hide" } as const,
-            { role: "hideOthers" } as const,
-            { role: "unhide" } as const,
-            { type: "separator" } as const,
-            { role: "quit" } as const,
-          ],
+          label: "Show Tray Icon",
+          type: "checkbox",
+          checked: appPreferences.trayEnabled,
+          click: () => {
+            const newValue = !appPreferences.trayEnabled;
+            const next = preferencesStore.set({ trayEnabled: newValue });
+            appPreferences = next;
+            applyTrayPreference(newValue);
+            updateApplicationMenu();
+            // Notify renderer if needed
+            if (mainWindow && !mainWindow.isDestroyed()) {
+              mainWindow.webContents.send("preferences:updated", next);
+            }
+          },
         },
-      ]
-    : []),
-  {
-    label: "Edit",
-    submenu: [
-      { role: "undo" } as const,
-      { role: "redo" } as const,
-      { type: "separator" } as const,
-      { role: "cut" } as const,
-      { role: "copy" } as const,
-      { role: "paste" } as const,
-      { role: "selectAll" } as const,
-    ],
-  },
-  {
-    label: "View",
-    submenu: [
-      { role: "reload" } as const,
-      { role: "forceReload" } as const,
-      { role: "toggleDevTools" } as const,
-      { type: "separator" } as const,
-      { role: "resetZoom" } as const,
-      { role: "zoomIn" } as const,
-      { role: "zoomOut" } as const,
-      { type: "separator" } as const,
-      { role: "togglefullscreen" } as const,
-    ],
-  },
-  {
-    label: "Window",
-    submenu: [
-      { role: "minimize" } as const,
-      { role: "zoom" } as const,
-      ...(process.platform === "darwin"
-        ? [
-            { type: "separator" } as const,
-            { role: "front" } as const,
-            { type: "separator" } as const,
-            { role: "window" } as const,
-          ]
-        : [{ role: "close" } as const]),
-    ],
-  },
-];
+        {
+          label: "Enable Quick Prompt",
+          type: "checkbox",
+          checked: appPreferences.quickPromptEnabled,
+          click: () => {
+            const newValue = !appPreferences.quickPromptEnabled;
+            const next = preferencesStore.set({ quickPromptEnabled: newValue });
+            appPreferences = next;
+            applyQuickPromptPreference(newValue);
+            updateApplicationMenu();
+            // Notify renderer if needed
+             if (mainWindow && !mainWindow.isDestroyed()) {
+              mainWindow.webContents.send("preferences:updated", next);
+            }
+          },
+        },
+      ],
+    },
+    {
+      label: "Window",
+      submenu: [
+        { role: "minimize" } as const,
+        { role: "zoom" } as const,
+        ...(process.platform === "darwin"
+          ? [
+              { type: "separator" } as const,
+              { role: "front" } as const,
+              { type: "separator" } as const,
+              { role: "window" } as const,
+            ]
+          : [{ role: "close" } as const]),
+      ],
+    },
+  ];
 
-const menu = Menu.buildFromTemplate(template);
-Menu.setApplicationMenu(menu);
+  const menu = Menu.buildFromTemplate(template);
+  Menu.setApplicationMenu(menu);
+}
 
 // Suppress Chromium autofill console errors (cosmetic, not actual errors)
 app.commandLine.appendSwitch("disable-features", "AutofillServerCommunication");
@@ -637,7 +673,7 @@ function registerContentSecurityPolicy(): void {
     `style-src 'self' 'unsafe-inline' ${devOrigins}`,
     `img-src 'self' data: blob: https: file:`,
     `font-src 'self' data:`,
-    `connect-src 'self' https: wss: blob: data: ${devOrigins}`,
+    `connect-src 'self' https: wss: http://127.0.0.1:* blob: data: ${devOrigins}`,
     `media-src 'self' blob: data:`,
     `worker-src 'self' blob:`, // Required for PDFium Web Workers
     `object-src 'none'`,
@@ -949,8 +985,21 @@ app.whenReady().then(() => {
 
   registerContentSecurityPolicy();
 
+  // Start local AI server for BlockNote AI
+  startAIServer().then((port) => {
+    log.info(`[App] AI Server started on port ${port}`);
+  }).catch((error) => {
+    log.error("[App] Failed to start AI server:", error);
+  });
+
+  // IPC handler to get AI server port (waits for server to be ready)
+  ipcMain.handle("ai:get-port", () => waitForAIServerReady());
+
   // Setup tRPC
   setupTRPC();
+
+  // Initialize menu
+  updateApplicationMenu();
 
   // Create window
   createWindow();
@@ -1009,6 +1058,9 @@ app.on("window-all-closed", () => {
 // Graceful shutdown - Clean up resources before quitting
 app.on("before-quit", () => {
   log.info("[App] Before quit - cleaning up resources...");
+
+  // Stop AI server
+  stopAIServer();
 
   // Unregister all hotkeys
   getHotkeyManager().unregisterAll();
@@ -1163,6 +1215,7 @@ ipcMain.handle(
     appPreferences = next;
     applyTrayPreference(next.trayEnabled);
     applyQuickPromptPreference(next.quickPromptEnabled);
+    updateApplicationMenu();
     return next;
   },
 );

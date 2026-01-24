@@ -12,13 +12,18 @@ import { useCitationNavigation } from '@/lib/hooks/use-citation-navigation'
 
 import 'katex/dist/katex.min.css'
 
-// Inline code that looks like LaTeX (e.g. model put equation in backticks) -> try KaTeX
+// ============================================================================
+// LaTeX Detection and Rendering
+// ============================================================================
+
 const LATEX_LIKE = /\\(int|frac|sqrt|sum|infty|pi|alpha|beta|gamma|theta|sigma|omega|partial|lim|log|cdot|times|pm|leq|geq|neq|approx|rightarrow|leftarrow)\\b|\\^\\{|_\\{|∞|√|∫/
+
 function getText(children: ReactNode): string {
     if (typeof children === 'string') return children
     if (Array.isArray(children)) return children.map(getText).join('')
     return ''
 }
+
 function normalizeLatex(s: string): string {
     return s
         .replace(/√π/g, '\\sqrt{\\pi}')
@@ -33,6 +38,7 @@ function normalizeLatex(s: string): string {
         .replace(/^f_\{-/, '\\int_{-')
         .replace(/^f_\{/, '\\int_{')
 }
+
 function tryRenderLatex(text: string): string | null {
     if (!text || text.length > 280) return null
     if (!LATEX_LIKE.test(text)) return null
@@ -45,8 +51,7 @@ function tryRenderLatex(text: string): string | null {
 }
 
 // ============================================================================
-// Code Block Component with Premium Styling
-// Uses ref to extract code text for copy functionality
+// Code Block Component
 // ============================================================================
 
 function CodeBlock({ children }: { children: React.ReactNode }) {
@@ -55,22 +60,18 @@ function CodeBlock({ children }: { children: React.ReactNode }) {
     const [language, setLanguage] = useState<string | null>(null)
     const [copied, setCopied] = useState(false)
 
-    // Extract code text and language from the DOM after render
     useEffect(() => {
         if (preRef.current) {
             const codeElement = preRef.current.querySelector('code')
             if (codeElement) {
-                // Extract text content
-                const text = codeElement.textContent || ''
-                setCodeText(text.trim())
-                
-                // Extract language from className (language-xxx)
+                setCodeText((codeElement.textContent || '').trim())
                 const className = codeElement.className || ''
                 const match = /language-(\w+)/.exec(className)
                 setLanguage(match ? match[1] : null)
             }
         }
     }, [])
+
     const handleCopy = useCallback(() => {
         if (!codeText) return
         navigator.clipboard.writeText(codeText)
@@ -79,30 +80,30 @@ function CodeBlock({ children }: { children: React.ReactNode }) {
     }, [codeText])
 
     return (
-        <div className="relative my-4 rounded-xl bg-[#1a1a1a] dark:bg-[#0d0d0d] border border-border/30 overflow-hidden shadow-sm group">
-            {/* Header with language label and copy button */}
-            <div className="flex items-center justify-between px-4 py-2 bg-[#232323] dark:bg-[#141414] border-b border-border/20">
-                <span className="text-[11px] font-medium text-muted-foreground/70 uppercase tracking-wider">
-                    {language || 'text'}
+        <div className="not-prose my-4 rounded-xl overflow-hidden border border-border/50 bg-zinc-950 shadow-lg">
+            {/* Header */}
+            <div className="flex items-center justify-between px-4 py-2.5 bg-zinc-900/80 border-b border-border/30">
+                <span className="text-[11px] font-medium text-zinc-400 uppercase tracking-wider">
+                    {language || 'code'}
                 </span>
                 <button
                     type="button"
                     onClick={handleCopy}
-                    className="p-1.5 rounded-md hover:bg-white/5 transition-colors opacity-0 group-hover:opacity-100"
+                    className="p-1.5 rounded-md hover:bg-zinc-800 transition-colors text-zinc-500 hover:text-zinc-300"
                     title={copied ? 'Copied!' : 'Copy code'}
                     disabled={!codeText}
                 >
                     {copied ? (
-                        <IconCheck size={14} className="text-green-500" />
+                        <IconCheck size={14} className="text-emerald-400" />
                     ) : (
-                        <IconCopy size={14} className="text-muted-foreground/60" />
+                        <IconCopy size={14} />
                     )}
                 </button>
             </div>
-            {/* Code content - Streamdown handles syntax highlighting via Shiki */}
-            <pre 
+            {/* Code */}
+            <pre
                 ref={preRef}
-                className="overflow-x-auto text-[13px] leading-relaxed font-mono p-4 [&_code]:bg-transparent [&_code]:p-0"
+                className="overflow-x-auto p-4 text-[13px] leading-relaxed font-mono [&_code]:bg-transparent [&_code]:p-0 [&_code]:text-inherit"
             >
                 {children}
             </pre>
@@ -114,8 +115,8 @@ function CodeBlock({ children }: { children: React.ReactNode }) {
 // Link Preview Component
 // ============================================================================
 
-const PREVIEW_WIDTH = 240
-const PREVIEW_HEIGHT = 150
+const PREVIEW_WIDTH = 280
+const PREVIEW_HEIGHT = 160
 const PREVIEW_CACHE_TTL = 5 * 60 * 1000
 const previewCache = new Map<string, { status: 'ok' | 'error'; timestamp: number }>()
 
@@ -131,7 +132,6 @@ function getDomain(url: string): string {
     }
 }
 
-/** Si el texto del enlace es la URL completa o parece una URL, usamos etiqueta corta (dominio) */
 function shouldUseShortLabel(href: string | undefined, linkText: string): boolean {
     if (!href || !linkText || linkText.length < 15) return false
     if (linkText === href) return true
@@ -152,7 +152,6 @@ function getPreviewUrl(url: string) {
         'viewport.width': `${Math.round(PREVIEW_WIDTH * 2.5)}`,
         'viewport.height': `${Math.round(PREVIEW_HEIGHT * 2.5)}`
     })
-
     return `https://api.microlink.io/?${params.toString()}`
 }
 
@@ -199,34 +198,24 @@ function LinkWithPreview({ href, children, ...props }: React.AnchorHTMLAttribute
     }, [href])
 
     useEffect(() => {
-        if (open || isVisible) {
-            setShouldLoad(true)
-        }
+        if (open || isVisible) setShouldLoad(true)
     }, [open, isVisible])
 
     const handleImageLoad = useCallback(() => {
-        if (!href) return
-        previewCache.set(href, { status: 'ok', timestamp: Date.now() })
+        if (href) previewCache.set(href, { status: 'ok', timestamp: Date.now() })
     }, [href])
 
     const handleImageError = useCallback(() => {
-        if (href) {
-            previewCache.set(href, { status: 'error', timestamp: Date.now() })
-        }
+        if (href) previewCache.set(href, { status: 'error', timestamp: Date.now() })
         setHasError(true)
     }, [href])
 
-    const linkClass = 'text-primary underline underline-offset-2 hover:text-primary/80 transition-colors inline-flex items-center gap-1'
-    const linkClassLong = linkClass + ' break-all'
-
     const anchorContent = useShort ? (
         <span className="inline-flex items-center gap-1">
-            <IconExternalLink size={12} className="shrink-0 opacity-75" />
+            <IconExternalLink size={12} className="shrink-0 opacity-60" />
             {display}
         </span>
-    ) : (
-        display
-    )
+    ) : display
 
     if (!isExternalLink(href)) {
         return (
@@ -234,7 +223,7 @@ function LinkWithPreview({ href, children, ...props }: React.AnchorHTMLAttribute
                 href={href}
                 target="_blank"
                 rel="noopener noreferrer"
-                className={useShort ? linkClass : linkClassLong}
+                className="text-primary font-medium no-underline hover:underline underline-offset-2 break-words"
                 title={href}
                 {...props}
             >
@@ -251,7 +240,7 @@ function LinkWithPreview({ href, children, ...props }: React.AnchorHTMLAttribute
                     href={href}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className={useShort ? linkClass : linkClassLong}
+                    className="text-primary font-medium no-underline hover:underline underline-offset-2 break-words"
                     title={href}
                     {...props}
                 >
@@ -263,9 +252,9 @@ function LinkWithPreview({ href, children, ...props }: React.AnchorHTMLAttribute
                     side="top"
                     align="center"
                     sideOffset={8}
-                    className="z-50 rounded-xl border border-border bg-background/95 p-2 shadow-xl backdrop-blur animate-in fade-in-0 zoom-in-95"
+                    className="z-50 rounded-xl border border-border bg-popover p-2 shadow-xl animate-popover-in"
                 >
-                    <div className="rounded-lg overflow-hidden bg-muted/40">
+                    <div className="rounded-lg overflow-hidden bg-muted/30">
                         {hasError ? (
                             <div
                                 className="flex items-center justify-center text-xs text-muted-foreground"
@@ -292,7 +281,7 @@ function LinkWithPreview({ href, children, ...props }: React.AnchorHTMLAttribute
                             />
                         )}
                     </div>
-                    <div className="mt-2 text-[11px] text-muted-foreground truncate max-w-[240px]">
+                    <div className="mt-2 px-1 text-[11px] text-muted-foreground truncate">
                         {getDomain(href || '')}
                     </div>
                 </HoverCard.Content>
@@ -302,93 +291,22 @@ function LinkWithPreview({ href, children, ...props }: React.AnchorHTMLAttribute
 }
 
 // ============================================================================
-// Size Configurations
+// Citation Processing
 // ============================================================================
 
-type MarkdownSize = 'sm' | 'md' | 'lg'
-
-const sizeStyles: Record<MarkdownSize, {
-    prose: string
-    h1: string
-    h2: string
-    h3: string
-    p: string
-    ul: string
-    ol: string
-    li: string
-    inlineCode: string
-    blockquote: string
-}> = {
-    sm: {
-        prose: 'prose-sm',
-        h1: 'text-base font-semibold mt-4 mb-2 first:mt-0 text-foreground',
-        h2: 'text-base font-semibold mt-4 mb-2 first:mt-0 text-foreground',
-        h3: 'text-sm font-semibold mt-3 mb-1.5 first:mt-0 text-foreground',
-        p: 'text-sm text-foreground/85 my-2 leading-relaxed',
-        ul: 'list-disc pl-6 text-sm text-foreground/85 my-2 space-y-1',
-        ol: 'list-decimal pl-6 text-sm text-foreground/85 my-2 space-y-1',
-        li: 'text-sm text-foreground/85 leading-relaxed',
-        inlineCode: 'bg-muted/80 text-foreground font-mono text-[0.85em] rounded px-1.5 py-0.5 border border-border/30',
-        blockquote: 'border-l-3 border-primary/40 pl-4 py-1 text-foreground/70 my-3 text-sm italic bg-muted/20 rounded-r-lg',
-    },
-    md: {
-        prose: 'prose-base',
-        h1: 'text-xl font-semibold mt-6 mb-3 first:mt-0 text-foreground',
-        h2: 'text-lg font-semibold mt-5 mb-2 first:mt-0 text-foreground',
-        h3: 'text-base font-semibold mt-4 mb-2 first:mt-0 text-foreground',
-        p: 'text-sm text-foreground/85 my-2.5 leading-relaxed',
-        ul: 'list-disc pl-6 text-sm text-foreground/85 my-2.5 space-y-1.5',
-        ol: 'list-decimal pl-6 text-sm text-foreground/85 my-2.5 space-y-1.5',
-        li: 'text-sm text-foreground/85 leading-relaxed',
-        inlineCode: 'bg-muted/80 text-foreground font-mono text-[0.85em] rounded px-1.5 py-0.5 border border-border/30',
-        blockquote: 'border-l-3 border-primary/40 pl-4 py-2 text-foreground/70 my-4 italic bg-muted/20 rounded-r-lg',
-    },
-    lg: {
-        prose: 'prose-lg',
-        h1: 'text-2xl font-semibold mt-8 mb-4 first:mt-0 text-foreground',
-        h2: 'text-xl font-semibold mt-6 mb-3 first:mt-0 text-foreground',
-        h3: 'text-lg font-semibold mt-5 mb-2 first:mt-0 text-foreground',
-        p: 'text-base text-foreground/85 my-3 leading-relaxed',
-        ul: 'list-disc pl-6 text-base text-foreground/85 my-3 space-y-2',
-        ol: 'list-decimal pl-6 text-base text-foreground/85 my-3 space-y-2',
-        li: 'text-base text-foreground/85 leading-relaxed',
-        inlineCode: 'bg-muted/80 text-foreground font-mono text-[0.85em] rounded px-1.5 py-0.5 border border-border/30',
-        blockquote: 'border-l-3 border-primary/40 pl-4 py-2 text-foreground/70 my-5 italic bg-muted/20 rounded-r-lg',
-    },
-}
-
-// ============================================================================
-// Citation Processing Utilities
-// ============================================================================
-
-/**
- * Clean OpenAI file citation markers from text
- * These appear as 【source】 or 【6:20†filename】 style markers
- */
 function cleanOpenAICitationMarkers(text: string): string {
-    // Pattern matches 【...】 brackets with various content inside
-    // Common formats: 【source】, 【6:20†archivo.pdf】, 【turn4file】
     return text
-        .replace(/【[^】]*】/g, '') // Remove 【...】 markers
-        .replace(/\[\[cite:[^\]]+\]\]/g, '') // Remove our [[cite:...]] markers if AI outputs them
-        .replace(/Dfilecite[□\s]*turn\d*file/gi, '') // Clean corrupted markers
-        .replace(/\s{2,}/g, ' ') // Collapse multiple spaces
+        .replace(/【[^】]*】/g, '')
+        .replace(/\[\[cite:[^\]]+\]\]/g, '')
+        .replace(/Dfilecite[□\s]*turn\d*file/gi, '')
+        .replace(/\s{2,}/g, ' ')
         .trim()
 }
 
-/**
- * Check if text contains citation patterns
- * Supports: [1], [2], [turn2file0], [turn2file1], etc.
- */
 function containsCitationPattern(text: string): boolean {
     return /\[\d+\]/.test(text) || /\[turn\d*file\d+\]/i.test(text)
 }
 
-/**
- * Process text to replace citation patterns with InlineCitation components
- * Supports: [N] and [turnXfileN] formats
- * Returns an array of strings and React elements
- */
 function processTextWithCitations(
     text: string,
     citations: CitationData[],
@@ -399,33 +317,24 @@ function processTextWithCitations(
     const citationMap = new Map(citations.map(c => [c.id, c]))
     const parts: (string | React.ReactElement)[] = []
     let lastIndex = 0
-
-    // Combined pattern for both [N] and [turnXfileN] formats
-    // turnXfileN uses 0-indexed, so we add 1 to get the citation ID
     const pattern = /\[(\d+)\]|\[turn\d*file(\d+)\]/gi
     let match: RegExpExecArray | null
 
-    // biome-ignore lint/suspicious/noAssignInExpressions: <explanation>
+    // biome-ignore lint/suspicious/noAssignInExpressions: needed for regex exec loop
     while ((match = pattern.exec(text)) !== null) {
-        // match[1] is for [N] format, match[2] is for [turnXfileN] format
         let citationId: number
         if (match[1] !== undefined) {
             citationId = parseInt(match[1], 10)
         } else if (match[2] !== undefined) {
-            // turnXfileN is 0-indexed, convert to 1-indexed
             citationId = parseInt(match[2], 10) + 1
         } else {
             continue
         }
 
         const citation = citationMap.get(citationId)
-
-        // Add text before the match
         if (match.index > lastIndex) {
             parts.push(text.slice(lastIndex, match.index))
         }
-
-        // Add citation component or remove if no matching citation
         if (citation) {
             parts.push(
                 <InlineCitation
@@ -435,12 +344,9 @@ function processTextWithCitations(
                 />
             )
         }
-        // If no matching citation, don't add anything (removes the raw marker)
-
         lastIndex = match.index + match[0].length
     }
 
-    // Add remaining text
     if (lastIndex < text.length) {
         parts.push(text.slice(lastIndex))
     }
@@ -448,10 +354,6 @@ function processTextWithCitations(
     return parts.length > 0 ? parts : [text]
 }
 
-/**
- * Wrapper component to render text with inline citations
- * Also cleans up OpenAI's file citation markers
- */
 const TextWithCitations = memo(function TextWithCitations({
     children,
     citations,
@@ -462,12 +364,9 @@ const TextWithCitations = memo(function TextWithCitations({
     onNavigate?: (citation: CitationData) => void
 }) {
     const rawText = getText(children)
-
-    // Always clean OpenAI citation markers from the text
     const cleanedText = cleanOpenAICitationMarkers(rawText)
     const wasChanged = cleanedText !== rawText
 
-    // If we have citations with patterns, process them
     if (citations && citations.length > 0 && containsCitationPattern(cleanedText)) {
         const parts = processTextWithCitations(cleanedText, citations, onNavigate)
         return (
@@ -479,47 +378,37 @@ const TextWithCitations = memo(function TextWithCitations({
         )
     }
 
-    // If text was modified (cleaned), return the cleaned version
-    if (wasChanged) {
-        return <>{cleanedText}</>
-    }
-
-    // No changes needed, return original children to preserve any React elements
+    if (wasChanged) return <>{cleanedText}</>
     return <>{children}</>
 })
 
 // ============================================================================
-// Main Markdown Renderer Component
+// Main Markdown Renderer
 // ============================================================================
 
 interface ChatMarkdownRendererProps {
     content: string
-    size?: MarkdownSize
+    size?: 'sm' | 'md' | 'lg'
     className?: string
-    /** Whether the content is still streaming (enables Streamdown optimizations) */
     isAnimating?: boolean
-    /** Document citations for inline [N] references */
     documentCitations?: CitationData[]
 }
 
-/**
- * Sanitize markdown content to fix common AI model issues:
- * - Remove empty bullet points (- with no content)
- * - Remove bullets with only whitespace
- * - Fix bullets that only have invisible chars
- */
 function sanitizeMarkdown(content: string): string {
     return content
-        // Remove lines that are just "- " or "* " with nothing meaningful after
         .replace(/^[\t ]*[-*+][\t ]*$/gm, '')
-        // Remove lines that are just "- " followed by only whitespace/invisible chars
         .replace(/^[\t ]*[-*+][\t ]+[\s\u200B\u200C\u200D\uFEFF]*$/gm, '')
-        // Remove numbered list items that are empty (e.g., "1. " with nothing)
         .replace(/^[\t ]*\d+\.[\t ]*$/gm, '')
         .replace(/^[\t ]*\d+\.[\t ]+[\s\u200B\u200C\u200D\uFEFF]*$/gm, '')
-        // Collapse multiple empty lines into max 2
         .replace(/\n{3,}/g, '\n\n')
         .trim()
+}
+
+// Tailwind Typography prose size classes
+const proseSizeClasses = {
+    sm: 'prose-sm',
+    md: 'prose-base',
+    lg: 'prose-lg',
 }
 
 export const ChatMarkdownRenderer = memo(function ChatMarkdownRenderer({
@@ -529,130 +418,153 @@ export const ChatMarkdownRenderer = memo(function ChatMarkdownRenderer({
     isAnimating = false,
     documentCitations = [],
 }: ChatMarkdownRendererProps) {
-    const styles = sizeStyles[size]
-
-    // Sanitize content to fix AI model issues (empty bullets, etc.)
     const sanitizedContent = useMemo(() => sanitizeMarkdown(content), [content])
-
-    // Citation navigation hook - opens PDF tab when citation is clicked
     const { navigateToCitation } = useCitationNavigation()
 
-    // Memoize plugins object to prevent re-initialization
-    // singleDollarTextMath: true so $...$ works for inline LaTeX (e.g. $e^{i\pi}+1=0$)
     const plugins = useMemo(
         () => ({ code, math: createMathPlugin({ singleDollarTextMath: true }), mermaid }),
         []
     )
 
-    // Create text wrapper that handles citations and cleans OpenAI markers
-    // Always wrap to clean potential OpenAI markers even without citations
     const wrapWithCitations = useCallback((children: ReactNode) => {
         return <TextWithCitations citations={documentCitations} onNavigate={navigateToCitation}>{children}</TextWithCitations>
     }, [documentCitations, navigateToCitation])
 
     return (
-        <div className={cn('max-w-none break-words', className)}>
+        <div
+            className={cn(
+                // Base prose with Typography plugin
+                'prose prose-neutral dark:prose-invert',
+                proseSizeClasses[size],
+                // Width and overflow control
+                'w-full max-w-none overflow-hidden',
+                // Custom prose styling overrides
+                // Headings
+                'prose-headings:font-semibold prose-headings:tracking-tight prose-headings:text-foreground',
+                'prose-h1:text-xl prose-h1:mt-6 prose-h1:mb-4',
+                'prose-h2:text-lg prose-h2:mt-5 prose-h2:mb-3',
+                'prose-h3:text-base prose-h3:mt-4 prose-h3:mb-2',
+                // Paragraphs
+                'prose-p:text-foreground/90 prose-p:leading-relaxed prose-p:my-3',
+                // Links handled by custom component
+                'prose-a:no-underline',
+                // Lists
+                'prose-ul:my-3 prose-ul:pl-5',
+                'prose-ol:my-3 prose-ol:pl-5',
+                'prose-li:text-foreground/90 prose-li:my-1 prose-li:marker:text-muted-foreground',
+                // Strong/Bold
+                'prose-strong:font-semibold prose-strong:text-foreground',
+                // Blockquotes
+                'prose-blockquote:border-l-2 prose-blockquote:border-primary/50 prose-blockquote:pl-4 prose-blockquote:py-1',
+                'prose-blockquote:text-foreground/80 prose-blockquote:not-italic prose-blockquote:bg-muted/30 prose-blockquote:rounded-r-lg',
+                // Inline code
+                'prose-code:before:content-none prose-code:after:content-none',
+                'prose-code:bg-muted prose-code:text-foreground prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded-md prose-code:text-[0.875em] prose-code:font-normal',
+                // HR
+                'prose-hr:border-border/50 prose-hr:my-6',
+                // Images
+                'prose-img:rounded-xl prose-img:border prose-img:border-border/30',
+                className
+            )}
+        >
             <Streamdown
                 plugins={plugins}
                 isAnimating={isAnimating}
                 caret={isAnimating ? 'block' : undefined}
                 components={{
-                    // Headings
+                    // Headings with citation support
                     h1: ({ children, ...props }: any) => (
-                        <h1 className={styles.h1} {...props}>{wrapWithCitations(children)}</h1>
+                        <h1 {...props}>{wrapWithCitations(children)}</h1>
                     ),
                     h2: ({ children, ...props }: any) => (
-                        <h2 className={styles.h2} {...props}>{wrapWithCitations(children)}</h2>
+                        <h2 {...props}>{wrapWithCitations(children)}</h2>
                     ),
                     h3: ({ children, ...props }: any) => (
-                        <h3 className={styles.h3} {...props}>{wrapWithCitations(children)}</h3>
+                        <h3 {...props}>{wrapWithCitations(children)}</h3>
                     ),
                     h4: ({ children, ...props }: any) => (
-                        <h4 className={styles.h3} {...props}>{wrapWithCitations(children)}</h4>
+                        <h4 {...props}>{wrapWithCitations(children)}</h4>
                     ),
                     h5: ({ children, ...props }: any) => (
-                        <h5 className={styles.h3} {...props}>{wrapWithCitations(children)}</h5>
+                        <h5 {...props}>{wrapWithCitations(children)}</h5>
                     ),
                     h6: ({ children, ...props }: any) => (
-                        <h6 className={styles.h3} {...props}>{wrapWithCitations(children)}</h6>
+                        <h6 {...props}>{wrapWithCitations(children)}</h6>
                     ),
 
-                    // Paragraphs - main place where citations appear
+                    // Paragraphs
                     p: ({ children, ...props }: any) => (
-                        <p className={styles.p} {...props}>{wrapWithCitations(children)}</p>
+                        <p {...props}>{wrapWithCitations(children)}</p>
                     ),
 
                     // Lists
-                    ul: ({ children, ...props }: any) => (
-                        <ul className={styles.ul} {...props}>{children}</ul>
-                    ),
-                    ol: ({ children, ...props }: any) => (
-                        <ol className={styles.ol} {...props}>{children}</ol>
-                    ),
+                    ul: ({ children, ...props }: any) => <ul {...props}>{children}</ul>,
+                    ol: ({ children, ...props }: any) => <ol {...props}>{children}</ol>,
                     li: ({ children, ...props }: any) => (
-                        <li className={styles.li} {...props}>{wrapWithCitations(children)}</li>
+                        <li {...props}>{wrapWithCitations(children)}</li>
                     ),
 
-                    // Links
+                    // Links with preview
                     a: ({ href, children, ...props }: any) => (
                         <LinkWithPreview href={href} {...props}>
                             {children}
                         </LinkWithPreview>
                     ),
 
-                    // Text formatting - wrap with citations
+                    // Text formatting
                     strong: ({ children, ...props }: any) => (
-                        <strong className="font-semibold text-foreground" {...props}>{wrapWithCitations(children)}</strong>
+                        <strong {...props}>{wrapWithCitations(children)}</strong>
                     ),
                     em: ({ children, ...props }: any) => (
-                        <em className="italic" {...props}>{wrapWithCitations(children)}</em>
+                        <em {...props}>{wrapWithCitations(children)}</em>
                     ),
                     del: ({ children, ...props }: any) => (
-                        <del className="line-through text-muted-foreground" {...props}>{wrapWithCitations(children)}</del>
+                        <del className="text-muted-foreground" {...props}>{wrapWithCitations(children)}</del>
                     ),
 
                     // Blockquotes
                     blockquote: ({ children, ...props }: any) => (
-                        <blockquote className={styles.blockquote} {...props}>{children}</blockquote>
+                        <blockquote {...props}>{children}</blockquote>
                     ),
 
-                    // Horizontal rule
-                    hr: () => <hr className="my-6 border-border/50" />,
+                    // HR
+                    hr: () => <hr />,
 
-                    // Tables - Streamdown handles these with plugins
+                    // Tables - Premium styling
                     table: ({ children, ...props }: any) => (
-                        <div className="overflow-x-auto my-4 rounded-xl border border-border/40 shadow-sm">
+                        <div className="not-prose my-4 overflow-x-auto rounded-xl border border-border/50 shadow-sm">
                             <table className="w-full text-sm" {...props}>{children}</table>
                         </div>
                     ),
                     thead: ({ children, ...props }: any) => (
-                        <thead className="bg-muted/50 border-b border-border/40" {...props}>{children}</thead>
+                        <thead className="bg-muted/50 border-b border-border/50" {...props}>{children}</thead>
                     ),
                     tbody: ({ children, ...props }: any) => (
                         <tbody className="divide-y divide-border/30" {...props}>{children}</tbody>
                     ),
                     tr: ({ children, ...props }: any) => (
-                        <tr className="hover:bg-muted/30 transition-colors" {...props}>{children}</tr>
+                        <tr className="hover:bg-muted/20 transition-colors" {...props}>{children}</tr>
                     ),
                     th: ({ children, ...props }: any) => (
-                        <th className="text-left font-medium px-4 py-2.5 text-foreground" {...props}>{wrapWithCitations(children)}</th>
+                        <th className="text-left font-medium px-4 py-3 text-foreground text-xs uppercase tracking-wider" {...props}>
+                            {wrapWithCitations(children)}
+                        </th>
                     ),
                     td: ({ children, ...props }: any) => (
-                        <td className="px-4 py-2.5 text-foreground/80" {...props}>{wrapWithCitations(children)}</td>
+                        <td className="px-4 py-3 text-foreground/80" {...props}>
+                            {wrapWithCitations(children)}
+                        </td>
                     ),
 
-                    // Code blocks - Use our custom CodeBlock wrapper
+                    // Code blocks
                     pre: ({ children }: any) => <CodeBlock>{children}</CodeBlock>,
 
-                    // Inline code - styled pill; if it looks like LaTeX (e.g. model used backticks), render with KaTeX
+                    // Inline code with LaTeX detection
                     code: ({ children, className: codeClassName, ...props }: any) => {
                         const isBlockCode = codeClassName?.includes('language-')
                         if (isBlockCode) {
                             return (
-                                <code
-                                    className={cn(codeClassName, "text-[13px] font-mono leading-relaxed whitespace-pre")}
-                                    {...props}
-                                >
+                                <code className={cn(codeClassName, 'text-[13px] font-mono leading-relaxed')} {...props}>
                                     {children}
                                 </code>
                             )
@@ -660,13 +572,9 @@ export const ChatMarkdownRenderer = memo(function ChatMarkdownRenderer({
                         const raw = getText(children)
                         const latexHtml = tryRenderLatex(raw)
                         if (latexHtml) {
-                            return <span className="katex" dangerouslySetInnerHTML={{ __html: latexHtml }} />
+                            return <span dangerouslySetInnerHTML={{ __html: latexHtml }} />
                         }
-                        return (
-                            <code className={styles.inlineCode} {...props}>
-                                {children}
-                            </code>
-                        )
+                        return <code {...props}>{children}</code>
                     },
 
                     // Images
@@ -674,7 +582,6 @@ export const ChatMarkdownRenderer = memo(function ChatMarkdownRenderer({
                         <img
                             src={src}
                             alt={alt}
-                            className="max-w-full h-auto rounded-lg my-4 border border-border/30"
                             loading="lazy"
                             {...props}
                         />
@@ -687,10 +594,7 @@ export const ChatMarkdownRenderer = memo(function ChatMarkdownRenderer({
     )
 })
 
-// ============================================================================
-// Compact Version for Smaller Contexts
-// ============================================================================
-
+// Compact version
 export const CompactMarkdownRenderer = memo(function CompactMarkdownRenderer({
     content,
     className,
@@ -703,5 +607,4 @@ export const CompactMarkdownRenderer = memo(function CompactMarkdownRenderer({
     return <ChatMarkdownRenderer content={content} size="sm" className={className} documentCitations={documentCitations} />
 })
 
-// Re-export citation type for consumers
 export type { CitationData }

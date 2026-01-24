@@ -1498,7 +1498,7 @@ export function ChatView() {
       // Clear suggestions if no saved suggestions found
       setStreamingSuggestions([]);
     }
-  }, [messages, selectedChatId, isStreaming, setStreamingSuggestions]);
+  }, [messages, isStreaming, setStreamingSuggestions]);
 
   // Error state - chat not found (stale localStorage)
   if (messagesError && selectedChatId) {
@@ -1590,7 +1590,7 @@ export function ChatView() {
   if (isEmptyChat) {
     return (
       <div className="flex-1 flex flex-col items-center justify-center overflow-hidden relative px-4">
-        <div className="w-full max-w-3xl flex flex-col items-center">
+        <div className="w-full max-w-5xl flex flex-col items-center">
           {/* Welcome message */}
           <div className="flex flex-col items-center text-muted-foreground mb-8 animate-in fade-in duration-700">
             <div className="mb-6">
@@ -1642,9 +1642,8 @@ export function ChatView() {
         {/* Top Fade Overlay */}
         <div className="absolute top-0 left-0 right-0 h-12 bg-gradient-to-b from-background via-background/80 to-transparent pointer-events-none z-10" />
 
-        <ScrollArea className="h-full" ref={scrollContainerRef}>
-          <div className="pt-2 pb-16">
-            {" "}
+        <ScrollArea className="h-full w-full" ref={scrollContainerRef}>
+          <div className="pt-2 pb-16 w-full overflow-hidden">
             {/* Safe area is now handled by MainLayout, keeping small padding for air */}
             <MessageList
               messages={messages || []}
@@ -1704,7 +1703,7 @@ export function ChatView() {
 
       {/* Queue indicator - shows when messages are queued - MOVED OUTSIDE INPUT AREA */}
       {currentQueue.length > 0 && (
-        <div className="absolute bottom-[calc(100%-4rem)] left-1/2 -translate-x-1/2 z-30 w-full max-w-3xl px-4 pointer-events-none">
+        <div className="absolute bottom-[calc(100%-4rem)] left-1/2 -translate-x-1/2 z-30 w-full max-w-5xl px-4 pointer-events-none">
           <div className="flex items-center justify-center gap-2 text-sm text-foreground bg-blue-500/90 backdrop-blur-sm rounded-lg px-4 py-2.5 shadow-lg border border-blue-400/50 pointer-events-auto">
             <div className="flex items-center gap-2">
               <div className="h-2.5 w-2.5 rounded-full bg-white animate-pulse" />
@@ -1721,7 +1720,7 @@ export function ChatView() {
 
       {/* Input area */}
       <div className="relative z-20">
-        <div className="max-w-3xl mx-auto">
+        <div className="max-w-5xl mx-auto">
           {!isConfigured ? (
             <div className="px-4 pb-4">
               <Button
@@ -1737,12 +1736,12 @@ export function ChatView() {
 
               {/* Files panel - shows uploaded documents */}
               {documentUpload.files.length > 0 && (
-                <ChatFilesPanel className="px-4 pb-2 max-w-3xl mx-auto" />
+                <ChatFilesPanel className="px-4 pb-2 max-w-5xl mx-auto" />
               )}
 
               {/* Suggestions panel */}
               {!isStreaming && streamingSuggestions.length > 0 && (
-                <div className="px-4 pb-2 max-w-3xl mx-auto w-full">
+                <div className="px-4 pb-2 max-w-5xl mx-auto w-full">
                   <SuggestedPrompts
                     suggestions={streamingSuggestions}
                     onSelect={(suggestion) => {
@@ -1754,7 +1753,7 @@ export function ChatView() {
 
               {/* Show "Implement Plan" button when there's an unapproved plan and input is empty */}
               {hasUnapprovedPlan && !input.trim() && !isStreaming ? (
-                <div className="px-4 pb-4 max-w-3xl mx-auto w-full">
+                <div className="px-4 pb-4 max-w-5xl mx-auto w-full">
                   <Button
                     type="button"
                     onClick={handleApprovePlan}

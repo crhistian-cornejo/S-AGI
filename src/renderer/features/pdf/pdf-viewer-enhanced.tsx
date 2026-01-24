@@ -1767,10 +1767,8 @@ const TextSelectionToolbar = memo(function TextSelectionToolbar({
  */
 const SaveStatusIndicator = memo(function SaveStatusIndicator({
   status,
-  pdfName,
 }: {
   status: "idle" | "saving" | "saved" | "error";
-  pdfName?: string;
 }) {
   if (status === "idle") return null;
 
@@ -1818,7 +1816,6 @@ interface AnnotationToolbarProps {
   isSearchOpen: boolean;
   isThumbnailsOpen: boolean;
   saveStatus: "idle" | "saving" | "saved" | "error";
-  pdfName?: string;
 }
 
 /**
@@ -2232,7 +2229,7 @@ const AnnotationToolbar = memo(function AnnotationToolbar({
       <div className="flex-1" />
 
       {/* Right-side controls */}
-      <SaveStatusIndicator status={saveStatus} pdfName={pdfName} />
+      <SaveStatusIndicator status={saveStatus} />
 
       {showThumbnails && (
         <ToolButton

@@ -19,6 +19,7 @@ import {
     supportsReasoningAtom,
     addLocalPdfAtom,
     createPdfSourceFromLocalFile,
+    agentPanelOpenAtom,
     type ReasoningEffort,
 } from '@/lib/atoms'
 import { Sidebar } from '@/features/sidebar/sidebar'
@@ -39,6 +40,8 @@ const ArtifactPanel = lazy(() => import('@/features/artifacts/artifact-panel').t
 const UniverSpreadsheet = lazy(() => import('@/features/univer/univer-spreadsheet').then(m => ({ default: m.UniverSpreadsheet })))
 const UniverDocument = lazy(() => import('@/features/univer/univer-document').then(m => ({ default: m.UniverDocument })))
 const PdfTabView = lazy(() => import('@/features/pdf/pdf-tab-view').then(m => ({ default: m.PdfTabView })))
+const IdeasView = lazy(() => import('@/features/ideas/ideas-view').then(m => ({ default: m.IdeasView })))
+const AgentPanel = lazy(() => import('@/features/agent/agent-panel').then(m => ({ default: m.AgentPanel })))
 
 // Loading fallback for lazy components
 function PanelLoadingFallback() {
@@ -52,6 +55,7 @@ function PanelLoadingFallback() {
 export function MainLayout() {
     const [sidebarOpen, setSidebarOpen] = useAtom(sidebarOpenAtom)
     const [artifactPanelOpen] = useAtom(artifactPanelOpenAtom)
+    const [agentPanelOpen] = useAtom(agentPanelOpenAtom)
     const selectedArtifact = useAtomValue(selectedArtifactAtom)
     const setSelectedChatId = useSetAtom(selectedChatIdAtom)
     const [activeTab, setActiveTab] = useAtom(activeTabAtom)
@@ -400,20 +404,36 @@ export function MainLayout() {
                     </>
                 )}
 
-                {/* 
+                {/*
                  * Excel Tab - Conditional rendering to avoid Univer DI conflicts.
                  * Only one Univer instance exists at a time.
                  * Key prop forces complete remount when artifact changes to avoid stale data issues.
                  */}
                 {activeTab === 'excel' && (
-                    <div className="flex-1 flex flex-col pt-10 animate-in fade-in zoom-in-95 duration-300">
-                        <Suspense fallback={<PanelLoadingFallback />}>
-                            <UniverSpreadsheet
-                                key={selectedArtifact?.type === 'spreadsheet' ? selectedArtifact.id : 'new'}
-                                artifactId={selectedArtifact?.type === 'spreadsheet' ? selectedArtifact.id : undefined}
-                                data={selectedArtifact?.type === 'spreadsheet' ? selectedArtifact.univer_data : undefined}
-                            />
-                        </Suspense>
+                    <div className="flex-1 flex pt-10 animate-in fade-in zoom-in-95 duration-300 overflow-hidden">
+                        {/* Main content */}
+                        <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+                            <Suspense fallback={<PanelLoadingFallback />}>
+                                <UniverSpreadsheet
+                                    key={selectedArtifact?.type === 'spreadsheet' ? selectedArtifact.id : 'new'}
+                                    artifactId={selectedArtifact?.type === 'spreadsheet' ? selectedArtifact.id : undefined}
+                                    data={selectedArtifact?.type === 'spreadsheet' ? selectedArtifact.univer_data : undefined}
+                                />
+                            </Suspense>
+                        </div>
+                        {/* Agent Panel - slides from right */}
+                        <div
+                            className={cn(
+                                'h-full border-l border-border/50 bg-background transition-all duration-300 ease-in-out overflow-hidden shrink-0',
+                                agentPanelOpen ? 'w-[380px] min-w-[320px]' : 'w-0 border-l-0'
+                            )}
+                        >
+                            <div className="w-[380px] min-w-[320px] h-full">
+                                <Suspense fallback={<PanelLoadingFallback />}>
+                                    <AgentPanel />
+                                </Suspense>
+                            </div>
+                        </div>
                     </div>
                 )}
 
@@ -423,14 +443,30 @@ export function MainLayout() {
                  * Key prop forces complete remount when artifact changes to avoid stale data issues.
                  */}
                 {activeTab === 'doc' && (
-                    <div className="flex-1 flex flex-col pt-10 animate-in fade-in zoom-in-95 duration-300 z-0 relative">
-                        <Suspense fallback={<PanelLoadingFallback />}>
-                            <UniverDocument
-                                key={selectedArtifact?.type === 'document' ? selectedArtifact.id : 'new'}
-                                artifactId={selectedArtifact?.type === 'document' ? selectedArtifact.id : undefined}
-                                data={selectedArtifact?.type === 'document' ? selectedArtifact.univer_data : undefined}
-                            />
-                        </Suspense>
+                    <div className="flex-1 flex pt-10 animate-in fade-in zoom-in-95 duration-300 z-0 relative overflow-hidden">
+                        {/* Main content */}
+                        <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+                            <Suspense fallback={<PanelLoadingFallback />}>
+                                <UniverDocument
+                                    key={selectedArtifact?.type === 'document' ? selectedArtifact.id : 'new'}
+                                    artifactId={selectedArtifact?.type === 'document' ? selectedArtifact.id : undefined}
+                                    data={selectedArtifact?.type === 'document' ? selectedArtifact.univer_data : undefined}
+                                />
+                            </Suspense>
+                        </div>
+                        {/* Agent Panel - slides from right */}
+                        <div
+                            className={cn(
+                                'h-full border-l border-border/50 bg-background transition-all duration-300 ease-in-out overflow-hidden shrink-0',
+                                agentPanelOpen ? 'w-[380px] min-w-[320px]' : 'w-0 border-l-0'
+                            )}
+                        >
+                            <div className="w-[380px] min-w-[320px] h-full">
+                                <Suspense fallback={<PanelLoadingFallback />}>
+                                    <AgentPanel />
+                                </Suspense>
+                            </div>
+                        </div>
                     </div>
                 )}
 
@@ -440,10 +476,40 @@ export function MainLayout() {
                  * Includes AI-powered Q&A panel.
                  */}
                 {activeTab === 'pdf' && (
-                    <div className="flex-1 flex flex-col pt-10 animate-in fade-in zoom-in-95 duration-300">
-                        <Suspense fallback={<PanelLoadingFallback />}>
-                            <PdfTabView />
-                        </Suspense>
+                    <div className="flex-1 flex pt-10 animate-in fade-in zoom-in-95 duration-300 overflow-hidden">
+                        {/* Main content */}
+                        <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+                            <Suspense fallback={<PanelLoadingFallback />}>
+                                <PdfTabView />
+                            </Suspense>
+                        </div>
+                        {/* Agent Panel - slides from right */}
+                        <div
+                            className={cn(
+                                'h-full border-l border-border/50 bg-background transition-all duration-300 ease-in-out overflow-hidden shrink-0',
+                                agentPanelOpen ? 'w-[380px] min-w-[320px]' : 'w-0 border-l-0'
+                            )}
+                        >
+                            <div className="w-[380px] min-w-[320px] h-full">
+                                <Suspense fallback={<PanelLoadingFallback />}>
+                                    <AgentPanel />
+                                </Suspense>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {/*
+                 * Ideas Tab - Markdown Notes
+                 */}
+                {activeTab === 'ideas' && (
+                    <div className="flex-1 flex pt-10 animate-in fade-in zoom-in-95 duration-300 overflow-hidden">
+                        {/* Main content */}
+                        <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+                            <Suspense fallback={<PanelLoadingFallback />}>
+                                <IdeasView />
+                            </Suspense>
+                        </div>
                     </div>
                 )}
             </div>

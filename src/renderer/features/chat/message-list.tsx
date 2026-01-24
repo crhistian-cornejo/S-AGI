@@ -484,7 +484,7 @@ export const MessageList = memo(function MessageList({
     }
 
     return (
-        <div className="space-y-6 px-4 py-4 max-w-3xl mx-auto">
+        <div className="space-y-6 px-4 py-4 max-w-5xl mx-auto w-full overflow-hidden">
             {messages.map((message, index) => (
                 <div
                     key={message.id}
@@ -503,10 +503,10 @@ export const MessageList = memo(function MessageList({
 
             {/* Streaming response */}
             {isLoading && (streamingText || streamingReasoning || (streamingToolCalls && streamingToolCalls.length > 0) || (streamingWebSearches && streamingWebSearches.length > 0) || (streamingFileSearches && streamingFileSearches.length > 0)) && (
-                <div className="animate-in fade-in duration-300">
-                    <div className="flex items-start gap-4">
+                <div className="animate-in fade-in duration-300 w-full overflow-hidden">
+                    <div className="flex items-start gap-4 w-full overflow-hidden">
                         <AssistantAvatar />
-                        <div className="flex-1 min-w-0 space-y-2 pt-0.5">
+                        <div className="flex-1 min-w-0 space-y-2 pt-0.5 overflow-hidden">
                             {/* Reasoning section - shows ABOVE the text */}
                             {(isReasoning || streamingReasoning || (streamingAnnotations && streamingAnnotations.length > 0)) && (
                                 <AgentReasoning
@@ -517,7 +517,7 @@ export const MessageList = memo(function MessageList({
                             )}
 
                             {streamingText && (
-                                <div className="prose-container relative">
+                                <div className="prose-container relative w-full overflow-hidden">
                                     <ChatMarkdownRenderer
                                         content={streamingText}
                                         size="md"
@@ -749,9 +749,9 @@ const MessageItem = memo(function MessageItem({
     }
 
     return (
-        <div className="flex items-start gap-4 group">
+        <div className="flex items-start gap-4 group w-full overflow-hidden">
             <AssistantAvatar />
-            <div className="flex-1 min-w-0 space-y-2 pt-0.5">
+            <div className="flex-1 min-w-0 space-y-2 pt-0.5 overflow-hidden">
                 {/* Reasoning shown above everything */}
                 {reasoning && (
                     <AgentReasoning
@@ -778,7 +778,7 @@ const MessageItem = memo(function MessageItem({
                 
                 {/* Text content shown last */}
                 {content && (
-                    <div className="prose-container">
+                    <div className="prose-container w-full overflow-hidden">
                         <ChatMarkdownRenderer
                             content={content}
                             size="md"
@@ -861,7 +861,6 @@ const MessageItem = memo(function MessageItem({
                                     <TooltipTrigger asChild>
                                         <span
                                             className="h-5 px-1.5 flex items-center gap-1.5 text-[10px] rounded-md text-muted-foreground/70 font-medium"
-                                            aria-label={`Model: ${modelName}`}
                                         >
                                             <ModelIcon provider={modelProvider} size={12} className="shrink-0" />
                                             <span className="truncate max-w-[120px]">{modelName}</span>
@@ -1317,12 +1316,11 @@ const SourcesIndicator = memo(function SourcesIndicator({
             {isExpanded && (
                 <>
                     {/* Backdrop to close on click outside */}
-                    <div 
-                        className="fixed inset-0 z-40" 
+                    <button 
+                        type="button"
+                        className="fixed inset-0 z-40 w-full h-full cursor-default bg-transparent border-none p-0" 
                         onClick={() => setIsExpanded(false)}
                         onKeyDown={(e) => e.key === 'Escape' && setIsExpanded(false)}
-                        role="button"
-                        tabIndex={-1}
                         aria-label="Close sources panel"
                     />
                     <div className="absolute bottom-full left-0 mb-1 z-50 w-80 max-h-64 overflow-y-auto rounded-lg border border-border bg-popover shadow-lg">

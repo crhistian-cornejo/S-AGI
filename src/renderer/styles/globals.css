@@ -502,11 +502,9 @@ html:not(.dark) .shiki span {
     animation: caret-blink 1s step-end infinite;
 }
 
-/* Chat prose: links and long text adapt to container width */
+/* Prose container - ensures content respects parent width */
 .prose-container {
-    min-width: 0;
-    max-width: 100%;
-    overflow-wrap: break-word;
+    @apply min-w-0 w-full max-w-full overflow-hidden;
 }
 
 /* Better list styling */

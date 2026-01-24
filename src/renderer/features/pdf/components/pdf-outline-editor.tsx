@@ -11,8 +11,6 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import {
   IconLoader2,
   IconCheck,
@@ -21,13 +19,13 @@ import {
   IconTrash,
   IconChevronRight,
   IconChevronDown,
-  IconGripVertical,
 } from '@tabler/icons-react';
-import { cn } from '@/lib/utils';
 
 interface BookmarkNode extends PdfBookmarkObject {
   /** Child bookmarks */
   children: BookmarkNode[];
+  /** Page index (not in PdfBookmarkObject, added for convenience) */
+  pageIndex?: number;
   /** Whether expanded in UI */
   expanded?: boolean;
 }

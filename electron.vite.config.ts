@@ -56,7 +56,19 @@ export default defineConfig({
         plugins: [
             externalizeDepsPlugin({
                 // Don't externalize these - bundle them instead
-                exclude: ['superjson', 'trpc-electron', 'jose', 'ai', '@ai-sdk/openai', 'unpdf']
+                exclude: [
+                    'superjson', 
+                    'trpc-electron', 
+                    'jose', 
+                    'ai', 
+                    '@ai-sdk/openai', 
+                    'unpdf',
+                    '@blocknote/xl-ai',
+                    '@blocknote/core',
+                    'prosemirror-highlight',
+                    'remark-gfm',
+                    'remark-breaks'
+                ]
             }),
             copyTrayIcons()
         ],

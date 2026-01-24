@@ -20,7 +20,6 @@ import {
   IconArrowUp,
   IconArrowDown,
 } from '@tabler/icons-react';
-import { cn, isElectron } from '@/lib/utils';
 
 interface PdfMergeFile {
   id: string;

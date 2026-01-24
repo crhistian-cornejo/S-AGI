@@ -6,7 +6,8 @@ import {
     activeTabAtom,
     settingsModalOpenAtom,
     currentProviderAtom,
-    sidebarOpenAtom
+    sidebarOpenAtom,
+    agentPanelOpenAtom,
 } from '@/lib/atoms'
 import { shortcutsDialogOpenAtom } from '@/lib/atoms'
 import { trpc } from '@/lib/trpc'
@@ -36,7 +37,8 @@ import {
     IconSquare,
     IconX,
     IconArrowsDiagonalMinimize2,
-    IconCommand
+    IconCommand,
+    IconBulb
 } from '@tabler/icons-react'
 import { Button } from '@/components/ui/button'
 import { Logo } from '@/components/ui/logo'
@@ -84,7 +86,11 @@ export function TitleBar({ className, noTrafficLightSpace }: TitleBarProps) {
 
     const provider = useAtomValue(currentProviderAtom)
     const sidebarOpen = useAtomValue(sidebarOpenAtom)
+    const [agentPanelOpen, setAgentPanelOpen] = useAtom(agentPanelOpenAtom)
     const { data: keyStatus } = trpc.settings.getApiKeyStatus.useQuery()
+
+    // Agent panel is available for excel, doc, pdf tabs
+    const isAgentEnabled = activeTab === 'excel' || activeTab === 'doc' || activeTab === 'pdf'
 
     const isConnected = provider === 'chatgpt-plus'
         ? keyStatus?.hasChatGPTPlus
@@ -113,12 +119,36 @@ export function TitleBar({ className, noTrafficLightSpace }: TitleBarProps) {
                 className
             )}
         >
-            {/* Left side - Logo */}
+            {/* Left side - Logo (clickable for agent panel in excel/doc/pdf tabs) */}
             {!showTrafficLights && (!isWindows() || !sidebarOpen) && (
-                <div className="flex items-center gap-2 no-drag ml-2 shrink-0 z-10">
-                    <Logo size={20} />
-                    <span className="text-sm font-semibold text-foreground tracking-tight hidden sm:block">S-AGI</span>
-                </div>
+                <Tooltip>
+                    <TooltipTrigger asChild>
+                        <button
+                            type="button"
+                            onClick={() => isAgentEnabled && setAgentPanelOpen(!agentPanelOpen)}
+                            disabled={!isAgentEnabled}
+                            className={cn(
+                                "flex items-center gap-2 no-drag ml-2 shrink-0 z-10 transition-all duration-200",
+                                isAgentEnabled && "hover:opacity-80 active:scale-95 cursor-pointer",
+                                !isAgentEnabled && "cursor-default",
+                                isAgentEnabled && agentPanelOpen && "text-primary"
+                            )}
+                        >
+                            <div className="relative">
+                                <Logo size={20} />
+                                {isAgentEnabled && agentPanelOpen && (
+                                    <span className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-primary" />
+                                )}
+                            </div>
+                            <span className="text-sm font-semibold text-foreground tracking-tight hidden sm:block">S-AGI</span>
+                        </button>
+                    </TooltipTrigger>
+                    {isAgentEnabled && (
+                        <TooltipContent side="bottom">
+                            {agentPanelOpen ? 'Close Agent Panel' : 'Open Agent Panel'}
+                        </TooltipContent>
+                    )}
+                </Tooltip>
             )}
 
             {/* Center - Navigation tabs (absolute positioned for true centering) */}
@@ -183,6 +213,19 @@ export function TitleBar({ className, noTrafficLightSpace }: TitleBarProps) {
                         <IconFileTypePdf size={14} />
                         PDF
                     </button>
+                    <button
+                        type="button"
+                        onClick={() => setActiveTab('ideas')}
+                        className={cn(
+                            "flex items-center gap-1.5 px-3 h-full rounded-md text-[11px] font-bold uppercase tracking-wider transition-all duration-300",
+                            activeTab === 'ideas'
+                                ? "bg-accent text-primary shadow-sm"
+                                : "text-muted-foreground hover:text-foreground hover:bg-accent/30"
+                        )}
+                    >
+                        <IconBulb size={14} />
+                        Ideas
+                    </button>
                 </div>
             </div>
 
@@ -191,10 +234,34 @@ export function TitleBar({ className, noTrafficLightSpace }: TitleBarProps) {
 
             <div className="flex items-center no-drag pr-0">
                 {showTrafficLights && (
-                    <div className="flex items-center gap-2 mr-2">
-                        <Logo size={20} />
-                        <span className="text-sm font-semibold text-foreground tracking-tight hidden sm:block">S-AGI</span>
-                    </div>
+                    <Tooltip>
+                        <TooltipTrigger asChild>
+                            <button
+                                type="button"
+                                onClick={() => isAgentEnabled && setAgentPanelOpen(!agentPanelOpen)}
+                                disabled={!isAgentEnabled}
+                                className={cn(
+                                    "flex items-center gap-2 mr-2 transition-all duration-200",
+                                    isAgentEnabled && "hover:opacity-80 active:scale-95 cursor-pointer",
+                                    !isAgentEnabled && "cursor-default",
+                                    isAgentEnabled && agentPanelOpen && "text-primary"
+                                )}
+                            >
+                                <div className="relative">
+                                    <Logo size={20} />
+                                    {isAgentEnabled && agentPanelOpen && (
+                                        <span className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-primary" />
+                                    )}
+                                </div>
+                                <span className="text-sm font-semibold text-foreground tracking-tight hidden sm:block">S-AGI</span>
+                            </button>
+                        </TooltipTrigger>
+                        {isAgentEnabled && (
+                            <TooltipContent side="bottom">
+                                {agentPanelOpen ? 'Close Agent Panel' : 'Open Agent Panel'}
+                            </TooltipContent>
+                        )}
+                    </Tooltip>
                 )}
 
                 {selectedArtifact && (

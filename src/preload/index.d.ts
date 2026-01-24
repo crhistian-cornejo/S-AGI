@@ -43,6 +43,7 @@ export interface DesktopApi {
   ) => Promise<{ success: boolean; error?: string }>;
   getTheme: () => Promise<"system" | "light" | "dark">;
   setTheme: (theme: "system" | "light" | "dark") => Promise<boolean>;
+  getAIServerPort: () => Promise<number>;
   haptic: (
     type:
       | "light"
@@ -58,6 +59,8 @@ export interface DesktopApi {
     callback: (data: { access_token: string; refresh_token: string }) => void,
   ) => () => void;
   onAIStreamEvent: (callback: (event: unknown) => void) => () => void;
+  onAgentPanelStream: (callback: (event: unknown) => void) => () => void;
+  onIdeasStream: (callback: (event: unknown) => void) => () => void;
   onChatGPTConnected: (
     callback: (data: { isConnected: boolean; accountId?: string }) => void,
   ) => () => void;

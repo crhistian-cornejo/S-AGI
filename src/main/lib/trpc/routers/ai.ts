@@ -34,6 +34,14 @@ import type {
 } from "@shared/ai-types";
 import { AI_MODELS, DEFAULT_MODELS, getModelById } from "@shared/ai-types";
 import { generateSuggestions } from "../../ai/suggestions";
+import {
+  selectAgent,
+  executeSpecializedAgent,
+  shouldUseSpecializedAgent,
+  getPDFContext,
+  createModel,
+} from "../../agents/agent-service";
+import type { AgentContext } from "../../agents/types";
 
 // Re-export type for consumers
 export type { AIStreamEvent } from "@shared/ai-types";
@@ -1471,6 +1479,59 @@ export const aiRouter = router({
           const apiModelId =
             (modelDef as { modelIdForApi?: string } | undefined)
               ?.modelIdForApi || modelId;
+
+          // ========================================================================
+          // SPECIALIZED AGENT CHECK
+          // Check if this message should be handled by a specialized agent
+          // ========================================================================
+          const pdfContext = getPDFContext(input.chatId);
+          const agentContext: AgentContext = {
+            userId: ctx.userId,
+            chatId: input.chatId,
+            apiKey: input.apiKey,
+            pdfPath: pdfContext?.path,
+            pdfPages: pdfContext?.pages,
+          };
+
+          if (input.apiKey && shouldUseSpecializedAgent(input.prompt, agentContext)) {
+            const selection = selectAgent(input.prompt, agentContext);
+            log.info(`[AI] Routing to specialized agent: ${selection.agent} - ${selection.reason}`);
+
+            try {
+              const model = createModel(input.apiKey, modelId);
+              const result = await executeSpecializedAgent(
+                input.prompt,
+                agentContext,
+                model,
+                (token) => emit({ type: "text-delta", delta: token })
+              );
+
+              if (result.response) {
+                // Emit the final response
+                emit({ type: "text-done", text: result.response });
+
+                // Emit finish event
+                const duration = Date.now() - startTime;
+                log.info(`[AI] Specialized agent completed in ${duration}ms`);
+                emit({
+                  type: "finish",
+                  totalSteps: 1,
+                  usage: { promptTokens: 0, completionTokens: 0, reasoningTokens: 0 },
+                });
+
+                // Early return - specialized agent handled the request
+                activeStreams.delete(input.chatId);
+                return;
+              }
+              // If response is empty, fall through to normal agent loop
+              log.info(`[AI] Specialized agent returned empty response, falling through to normal processing`);
+            } catch (agentError) {
+              log.error(`[AI] Specialized agent error, falling through:`, agentError);
+              // Fall through to normal agent loop on error
+            }
+          }
+          // ========================================================================
+
           const supportsResponseMode = !!(
             modelDef as { supportsResponseMode?: boolean } | undefined
           )?.supportsResponseMode;

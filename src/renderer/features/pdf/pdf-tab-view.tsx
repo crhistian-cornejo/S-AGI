@@ -58,7 +58,7 @@ export const PdfTabView = memo(function PdfTabView() {
   const [sidebarOpen, setSidebarOpen] = useAtom(pdfSidebarOpenAtom);
 
   return (
-    <div className="h-[calc(100vh-48px)] flex overflow-hidden bg-background border-t border-border/50">
+    <div className="h-full flex overflow-hidden bg-background border-t border-border/50">
       {/* Global queue processor - runs for all PDFs */}
       <PdfQueueProcessor />
 

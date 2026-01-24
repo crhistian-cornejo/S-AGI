@@ -8,6 +8,7 @@ interface ApiKeyStore {
     openai?: string
     anthropic?: string
     tavily?: string
+    zai?: string
 }
 
 const STORE_FILE = 'api-keys.encrypted'
@@ -155,6 +156,35 @@ export class SecureApiKeyStore {
         const data = cached || this.loadFromDisk()
         if (!cached) this.setCache(data)
         return !!data.tavily
+    }
+
+    setZaiKey(key: string | null): void {
+        const current = this.getCached() || this.loadFromDisk()
+        if (key) {
+            current.zai = key
+            log.info('[SecureApiKeyStore] Z.AI key updated (length:', key.length, ')')
+        } else {
+            delete current.zai
+            log.info('[SecureApiKeyStore] Z.AI key cleared')
+        }
+        this.setCache(current)
+        this.saveToDisk(current)
+    }
+
+    getZaiKey(): string | null {
+        const cached = this.getCached()
+        if (cached) return cached.zai || null
+
+        const data = this.loadFromDisk()
+        this.setCache(data)
+        return data.zai || null
+    }
+
+    hasZaiKey(): boolean {
+        const cached = this.getCached()
+        const data = cached || this.loadFromDisk()
+        if (!cached) this.setCache(data)
+        return !!data.zai
     }
 
     clear(): void {
