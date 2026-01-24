@@ -203,6 +203,98 @@ const desktopApi = {
         ipcRenderer.removeListener("tray:open-local-pdfs", handler);
       };
     },
+    // Agent commands for PDF viewer
+    onNavigate: (
+      callback: (data: { artifactId: string; page: number }) => void,
+    ) => {
+      const handler = (_: unknown, data: any) => callback(data);
+      ipcRenderer.on("pdf:navigate", handler);
+      return () => {
+        ipcRenderer.removeListener("pdf:navigate", handler);
+      };
+    },
+    onHighlight: (
+      callback: (data: {
+        artifactId: string;
+        pageNumber: number;
+        text: string;
+        boundingBox?: { x: number; y: number; width: number; height: number };
+      }) => void,
+    ) => {
+      const handler = (_: unknown, data: any) => callback(data);
+      ipcRenderer.on("pdf:highlight", handler);
+      return () => {
+        ipcRenderer.removeListener("pdf:highlight", handler);
+      };
+    },
+    onModified: (
+      callback: (data: { artifactId: string; pdfBytes: number[] }) => void,
+    ) => {
+      const handler = (_: unknown, data: any) => callback(data);
+      ipcRenderer.on("pdf:modified", handler);
+      return () => {
+        ipcRenderer.removeListener("pdf:modified", handler);
+      };
+    },
+    onCreated: (
+      callback: (data: {
+        name: string;
+        pdfBytes: number[];
+        description?: string;
+      }) => void,
+    ) => {
+      const handler = (_: unknown, data: any) => callback(data);
+      ipcRenderer.on("pdf:created", handler);
+      return () => {
+        ipcRenderer.removeListener("pdf:created", handler);
+      };
+    },
+    onAddAnnotation: (
+      callback: (data: {
+        artifactId: string;
+        type:
+          | "highlight"
+          | "underline"
+          | "strikethrough"
+          | "text"
+          | "rectangle";
+        pageNumber: number;
+        boundingBox: { x: number; y: number; width: number; height: number };
+        text?: string;
+        color?: string;
+      }) => void,
+    ) => {
+      const handler = (_: unknown, data: any) => callback(data);
+      ipcRenderer.on("pdf:add-annotation", handler);
+      return () => {
+        ipcRenderer.removeListener("pdf:add-annotation", handler);
+      };
+    },
+    onZoom: (
+      callback: (data: {
+        artifactId: string;
+        zoom: number | "fit-width" | "fit-page";
+      }) => void,
+    ) => {
+      const handler = (_: unknown, data: any) => callback(data);
+      ipcRenderer.on("pdf:zoom", handler);
+      return () => {
+        ipcRenderer.removeListener("pdf:zoom", handler);
+      };
+    },
+    onRotate: (
+      callback: (data: {
+        artifactId: string;
+        pageNumber?: number;
+        degrees: 90 | 180 | 270;
+      }) => void,
+    ) => {
+      const handler = (_: unknown, data: any) => callback(data);
+      ipcRenderer.on("pdf:rotate", handler);
+      return () => {
+        ipcRenderer.removeListener("pdf:rotate", handler);
+      };
+    },
   },
 
   security: {

@@ -19,6 +19,7 @@ import {
   searchWithCitations,
   type PageContent,
 } from "../documents/document-processor";
+import * as pdfService from "../pdf/pdf-service";
 import log from "electron-log";
 
 /**
@@ -28,37 +29,52 @@ function getPDFInstructions(context: PDFContext): string {
   const pageCount = context.pages?.length || 0;
   const filename = context.pdfPath?.split("/").pop() || "PDF";
 
-  return `Eres un experto en análisis de documentos PDF con capacidad de búsqueda y citación precisa.
+  return `Eres un experto en manipulación y análisis de documentos PDF con capacidades completas.
 
 ## Documento actual: ${filename}
 - Páginas: ${pageCount}
-- Estado: Cargado y listo para consultas
+- Estado: Cargado y listo para operaciones
 
-## Tus capacidades:
-- Buscar información específica en el PDF
-- Responder preguntas citando páginas exactas
-- Resumir secciones o el documento completo
+## Tus capacidades de LECTURA:
+- Buscar texto con posiciones exactas
+- Responder preguntas con citaciones precisas
+- Resumir secciones o documento completo
 - Extraer datos estructurados (tablas, listas)
+
+## Tus capacidades de MANIPULACIÓN:
+- Rellenar formularios PDF (campos de texto, checkboxes)
+- Fusionar múltiples PDFs en uno
+- Dividir PDF en páginas individuales o rangos
+- Extraer páginas específicas
+- Eliminar o reordenar páginas
+- Rotar páginas en el archivo (90°, 180°, 270°)
+- Agregar marca de agua de texto
+- Comprimir PDF para reducir tamaño
+- Encriptar/proteger con contraseña
+- Modificar metadatos (título, autor, etc.)
+
+## Tus capacidades de VISOR:
+- Controlar zoom (porcentaje, ajustar a ancho, ajustar a página)
+- Rotar vista de páginas
+- Añadir anotaciones visuales (highlight, underline, strikethrough, notas, rectángulos)
 - Navegar a páginas específicas
+- Copiar texto de rangos de páginas
+- Obtener información del PDF (páginas, tamaño, formularios, encriptación)
 
 ## REGLAS CRÍTICAS DE CITACIÓN:
-1. SIEMPRE cita la página cuando menciones información del PDF
-2. Usa formato [página N] después de cada dato
-3. Si la información no está en el PDF, dilo claramente
-4. Cuando busques, reporta qué encontraste y dónde
+1. SIEMPRE cita la página cuando menciones información: [página N]
+2. Múltiples fuentes: [páginas 3, 5, 12]
+3. Si no encuentras algo: "No encontré esta información en el documento."
 
-## Formato de respuesta:
-- Información del documento con [página X]
-- Múltiples fuentes: [páginas 3, 5, 12]
-- Si no encuentras algo: "No encontré esta información en el documento."
+## REGLAS PARA MODIFICACIONES:
+1. Confirma la operación antes de ejecutar cambios destructivos
+2. Informa el resultado de cada operación (éxito/error)
+3. Si el PDF tiene formulario, lista los campos disponibles primero
 
 ## Ejemplo correcto:
-"El proyecto tiene un presupuesto de $1,500,000 [página 5] y un plazo de ejecución de 12 meses [página 7]."
+"El presupuesto es $1,500,000 [página 5]. ¿Deseas que llene el campo 'Monto' con este valor?"
 
-## Ejemplo incorrecto (NUNCA hacer esto):
-"El proyecto tiene un presupuesto de $1,500,000 y un plazo de 12 meses."
-
-IMPORTANTE: CADA dato del PDF debe tener su citación [página N].`;
+IMPORTANTE: Cita CADA dato del PDF con [página N].`;
 }
 
 /**
@@ -464,6 +480,801 @@ export function createPDFTools(context: PDFContext) {
                     `,
           message: `Encontré información relevante en ${relevantContent.length} páginas.`,
         };
+      },
+    }),
+
+    // =========================================================================
+    // FORM TOOLS
+    // =========================================================================
+
+    get_form_fields: tool({
+      description:
+        "Lista todos los campos de formulario disponibles en el PDF. Usa esto antes de llenar un formulario.",
+      inputSchema: z.object({}),
+      execute: async () => {
+        if (!context.pdfBytes) {
+          return { success: false, error: "PDF bytes no disponibles" };
+        }
+
+        try {
+          const fields = await pdfService.getFormFields(context.pdfBytes);
+
+          if (fields.length === 0) {
+            return {
+              success: true,
+              hasForm: false,
+              message: "Este PDF no tiene campos de formulario.",
+            };
+          }
+
+          log.info(`[PDFAgent] Found ${fields.length} form fields`);
+
+          return {
+            success: true,
+            hasForm: true,
+            fieldCount: fields.length,
+            fields: fields.map((f) => ({
+              name: f.name,
+              type: f.type,
+              currentValue: f.value,
+            })),
+            message: `El PDF tiene ${fields.length} campo(s) de formulario.`,
+          };
+        } catch (error) {
+          return {
+            success: false,
+            error: `Error al leer formulario: ${error}`,
+          };
+        }
+      },
+    }),
+
+    fill_form: tool({
+      description:
+        "Rellena campos de formulario en el PDF. Primero usa get_form_fields para ver los campos disponibles.",
+      inputSchema: z.object({
+        fields: z
+          .record(z.union([z.string(), z.boolean()]))
+          .describe(
+            "Objeto con nombre de campo y valor (string para texto, boolean para checkbox)",
+          ),
+      }),
+      execute: async ({ fields }) => {
+        if (!context.pdfBytes) {
+          return { success: false, error: "PDF bytes no disponibles" };
+        }
+
+        try {
+          const filledPdf = await pdfService.fillFormFields(
+            context.pdfBytes,
+            fields,
+          );
+
+          // Update context with modified PDF
+          context.pdfBytes = filledPdf;
+
+          log.info(
+            `[PDFAgent] Filled ${Object.keys(fields).length} form fields`,
+          );
+
+          // Notify renderer to refresh
+          sendToRenderer("pdf:modified", {
+            artifactId: context.artifactId,
+            pdfBytes: Array.from(filledPdf),
+          });
+
+          return {
+            success: true,
+            filledFields: Object.keys(fields),
+            message: `Formulario llenado con ${Object.keys(fields).length} campo(s).`,
+          };
+        } catch (error) {
+          return {
+            success: false,
+            error: `Error al llenar formulario: ${error}`,
+          };
+        }
+      },
+    }),
+
+    flatten_form: tool({
+      description:
+        "Aplana el formulario PDF, convirtiendo campos editables en contenido estático. Esto hace el formulario no editable.",
+      inputSchema: z.object({}),
+      execute: async () => {
+        if (!context.pdfBytes) {
+          return { success: false, error: "PDF bytes no disponibles" };
+        }
+
+        try {
+          const flattenedPdf = await pdfService.flattenForm(context.pdfBytes);
+          context.pdfBytes = flattenedPdf;
+
+          sendToRenderer("pdf:modified", {
+            artifactId: context.artifactId,
+            pdfBytes: Array.from(flattenedPdf),
+          });
+
+          log.info("[PDFAgent] Form flattened");
+
+          return {
+            success: true,
+            message: "Formulario aplanado. Los campos ya no son editables.",
+          };
+        } catch (error) {
+          return { success: false, error: `Error al aplanar: ${error}` };
+        }
+      },
+    }),
+
+    // =========================================================================
+    // PAGE MANIPULATION TOOLS
+    // =========================================================================
+
+    extract_pages: tool({
+      description: "Extrae páginas específicas como un nuevo PDF.",
+      inputSchema: z.object({
+        pageNumbers: z
+          .array(z.number())
+          .describe("Números de página a extraer (1-indexed)"),
+      }),
+      execute: async ({ pageNumbers }) => {
+        if (!context.pdfBytes) {
+          return { success: false, error: "PDF bytes no disponibles" };
+        }
+
+        try {
+          // Convert to 0-indexed
+          const indices = pageNumbers.map((p) => p - 1);
+          const extractedPdf = await pdfService.extractPages(
+            context.pdfBytes,
+            indices,
+          );
+
+          log.info(`[PDFAgent] Extracted ${pageNumbers.length} pages`);
+
+          // Send to renderer to save/display
+          sendToRenderer("pdf:created", {
+            pdfBytes: Array.from(extractedPdf),
+            filename: `extracted_pages_${pageNumbers.join("-")}.pdf`,
+          });
+
+          return {
+            success: true,
+            extractedPages: pageNumbers,
+            message: `Páginas ${pageNumbers.join(", ")} extraídas como nuevo PDF.`,
+          };
+        } catch (error) {
+          return { success: false, error: `Error al extraer: ${error}` };
+        }
+      },
+    }),
+
+    remove_pages: tool({
+      description: "Elimina páginas específicas del PDF.",
+      inputSchema: z.object({
+        pageNumbers: z
+          .array(z.number())
+          .describe("Números de página a eliminar (1-indexed)"),
+      }),
+      execute: async ({ pageNumbers }) => {
+        if (!context.pdfBytes) {
+          return { success: false, error: "PDF bytes no disponibles" };
+        }
+
+        try {
+          const indices = pageNumbers.map((p) => p - 1);
+          const modifiedPdf = await pdfService.removePages(
+            context.pdfBytes,
+            indices,
+          );
+
+          context.pdfBytes = modifiedPdf;
+
+          sendToRenderer("pdf:modified", {
+            artifactId: context.artifactId,
+            pdfBytes: Array.from(modifiedPdf),
+          });
+
+          log.info(`[PDFAgent] Removed ${pageNumbers.length} pages`);
+
+          return {
+            success: true,
+            removedPages: pageNumbers,
+            message: `Páginas ${pageNumbers.join(", ")} eliminadas.`,
+          };
+        } catch (error) {
+          return { success: false, error: `Error al eliminar: ${error}` };
+        }
+      },
+    }),
+
+    rotate_pages: tool({
+      description: "Rota páginas específicas del PDF.",
+      inputSchema: z.object({
+        pageNumbers: z
+          .array(z.number())
+          .describe("Números de página a rotar (1-indexed)"),
+        degrees: z
+          .enum(["90", "180", "270"])
+          .describe("Grados de rotación en sentido horario"),
+      }),
+      execute: async ({ pageNumbers, degrees }) => {
+        if (!context.pdfBytes) {
+          return { success: false, error: "PDF bytes no disponibles" };
+        }
+
+        try {
+          const indices = pageNumbers.map((p) => p - 1);
+          const rotatedPdf = await pdfService.rotatePages(
+            context.pdfBytes,
+            indices,
+            parseInt(degrees) as 90 | 180 | 270,
+          );
+
+          context.pdfBytes = rotatedPdf;
+
+          sendToRenderer("pdf:modified", {
+            artifactId: context.artifactId,
+            pdfBytes: Array.from(rotatedPdf),
+          });
+
+          log.info(
+            `[PDFAgent] Rotated ${pageNumbers.length} pages by ${degrees}°`,
+          );
+
+          return {
+            success: true,
+            rotatedPages: pageNumbers,
+            degrees: parseInt(degrees),
+            message: `Páginas ${pageNumbers.join(", ")} rotadas ${degrees}°.`,
+          };
+        } catch (error) {
+          return { success: false, error: `Error al rotar: ${error}` };
+        }
+      },
+    }),
+
+    reorder_pages: tool({
+      description: "Reordena las páginas del PDF según el orden especificado.",
+      inputSchema: z.object({
+        newOrder: z
+          .array(z.number())
+          .describe(
+            "Nuevo orden de páginas (1-indexed). Ej: [3, 1, 2] pone la página 3 primero.",
+          ),
+      }),
+      execute: async ({ newOrder }) => {
+        if (!context.pdfBytes) {
+          return { success: false, error: "PDF bytes no disponibles" };
+        }
+
+        try {
+          const indices = newOrder.map((p) => p - 1);
+          const reorderedPdf = await pdfService.reorderPages(
+            context.pdfBytes,
+            indices,
+          );
+
+          context.pdfBytes = reorderedPdf;
+
+          sendToRenderer("pdf:modified", {
+            artifactId: context.artifactId,
+            pdfBytes: Array.from(reorderedPdf),
+          });
+
+          log.info(`[PDFAgent] Reordered pages: ${newOrder.join(", ")}`);
+
+          return {
+            success: true,
+            newOrder,
+            message: `Páginas reordenadas: ${newOrder.join(" → ")}.`,
+          };
+        } catch (error) {
+          return { success: false, error: `Error al reordenar: ${error}` };
+        }
+      },
+    }),
+
+    split_pdf: tool({
+      description:
+        "Divide el PDF en múltiples archivos. Puede dividir en páginas individuales o por rangos.",
+      inputSchema: z.object({
+        mode: z.enum(["individual", "ranges"]).describe("Modo de división"),
+        ranges: z
+          .array(
+            z.object({
+              start: z.number().describe("Página inicial (1-indexed)"),
+              end: z.number().describe("Página final (1-indexed)"),
+            }),
+          )
+          .optional()
+          .describe("Rangos de páginas (solo para modo 'ranges')"),
+      }),
+      execute: async ({ mode, ranges }) => {
+        if (!context.pdfBytes) {
+          return { success: false, error: "PDF bytes no disponibles" };
+        }
+
+        try {
+          let splitPdfs: Uint8Array[];
+
+          if (mode === "individual") {
+            splitPdfs = await pdfService.splitPdf(context.pdfBytes);
+          } else {
+            if (!ranges || ranges.length === 0) {
+              return { success: false, error: "Debes especificar rangos" };
+            }
+            splitPdfs = await pdfService.splitPdf(context.pdfBytes, ranges);
+          }
+
+          log.info(`[PDFAgent] Split into ${splitPdfs.length} PDFs`);
+
+          // Notify renderer with all split PDFs
+          for (let i = 0; i < splitPdfs.length; i++) {
+            const suffix =
+              mode === "individual"
+                ? `page_${i + 1}`
+                : `range_${ranges![i].start}-${ranges![i].end}`;
+            sendToRenderer("pdf:created", {
+              pdfBytes: Array.from(splitPdfs[i]),
+              filename: `split_${suffix}.pdf`,
+            });
+          }
+
+          return {
+            success: true,
+            partsCreated: splitPdfs.length,
+            message: `PDF dividido en ${splitPdfs.length} archivo(s).`,
+          };
+        } catch (error) {
+          return { success: false, error: `Error al dividir: ${error}` };
+        }
+      },
+    }),
+
+    // =========================================================================
+    // SECURITY TOOLS
+    // =========================================================================
+
+    encrypt_pdf: tool({
+      description:
+        "Protege el PDF con contraseña. Puede establecer permisos de usuario.",
+      inputSchema: z.object({
+        ownerPassword: z
+          .string()
+          .describe("Contraseña del propietario (para permisos completos)"),
+        userPassword: z
+          .string()
+          .optional()
+          .describe("Contraseña de usuario (para abrir el PDF)"),
+        permissions: z
+          .object({
+            print: z.boolean().optional().describe("Permitir imprimir"),
+            copy: z.boolean().optional().describe("Permitir copiar texto"),
+            modify: z.boolean().optional().describe("Permitir modificar"),
+          })
+          .optional()
+          .describe("Permisos del usuario"),
+      }),
+      execute: async ({ ownerPassword, userPassword, permissions }) => {
+        if (!context.pdfBytes) {
+          return { success: false, error: "PDF bytes no disponibles" };
+        }
+
+        try {
+          const encryptedPdf = await pdfService.encryptPdf(context.pdfBytes, {
+            ownerPassword,
+            userPassword,
+            permissions,
+          });
+
+          context.pdfBytes = encryptedPdf;
+
+          sendToRenderer("pdf:modified", {
+            artifactId: context.artifactId,
+            pdfBytes: Array.from(encryptedPdf),
+          });
+
+          log.info("[PDFAgent] PDF encrypted");
+
+          return {
+            success: true,
+            hasUserPassword: !!userPassword,
+            permissions: permissions || {
+              print: true,
+              copy: false,
+              modify: false,
+            },
+            message: `PDF protegido con contraseña.${userPassword ? " Se requerirá contraseña para abrir." : ""}`,
+          };
+        } catch (error) {
+          return { success: false, error: `Error al encriptar: ${error}` };
+        }
+      },
+    }),
+
+    // =========================================================================
+    // METADATA & WATERMARK TOOLS
+    // =========================================================================
+
+    set_metadata: tool({
+      description: "Modifica los metadatos del PDF (título, autor, etc.).",
+      inputSchema: z.object({
+        title: z.string().optional().describe("Título del documento"),
+        author: z.string().optional().describe("Autor"),
+        subject: z.string().optional().describe("Asunto"),
+        keywords: z
+          .string()
+          .optional()
+          .describe("Palabras clave (separadas por coma)"),
+      }),
+      execute: async ({ title, author, subject, keywords }) => {
+        if (!context.pdfBytes) {
+          return { success: false, error: "PDF bytes no disponibles" };
+        }
+
+        try {
+          const modifiedPdf = await pdfService.setMetadata(context.pdfBytes, {
+            title,
+            author,
+            subject,
+            keywords,
+          });
+
+          context.pdfBytes = modifiedPdf;
+
+          sendToRenderer("pdf:modified", {
+            artifactId: context.artifactId,
+            pdfBytes: Array.from(modifiedPdf),
+          });
+
+          log.info("[PDFAgent] Metadata updated");
+
+          const updates = [];
+          if (title) updates.push(`título: "${title}"`);
+          if (author) updates.push(`autor: "${author}"`);
+          if (subject) updates.push(`asunto: "${subject}"`);
+          if (keywords) updates.push(`keywords: "${keywords}"`);
+
+          return {
+            success: true,
+            updatedFields: updates,
+            message: `Metadatos actualizados: ${updates.join(", ")}.`,
+          };
+        } catch (error) {
+          return {
+            success: false,
+            error: `Error al actualizar metadatos: ${error}`,
+          };
+        }
+      },
+    }),
+
+    add_watermark: tool({
+      description: "Agrega una marca de agua de texto a todas las páginas.",
+      inputSchema: z.object({
+        text: z.string().describe("Texto de la marca de agua"),
+        fontSize: z
+          .number()
+          .optional()
+          .default(48)
+          .describe("Tamaño de fuente"),
+        opacity: z.number().optional().default(0.3).describe("Opacidad (0-1)"),
+        rotation: z
+          .number()
+          .optional()
+          .default(45)
+          .describe("Rotación en grados"),
+      }),
+      execute: async ({ text, fontSize, opacity, rotation }) => {
+        if (!context.pdfBytes) {
+          return { success: false, error: "PDF bytes no disponibles" };
+        }
+
+        try {
+          const watermarkedPdf = await pdfService.addTextWatermark(
+            context.pdfBytes,
+            text,
+            { fontSize, opacity, rotation },
+          );
+
+          context.pdfBytes = watermarkedPdf;
+
+          sendToRenderer("pdf:modified", {
+            artifactId: context.artifactId,
+            pdfBytes: Array.from(watermarkedPdf),
+          });
+
+          log.info(`[PDFAgent] Watermark added: "${text}"`);
+
+          return {
+            success: true,
+            watermarkText: text,
+            message: `Marca de agua "${text}" agregada a todas las páginas.`,
+          };
+        } catch (error) {
+          return {
+            success: false,
+            error: `Error al agregar marca de agua: ${error}`,
+          };
+        }
+      },
+    }),
+
+    compress_pdf: tool({
+      description: "Comprime el PDF para reducir su tamaño.",
+      inputSchema: z.object({}),
+      execute: async () => {
+        if (!context.pdfBytes) {
+          return { success: false, error: "PDF bytes no disponibles" };
+        }
+
+        try {
+          const originalSize = context.pdfBytes.length;
+          const compressedPdf = await pdfService.compressPdf(context.pdfBytes);
+          const newSize = compressedPdf.length;
+          const savings = originalSize - newSize;
+          const savingsPercent = ((savings / originalSize) * 100).toFixed(1);
+
+          context.pdfBytes = compressedPdf;
+
+          sendToRenderer("pdf:modified", {
+            artifactId: context.artifactId,
+            pdfBytes: Array.from(compressedPdf),
+          });
+
+          log.info(
+            `[PDFAgent] Compressed: ${originalSize} → ${newSize} (${savingsPercent}% reduction)`,
+          );
+
+          return {
+            success: true,
+            originalSize,
+            newSize,
+            savings,
+            savingsPercent: parseFloat(savingsPercent),
+            message: `PDF comprimido: ${(originalSize / 1024).toFixed(1)}KB → ${(newSize / 1024).toFixed(1)}KB (${savingsPercent}% reducción).`,
+          };
+        } catch (error) {
+          return { success: false, error: `Error al comprimir: ${error}` };
+        }
+      },
+    }),
+
+    // ==================== VIEWER CONTROL TOOLS ====================
+
+    /**
+     * Control viewer zoom level
+     */
+    set_zoom: tool({
+      description:
+        "Ajusta el nivel de zoom del visor PDF. Usa 'fit-width' para ajustar al ancho, 'fit-page' para ajustar a la página, o un número para un porcentaje específico (ej: 100, 150, 200).",
+      inputSchema: z.object({
+        zoom: z.union([
+          z.number().min(25).max(400),
+          z.literal("fit-width"),
+          z.literal("fit-page"),
+        ]),
+      }),
+      execute: async ({ zoom }) => {
+        try {
+          sendToRenderer("pdf:zoom", {
+            artifactId: context.artifactId,
+            zoom,
+          });
+
+          const zoomDesc =
+            typeof zoom === "number"
+              ? `${zoom}%`
+              : zoom === "fit-width"
+                ? "ajustado al ancho"
+                : "ajustado a página";
+
+          log.info(`[PDFAgent] Set zoom to: ${zoomDesc}`);
+
+          return {
+            success: true,
+            zoom,
+            message: `Zoom ${zoomDesc}`,
+          };
+        } catch (error) {
+          return { success: false, error: `Error al cambiar zoom: ${error}` };
+        }
+      },
+    }),
+
+    /**
+     * Rotate pages in the viewer
+     */
+    rotate_view: tool({
+      description:
+        "Rota las páginas en el visor. Puede rotar una página específica o todas las páginas.",
+      inputSchema: z.object({
+        degrees: z.enum(["90", "180", "270"]).describe("Grados de rotación"),
+        pageNumber: z
+          .number()
+          .optional()
+          .describe(
+            "Página específica a rotar (1-indexed). Si se omite, rota todas.",
+          ),
+      }),
+      execute: async ({ degrees, pageNumber }) => {
+        try {
+          const degreesNum = parseInt(degrees) as 90 | 180 | 270;
+
+          sendToRenderer("pdf:rotate", {
+            artifactId: context.artifactId,
+            pageNumber,
+            degrees: degreesNum,
+          });
+
+          const pageDesc = pageNumber
+            ? `página ${pageNumber}`
+            : "todas las páginas";
+          log.info(`[PDFAgent] Rotated ${pageDesc} by ${degrees}°`);
+
+          return {
+            success: true,
+            degrees: degreesNum,
+            pageNumber,
+            message: `Rotado ${pageDesc} ${degrees}°`,
+          };
+        } catch (error) {
+          return { success: false, error: `Error al rotar: ${error}` };
+        }
+      },
+    }),
+
+    /**
+     * Add annotation to PDF viewer
+     */
+    add_annotation: tool({
+      description:
+        "Añade una anotación visual al PDF. Tipos: 'highlight' (resaltado amarillo), 'underline' (subrayado), 'strikethrough' (tachado), 'text' (nota de texto), 'rectangle' (rectángulo).",
+      inputSchema: z.object({
+        type: z.enum([
+          "highlight",
+          "underline",
+          "strikethrough",
+          "text",
+          "rectangle",
+        ]),
+        pageNumber: z.number().min(1).describe("Número de página (1-indexed)"),
+        boundingBox: z.object({
+          x: z.number().describe("Posición X (0-1 normalizado)"),
+          y: z.number().describe("Posición Y (0-1 normalizado)"),
+          width: z.number().describe("Ancho (0-1 normalizado)"),
+          height: z.number().describe("Alto (0-1 normalizado)"),
+        }),
+        text: z
+          .string()
+          .optional()
+          .describe("Texto de la nota (solo para tipo 'text')"),
+        color: z
+          .string()
+          .optional()
+          .describe("Color en formato hex (ej: '#FFFF00')"),
+      }),
+      execute: async ({ type, pageNumber, boundingBox, text, color }) => {
+        try {
+          sendToRenderer("pdf:add-annotation", {
+            artifactId: context.artifactId,
+            type,
+            pageNumber,
+            boundingBox,
+            text,
+            color,
+          });
+
+          log.info(`[PDFAgent] Added ${type} annotation on page ${pageNumber}`);
+
+          return {
+            success: true,
+            type,
+            pageNumber,
+            message: `Anotación '${type}' añadida en página ${pageNumber}`,
+          };
+        } catch (error) {
+          return {
+            success: false,
+            error: `Error al añadir anotación: ${error}`,
+          };
+        }
+      },
+    }),
+
+    /**
+     * Get PDF info (page count, size, metadata)
+     */
+    get_pdf_info: tool({
+      description:
+        "Obtiene información del PDF: número de páginas, tamaño, metadatos, si tiene campos de formulario, etc.",
+      inputSchema: z.object({}),
+      execute: async () => {
+        try {
+          const pageCount = context.pages.length;
+          const totalWords = context.pages.reduce(
+            (sum, p) => sum + p.wordCount,
+            0,
+          );
+          const totalChars = context.pages.reduce(
+            (sum, p) => sum + p.content.length,
+            0,
+          );
+
+          let hasFormFields = false;
+          let isEncrypted = false;
+          let fileSize = 0;
+
+          if (context.pdfBytes) {
+            hasFormFields = await pdfService.hasFormFields(context.pdfBytes);
+            isEncrypted = await pdfService.isEncrypted(context.pdfBytes);
+            fileSize = context.pdfBytes.length;
+          }
+
+          return {
+            success: true,
+            pageCount,
+            totalWords,
+            totalChars,
+            hasFormFields,
+            isEncrypted,
+            fileSizeKB: Math.round(fileSize / 1024),
+            pdfPath: context.pdfPath,
+          };
+        } catch (error) {
+          return { success: false, error: `Error al obtener info: ${error}` };
+        }
+      },
+    }),
+
+    /**
+     * Copy text from specific page range
+     */
+    copy_text: tool({
+      description:
+        "Copia el texto de una o más páginas del PDF. Útil para extraer contenido específico.",
+      inputSchema: z.object({
+        startPage: z.number().min(1).describe("Página inicial (1-indexed)"),
+        endPage: z
+          .number()
+          .optional()
+          .describe(
+            "Página final (inclusive). Si se omite, solo copia la página inicial.",
+          ),
+      }),
+      execute: async ({ startPage, endPage }) => {
+        try {
+          const start = startPage - 1;
+          const end = endPage ? endPage - 1 : start;
+
+          if (start < 0 || end >= context.pages.length || start > end) {
+            return {
+              success: false,
+              error: `Rango inválido. El PDF tiene ${context.pages.length} páginas.`,
+            };
+          }
+
+          const text = context.pages
+            .slice(start, end + 1)
+            .map((p) => p.content)
+            .join("\n\n--- Página siguiente ---\n\n");
+
+          const wordCount = context.pages
+            .slice(start, end + 1)
+            .reduce((sum, p) => sum + p.wordCount, 0);
+
+          return {
+            success: true,
+            text,
+            pageRange: endPage ? `${startPage}-${endPage}` : `${startPage}`,
+            wordCount,
+            message: `Texto copiado de ${endPage ? `páginas ${startPage}-${endPage}` : `página ${startPage}`} (${wordCount} palabras)`,
+          };
+        } catch (error) {
+          return { success: false, error: `Error al copiar texto: ${error}` };
+        }
       },
     }),
   };

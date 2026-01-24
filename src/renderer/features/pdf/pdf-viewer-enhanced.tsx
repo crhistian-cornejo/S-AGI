@@ -90,6 +90,7 @@ import { cn, isElectron } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { SearchHighlights } from "./components/pdf-search-highlights";
+import { SourceHighlightLayer } from "./components/source-highlight-layer";
 import {
   Tooltip,
   TooltipContent,
@@ -901,6 +902,14 @@ const PageRenderer = memo(function PageRenderer({
 
       {/* Search highlights layer - shows yellow highlight boxes over search results */}
       <SearchHighlights
+        pageIndex={pageIndex}
+        scale={scale}
+        pageWidth={pageWidth}
+        pageHeight={pageHeight}
+      />
+
+      {/* Source highlight layer - shows colored boxes for agent citations */}
+      <SourceHighlightLayer
         pageIndex={pageIndex}
         scale={scale}
         pageWidth={pageWidth}

@@ -242,11 +242,12 @@ export const agentPanelRouter = router({
                 `[AgentPanel] Loading PDF from local path: ${localPath}`,
               );
               try {
-                const pdfPages = await loadPDFContext(sessionId, localPath);
-                if (pdfPages) {
-                  agentContext.pdfPages = pdfPages;
+                const pdfData = await loadPDFContext(sessionId, localPath);
+                if (pdfData) {
+                  agentContext.pdfPages = pdfData.pages;
+                  agentContext.pdfBytes = pdfData.pdfBytes;
                   log.info(
-                    `[AgentPanel] Loaded ${pdfPages.length} pages from local file`,
+                    `[AgentPanel] Loaded ${pdfData.pages.length} pages from local file`,
                   );
                 } else {
                   log.warn(
@@ -446,7 +447,7 @@ IMPORTANTE: CADA dato del PDF debe tener su citación [página N].`;
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 const e = event as any;
                 const textContent = e.textDelta ?? e.text ?? e.delta ?? "";
-                
+
                 fullText += textContent;
                 emitAgentEvent(sessionId, {
                   type: "text-delta",
@@ -552,12 +553,12 @@ IMPORTANTE: CADA dato del PDF debe tener su citación [página N].`;
       }),
     )
     .mutation(async ({ input }) => {
-      const pages = await loadPDFContext(input.sessionId, input.pdfPath);
-      if (pages) {
+      const pdfData = await loadPDFContext(input.sessionId, input.pdfPath);
+      if (pdfData) {
         return {
           success: true,
-          pageCount: pages.length,
-          totalWords: pages.reduce((sum, p) => sum + p.wordCount, 0),
+          pageCount: pdfData.pages.length,
+          totalWords: pdfData.pages.reduce((sum, p) => sum + p.wordCount, 0),
         };
       }
       return { success: false };

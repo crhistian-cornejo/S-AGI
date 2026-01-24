@@ -323,6 +323,11 @@ export {
   pdfHasUnsavedChangesAtom,
   pdfLastSaveAtom,
   pdfSaveStatusAtom,
+  // Source highlights (for agent citations)
+  activeSourceHighlightsAtom,
+  addSourceHighlightAtom,
+  removeSourceHighlightAtom,
+  clearSourceHighlightsAtom,
   // Helper functions
   createPdfSourceFromArtifact,
   createPdfSourceFromChatFile,
@@ -333,6 +338,8 @@ export {
   type PdfNavigationRequest,
   type PdfBookmark,
   type PdfSearchResult,
+  type SourceHighlight,
+  type HighlightBoundingBox,
 } from "./pdf";
 
 // === INPUT STATE ===
