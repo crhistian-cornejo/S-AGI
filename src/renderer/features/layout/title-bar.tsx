@@ -38,7 +38,7 @@ import {
     IconX,
     IconArrowsDiagonalMinimize2,
     IconCommand,
-    IconBulb
+    IconNotes
 } from '@tabler/icons-react'
 import { Button } from '@/components/ui/button'
 import { Logo } from '@/components/ui/logo'
@@ -223,8 +223,8 @@ export function TitleBar({ className, noTrafficLightSpace }: TitleBarProps) {
                                 : "text-muted-foreground hover:text-foreground hover:bg-accent/30"
                         )}
                     >
-                        <IconBulb size={14} />
-                        Ideas
+                        <IconNotes size={14} />
+                        Notes
                     </button>
                 </div>
             </div>

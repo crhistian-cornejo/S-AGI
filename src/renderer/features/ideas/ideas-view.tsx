@@ -191,7 +191,7 @@ export const IdeasView = () => {
   const [aiServerPort, setAiServerPort] = useState<number>(0);
 
   const getDefaultContent = useCallback((): PartialBlock[] => [
-    { type: "heading", content: "Ideas & Notes" },
+    { type: "heading", content: "Notes" },
     { type: "paragraph", content: "Capture your thoughts, sparks, and creative ideas here." },
     { type: "paragraph", content: "Type '/' to open commands - try '/AI' for AI assistance!" }
   ], []);
