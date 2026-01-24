@@ -2,7 +2,8 @@ import type { Config } from 'tailwindcss'
 
 export default {
   darkMode: ["class"],
-  content: ["./renderer/**/*.{ts,tsx,html}"],
+  // Paths relative to monorepo root (where postcss runs from)
+  content: ["./apps/electron/renderer/**/*.{ts,tsx,html}"],
   theme: {
     extend: {
       colors: {
