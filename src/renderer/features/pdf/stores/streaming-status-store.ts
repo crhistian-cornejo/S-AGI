@@ -6,7 +6,7 @@
 import { create } from 'zustand'
 import { subscribeWithSelector } from 'zustand/middleware'
 
-type StreamingStatus = 'ready' | 'processing' | 'error'
+export type StreamingStatus = 'ready' | 'processing' | 'error'
 
 interface StreamingStatusState {
     // Map: pdfId -> status
