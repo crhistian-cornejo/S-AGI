@@ -2,10 +2,11 @@
     "name": "s-agi",
     "version": "0.1.0",
     "private": true,
+    "type": "module",
     "license": "Apache-2.0",
     "description": "S-AGI - AI Agent for Spreadsheets with Univer",
     "author": "S-AGI",
-    "main": "out/main/index.js",
+    "main": "out/main/index.cjs",
     "workspaces": [
         "apps/*",
         "packages/*"
@@ -17,46 +18,15 @@
         "build": "electron-vite build",
         "build:web": "vite build --config vite.config.ts",
         "preview": "electron-vite preview",
-        "package": "node node_modules/dotenv-cli/cli.js -- electron-builder --dir",
-        "package:mac": "node node_modules/dotenv-cli/cli.js -- electron-builder --mac",
-        "package:win": "node node_modules/dotenv-cli/cli.js -- electron-builder --win",
-        "package:linux": "node node_modules/dotenv-cli/cli.js -- electron-builder --linux",
-        "dist": "node node_modules/dotenv-cli/cli.js -- electron-builder",
-        "ts:check": "tsc --noEmit",
+        "typecheck": "tsc --noEmit",
+        "typecheck:core": "cd packages/core && bun run tsc --noEmit",
+        "clean": "rm -rf out dist apps/electron/release",
+        "clean:modules": "rm -rf node_modules apps/electron/node_modules packages/*/node_modules",
+        "electron:dist": "bun run build && electron-builder --config apps/electron/electron-builder.yml --project apps/electron",
+        "electron:dist:mac": "bun run build && electron-builder --config apps/electron/electron-builder.yml --project apps/electron --mac",
+        "electron:dist:win": "bun run build && electron-builder --config apps/electron/electron-builder.yml --project apps/electron --win",
+        "electron:dist:linux": "bun run build && electron-builder --config apps/electron/electron-builder.yml --project apps/electron --linux",
         "postinstall": "electron-rebuild -f -w better-sqlite3"
-    },
-    "build": {
-        "appId": "com.s-agi.app",
-        "productName": "S-AGI",
-        "directories": {
-            "output": "dist"
-        },
-        "files": [
-            "out/**/*"
-        ],
-        "mac": {
-            "identity": "Developer ID Application: Crhistian Cornejo Ruiz (663F68N7L3)",
-            "hardenedRuntime": true,
-            "entitlements": "apps/electron/build/entitlements.plist",
-            "entitlementsInherit": "apps/electron/build/entitlements.plist",
-            "signatureFlags": [
-                "library"
-            ],
-            "notarize": {
-                "teamId": "663F68N7L3"
-            }
-        },
-        "win": {
-            "target": [
-                "nsis",
-                "portable"
-            ]
-        },
-        "nsis": {
-            "oneClick": false,
-            "allowToChangeInstallationDirectory": true,
-            "background": "apps/electron/build/background.png"
-        }
     },
     "dependencies": {
         "@ai-sdk-tools/agents": "^1.2.0",

@@ -1,24 +1,36 @@
 appId: com.sagi.app
 productName: S-AGI
+copyright: Copyright © 2025 S-AGI
+
 directories:
   buildResources: build
   output: release
+
+# Files relative to root (electron-builder runs from monorepo root)
 files:
-  - out/**/*
+  - from: ../../out
+    to: .
+    filter:
+      - "**/*"
+
 extraResources: []
 asar: true
 asarUnpack: []
 npmRebuild: true
+
 protocols:
   - name: S-AGI
     schemes:
       - s-agi
+
 linux:
   icon: build/icon.png
   target:
     - AppImage
     - deb
   category: Office
+  artifactName: "S-AGI-${arch}.${ext}"
+
 mac:
   icon: build/icon.icns
   category: public.app-category.productivity
@@ -38,7 +50,10 @@ mac:
   identity: "${env.APPLE_IDENTITY}"
   notarize:
     teamId: "${env.APPLE_TEAM_ID}"
+  artifactName: "S-AGI-${arch}.${ext}"
+
 dmg:
+  artifactName: "S-AGI-${arch}.dmg"
   window:
     width: 540
     height: 380
@@ -51,19 +66,20 @@ dmg:
       type: link
       path: /Applications
   iconSize: 80
+
 win:
   icon: build/icon.ico
   target:
     - nsis
-    - msi
     - portable
+  artifactName: "S-AGI-${arch}.${ext}"
+
 nsis:
   oneClick: true
-  # Per-user installation (AppData\Local) - required for Bun subprocess compatibility
-  # Bun cannot read/write files in Program Files due to Windows UAC permissions
   perMachine: false
   allowToChangeInstallationDirectory: false
   deleteAppDataOnUninstall: true
+
 publish:
   provider: generic
   url: https://releases.sagi.app
