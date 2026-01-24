@@ -69,3 +69,6 @@ dist-electron/
 secure/
 .claude/
 midday
+
+# Gemini Clipboard
+.gemini-clipboard/
