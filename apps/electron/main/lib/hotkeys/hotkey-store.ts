@@ -2,8 +2,8 @@ import { app } from 'electron'
 import { join } from 'path'
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs'
 import log from 'electron-log'
-import type { HotkeyId, HotkeyConfig } from '@shared/hotkey-types'
-import { getAllHotkeyIds, getDefaultShortcut } from '@shared/hotkey-types'
+import type { HotkeyId, HotkeyConfig } from '@s-agi/core/types/hotkeys'
+import { getAllHotkeyIds, getDefaultShortcut } from '@s-agi/core/types/hotkeys'
 
 const STORE_FILE = 'hotkeys.json'
 

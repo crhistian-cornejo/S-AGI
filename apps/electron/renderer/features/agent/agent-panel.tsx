@@ -54,8 +54,8 @@ import {
   type AgentPanelMessage,
   type AgentPanelImageAttachment,
 } from "@/lib/atoms";
-import { AI_MODELS, getModelsByProvider } from "@shared/ai-types";
-import type { AIProvider } from "@shared/ai-types";
+import { AI_MODELS, getModelsByProvider } from "@s-agi/core/types/ai";
+import type { AIProvider } from "@s-agi/core/types/ai";
 import { trpc } from "@/lib/trpc";
 
 // Agent context configurations

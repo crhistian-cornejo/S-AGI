@@ -1,54 +1,18 @@
 /**
- * Shared Module - Cross-Process Types and Configuration
+ * App-Specific Shared Module
  *
- * This module contains types and utilities shared between
- * main process, renderer process, and preload scripts.
+ * Contains app-specific code that can't be in packages/core:
+ * - config.ts: Uses Vite's import.meta.env
+ * - trpc-types.ts: References app's tRPC router
+ *
+ * For shared types and utilities, use @s-agi/core:
+ *   import type { AIProvider } from '@s-agi/core/types/ai'
+ *   import type { Chat, Message } from '@s-agi/core/types'
+ *   import { chatSchema } from '@s-agi/core/schemas'
  */
 
-// Application configuration
+// App configuration (Vite environment variables)
 export * from './config'
 
-// Core types (primary definitions for Chat, Artifact, ArtifactType)
-export * from './types'
-
-// AI types and interfaces
-export * from './ai-types'
-
-// Hotkey configuration types
-export * from './hotkey-types'
-
-// File configuration (size limits, compression, accepted types)
-export * from './file-config'
-
-// Language detection utilities
-export * from './detect-language'
-
-// Schemas (Zod validation) - excluding types already exported from './types'
-export {
-    chatMessageSchema,
-    chatSchema,
-    artifactTypeEnum,
-    artifactSchema,
-    spreadsheetArtifactSchema,
-    chartArtifactSchema,
-    generateSpreadsheetToolSchema,
-    generateChartToolSchema,
-    quickPromptSchema,
-    attachmentSchema,
-    createChatInputSchema,
-    createMessageInputSchema,
-    updateChatInputSchema,
-    deleteChatInputSchema,
-    type ChatMessage,
-    type SpreadsheetArtifact,
-    type ChartArtifact,
-    type QuickPrompt,
-    type Attachment,
-    type CreateChatInput,
-    type CreateMessageInput,
-    type UpdateChatInput,
-    type DeleteChatInput,
-} from './schemas'
-
-// tRPC types
+// tRPC router type (app-specific)
 export * from './trpc-types'

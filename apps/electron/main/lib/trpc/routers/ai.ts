@@ -31,8 +31,8 @@ import type {
   ReasoningConfig,
   NativeToolsConfig,
   AIProvider,
-} from "@shared/ai-types";
-import { AI_MODELS, DEFAULT_MODELS, getModelById } from "@shared/ai-types";
+} from "@s-agi/core/types/ai";
+import { AI_MODELS, DEFAULT_MODELS, getModelById } from "@s-agi/core/types/ai";
 import { generateSuggestions } from "../../ai";
 import {
   selectAgent,
@@ -62,7 +62,7 @@ import {
 // import { zodToJsonSchema, extractWebSearchDetails } from "./ai/schema";
 
 // Re-export type for consumers
-export type { AIStreamEvent } from "@shared/ai-types";
+export type { AIStreamEvent } from "@s-agi/core/types/ai";
 
 // Store active streams for cancellation
 const activeStreams = new Map<string, AbortController>();

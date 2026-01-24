@@ -1,16 +1,16 @@
 import { atom } from "jotai";
 import { atomWithStorage } from "jotai/utils";
-import type { Chat, Artifact } from "@shared/types";
+import type { Chat, Artifact } from "@s-agi/core/types";
 import {
   AI_MODELS,
   DEFAULT_MODELS,
   getModelsByProvider,
-} from "@shared/ai-types";
+} from "@s-agi/core/types/ai";
 import type {
   AIProvider,
   ModelDefinition,
   ResponseMode,
-} from "@shared/ai-types";
+} from "@s-agi/core/types/ai";
 
 export type { ResponseMode };
 

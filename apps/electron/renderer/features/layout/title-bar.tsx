@@ -48,7 +48,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { Logo } from '@/components/ui/logo'
 import { ZaiIcon, OpenAIIcon, ModelIcon } from '@/components/icons/model-icons'
-import type { AIProvider } from '@shared/ai-types'
+import type { AIProvider } from '@s-agi/core/types/ai'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn, isMacOS, isElectron, isWindows } from '@/lib/utils'
 

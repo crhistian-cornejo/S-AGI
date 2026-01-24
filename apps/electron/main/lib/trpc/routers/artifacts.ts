@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import { router, protectedProcedure } from '../trpc'
 import { supabase } from '../../supabase/client'
-import { ArtifactTypeSchema } from '@shared/types'
+import { ArtifactTypeSchema } from '@s-agi/core/types'
 
 export const artifactsRouter = router({
     // List artifacts for a chat

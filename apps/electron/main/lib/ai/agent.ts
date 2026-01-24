@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import log from 'electron-log'
 import { sendToRenderer } from '../window-manager'
-import type { AIProvider } from '@shared/ai-types'
+import type { AIProvider } from '@s-agi/core/types/ai'
 
 /**
  * Maximum number of agent loop steps before stopping

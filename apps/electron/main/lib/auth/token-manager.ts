@@ -2,7 +2,7 @@ import log from 'electron-log'
 import { getChatGPTAuthManager } from './chatgpt-manager'
 import { getSecureApiKeyStore } from './api-key-store'
 import { getZaiAuthManager } from './zai-manager'
-import type { AIProvider } from '@shared/ai-types'
+import type { AIProvider } from '@s-agi/core/types/ai'
 
 /**
  * Token expiry buffer - refresh tokens 5 minutes before expiry

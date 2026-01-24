@@ -3,7 +3,7 @@ import log from 'electron-log'
 import { sendToRenderer } from '../window-manager'
 import { getLanguageModel, isProviderAvailable } from './providers'
 import { getSystemPrompt, UI_TOOL_SCHEMAS, executeUITool } from './agent'
-import type { AIProvider, AIStreamEvent } from '@shared/ai-types'
+import type { AIProvider, AIStreamEvent } from '@s-agi/core/types/ai'
 
 /**
  * Adapter to convert AI SDK v6 stream events to S-AGI AIStreamEvent format

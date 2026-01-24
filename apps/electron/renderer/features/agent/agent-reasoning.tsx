@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { cn } from '@/lib/utils'
 import { IconChevronDown, IconChevronRight, IconPaperclip, IconTool } from '@tabler/icons-react'
 import { BrainIcon, CustomTerminalIcon, FileSearchIcon, GlobeIcon, IconSpinner } from './icons'
-import { getModelById } from '@shared/ai-types'
+import { getModelById } from '@s-agi/core/types/ai'
 import { OpenAIIcon, ZaiIcon } from '@/components/icons/model-icons'
 
 export interface AgentReasoningAction {

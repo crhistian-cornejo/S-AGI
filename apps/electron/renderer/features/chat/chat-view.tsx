@@ -62,7 +62,7 @@ import { SuggestedPrompts } from "./suggested-prompts";
 import { ChatFilesPanel } from "./chat-files-panel";
 import { ImageEditDialog } from "@/features/agent/image-edit-dialog";
 import { useSmoothStream, useDocumentUpload, useChatSounds } from "@/hooks";
-import { AI_MODELS } from "@shared/ai-types";
+import { AI_MODELS } from "@s-agi/core/types/ai";
 import { useMessageQueueStore } from "./stores/message-queue-store";
 import { useStreamingStatusStore } from "./stores/streaming-status-store";
 import { useSendCallbackStore } from "./stores/send-callback-store";

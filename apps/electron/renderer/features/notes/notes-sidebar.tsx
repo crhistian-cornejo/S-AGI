@@ -69,7 +69,7 @@ import {
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { ModelIcon } from "@/components/icons/model-icons";
-import type { AIProvider } from "@shared/ai-types";
+import type { AIProvider } from "@s-agi/core/types/ai";
 import { IconPicker } from "@/components/ui/icon-picker";
 import { renderPageIcon } from "@/lib/notes-icon-utils";
 

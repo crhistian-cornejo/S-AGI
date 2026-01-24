@@ -20,7 +20,7 @@ import {
   selectedArtifactAtom,
   artifactPanelOpenAtom,
 } from "@/lib/atoms";
-import { getModelById } from "@shared/ai-types";
+import { getModelById } from "@s-agi/core/types/ai";
 import { ModelIcon } from "@/components/icons/model-icons";
 import { ChatMarkdownRenderer } from "@/components/chat-markdown-renderer";
 import { CitationsFooter } from "@/components/inline-citation";

@@ -13,8 +13,8 @@ import log from "electron-log";
 import { sendToRenderer } from "../../window-manager";
 import { getSecureApiKeyStore } from "../../auth/api-key-store";
 import { getChatGPTAuthManager } from "../../auth";
-import { getModelById, DEFAULT_MODELS } from "@shared/ai-types";
-import type { AIProvider } from "@shared/ai-types";
+import { getModelById, DEFAULT_MODELS } from "@s-agi/core/types/ai";
+import type { AIProvider } from "@s-agi/core/types/ai";
 import {
   loadPDFContext,
   getPDFContext,

@@ -1,7 +1,7 @@
 import { globalShortcut } from 'electron'
 import log from 'electron-log'
-import type { HotkeyId, HotkeyStatus } from '@shared/hotkey-types'
-import { getAllHotkeyIds } from '@shared/hotkey-types'
+import type { HotkeyId, HotkeyStatus } from '@s-agi/core/types/hotkeys'
+import { getAllHotkeyIds } from '@s-agi/core/types/hotkeys'
 import { getHotkeyStore } from './hotkey-store'
 
 type HotkeyHandler = () => void

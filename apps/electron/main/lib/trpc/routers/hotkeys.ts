@@ -1,8 +1,8 @@
 import { z } from 'zod'
 import { router, publicProcedure } from '../trpc'
 import { getHotkeyStore, getHotkeyManager } from '../../hotkeys'
-import type { HotkeyId } from '@shared/hotkey-types'
-import { isValidShortcut, isReservedShortcut, HOTKEY_DEFINITIONS } from '@shared/hotkey-types'
+import type { HotkeyId } from '@s-agi/core/types/hotkeys'
+import { isValidShortcut, isReservedShortcut, HOTKEY_DEFINITIONS } from '@s-agi/core/types/hotkeys'
 
 /**
  * tRPC router for hotkey configuration

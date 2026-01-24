@@ -5,7 +5,7 @@ import { getTokenManager, sanitizeToken } from '../auth/token-manager'
 import { getChatGPTAuthManager } from '../auth/chatgpt-manager'
 import { getZaiAuthManager } from '../auth/zai-manager'
 import { getSecureApiKeyStore } from '../auth/api-key-store'
-import type { AIProvider } from '@shared/ai-types'
+import type { AIProvider } from '@s-agi/core/types/ai'
 
 /**
  * Z.AI API configuration (OpenAI-compatible)

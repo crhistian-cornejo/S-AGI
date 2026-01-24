@@ -67,7 +67,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { ModelIcon } from "@/components/icons/model-icons";
-import { AI_MODELS } from "@shared/ai-types";
+import { AI_MODELS } from "@s-agi/core/types/ai";
 import { trpc } from "@/lib/trpc";
 
 interface ChatInputProps {

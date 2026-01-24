@@ -26,7 +26,7 @@ import {
     chatGPTPlusStatusAtom, 
     currentProviderAtom
 } from '@/lib/atoms'
-import type { AIProvider } from '@shared/ai-types'
+import type { AIProvider } from '@s-agi/core/types/ai'
 
 export function ApiKeysTab() {
     const [selectedModel, setSelectedModel] = useAtom(selectedModelAtom)

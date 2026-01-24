@@ -23,7 +23,7 @@ import {
 import log from "electron-log";
 import { getSecureApiKeyStore } from "../auth/api-key-store";
 import { getChatGPTAuthManager } from "../auth";
-import type { AIProvider } from "@shared/ai-types";
+import type { AIProvider } from "@s-agi/core/types/ai";
 
 let server: ReturnType<typeof createServer> | null = null;
 let serverPort = 0;
