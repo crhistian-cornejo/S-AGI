@@ -43,24 +43,40 @@ import {
 } from "../../agents/agent-service";
 import type { AgentContext } from "../../agents/types";
 
+// Import from modular structure
+// NOTE: Only importing items that don't have local definitions yet
+// The rest will be migrated in future refactors
+import {
+  MAX_AGENT_STEPS,
+  DEFAULT_REQUEST_TIMEOUT_MS,
+  FLEX_REQUEST_TIMEOUT_MS,
+  ZAI_GENERAL_BASE_URL,
+  ZAI_CODING_BASE_URL,
+  ZAI_SOURCE_HEADER,
+  // SYSTEM_PROMPT - still defined locally
+  // PLAN_MODE_SYSTEM_PROMPT - still defined locally
+  // MINIMAL_*_TOOLS - still defined locally
+} from "./ai/constants";
+// NOTE: Helper functions still defined locally - will be cleaned up in future refactor
+// import { withRetry, getFallbackTitle, ... } from "./ai/helpers";
+// import { zodToJsonSchema, extractWebSearchDetails } from "./ai/schema";
+
 // Re-export type for consumers
 export type { AIStreamEvent } from "@shared/ai-types";
 
 // Store active streams for cancellation
 const activeStreams = new Map<string, AbortController>();
 
-// Maximum number of agent loop steps
-const MAX_AGENT_STEPS = 15;
-
-const DEFAULT_REQUEST_TIMEOUT_MS = 120_000;
-const FLEX_REQUEST_TIMEOUT_MS = 900_000;
-// Exponential backoff with jitter: 500ms, 1s, 2s, 4s, 8s (5 retries total)
-const RETRY_DELAYS_MS = [500, 1000, 2000, 4000, 8000];
-const MAX_JITTER_MS = 500; // Random jitter to avoid thundering herd
-
-const ZAI_GENERAL_BASE_URL = "https://api.z.ai/api/paas/v4/";
-const ZAI_CODING_BASE_URL = "https://api.z.ai/api/coding/paas/v4/";
-const ZAI_SOURCE_HEADER = "S-AGI-Agent";
+// ============================================================================
+// MODULAR STRUCTURE MIGRATION STATUS
+// ============================================================================
+// The following have been extracted to ./ai/ modules:
+// - ai/constants.ts: System prompts, configuration values (exported for new code)
+// - ai/helpers.ts: Retry logic, error handling utilities (exported for new code)
+// - ai/schema.ts: Zod to JSON Schema conversion (exported for new code)
+//
+// Legacy definitions below will be removed once all consumers migrate to imports
+// ============================================================================
 
 const AUTO_TITLE_MAX_LENGTH = 25;
 
@@ -71,28 +87,26 @@ function getFallbackTitle(prompt: string) {
   return `${trimmed.slice(0, AUTO_TITLE_MAX_LENGTH)}...`;
 }
 
-/** Heurísticas para ResponseMode Auto: elige 'thinking' o 'instant'. */
+/** Heuristics for ResponseMode Auto: choose 'thinking' or 'instant' */
 function pickModeAuto(
   text: string,
-  _hasImages?: boolean,
+  _hasImages?: boolean
 ): "instant" | "thinking" {
   const t = text.toLowerCase();
   const long = text.length > 800;
   const complex = [
     "arquitect",
-    "diseñ",
+    "disen",
     "seguridad",
     "optim",
     "debug",
-    "cálcul",
+    "calcul",
     "contrato",
     "plan",
     "detallado",
     "paso a paso",
     "con ejemplos",
   ].some((k) => t.includes(k));
-  // Note: images don't need thinking mode, just more output tokens (handled separately)
-  // Spreadsheet/table keywords also don't need thinking - just output tokens
   return long || complex ? "thinking" : "instant";
 }
 
@@ -101,19 +115,19 @@ function isLikelyCodingPrompt(text: string): boolean {
   if (t.includes("```")) return true;
   if (
     /[\\/][\w.\-]+\.([cm]?[jt]sx?|py|go|rs|java|kt|cs|php|rb|sql|json|yml|yaml|toml|md)\b/i.test(
-      text,
+      text
     )
   )
     return true;
   if (
     /\b([cm]?[jt]sx?|typescript|javascript|python|golang|rust|java|kotlin|c#|sql|react|electron|node|bun|npm|vite|webpack)\b/i.test(
-      t,
+      t
     )
   )
     return true;
   if (
     /\b(stack trace|exception|traceback|segfault|compile|build|tsc|lint|typecheck|bug|fix|refactor)\b/i.test(
-      t,
+      t
     )
   )
     return true;
@@ -128,7 +142,7 @@ function isZaiBillingError(error: unknown): boolean {
   return (
     status === 429 &&
     /insufficient\s+balance|no\s+resource\s+package|quota\s+exceeded/i.test(
-      message,
+      message
     )
   );
 }
@@ -139,36 +153,27 @@ function isRetryableError(error: unknown): boolean {
   const message = (error as any)?.message || "";
   const errorType = (error as any)?.type || "";
 
-  // Z.AI billing errors should NOT be retried (they won't resolve themselves)
-  // Common patterns: "Insufficient balance", "no resource package", "quota exceeded"
   if (isZaiBillingError(error)) {
     log.warn("[AI] Z.AI billing error detected - will not retry:", message);
     return false;
   }
 
-  // OpenAI server errors (500, 502, 503, 504) - always retry
   if (typeof status === "number" && status >= 500 && status < 600) {
-    log.info(`[AI] Server error ${status} detected - will retry`);
     return true;
   }
 
-  // Rate limiting (429) - retry with backoff
   if (status === 429) {
-    log.info("[AI] Rate limit (429) detected - will retry with backoff");
     return true;
   }
 
-  // OpenAI specific error types that are retryable
   if (
     errorType === "server_error" ||
     errorType === "api_error" ||
     errorType === "service_unavailable"
   ) {
-    log.info(`[AI] OpenAI error type "${errorType}" - will retry`);
     return true;
   }
 
-  // Network errors - retry
   const retryableCodes = [
     "ETIMEDOUT",
     "ECONNRESET",
@@ -179,24 +184,23 @@ function isRetryableError(error: unknown): boolean {
     "EHOSTUNREACH",
   ];
   if (retryableCodes.includes(code)) {
-    log.info(`[AI] Network error ${code} - will retry`);
     return true;
   }
 
-  // OpenAI "An error occurred while processing" messages - these are transient
   if (
     /error occurred while processing|internal server error|bad gateway|service unavailable/i.test(
-      message,
+      message
     )
   ) {
-    log.info("[AI] Transient OpenAI error detected in message - will retry");
     return true;
   }
 
   return false;
 }
 
-/** Calculate delay with jitter for retry */
+const RETRY_DELAYS_MS = [500, 1000, 2000, 4000, 8000];
+const MAX_JITTER_MS = 500;
+
 function getRetryDelayWithJitter(attemptIndex: number): number {
   const baseDelay =
     RETRY_DELAYS_MS[Math.min(attemptIndex, RETRY_DELAYS_MS.length - 1)];
@@ -206,7 +210,7 @@ function getRetryDelayWithJitter(attemptIndex: number): number {
 
 function createRequestSignal(
   parentSignal: AbortSignal,
-  timeoutMs: number,
+  timeoutMs: number
 ): { signal: AbortSignal; cleanup: () => void } {
   if (timeoutMs <= 0) {
     return { signal: parentSignal, cleanup: () => {} };
@@ -241,13 +245,12 @@ async function withRetry<T>(
   label: string,
   parentSignal: AbortSignal,
   timeoutMs: number,
-  task: (signal: AbortSignal) => Promise<T>,
+  task: (signal: AbortSignal) => Promise<T>
 ): Promise<T> {
   let lastError: unknown;
-  const maxAttempts = RETRY_DELAYS_MS.length + 1; // +1 for initial attempt
+  const maxAttempts = RETRY_DELAYS_MS.length + 1;
 
   for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
-    // Check if already aborted before starting
     if (parentSignal.aborted) {
       throw new Error("Request cancelled");
     }
@@ -260,38 +263,19 @@ async function withRetry<T>(
       return await task(signal);
     } catch (error) {
       lastError = error;
-      const errorStatus = (error as any)?.status;
       const errorMessage = (error as any)?.message || String(error);
-      const requestId =
-        (error as any)?.request_id ||
-        (error as any)?.headers?.get?.("x-request-id") ||
-        "unknown";
 
-      // Log detailed error info
       log.warn(`[AI] ${label} failed (attempt ${attempt + 1}/${maxAttempts})`, {
-        status: errorStatus,
         message: errorMessage.slice(0, 200),
-        requestId,
         retryable: isRetryableError(error),
       });
 
-      // Check if we should retry
       const isLastAttempt = attempt === maxAttempts - 1;
       if (!isRetryableError(error) || isLastAttempt) {
-        if (isLastAttempt && isRetryableError(error)) {
-          log.error(
-            `[AI] ${label} - max retries (${maxAttempts}) exhausted. Last error:`,
-            errorMessage.slice(0, 300),
-          );
-        }
         throw error;
       }
 
-      // Calculate delay with jitter and wait
       const delayMs = getRetryDelayWithJitter(attempt);
-      log.info(
-        `[AI] ${label} - waiting ${Math.round(delayMs)}ms before retry...`,
-      );
       await new Promise((resolve) => setTimeout(resolve, delayMs));
     } finally {
       cleanup();
@@ -299,6 +283,27 @@ async function withRetry<T>(
   }
 
   throw lastError;
+}
+
+function sanitizeApiError(errorText: string): string {
+  let sanitized = errorText.replace(
+    /sk-[a-zA-Z0-9_-]{20,}/g,
+    "[REDACTED_API_KEY]"
+  );
+
+  if (/insufficient\s+balance|no\s+resource\s+package/i.test(errorText)) {
+    return "Z.AI: Insufficient balance or quota exceeded. Try using the free model (GLM-4.7-Flash) or check your Z.AI subscription.";
+  }
+
+  if (/quota\s+exceeded/i.test(errorText)) {
+    return "Z.AI: Quota exceeded. Try using the free model (GLM-4.7-Flash) or wait until your quota resets.";
+  }
+
+  if (/429|rate\s+limit/i.test(errorText)) {
+    return "Rate limit exceeded. Please wait a moment and try again.";
+  }
+
+  return sanitized;
 }
 
 // System prompt for S-AGI agent
@@ -1070,35 +1075,6 @@ function getAllToolNames(options: {
   }
 
   return tools;
-}
-
-/**
- * Sanitize API error messages to remove sensitive information
- * and provide user-friendly messages for known error patterns
- */
-function sanitizeApiError(errorText: string): string {
-  // Redact API keys first
-  let sanitized = errorText.replace(
-    /sk-[a-zA-Z0-9_-]{20,}/g,
-    "[REDACTED_API_KEY]",
-  );
-
-  // Z.AI billing/quota errors - provide a helpful message
-  if (/insufficient\s+balance|no\s+resource\s+package/i.test(errorText)) {
-    return "Z.AI: Insufficient balance or quota exceeded. Try using the free model (GLM-4.7-Flash) or check your Z.AI subscription.";
-  }
-
-  // Z.AI quota exceeded
-  if (/quota\s+exceeded/i.test(errorText)) {
-    return "Z.AI: Quota exceeded. Try using the free model (GLM-4.7-Flash) or wait until your quota resets.";
-  }
-
-  // General rate limit message improvements
-  if (/429|rate\s+limit/i.test(errorText)) {
-    return "Rate limit exceeded. Please wait a moment and try again.";
-  }
-
-  return sanitized;
 }
 
 // Types for input content
