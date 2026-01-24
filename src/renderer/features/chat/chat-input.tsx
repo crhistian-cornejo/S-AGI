@@ -1,7 +1,6 @@
 import { memo, useMemo, useRef, useEffect, useState, useCallback } from "react";
 import { useAtom, useAtomValue } from "jotai";
-import { useDebounce } from "@/lib/use-debounce";
-import { useSpellCheck } from "@/lib/use-spell-check";
+import { useDebounce, useSpellCheck } from "@/hooks";
 import { AnimatedLogo } from "./animated-logo";
 import { TextShimmer } from "@/components/ui/text-shimmer";
 import {
@@ -30,7 +29,7 @@ import {
   type MentionableDocument,
 } from "@/components/document-mention-popover";
 import { selectedChatIdAtom } from "@/lib/atoms";
-import { useDocumentUpload } from "@/lib/use-document-upload";
+import { useDocumentUpload } from "@/hooks";
 import {
   Select,
   SelectContent,
@@ -59,8 +58,7 @@ import {
   type ResponseMode,
 } from "@/lib/atoms";
 
-import { useFileUpload } from "@/lib/use-file-upload";
-import { getDocumentAcceptTypes } from "@/lib/use-document-upload";
+import { useFileUpload, getDocumentAcceptTypes } from "@/hooks";
 import { cn, isMacOS } from "@/lib/utils";
 import {
   Tooltip,

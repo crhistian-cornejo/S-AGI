@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { Logo } from "@/components/ui/logo";
-import { useChatSounds } from "@/lib/use-chat-sounds";
+import { useChatSounds } from "@/hooks";
 import { useAtomValue } from "jotai";
 import { chatSoundsEnabledAtom } from "@/lib/atoms";
 import { cn } from "@/lib/utils";

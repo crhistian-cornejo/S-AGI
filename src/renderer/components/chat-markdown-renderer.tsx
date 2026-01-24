@@ -8,7 +8,7 @@ import { mermaid } from '@streamdown/mermaid'
 import { IconCopy, IconCheck, IconExternalLink } from '@tabler/icons-react'
 import { cn } from '@/lib/utils'
 import { InlineCitation, type CitationData } from '@/components/inline-citation'
-import { useCitationNavigation } from '@/lib/hooks/use-citation-navigation'
+import { useCitationNavigation } from '@/hooks'
 
 import 'katex/dist/katex.min.css'
 

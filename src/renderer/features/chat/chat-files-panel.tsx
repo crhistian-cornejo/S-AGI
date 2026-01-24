@@ -5,7 +5,7 @@
 import { useState, useEffect } from 'react'
 import { useAtomValue } from 'jotai'
 import { selectedChatIdAtom } from '@/lib/atoms'
-import { useDocumentUpload, type VectorStoreFile, type UploadedDocument } from '@/lib/use-document-upload'
+import { useDocumentUpload, type VectorStoreFile, type UploadedDocument } from '@/hooks'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import {

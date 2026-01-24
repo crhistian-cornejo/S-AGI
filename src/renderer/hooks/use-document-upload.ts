@@ -3,7 +3,7 @@
  * Handles PDF, Word, text files and code files
  */
 import { useState, useCallback } from 'react'
-import { trpc } from './trpc'
+import { trpc } from '@/lib/trpc'
 
 export interface UploadedDocument {
     id: string
