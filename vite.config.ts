@@ -7,6 +7,8 @@ const rendererRoot = resolve(__dirname, 'apps/electron/renderer')
 export default defineConfig({
     // Run Vite directly against the renderer folder so it matches electron-vite's renderer setup
     root: rendererRoot,
+    // Static assets from resources folder
+    publicDir: resolve(__dirname, 'apps/electron/resources'),
     plugins: [react()],
     resolve: {
         alias: {

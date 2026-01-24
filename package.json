@@ -37,8 +37,8 @@
         "mac": {
             "identity": "Developer ID Application: Crhistian Cornejo Ruiz (663F68N7L3)",
             "hardenedRuntime": true,
-            "entitlements": "build/entitlements.plist",
-            "entitlementsInherit": "build/entitlements.plist",
+            "entitlements": "apps/electron/build/entitlements.plist",
+            "entitlementsInherit": "apps/electron/build/entitlements.plist",
             "signatureFlags": [
                 "library"
             ],
@@ -55,7 +55,7 @@
         "nsis": {
             "oneClick": false,
             "allowToChangeInstallationDirectory": true,
-            "background": "build/background.png"
+            "background": "apps/electron/build/background.png"
         }
     },
     "dependencies": {

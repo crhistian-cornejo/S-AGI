@@ -983,7 +983,7 @@ function createWindow(): void {
         ? join(__dirname, "icon.icns")
         : process.platform === "win32"
           ? join(__dirname, "icon.ico")
-          : join(__dirname, "../../public/logo.svg"),
+          : join(__dirname, "logo.svg"),
     webPreferences: {
       preload: join(__dirname, "../preload/index.js"),
       sandbox: true,

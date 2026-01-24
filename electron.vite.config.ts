@@ -10,15 +10,17 @@ function copyTrayIcons() {
     const copyIcons = () => {
         const trayIcons = ['trayTemplate.png', 'trayTemplate@2x.png', 'trayTemplate.svg']
         const appIcons = ['icon.icns', 'icon.ico']
+        const resourceIcons = ['logo.svg'] // For Linux
 
         const srcMainDir = resolve(__dirname, 'apps/electron/main')
-        const srcBuildDir = resolve(__dirname, 'build')
+        const srcBuildDir = resolve(__dirname, 'apps/electron/build')
+        const srcResourcesDir = resolve(__dirname, 'apps/electron/resources')
         const outDir = resolve(__dirname, 'out/main')
-        
+
         if (!existsSync(outDir)) {
             mkdirSync(outDir, { recursive: true })
         }
-        
+
         // Copy tray icons from src/main
         for (const icon of trayIcons) {
             const src = resolve(srcMainDir, icon)
@@ -36,6 +38,16 @@ function copyTrayIcons() {
             if (existsSync(src)) {
                 copyFileSync(src, dest)
                 console.log(`Copied app icon ${icon} to out/main/`)
+            }
+        }
+
+        // Copy resource icons (logo for Linux)
+        for (const icon of resourceIcons) {
+            const src = resolve(srcResourcesDir, icon)
+            const dest = resolve(outDir, icon)
+            if (existsSync(src)) {
+                copyFileSync(src, dest)
+                console.log(`Copied resource ${icon} to out/main/`)
             }
         }
     }
@@ -111,6 +123,7 @@ export default defineConfig({
     },
     renderer: {
         root: resolve(__dirname, 'apps/electron/renderer'),
+        publicDir: resolve(__dirname, 'apps/electron/resources'),
         resolve: {
             alias: {
                 '@': resolve('apps/electron/renderer'),

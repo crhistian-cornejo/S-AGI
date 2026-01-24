@@ -1,0 +1,22 @@
+{
+  "name": "@s-agi/core",
+  "version": "0.1.0",
+  "license": "Apache-2.0",
+  "description": "Core types, schemas, and utilities for S-AGI",
+  "type": "module",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./types": "./src/types/index.ts",
+    "./types/ai": "./src/types/ai.ts",
+    "./types/hotkeys": "./src/types/hotkeys.ts",
+    "./schemas": "./src/schemas/index.ts",
+    "./file-config": "./src/file-config.ts",
+    "./utils": "./src/utils/index.ts",
+    "./utils/detect-language": "./src/utils/detect-language.ts"
+  },
+  "peerDependencies": {
+    "zod": ">=3.0.0"
+  }
+}

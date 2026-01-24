@@ -1,10 +1,3 @@
-/**
- * Core type definitions for S-AGI
- *
- * These types are shared between the Electron app and other packages.
- * Keep synchronized with apps/electron/shared/types.ts
- */
-
 import { z } from 'zod'
 
 // Message role types
@@ -54,10 +47,10 @@ export const ArtifactSchema = z.object({
     message_id: z.string().uuid().optional(),
     type: ArtifactTypeSchema,
     name: z.string(),
-    content: z.any(),
-    univer_data: z.any().optional(),
-    pdf_url: z.string().optional(),
-    pdf_page_count: z.number().optional(),
+    content: z.any(), // JSONB content
+    univer_data: z.any().optional(), // Univer workbook data
+    pdf_url: z.string().optional(), // URL for PDF files
+    pdf_page_count: z.number().optional(), // Number of pages in PDF
     created_at: z.string().datetime(),
     updated_at: z.string().datetime()
 })
@@ -92,12 +85,13 @@ export interface UniverSheetData {
 }
 
 export interface UniverCellData {
-    v?: string | number | boolean
-    f?: string
-    s?: string
-    t?: 'n' | 's' | 'b' | 'f'
+    v?: string | number | boolean // value
+    f?: string // formula
+    s?: string // style id
+    t?: 'n' | 's' | 'b' | 'f' // type: number, string, boolean, formula
 }
 
+// Univer document data structure (for Word-like documents)
 export interface UniverDocumentData {
     id: string
     title?: string
