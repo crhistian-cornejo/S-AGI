@@ -757,6 +757,16 @@ RESPONSE STYLE FOR CLAUDE
 }
 
 /**
+ * MCP Tool Definition (matches sdk.d.ts SdkMcpToolDefinition)
+ */
+export interface McpToolDef {
+    name: string
+    description: string
+    inputSchema: unknown
+    handler: (args: unknown, extra: unknown) => Promise<{ content: Array<{ type: string; text: string }>; isError?: boolean }>
+}
+
+/**
  * Agent Panel specific streaming options
  */
 export interface AgentPanelClaudeOptions {
@@ -769,6 +779,8 @@ export interface AgentPanelClaudeOptions {
     authToken?: string
     apiKey?: string
     emitEvent: (event: AgentPanelStreamEvent) => void
+    /** Custom MCP tools for Excel, PDF, Docs, etc. */
+    mcpTools?: McpToolDef[]
 }
 
 /**
@@ -799,7 +811,8 @@ export async function streamClaudeForAgentPanel(options: AgentPanelClaudeOptions
         signal,
         authToken,
         apiKey,
-        emitEvent
+        emitEvent,
+        mcpTools
     } = options
 
     const finalPrompt = buildPrompt(prompt, messages)
@@ -823,11 +836,41 @@ export async function streamClaudeForAgentPanel(options: AgentPanelClaudeOptions
             sessionId,
             modelId,
             hasOAuthToken: !!authToken,
-            hasApiKey: !!apiKey
+            hasApiKey: !!apiKey,
+            mcpToolsCount: mcpTools?.length || 0
         })
 
-        const { query, AbortError } = await loadClaudeSdk()
+        const sdk = await loadClaudeSdk()
+        const { query, AbortError } = sdk
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const createSdkMcpServer = (sdk as any).createSdkMcpServer as
+            | ((opts: { name: string; version: string; tools: unknown[] }) => unknown)
+            | undefined
+
+        // Create MCP server with custom tools if provided
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        let mcpServers: Record<string, any> = {}
+        const allowedTools: string[] = ['WebSearch', 'WebFetch']
+
+        if (mcpTools && mcpTools.length > 0 && createSdkMcpServer) {
+            log.info('[Claude SDK AgentPanel] Creating MCP server with tools:', mcpTools.map(t => t.name))
+
+            const mcpServer = createSdkMcpServer({
+                name: 's-agi-tools',
+                version: '1.0.0',
+                tools: mcpTools
+            })
+
+            mcpServers = { 's-agi-tools': mcpServer }
+
+            // Add MCP tool names to allowed tools
+            for (const tool of mcpTools) {
+                allowedTools.push(`mcp__s-agi-tools__${tool.name}`)
+            }
+        }
+
         log.info('[Claude SDK AgentPanel] Starting query with prompt length:', finalPrompt.length)
+        log.info('[Claude SDK AgentPanel] Allowed tools:', allowedTools)
 
         const response = query({
             prompt: finalPrompt,
@@ -837,10 +880,9 @@ export async function streamClaudeForAgentPanel(options: AgentPanelClaudeOptions
                 systemPrompt,
                 permissionMode: 'bypassPermissions',
                 allowDangerouslySkipPermissions: true,
-                // Enable native Claude tools for web search
-                allowedTools: ['WebSearch', 'WebFetch'],
+                allowedTools,
                 includePartialMessages: true,
-                mcpServers: {},
+                mcpServers,
                 persistSession: false,
                 env,
                 stderr: (data: string) => {
