@@ -24,13 +24,19 @@
         "baseUrl": ".",
         "paths": {
             "@/*": [
-                "./src/renderer/*"
+                "./apps/electron/renderer/*"
             ],
             "@main/*": [
-                "./src/main/*"
+                "./apps/electron/main/*"
             ],
             "@shared/*": [
-                "./src/shared/*"
+                "./apps/electron/shared/*"
+            ],
+            "@s-agi/core": [
+                "./packages/core/src/index.ts"
+            ],
+            "@s-agi/core/*": [
+                "./packages/core/src/*"
             ],
             "@univerjs/sheets-numfmt$real": [
                 "./node_modules/@univerjs/sheets-numfmt"
@@ -38,11 +44,12 @@
         }
     },
     "include": [
-        "src/**/*"
+        "apps/**/*"
     ],
     "exclude": [
         "node_modules",
         "out",
-        "release"
+        "release",
+        "packages"
     ]
 }

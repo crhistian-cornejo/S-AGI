@@ -10,15 +10,17 @@ function copyTrayIcons() {
     const copyIcons = () => {
         const trayIcons = ['trayTemplate.png', 'trayTemplate@2x.png', 'trayTemplate.svg']
         const appIcons = ['icon.icns', 'icon.ico']
-        
-        const srcMainDir = resolve(__dirname, 'src/main')
-        const srcBuildDir = resolve(__dirname, 'build')
+        const resourceIcons = ['logo.svg'] // For Linux
+
+        const srcMainDir = resolve(__dirname, 'apps/electron/main')
+        const srcBuildDir = resolve(__dirname, 'apps/electron/build')
+        const srcResourcesDir = resolve(__dirname, 'apps/electron/resources')
         const outDir = resolve(__dirname, 'out/main')
-        
+
         if (!existsSync(outDir)) {
             mkdirSync(outDir, { recursive: true })
         }
-        
+
         // Copy tray icons from src/main
         for (const icon of trayIcons) {
             const src = resolve(srcMainDir, icon)
@@ -36,6 +38,16 @@ function copyTrayIcons() {
             if (existsSync(src)) {
                 copyFileSync(src, dest)
                 console.log(`Copied app icon ${icon} to out/main/`)
+            }
+        }
+
+        // Copy resource icons (logo for Linux)
+        for (const icon of resourceIcons) {
+            const src = resolve(srcResourcesDir, icon)
+            const dest = resolve(outDir, icon)
+            if (existsSync(src)) {
+                copyFileSync(src, dest)
+                console.log(`Copied resource ${icon} to out/main/`)
             }
         }
     }
@@ -57,12 +69,13 @@ export default defineConfig({
             externalizeDepsPlugin({
                 // Don't externalize these - bundle them instead
                 exclude: [
-                    'superjson', 
-                    'trpc-electron', 
-                    'jose', 
-                    'ai', 
-                    '@ai-sdk/openai', 
+                    'superjson',
+                    'trpc-electron',
+                    'jose',
+                    'ai',
+                    '@ai-sdk/openai',
                     'unpdf',
+                    '@libpdf/core',
                     '@blocknote/xl-ai',
                     '@blocknote/core',
                     'prosemirror-highlight',
@@ -74,16 +87,17 @@ export default defineConfig({
         ],
         resolve: {
             alias: {
-                '@main': resolve('src/main'),
-                '@shared': resolve('src/shared')
+                '@main': resolve('apps/electron/main'),
+                '@shared': resolve('apps/electron/shared'),
+                '@s-agi/core': resolve('packages/core/src')
             }
         },
         build: {
             rollupOptions: {
                 input: {
-                    index: resolve(__dirname, 'src/main/index.ts')
+                    index: resolve(__dirname, 'apps/electron/main/index.ts')
                 },
-                external: ['electron', 'better-sqlite3'],
+                external: ['electron', 'better-sqlite3', 'sharp'],
                 output: {
                     format: 'cjs'
                 }
@@ -99,7 +113,7 @@ export default defineConfig({
         build: {
             rollupOptions: {
                 input: {
-                    index: resolve(__dirname, 'src/preload/index.ts')
+                    index: resolve(__dirname, 'apps/electron/preload/index.ts')
                 },
                 external: ['electron'],
                 output: {
@@ -109,16 +123,19 @@ export default defineConfig({
         }
     },
     renderer: {
+        root: resolve(__dirname, 'apps/electron/renderer'),
+        publicDir: resolve(__dirname, 'apps/electron/resources'),
         resolve: {
             alias: {
-                '@': resolve('src/renderer'),
-                '@shared': resolve('src/shared'),
+                '@': resolve('apps/electron/renderer'),
+                '@shared': resolve('apps/electron/shared'),
+                '@s-agi/core': resolve('packages/core/src'),
                 // Subpaths of numfmt must resolve to the real package (facade, etc.)
                 '@univerjs/sheets-numfmt/facade': resolve(__dirname, 'node_modules/@univerjs/sheets-numfmt/lib/es/facade.js'),
                 // Real package for the patch (avoids circular alias; TS: see tsconfig paths)
                 '@univerjs/sheets-numfmt$real': resolve(__dirname, 'node_modules/@univerjs/sheets-numfmt'),
                 // Main entry: extended currency symbols (PEN, MX$, R$, etc.)
-                '@univerjs/sheets-numfmt': resolve(__dirname, 'src/renderer/features/univer/numfmt-currency-patch.ts'),
+                '@univerjs/sheets-numfmt': resolve(__dirname, 'apps/electron/renderer/features/univer/numfmt-currency-patch.ts'),
             },
             // Dedupe redi so all Univer packages share one @wendellhu/redi instance.
             // Prevents "Identifier rpc.remote-sync.service already exists" and
@@ -133,9 +150,9 @@ export default defineConfig({
         build: {
             rollupOptions: {
                 input: {
-                    index: resolve(__dirname, 'src/renderer/index.html'),
-                    'tray-popover': resolve(__dirname, 'src/renderer/tray-popover.html'),
-                    'quick-prompt': resolve(__dirname, 'src/renderer/quick-prompt.html')
+                    index: resolve(__dirname, 'apps/electron/renderer/index.html'),
+                    'tray-popover': resolve(__dirname, 'apps/electron/renderer/tray-popover.html'),
+                    'quick-prompt': resolve(__dirname, 'apps/electron/renderer/quick-prompt.html')
                 }
             }
         }

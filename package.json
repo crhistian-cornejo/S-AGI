@@ -2,67 +2,45 @@
     "name": "s-agi",
     "version": "0.1.0",
     "private": true,
+    "type": "module",
     "license": "Apache-2.0",
     "description": "S-AGI - AI Agent for Spreadsheets with Univer",
     "author": "S-AGI",
-    "main": "out/main/index.js",
+    "main": "out/main/index.cjs",
+    "workspaces": [
+        "apps/*",
+        "packages/*"
+    ],
     "scripts": {
-        "predev": "bun scripts/predev.ts",
+        "predev": "bun apps/electron/scripts/predev.ts",
         "dev": "electron-vite dev",
         "dev:web": "vite --config vite.config.ts",
         "build": "electron-vite build",
         "build:web": "vite build --config vite.config.ts",
         "preview": "electron-vite preview",
-        "package": "node node_modules/dotenv-cli/cli.js -- electron-builder --dir",
-        "package:mac": "node node_modules/dotenv-cli/cli.js -- electron-builder --mac",
-        "package:win": "node node_modules/dotenv-cli/cli.js -- electron-builder --win",
-        "package:linux": "node node_modules/dotenv-cli/cli.js -- electron-builder --linux",
-        "dist": "node node_modules/dotenv-cli/cli.js -- electron-builder",
-        "ts:check": "tsc --noEmit",
+        "typecheck": "tsc --noEmit",
+        "typecheck:core": "cd packages/core && bun run tsc --noEmit",
+        "clean": "rm -rf out dist apps/electron/release",
+        "clean:modules": "rm -rf node_modules apps/electron/node_modules packages/*/node_modules",
+        "electron:dist": "bun run build && electron-builder --config apps/electron/electron-builder.yml --project apps/electron",
+        "electron:dist:mac": "bun run build && electron-builder --config apps/electron/electron-builder.yml --project apps/electron --mac",
+        "electron:dist:win": "bun run build && electron-builder --config apps/electron/electron-builder.yml --project apps/electron --win",
+        "electron:dist:linux": "bun run build && electron-builder --config apps/electron/electron-builder.yml --project apps/electron --linux",
         "postinstall": "electron-rebuild -f -w better-sqlite3"
-    },
-    "build": {
-        "appId": "com.s-agi.app",
-        "productName": "S-AGI",
-        "directories": {
-            "output": "dist"
-        },
-        "files": [
-            "out/**/*"
-        ],
-        "mac": {
-            "identity": "Developer ID Application: Crhistian Cornejo Ruiz (663F68N7L3)",
-            "hardenedRuntime": true,
-            "entitlements": "build/entitlements.plist",
-            "entitlementsInherit": "build/entitlements.plist",
-            "signatureFlags": [
-                "library"
-            ],
-            "notarize": {
-                "teamId": "663F68N7L3"
-            }
-        },
-        "win": {
-            "target": [
-                "nsis",
-                "portable"
-            ]
-        },
-        "nsis": {
-            "oneClick": false,
-            "allowToChangeInstallationDirectory": true,
-            "background": "build/background.png"
-        }
     },
     "dependencies": {
         "@ai-sdk-tools/agents": "^1.2.0",
         "@ai-sdk-tools/memory": "^1.2.0",
+        "@ai-sdk/anthropic": "^3.0.23",
         "@ai-sdk/openai": "^3.0.13",
+        "@anthropic-ai/claude-agent-sdk": "^0.2.19",
+        "@anthropic-ai/sdk": "^0.71.2",
         "@blocknote/core": "^0.46.1",
         "@blocknote/mantine": "^0.46.1",
         "@blocknote/react": "^0.46.1",
         "@blocknote/xl-ai": "^0.46.1",
         "@blocknote/xl-pdf-exporter": "^0.46.1",
+        "@electron/fuses": "^2.0.0",
         "@embedpdf/core": "1.5.0",
         "@embedpdf/engines": "1.5.0",
         "@embedpdf/plugin-annotation": "1.5.0",
@@ -76,6 +54,7 @@
         "@embedpdf/plugin-zoom": "1.5.0",
         "@emotion/is-prop-valid": "^1.4.0",
         "@git-diff-view/react": "^0.0.36",
+        "@img/sharp-libvips-darwin-arm64": "^1.2.4",
         "@libpdf/core": "^0.2.1",
         "@mantine/core": "^8.3.13",
         "@mantine/hooks": "^8.3.13",
@@ -186,6 +165,7 @@
         "trpc-electron": "^0.1.2",
         "typo-js": "^1.3.1",
         "unpdf": "^1.4.0",
+        "xlsx": "^0.18.5",
         "xterm": "^5.3.0",
         "zod": "^3.24.1",
         "zustand": "^5.0.3"

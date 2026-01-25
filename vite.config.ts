@@ -2,16 +2,18 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { resolve } from 'path'
 
-const rendererRoot = resolve(__dirname, 'src/renderer')
+const rendererRoot = resolve(__dirname, 'apps/electron/renderer')
 
 export default defineConfig({
     // Run Vite directly against the renderer folder so it matches electron-vite's renderer setup
     root: rendererRoot,
+    // Static assets from resources folder
+    publicDir: resolve(__dirname, 'apps/electron/resources'),
     plugins: [react()],
     resolve: {
         alias: {
             '@': rendererRoot,
-            '@shared': resolve(__dirname, 'src/shared')
+            '@shared': resolve(__dirname, 'apps/electron/shared')
         },
         // Dedupe redi so all Univer packages share one @wendellhu/redi instance
         dedupe: ['@wendellhu/redi'],
