@@ -23,6 +23,9 @@ import {
   IconCheck,
   IconAlertCircle,
   IconCloudUpload,
+  IconHistory,
+  IconRefresh,
+  IconUser,
 } from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -57,6 +60,7 @@ import {
 import { AI_MODELS, getModelsByProvider } from "@s-agi/core/types/ai";
 import type { AIProvider } from "@s-agi/core/types/ai";
 import { trpc } from "@/lib/trpc";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 
 // Agent context configurations
 const AGENT_CONTEXTS = {
@@ -207,6 +211,7 @@ const ImagePreview = memo(function ImagePreview({
         </div>
       ) : (
         <button
+          type="button"
           onClick={onRemove}
           className="absolute -top-1.5 -right-1.5 h-5 w-5 rounded-full bg-destructive text-destructive-foreground flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity shadow-sm"
         >
@@ -373,6 +378,7 @@ export function AgentPanel() {
   const selectedPdf = useAtomValue(selectedPdfAtom);
 
   const [input, setInput] = useState("");
+  const [historyDialogOpen, setHistoryDialogOpen] = useState(false);
 
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -405,14 +411,6 @@ export function AgentPanel() {
     [activeTab, setAllMessages],
   );
 
-  // tRPC mutations
-  const chatMutation = trpc.agentPanel.chat.useMutation();
-  const stopMutation = trpc.agentPanel.stop.useMutation();
-
-  // Note: Document-specific chat persistence is disabled for now
-  // as local PDFs don't have valid UUIDs in the database.
-  // Messages are stored in local state (atomWithStorage) which persists across sessions.
-
   // Session ID for streaming (combine tab + artifact id)
   const sessionId = useMemo(() => {
     if (activeTab === "pdf" && selectedPdf) {
@@ -420,6 +418,50 @@ export function AgentPanel() {
     }
     return `${activeTab}-default`;
   }, [activeTab, selectedPdf]);
+
+  // tRPC mutations
+  const chatMutation = trpc.agentPanel.chat.useMutation();
+  const stopMutation = trpc.agentPanel.stop.useMutation();
+  const addPanelMessage = trpc.panelMessages.add.useMutation();
+  const clearPanelMessages = trpc.panelMessages.clear.useMutation();
+  const utils = trpc.useUtils();
+
+  // Load messages from Supabase when session changes
+  const { data: savedMessages, refetch: refetchMessages, isLoading: isLoadingHistory } = trpc.panelMessages.list.useQuery(
+    {
+      panelType: 'agent_panel',
+      sourceId: sessionId,
+      tabType: isAgentTab(activeTab) ? activeTab : undefined
+    },
+    {
+      enabled: isAgentTab(activeTab),
+      refetchOnWindowFocus: false
+    }
+  );
+
+  const hasSavedHistory = savedMessages && savedMessages.length > 0;
+  const historyCount = savedMessages?.length || 0;
+
+  // Sync saved messages to local state
+  // Note: We intentionally exclude 'messages' from deps to avoid infinite loop
+  // The effect only needs to run when savedMessages or activeTab changes
+  useEffect(() => {
+    if (savedMessages && savedMessages.length > 0 && isAgentTab(activeTab)) {
+      const syncedMessages: AgentPanelMessage[] = savedMessages.map((msg: { id: string; role: string; content: string; created_at: string; metadata?: { images?: unknown; toolCalls?: unknown } }) => ({
+        id: msg.id,
+        role: msg.role as 'user' | 'assistant',
+        content: msg.content,
+        timestamp: new Date(msg.created_at).getTime(),
+        images: msg.metadata?.images as AgentPanelMessage['images'],
+        toolCalls: msg.metadata?.toolCalls as AgentPanelMessage['toolCalls']
+      }));
+      setMessages(syncedMessages);
+    } else if (savedMessages && savedMessages.length === 0) {
+      // Clear local state when switching to a session with no saved messages
+      setMessages([]);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [savedMessages, activeTab, setMessages]);
 
   // Listen to streaming events
   useEffect(() => {
@@ -456,7 +498,7 @@ export function AgentPanel() {
           // Update last message with tool call
           setMessages((prev: AgentPanelMessage[]) => {
             const last = prev[prev.length - 1];
-            if (last && last.role === "assistant") {
+            if (last && last.role === "assistant" && event.toolName && event.toolCallId) {
               return [
                 ...prev.slice(0, -1),
                 {
@@ -464,8 +506,8 @@ export function AgentPanel() {
                   toolCalls: [
                     ...(last.toolCalls || []),
                     {
-                      toolName: event.toolName!,
-                      toolCallId: event.toolCallId!,
+                      toolName: event.toolName,
+                      toolCallId: event.toolCallId,
                       status: "executing" as const,
                     },
                   ],
@@ -532,22 +574,49 @@ export function AgentPanel() {
                 (m: AgentPanelMessage) => m.role === "assistant",
               );
               const lastIdx = reversedIdx >= 0 ? prev.length - 1 - reversedIdx : -1;
+              let updatedMessages: AgentPanelMessage[];
               if (lastIdx >= 0) {
-                return [
+                updatedMessages = [
                   ...prev.slice(0, lastIdx),
                   { ...prev[lastIdx], content: finalContent },
                   ...prev.slice(lastIdx + 1),
                 ];
+              } else {
+                updatedMessages = [
+                  ...prev,
+                  {
+                    id: nanoid(),
+                    role: "assistant",
+                    content: finalContent,
+                    timestamp: Date.now(),
+                  },
+                ];
               }
-              return [
-                ...prev,
-                {
-                  id: nanoid(),
-                  role: "assistant",
-                  content: finalContent,
-                  timestamp: Date.now(),
-                },
-              ];
+              
+              // Save assistant message to Supabase
+              if (isAgentTab(activeTab)) {
+                const lastMessage = updatedMessages[updatedMessages.length - 1];
+                if (lastMessage && lastMessage.role === 'assistant') {
+                  addPanelMessage.mutateAsync({
+                    panelType: 'agent_panel',
+                    sourceId: sessionId,
+                    tabType: activeTab,
+                    role: 'assistant',
+                    content: finalContent,
+                    metadata: lastMessage.toolCalls ? { toolCalls: lastMessage.toolCalls } : undefined
+                  }).then(() => {
+                    utils.panelMessages.list.invalidate({
+                      panelType: 'agent_panel',
+                      sourceId: sessionId,
+                      tabType: activeTab
+                    });
+                  }).catch((err: unknown) => {
+                    console.error('Failed to save assistant message:', err);
+                  });
+                }
+              }
+              
+              return updatedMessages;
             });
           }
           setStreamingText("");
@@ -569,7 +638,7 @@ export function AgentPanel() {
       );
       cleanup?.();
     };
-  }, [sessionId, streamingText, setStreamingText, setIsStreaming, setMessages]);
+  }, [sessionId, streamingText, setStreamingText, setIsStreaming, setMessages, activeTab]);
 
   // Auto-scroll
   useEffect(() => {
@@ -616,6 +685,27 @@ export function AgentPanel() {
         timestamp: Date.now(),
       },
     ]);
+
+    // Save user message to Supabase
+    if (isAgentTab(activeTab)) {
+      try {
+        await addPanelMessage.mutateAsync({
+          panelType: 'agent_panel',
+          sourceId: sessionId,
+          tabType: activeTab,
+          role: 'user',
+          content: userMessage.content,
+          metadata: userMessage.images ? { images: userMessage.images } : undefined
+        });
+        await utils.panelMessages.list.invalidate({
+          panelType: 'agent_panel',
+          sourceId: sessionId,
+          tabType: activeTab
+        });
+      } catch (err) {
+        console.error('Failed to save user message:', err);
+      }
+    }
 
     setInput("");
     setImages([]);
@@ -777,10 +867,27 @@ export function AgentPanel() {
   );
 
   // Clear messages
-  const handleClear = useCallback(() => {
+  const handleClear = useCallback(async () => {
     setMessages([]);
     setStreamingText("");
-  }, [setMessages, setStreamingText]);
+    // Clear messages from Supabase
+    if (isAgentTab(activeTab)) {
+      try {
+        await clearPanelMessages.mutateAsync({
+          panelType: 'agent_panel',
+          sourceId: sessionId,
+          tabType: activeTab
+        });
+        await utils.panelMessages.list.invalidate({
+          panelType: 'agent_panel',
+          sourceId: sessionId,
+          tabType: activeTab
+        });
+      } catch (err) {
+        console.error('Failed to clear messages:', err);
+      }
+    }
+  }, [setMessages, setStreamingText, activeTab, sessionId, clearPanelMessages, utils]);
 
   // Provider/model change handlers
   const handleProviderChange = useCallback(
@@ -852,7 +959,55 @@ export function AgentPanel() {
             </div>
           </div>
 
-          <div className="flex items-center gap-1">
+          <div className="flex items-center gap-1.5">
+            {/* History button - more visible */}
+            {isAgentTab(activeTab) && hasSavedHistory && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-7 px-2.5 text-xs gap-1.5"
+                    onClick={() => setHistoryDialogOpen(true)}
+                  >
+                    <IconHistory size={13} className="text-primary" />
+                    <span className="font-medium">Historial</span>
+                    {historyCount > 0 && (
+                      <span className="h-4 w-4 rounded-full bg-primary text-[9px] text-primary-foreground flex items-center justify-center font-bold">
+                        {historyCount > 9 ? '9+' : historyCount}
+                      </span>
+                    )}
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">
+                  Ver {historyCount} mensaje{historyCount !== 1 ? 's' : ''} guardado{historyCount !== 1 ? 's' : ''}
+                </TooltipContent>
+              </Tooltip>
+            )}
+            {/* Refresh button (only when no history) */}
+            {isAgentTab(activeTab) && !hasSavedHistory && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7 text-muted-foreground hover:text-primary"
+                    onClick={() => {
+                      refetchMessages();
+                      utils.panelMessages.list.invalidate({
+                        panelType: 'agent_panel',
+                        sourceId: sessionId,
+                        tabType: activeTab
+                      });
+                    }}
+                    disabled={isLoadingHistory}
+                  >
+                    <IconRefresh size={14} className={cn("text-muted-foreground", isLoadingHistory && "animate-spin")} />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">Recargar historial</TooltipContent>
+              </Tooltip>
+            )}
             {messages.length > 0 && (
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -865,17 +1020,22 @@ export function AgentPanel() {
                     <IconTrash size={14} />
                   </Button>
                 </TooltipTrigger>
-                <TooltipContent>Clear conversation</TooltipContent>
+                <TooltipContent side="bottom">Limpiar conversación actual</TooltipContent>
               </Tooltip>
             )}
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-7 w-7 text-muted-foreground"
-              onClick={() => setIsOpen(false)}
-            >
-              <IconChevronRight size={16} />
-            </Button>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-7 w-7 text-muted-foreground"
+                  onClick={() => setIsOpen(false)}
+                >
+                  <IconChevronRight size={16} />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">Cerrar panel</TooltipContent>
+            </Tooltip>
           </div>
         </div>
       </div>
@@ -1083,6 +1243,56 @@ export function AgentPanel() {
           </div>
         </div>
       </div>
+
+      {/* History Dialog */}
+      <Dialog open={historyDialogOpen} onOpenChange={setHistoryDialogOpen}>
+        <DialogContent className="max-w-2xl max-h-[80vh]">
+          <DialogHeader>
+            <DialogTitle>Historial de Conversación</DialogTitle>
+            <DialogDescription>
+              {historyCount} mensaje{historyCount !== 1 ? 's' : ''} guardado{historyCount !== 1 ? 's' : ''} para {agentContext?.title || 'este documento'}
+            </DialogDescription>
+          </DialogHeader>
+          <ScrollArea className="max-h-[60vh] pr-4">
+            <div className="space-y-3">
+              {savedMessages && savedMessages.length > 0 ? (
+                savedMessages.map((msg: { id: string; role: string; content: string; created_at: string; metadata?: { images?: unknown; toolCalls?: unknown } }) => (
+                  <div key={msg.id} className={cn("flex gap-2", msg.role === 'user' ? "justify-end" : "justify-start")}>
+                    {msg.role === 'assistant' && (
+                      <div className="w-7 h-7 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
+                        <IconSparkles size={14} className="text-primary" />
+                      </div>
+                    )}
+                    <div
+                      className={cn(
+                        "max-w-[90%] rounded-2xl",
+                        msg.role === 'user'
+                          ? "bg-primary text-primary-foreground rounded-br-md px-4 py-2.5"
+                          : "bg-muted/60 rounded-bl-md px-4 py-3"
+                      )}
+                    >
+                      {msg.role === 'user' ? (
+                        <p className="text-sm leading-relaxed whitespace-pre-wrap">{msg.content}</p>
+                      ) : (
+                        <ChatMarkdownRenderer content={msg.content} size="sm" />
+                      )}
+                    </div>
+                    {msg.role === 'user' && (
+                      <div className="w-7 h-7 rounded-lg bg-muted flex items-center justify-center shrink-0">
+                        <IconUser size={14} className="text-muted-foreground" />
+                      </div>
+                    )}
+                  </div>
+                ))
+              ) : (
+                <div className="text-center py-8 text-muted-foreground text-sm">
+                  No hay mensajes guardados
+                </div>
+              )}
+            </div>
+          </ScrollArea>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
