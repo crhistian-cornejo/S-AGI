@@ -158,7 +158,8 @@ export async function streamWithAISDK(options: StreamingOptions): Promise<{
                             emit({
                                 type: 'tool-call-start',
                                 toolCallId: toolCall.toolCallId,
-                                toolName: toolCall.toolName
+                                toolName: toolCall.toolName,
+                                args: (toolCall as { args?: Record<string, unknown> }).args
                             })
                         }
                         emit({

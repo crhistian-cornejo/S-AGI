@@ -376,7 +376,7 @@ export type AIStreamEvent =
     | { type: 'reasoning-summary-done'; text: string; summaryIndex: number }
     
     // Function tool calls (custom tools like spreadsheet operations)
-    | { type: 'tool-call-start'; toolCallId: string; toolName: string }
+    | { type: 'tool-call-start'; toolCallId: string; toolName: string; args?: Record<string, unknown> }
     | { type: 'tool-call-delta'; toolCallId: string; argsDelta: string }
     | { type: 'tool-call-done'; toolCallId: string; toolName: string; args: unknown }
     | { type: 'tool-result'; toolCallId: string; toolName: string; result: unknown; success: boolean }

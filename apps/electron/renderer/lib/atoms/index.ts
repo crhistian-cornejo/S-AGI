@@ -237,6 +237,7 @@ export interface AgentPanelMessage {
     toolCallId: string;
     status: "executing" | "done" | "error";
     result?: unknown;
+    args?: Record<string, unknown>;
   }>;
 }
 
@@ -662,3 +663,47 @@ export const createNotePageActionAtom = atom<((spaceId?: string | null, parentId
 
 // Notification atom for sidebar refresh when pages are updated externally (from header, etc.)
 export const notesPageUpdatedAtom = atom<number>(0);
+
+// === USER FILES STATE (re-exported from user-files.ts) ===
+export {
+  // Types
+  type UserFileType,
+  type UserFile,
+  type FileVersion,
+  type FileSnapshot,
+  // Current file atoms
+  currentExcelFileIdAtom,
+  currentDocFileIdAtom,
+  currentNoteFileIdAtom,
+  currentExcelFileAtom,
+  currentDocFileAtom,
+  currentNoteFileAtom,
+  // Helpers
+  getFileIdAtom,
+  getFileAtom,
+  // Snapshot cache
+  fileSnapshotCacheAtom,
+  getFileSnapshotAtom,
+  // Saving state
+  fileSavingAtom,
+  isFileSavingAtom,
+  // Version history
+  versionHistoryOpenAtom,
+  versionHistoryFileIdAtom,
+  versionHistoryPreviewVersionAtom,
+  // File lists
+  excelFilesListAtom,
+  docFilesListAtom,
+  noteFilesListAtom,
+  getFilesListAtom,
+  // UI state
+  fileBrowserOpenAtom,
+  fileBrowserWidthAtom,
+  fileSearchQueryAtom,
+  fileFilterTypeAtom,
+  fileShowArchivedAtom,
+  // Derived atoms
+  hasUnsavedChangesAtom,
+  dirtyFileIdsAtom,
+  getCurrentFileAtom,
+} from './user-files';

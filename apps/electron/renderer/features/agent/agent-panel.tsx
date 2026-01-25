@@ -20,8 +20,6 @@ import {
   IconChevronRight,
   IconX,
   IconPhoto,
-  IconCheck,
-  IconAlertCircle,
   IconCloudUpload,
   IconHistory,
   IconRefresh,
@@ -45,6 +43,7 @@ import {
 } from "@/components/ui/tooltip";
 import { ModelIcon } from "@/components/icons/model-icons";
 import { TextShimmer } from "@/components/ui/text-shimmer";
+import { AgentToolCallsGroup } from "./agent-tool-calls-group";
 import {
   agentPanelOpenAtom,
   agentPanelMessagesAtom,
@@ -94,37 +93,6 @@ function isAgentTab(tab: string): tab is AgentTab {
   return tab in AGENT_CONTEXTS;
 }
 
-// Tool call status component
-const ToolCallStatus = memo(function ToolCallStatus({
-  toolName,
-  status,
-}: {
-  toolName: string;
-  status: "executing" | "done" | "error";
-}) {
-  const formatToolName = (name: string) =>
-    name.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
-
-  return (
-    <div
-      className={cn(
-        "flex items-center gap-2 text-xs px-2.5 py-1.5 rounded-lg",
-        status === "executing" && "bg-primary/10 text-primary",
-        status === "done" &&
-          "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
-        status === "error" && "bg-destructive/10 text-destructive",
-      )}
-    >
-      {status === "executing" && (
-        <IconLoader2 size={12} className="animate-spin" />
-      )}
-      {status === "done" && <IconCheck size={12} />}
-      {status === "error" && <IconAlertCircle size={12} />}
-      <span className="font-medium">{formatToolName(toolName)}</span>
-    </div>
-  );
-});
-
 // Message component with tool calls support
 const AgentMessage = memo(function AgentMessage({
   message,
@@ -162,16 +130,19 @@ const AgentMessage = memo(function AgentMessage({
           </div>
         )}
 
-        {/* Tool calls */}
+        {/* Tool calls - Rich visualization with grouping */}
         {message.toolCalls && message.toolCalls.length > 0 && (
-          <div className="flex flex-wrap gap-1.5 mb-2">
-            {message.toolCalls.map((tc) => (
-              <ToolCallStatus
-                key={tc.toolCallId}
-                toolName={tc.toolName}
-                status={tc.status}
-              />
-            ))}
+          <div className="mb-2">
+            <AgentToolCallsGroup
+              toolCalls={message.toolCalls.map((tc) => ({
+                id: tc.toolCallId,
+                name: tc.toolName,
+                args: tc.args ? JSON.stringify(tc.args) : undefined,
+                result: tc.result,
+                status: tc.status === "executing" ? "streaming" : tc.status === "done" ? "complete" : tc.status,
+              }))}
+              isStreaming={message.toolCalls.some((tc) => tc.status === "executing")}
+            />
           </div>
         )}
 
@@ -519,6 +490,7 @@ export function AgentPanel() {
                       toolName: event.toolName,
                       toolCallId: event.toolCallId,
                       status: "executing" as const,
+                      args: (event as { args?: Record<string, unknown> }).args,
                     },
                   ],
                 },

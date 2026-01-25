@@ -93,31 +93,97 @@ async function loadClaudeSdk() {
  * No custom MCP servers, no LSP, no plugins.
  */
 /**
- * Map reasoning effort levels to maxThinkingTokens for Claude SDK
- * Based on Craft/Claude thinking levels:
- * - think: ~5,000 tokens (quick planning, simple refactoring)
- * - think hard: ~10,000 tokens (feature design, debugging)
- * - think harder: ~50,000 tokens (architecture decisions, complex bugs)
- * - ultrathink: ~128,000-500,000 tokens (system design, major refactoring)
- * 
- * We map our 3 levels to the first 3 tiers:
+ * Craft-style dynamic thinking level detection from prompt content
+ * Analyzes the prompt for trigger phrases and returns appropriate token budget
+ *
+ * Levels (from Craft/Claude Code):
+ * - ultrathink: ~32K tokens - complex architecture, deep analysis
+ * - megathink: ~10K tokens - debugging, feature design
+ * - think: ~4K tokens - quick planning, simple tasks
  */
-function getMaxThinkingTokens(effort: 'low' | 'medium' | 'high' | 'none' | undefined): number | undefined {
-    if (!effort || effort === 'none') {
-        return undefined // No limit, use model default
+function detectThinkingLevelFromPrompt(prompt: string): number | undefined {
+    const lowerPrompt = prompt.toLowerCase()
+
+    // Ultrathink triggers (~32K tokens) - highest priority, check first
+    const ultrathinkPatterns = [
+        'ultrathink',
+        'think harder',
+        'think intensely',
+        'think longer',
+        'think really hard',
+        'think super hard',
+        'think very hard',
+        'deeply analyze',
+        'thorough analysis',
+        'comprehensive analysis'
+    ]
+    if (ultrathinkPatterns.some(p => lowerPrompt.includes(p))) {
+        return 31999
     }
-    
-    // Map effort levels to token limits based on Craft/Claude standards
-    switch (effort) {
-        case 'low':
-            return 5000 // ~5K tokens - "think" level (quick planning, simple refactoring)
-        case 'medium':
-            return 10000 // ~10K tokens - "think hard" level (feature design, debugging)
-        case 'high':
-            return 50000 // ~50K tokens - "think harder" level (architecture decisions, complex bugs)
-        default:
-            return undefined
+
+    // Megathink triggers (~10K tokens)
+    const megathinkPatterns = [
+        'megathink',
+        'think hard',
+        'think deeply',
+        'think more',
+        'think about it',
+        'think a lot',
+        'step by step',
+        'carefully consider',
+        'analyze this'
+    ]
+    if (megathinkPatterns.some(p => lowerPrompt.includes(p))) {
+        return 10000
     }
+
+    // Basic think trigger (~4K tokens)
+    // Use word boundary check to avoid false positives like "rethink" in middle of words
+    if (/\bthink\b/.test(lowerPrompt)) {
+        return 4000
+    }
+
+    // No thinking trigger detected
+    return undefined
+}
+
+/**
+ * Get maxThinkingTokens - combines explicit effort setting with automatic detection
+ *
+ * Priority:
+ * 1. Explicit effort level from UI (low/medium/high) takes precedence
+ * 2. Automatic detection from prompt content (Craft-style)
+ *
+ * Token budgets:
+ * - low: 5K (think)
+ * - medium: 10K (megathink/think hard)
+ * - high: 50K (ultrathink/think harder)
+ * - auto-detected: 4K/10K/32K based on prompt patterns
+ */
+function getMaxThinkingTokens(
+    effort: 'low' | 'medium' | 'high' | 'none' | undefined,
+    prompt?: string
+): number | undefined {
+    // 1. Explicit effort setting takes priority
+    if (effort && effort !== 'none') {
+        switch (effort) {
+            case 'low':
+                return 5000 // ~5K tokens - "think" level
+            case 'medium':
+                return 10000 // ~10K tokens - "think hard" level
+            case 'high':
+                return 50000 // ~50K tokens - "think harder" level
+            default:
+                return undefined
+        }
+    }
+
+    // 2. Automatic detection from prompt (Craft-style)
+    if (prompt) {
+        return detectThinkingLevelFromPrompt(prompt)
+    }
+
+    return undefined
 }
 
 export async function streamWithClaudeAgentSDK(options: ClaudeStreamingOptions): Promise<{
@@ -168,10 +234,11 @@ export async function streamWithClaudeAgentSDK(options: ClaudeStreamingOptions):
         const { query, AbortError } = await loadClaudeSdk()
         log.info('[Claude SDK] Starting query with prompt length:', finalPrompt.length)
         
-        // Map reasoning effort to maxThinkingTokens
-        const maxThinkingTokens = getMaxThinkingTokens(reasoning?.effort)
+        // Map reasoning effort to maxThinkingTokens (explicit or auto-detected from prompt)
+        const maxThinkingTokens = getMaxThinkingTokens(reasoning?.effort, finalPrompt)
         if (maxThinkingTokens) {
-            log.info(`[Claude SDK] Reasoning effort: ${reasoning?.effort}, maxThinkingTokens: ${maxThinkingTokens}`)
+            const source = reasoning?.effort ? `explicit (${reasoning.effort})` : 'auto-detected from prompt'
+            log.info(`[Claude SDK] Thinking enabled: ${maxThinkingTokens} tokens (${source})`)
         }
         
         // Enhance system prompt with explicit no-emoji instruction for Claude
@@ -341,7 +408,7 @@ RESPONSE STYLE FOR CLAUDE
                                     url: input?.url
                                 })
                             } else {
-                                emit({ type: 'tool-call-start', toolCallId, toolName })
+                                emit({ type: 'tool-call-start', toolCallId, toolName, args: contentBlock.input as Record<string, unknown> })
                             }
                         }
                     }
@@ -512,7 +579,7 @@ RESPONSE STYLE FOR CLAUDE
                             url: input?.url
                         })
                     } else {
-                        emit({ type: 'tool-call-start', toolCallId, toolName })
+                        emit({ type: 'tool-call-start', toolCallId, toolName, args: message.input as Record<string, unknown> })
                         emit({
                             type: 'tool-call-done',
                             toolCallId,
@@ -522,7 +589,7 @@ RESPONSE STYLE FOR CLAUDE
                     }
                     break
                 }
-                
+
                 case 'tool_result': {
                     const toolName =
                         typeof message.tool_name === 'string'
@@ -822,7 +889,7 @@ function extractToolResult(result: unknown): unknown {
 export type AgentPanelStreamEvent =
     | { type: 'text-delta'; delta: string }
     | { type: 'text-done'; text: string }
-    | { type: 'tool-call-start'; toolName: string; toolCallId: string }
+    | { type: 'tool-call-start'; toolName: string; toolCallId: string; args?: Record<string, unknown> }
     | { type: 'tool-call-done'; toolName: string; toolCallId: string; result: unknown }
     | { type: 'error'; error: string }
     | { type: 'finish'; usage?: { promptTokens: number; completionTokens: number } }
@@ -923,11 +990,13 @@ export async function streamClaudeForAgentPanel(options: AgentPanelClaudeOptions
                             hooks: [async (input) => {
                                 const toolName = (input as { tool_name?: string }).tool_name
                                 const toolCallId = (input as { tool_use_id?: string }).tool_use_id
+                                const toolInput = (input as { input?: Record<string, unknown> }).input
                                 if (toolName && toolCallId && shouldEmitToolEvents(toolName)) {
                                     emitEvent({
                                         type: 'tool-call-start',
                                         toolName: normalizeToolName(toolName),
-                                        toolCallId
+                                        toolCallId,
+                                        args: toolInput
                                     })
                                 }
                                 return { continue: true }
@@ -1074,7 +1143,7 @@ export async function streamClaudeForAgentPanel(options: AgentPanelClaudeOptions
                         input: JSON.stringify(toolInput).slice(0, 500)
                     })
 
-                    emitEvent({ type: 'tool-call-start', toolName, toolCallId })
+                    emitEvent({ type: 'tool-call-start', toolName, toolCallId, args: toolInput })
 
                     // Direct tool execution fallback when MCP server is disabled
                     const handler = toolHandlers.get(toolName)

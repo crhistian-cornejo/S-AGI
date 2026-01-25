@@ -46,7 +46,7 @@ const activeAgentStreams = new Map<string, AbortController>();
 export type AgentPanelStreamEvent =
   | { type: "text-delta"; delta: string }
   | { type: "text-done"; text: string }
-  | { type: "tool-call-start"; toolName: string; toolCallId: string }
+  | { type: "tool-call-start"; toolName: string; toolCallId: string; args?: Record<string, unknown> }
   | {
       type: "tool-call-done";
       toolName: string;
@@ -529,6 +529,7 @@ IMPORTANTE: CADA dato del PDF debe tener su citación [página N].`;
                   type: "tool-call-start",
                   toolName: event.toolName,
                   toolCallId: event.toolCallId,
+                  args: (event as { args?: Record<string, unknown> }).args,
                 });
                 break;
 
