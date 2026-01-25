@@ -4,6 +4,14 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
+} from '@/components/ui/dialog'
 import { trpc } from '@/lib/trpc'
 import { toast } from 'sonner'
 import { 
@@ -105,10 +113,29 @@ export function ApiKeysTab() {
         onError: (e) => toast.error(e.message)
     })
 
+    // Claude Code OAuth state
+    const [showClaudeCodeDialog, setShowClaudeCodeDialog] = useState(false)
+    const [claudeAuthCode, setClaudeAuthCode] = useState('')
+
     // Claude Code OAuth mutations
     const connectClaudeCodeMutation = trpc.auth.connectClaudeCode.useMutation({
-        onSuccess: () => toast.info('Opening Claude authorization...'),
+        onSuccess: () => {
+            toast.info('Opening Claude authorization in browser...')
+            setShowClaudeCodeDialog(true) // Show dialog to paste code
+        },
         onError: (e) => toast.error(e.message)
+    })
+
+    const completeClaudeCodeMutation = trpc.auth.completeClaudeCodeAuth.useMutation({
+        onSuccess: () => {
+            toast.success('Claude Code connected!')
+            setShowClaudeCodeDialog(false)
+            setClaudeAuthCode('')
+            utils.auth.getClaudeCodeStatus.invalidate()
+        },
+        onError: (e) => {
+            toast.error(e.message)
+        }
     })
 
     const disconnectClaudeCodeMutation = trpc.auth.disconnectClaudeCode.useMutation({
@@ -118,6 +145,14 @@ export function ApiKeysTab() {
         },
         onError: (e) => toast.error(e.message)
     })
+
+    const handleClaudeCodeSubmit = () => {
+        if (!claudeAuthCode.trim()) {
+            toast.error('Please enter the authorization code')
+            return
+        }
+        completeClaudeCodeMutation.mutate({ code: claudeAuthCode.trim() })
+    }
 
 
     // Listen for main process events
@@ -384,16 +419,68 @@ export function ApiKeysTab() {
             </div>
 
             <div className="pt-4 border-t border-border">
-                <Button 
-                    variant="ghost" 
-                    className="text-red-500 hover:text-red-600 hover:bg-red-50/10 transition-colors" 
-                    onClick={() => { if(confirm('Are you sure you want to clear all stored credentials?')) clearAllKeysMutation.mutate() }} 
+                <Button
+                    variant="ghost"
+                    className="text-red-500 hover:text-red-600 hover:bg-red-50/10 transition-colors"
+                    onClick={() => { if(confirm('Are you sure you want to clear all stored credentials?')) clearAllKeysMutation.mutate() }}
                     disabled={clearAllKeysMutation.isPending}
                 >
                     <IconTrash size={16} className="mr-2" />
                     Clear All Credentials
                 </Button>
             </div>
+
+            {/* Claude Code OAuth Dialog */}
+            <Dialog open={showClaudeCodeDialog} onOpenChange={setShowClaudeCodeDialog}>
+                <DialogContent className="sm:max-w-md">
+                    <DialogHeader>
+                        <DialogTitle className="flex items-center gap-2">
+                            <svg className="text-orange-500" width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
+                                <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/>
+                            </svg>
+                            Connect Claude Code
+                        </DialogTitle>
+                        <DialogDescription>
+                            A browser window should have opened. After authorizing, copy the code shown and paste it below.
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="space-y-4 py-4">
+                        <div className="space-y-2">
+                            <Label htmlFor="claude-auth-code">Authorization Code</Label>
+                            <Input
+                                id="claude-auth-code"
+                                placeholder="Paste the code from the browser here..."
+                                value={claudeAuthCode}
+                                onChange={(e) => setClaudeAuthCode(e.target.value)}
+                                onKeyDown={(e) => {
+                                    if (e.key === 'Enter') handleClaudeCodeSubmit()
+                                }}
+                            />
+                        </div>
+                        <p className="text-xs text-muted-foreground">
+                            The code looks like: NICCX5Iiy...#c1c70411-aaea-4f52-81ee-7e2f05f74b12
+                        </p>
+                    </div>
+                    <DialogFooter className="gap-2">
+                        <Button variant="outline" onClick={() => {
+                            setShowClaudeCodeDialog(false)
+                            setClaudeAuthCode('')
+                        }}>
+                            Cancel
+                        </Button>
+                        <Button
+                            className="bg-orange-600 hover:bg-orange-700"
+                            onClick={handleClaudeCodeSubmit}
+                            disabled={completeClaudeCodeMutation.isPending || !claudeAuthCode.trim()}
+                        >
+                            {completeClaudeCodeMutation.isPending ? (
+                                <IconLoader2 className="animate-spin mr-2" size={16} />
+                            ) : null}
+                            Connect
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
         </div>
     )
 }
