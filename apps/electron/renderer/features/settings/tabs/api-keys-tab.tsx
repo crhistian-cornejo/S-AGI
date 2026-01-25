@@ -41,6 +41,7 @@ export function ApiKeysTab() {
     // Get status queries
     const { data: keyStatus } = trpc.settings.getApiKeyStatus.useQuery()
     const { data: chatGPTStatus } = trpc.auth.getChatGPTStatus.useQuery()
+    const { data: claudeCodeStatus } = trpc.auth.getClaudeCodeStatus.useQuery()
     
     // Sync atoms with queries
     useEffect(() => {
@@ -104,6 +105,20 @@ export function ApiKeysTab() {
         onError: (e) => toast.error(e.message)
     })
 
+    // Claude Code OAuth mutations
+    const connectClaudeCodeMutation = trpc.auth.connectClaudeCode.useMutation({
+        onSuccess: () => toast.info('Opening Claude authorization...'),
+        onError: (e) => toast.error(e.message)
+    })
+
+    const disconnectClaudeCodeMutation = trpc.auth.disconnectClaudeCode.useMutation({
+        onSuccess: () => {
+            toast.success('Disconnected from Claude Code')
+            utils.auth.getClaudeCodeStatus.invalidate()
+        },
+        onError: (e) => toast.error(e.message)
+    })
+
 
     // Listen for main process events
     useEffect(() => {
@@ -112,8 +127,14 @@ export function ApiKeysTab() {
             utils.auth.getChatGPTStatus.invalidate()
             toast.success('ChatGPT Connected!')
         })
+        // @ts-ignore
+        const cleanupCC = window.desktopApi?.onClaudeCodeConnected?.(() => {
+            utils.auth.getClaudeCodeStatus.invalidate()
+            toast.success('Claude Code Connected!')
+        })
         return () => {
             cleanupCP?.()
+            cleanupCC?.()
         }
     }, [utils])
 
@@ -236,6 +257,37 @@ export function ApiKeysTab() {
                         <Button className="w-full" onClick={() => connectChatGPTMutation.mutate()} disabled={connectChatGPTMutation.isPending}>
                             {connectChatGPTMutation.isPending ? <IconLoader2 className="animate-spin" size={16} /> : <IconBrandOpenai className="mr-2" size={16} />}
                             Connect Plus
+                        </Button>
+                    )}
+                </div>
+
+                {/* Claude Code */}
+                <div className={`border rounded-lg p-6 space-y-4 ${claudeCodeStatus?.isConnected ? 'border-orange-500/50 bg-orange-50/10' : ''}`}>
+                    <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                            <svg className="text-orange-500" width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                                <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/>
+                            </svg>
+                            <h4 className="font-semibold">Claude Code</h4>
+                        </div>
+                        {claudeCodeStatus?.isConnected && <Badge className="bg-orange-500">Connected</Badge>}
+                    </div>
+                    <p className="text-xs text-muted-foreground">Use Claude Pro/Max subscription for AI features.</p>
+                    {claudeCodeStatus?.isConnected ? (
+                        <div className="space-y-2">
+                            <p className="text-xs font-medium text-muted-foreground">
+                                Connected {claudeCodeStatus.source === 'cli_import' ? '(from CLI)' : ''}
+                            </p>
+                            <Button variant="outline" size="sm" className="w-full text-red-500" onClick={() => disconnectClaudeCodeMutation.mutate()}>Disconnect</Button>
+                        </div>
+                    ) : (
+                        <Button className="w-full bg-orange-600 hover:bg-orange-700" onClick={() => connectClaudeCodeMutation.mutate()} disabled={connectClaudeCodeMutation.isPending}>
+                            {connectClaudeCodeMutation.isPending ? <IconLoader2 className="animate-spin" size={16} /> : (
+                                <svg className="mr-2" width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                                    <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/>
+                                </svg>
+                            )}
+                            Connect Claude
                         </Button>
                     )}
                 </div>

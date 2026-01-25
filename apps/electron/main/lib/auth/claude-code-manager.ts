@@ -371,6 +371,13 @@ export class ClaudeCodeAuthManager {
         this.store.clear()
         log.info('[ClaudeCodeAuth] Disconnected from Claude Code')
     }
+
+    /**
+     * Get stored credentials (for status display)
+     */
+    getCredentials(): ClaudeCodeCredentials | null {
+        return this.store.load()
+    }
 }
 
 // Singleton instance

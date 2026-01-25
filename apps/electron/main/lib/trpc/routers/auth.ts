@@ -457,8 +457,11 @@ export const authRouter = router({
     // Get Claude Code connection status
     getClaudeCodeStatus: publicProcedure.query(() => {
         const authManager = getClaudeCodeAuthManager()
+        const credentials = authManager.getCredentials()
         return {
-            isConnected: authManager.isConnected()
+            isConnected: authManager.isConnected(),
+            source: credentials?.source,
+            connectedAt: credentials?.connectedAt
         }
     }),
 
