@@ -2,8 +2,8 @@ import { atom } from "jotai";
 import { atomWithStorage } from "jotai/utils";
 import type { Chat, Artifact } from "@s-agi/core/types";
 import {
-  AI_MODELS,
   DEFAULT_MODELS,
+  getModelById,
   getModelsByProvider,
 } from "@s-agi/core/types/ai";
 import type {
@@ -119,7 +119,7 @@ export const allModelsGroupedAtom = atom(() => {
 // Get current model definition
 export const currentModelAtom = atom((get): ModelDefinition | undefined => {
   const modelId = get(selectedModelAtom);
-  return AI_MODELS[modelId];
+  return getModelById(modelId);
 });
 
 export const supportsReasoningAtom = atom((get) => {

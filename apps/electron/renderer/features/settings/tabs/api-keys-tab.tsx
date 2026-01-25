@@ -34,6 +34,7 @@ import {
     chatGPTPlusStatusAtom, 
     currentProviderAtom
 } from '@/lib/atoms'
+import { DEFAULT_MODELS, resolveModelForProvider } from '@s-agi/core/types/ai'
 import type { AIProvider } from '@s-agi/core/types/ai'
 
 export function ApiKeysTab() {
@@ -186,13 +187,8 @@ export function ApiKeysTab() {
         setCurrentProvider(p)
         const models = allModelsGrouped[p] || []
         if (models.length > 0) {
-            const defaultModel = {
-                openai: 'gpt-5',
-                'chatgpt-plus': 'gpt-5.1-codex-max',
-                zai: 'GLM-4.7-Flash',
-                claude: 'claude-sonnet-4-5-20251101'
-            }[p]
-            setSelectedModel(defaultModel || models[0].id)
+            const resolved = resolveModelForProvider(p, DEFAULT_MODELS[p])
+            setSelectedModel(resolved.id || models[0].id)
         }
     }
 

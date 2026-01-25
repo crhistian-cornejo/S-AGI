@@ -12,8 +12,8 @@
  * - Support for fast models (gpt-4o-mini, GLM-4.7-Flash)
  */
 
-import { createServer, IncomingMessage, ServerResponse } from "http";
-import { createOpenAI } from "@ai-sdk/openai";
+import { createServer } from "http";
+import type { IncomingMessage, ServerResponse } from "http";
 import { streamText, convertToModelMessages } from "ai";
 import {
   aiDocumentFormats,
@@ -21,16 +21,16 @@ import {
   toolDefinitionsToToolSet,
 } from "@blocknote/xl-ai/server";
 import log from "electron-log";
-import { getSecureApiKeyStore } from "../auth/api-key-store";
-import { getChatGPTAuthManager } from "../auth";
+import {
+  getLanguageModel,
+  getProviderStatus,
+  isProviderAvailable,
+} from "./providers";
 import type { AIProvider } from "@s-agi/core/types/ai";
 
 let server: ReturnType<typeof createServer> | null = null;
 let serverPort = 0;
 let serverReadyPromise: Promise<number> | null = null;
-
-// Cache OpenAI clients for better performance
-const clientCache = new Map<string, ReturnType<typeof createOpenAI>>();
 
 // Get provider from request headers or default
 function getProviderFromHeaders(req: IncomingMessage): AIProvider {
@@ -38,7 +38,8 @@ function getProviderFromHeaders(req: IncomingMessage): AIProvider {
   if (
     provider === "zai" ||
     provider === "chatgpt-plus" ||
-    provider === "openai"
+    provider === "openai" ||
+    provider === "claude"
   ) {
     return provider;
   }
@@ -53,59 +54,15 @@ function getModelFromHeaders(
   const model = req.headers["x-ai-model"] as string;
   if (model) return model;
   // GPT-5-mini is fast and follows tool instructions well
-  return provider === "zai" ? "GLM-4-Plus" : "gpt-5-mini";
-}
-
-async function getOpenAIClient(
-  provider: AIProvider,
-): Promise<ReturnType<typeof createOpenAI> | null> {
-  const cacheKey = provider;
-
-  // Check cache first
-  const cached = clientCache.get(cacheKey);
-  if (cached) return cached;
-
-  const keyStore = getSecureApiKeyStore();
-
-  if (provider === "chatgpt-plus") {
-    const authManager = getChatGPTAuthManager();
-    if (!authManager.isConnected()) {
-      return null;
-    }
-    const token = authManager.getAccessToken();
-    if (!token) return null;
-
-    const client = createOpenAI({
-      apiKey: token,
-      baseURL: "https://chatgpt.com/backend-api/v1",
-    });
-    // Don't cache chatgpt-plus as token may expire
-    return client;
-  }
-
-  if (provider === "zai") {
-    const openaiKey = keyStore.getOpenAIKey();
-    if (!openaiKey) return null;
-
-    const client = createOpenAI({
-      apiKey: openaiKey,
-      baseURL: "https://api.z.ai/api/paas/v4/",
-    });
-    clientCache.set(cacheKey, client);
-    return client;
-  }
-
-  const openaiKey = keyStore.getOpenAIKey();
-  if (!openaiKey) return null;
-
-  const client = createOpenAI({ apiKey: openaiKey });
-  clientCache.set(cacheKey, client);
-  return client;
+  return provider === "zai"
+    ? "GLM-4.7-Flash"
+    : provider === "claude"
+      ? "claude-haiku-4-5-20251001"
+      : "gpt-5-mini";
 }
 
 // Clear client cache when API keys change
 export function clearClientCache(): void {
-  clientCache.clear();
   log.info("[AI Server] Client cache cleared");
 }
 
@@ -149,19 +106,24 @@ async function handleAIRequest(req: IncomingMessage, res: ServerResponse) {
 
     log.info(`[AI Server] Request - provider: ${provider}, model: ${modelId}`);
 
-    const openai = await getOpenAIClient(provider);
-    if (!openai) {
+    if (!isProviderAvailable(provider)) {
+      const status = getProviderStatus(provider);
       res.writeHead(401);
       res.end(
-        JSON.stringify({ error: `No API key configured for ${provider}` }),
+        JSON.stringify({
+          error:
+            status.message ||
+            `No credentials configured for ${provider}. Please update Settings.`,
+        }),
       );
       return;
     }
 
-    const model = openai(modelId);
+    const model = getLanguageModel(provider, modelId);
 
     // Use BlockNote's document format helpers with optimized settings
     const result = streamText({
+      // @ts-expect-error - AI SDK model types may not match exactly
       model: model as any,
       system: aiDocumentFormats.html.systemPrompt,
       messages: await convertToModelMessages(
@@ -222,12 +184,15 @@ export function startAIServer(): Promise<number> {
     }
 
     server = createServer((req, res) => {
+      // Parse URL to get pathname (ignoring query strings)
+      const pathname = req.url?.split("?")[0] || "";
+      
       if (
-        req.url === "/ai/streamText" ||
-        req.url === "/ai/regular/streamText"
+        pathname === "/ai/streamText" ||
+        pathname === "/ai/regular/streamText"
       ) {
         handleAIRequest(req, res);
-      } else if (req.url === "/health") {
+      } else if (pathname === "/health") {
         res.writeHead(200, { "Content-Type": "text/plain" });
         res.end("OK");
       } else {
@@ -242,7 +207,11 @@ export function startAIServer(): Promise<number> {
 
     // Find an available port
     server.listen(0, "127.0.0.1", () => {
-      const address = server!.address();
+      if (!server) {
+        reject(new Error("Server was not initialized"));
+        return;
+      }
+      const address = server.address();
       if (address && typeof address === "object") {
         serverPort = address.port;
         log.info(`[AI Server] Started on http://127.0.0.1:${serverPort}`);

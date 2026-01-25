@@ -116,33 +116,38 @@ export function NotesPageTabs() {
           {openTabs.map((tab) => {
             const isSelected = selectedPageId === tab.pageId;
             return (
-              <button
-                type="button"
+              <div
                 key={tab.pageId}
                 className={cn(
-                  "flex items-center gap-1.5 px-3 py-1.5 rounded-t-md text-xs transition-all duration-200 cursor-pointer group relative",
+                  "flex items-center gap-1.5 px-3 py-1.5 rounded-t-md text-xs transition-all duration-200 group relative",
                   "border-b-2 border-transparent",
                   isSelected
                     ? "bg-background text-foreground border-b-primary"
                     : "text-muted-foreground hover:text-foreground hover:bg-accent/30"
                 )}
-                onClick={() => handleTabClick(tab.pageId)}
               >
-                {renderPageIcon(tab.page.icon, 14, "shrink-0 opacity-60")}
-                <span className="max-w-[140px] truncate text-[12px] font-medium">
-                  {tab.page.title || "Untitled"}
-                </span>
+                <button
+                  type="button"
+                  onClick={() => handleTabClick(tab.pageId)}
+                  className="flex items-center gap-1.5 flex-1 min-w-0 text-left"
+                >
+                  {renderPageIcon(tab.page.icon, 14, "shrink-0 opacity-60")}
+                  <span className="max-w-[140px] truncate text-[12px] font-medium">
+                    {tab.page.title || "Untitled"}
+                  </span>
+                </button>
                 <button
                   type="button"
                   onClick={(e) => handleCloseTab(e, tab.pageId)}
                   className={cn(
-                    "opacity-0 group-hover:opacity-100 transition-opacity p-0.5 rounded hover:bg-accent ml-1",
+                    "opacity-0 group-hover:opacity-100 transition-opacity p-0.5 rounded hover:bg-accent ml-1 shrink-0",
                     isSelected && "opacity-60"
                   )}
+                  aria-label="Close tab"
                 >
                   <IconX size={12} />
                 </button>
-              </button>
+              </div>
             );
           })}
         </>

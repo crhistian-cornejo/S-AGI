@@ -12,10 +12,21 @@ files:
     to: .
     filter:
       - "**/*"
+  - from: ../../package.json
+    to: package.json
+  - from: ../../node_modules
+    to: node_modules
+    filter:
+      - "**/*"
+      - "!**/*.map"
 
 extraResources: []
 asar: true
-asarUnpack: []
+# Unpack native modules so they can load correctly
+asarUnpack:
+  - "**/node_modules/better-sqlite3/**"
+  - "**/node_modules/sharp/**"
+  - "**/node_modules/@img/**"
 npmRebuild: true
 
 protocols:

@@ -1,10 +1,13 @@
 import { createProviderRegistry, customProvider } from 'ai'
 import { createOpenAI } from '@ai-sdk/openai'
+import { createAnthropic } from '@ai-sdk/anthropic'
 import log from 'electron-log'
 import { getTokenManager, sanitizeToken } from '../auth/token-manager'
 import { getChatGPTAuthManager } from '../auth/chatgpt-manager'
+import { getClaudeCodeAuthManager } from '../auth/claude-code-manager'
 import { getZaiAuthManager } from '../auth/zai-manager'
 import { getSecureApiKeyStore } from '../auth/api-key-store'
+import { resolveModelIdForApi } from '@s-agi/core/types/ai'
 import type { AIProvider } from '@s-agi/core/types/ai'
 
 /**
@@ -149,6 +152,43 @@ function createZaiProvider() {
 }
 
 /**
+ * Create a Claude provider with OAuth token (Claude Code Pro/Max)
+ * Falls back to Anthropic API key if configured.
+ */
+function createClaudeProvider() {
+    const claudeManager = getClaudeCodeAuthManager()
+    const apiKeyStore = getSecureApiKeyStore()
+
+    return createAnthropic({
+        authToken: 'claude-oauth-placeholder',
+        fetch: async (url, init) => {
+            const headers = new Headers(init?.headers)
+
+            headers.delete('authorization')
+            headers.delete('x-api-key')
+
+            const oauthToken = await claudeManager.getValidToken()
+            if (oauthToken) {
+                headers.set('Authorization', `Bearer ${oauthToken}`)
+                log.debug(`[AI] Claude OAuth request to ${url}, token: ${sanitizeToken(oauthToken)}`)
+            } else {
+                const apiKey = apiKeyStore.getAnthropicKey()
+                if (!apiKey) {
+                    throw new Error('Claude Code not connected. Please connect your account in Settings.')
+                }
+                headers.set('x-api-key', apiKey)
+                log.debug(`[AI] Claude API key request to ${url}, key: ${sanitizeToken(apiKey)}`)
+            }
+
+            return fetch(url, {
+                ...init,
+                headers
+            })
+        }
+    })
+}
+
+/**
  * Create custom fetch function for Z.AI
  */
 function createZaiFetch(manager: ReturnType<typeof getZaiAuthManager>) {
@@ -187,7 +227,8 @@ export function getSagiProviderRegistry() {
         registryInstance = createProviderRegistry({
             openai: createStandardOpenAI(),
             'chatgpt-plus': createChatGPTPlusProvider(),
-            zai: createZaiProvider()
+            zai: createZaiProvider(),
+            claude: createClaudeProvider()
         })
     }
     return registryInstance
@@ -198,15 +239,22 @@ export function getSagiProviderRegistry() {
  */
 export function getLanguageModel(provider: AIProvider, modelId: string) {
     const registry = getSagiProviderRegistry()
+    const apiModelId = resolveModelIdForApi(modelId)
 
     // For OpenAI, use the provider directly
     if (provider === 'openai') {
         const openai = createStandardOpenAI()
-        return openai(modelId)
+        return openai(apiModelId)
+    }
+
+    // For Claude, use the provider directly (bypass registry for better compatibility)
+    if (provider === 'claude') {
+        const claude = createClaudeProvider()
+        return claude(apiModelId)
     }
 
     // For other providers, use the registry
-    return registry.languageModel(`${provider}:${modelId}`)
+    return registry.languageModel(`${provider}:${apiModelId}`)
 }
 
 /**
@@ -222,6 +270,8 @@ export function isProviderAvailable(provider: AIProvider): boolean {
             return getChatGPTAuthManager().isConnected()
         case 'zai':
             return !!getZaiAuthManager().getApiKey()
+        case 'claude':
+            return getClaudeCodeAuthManager().isConnected() || getSecureApiKeyStore().hasAnthropicKey()
         default:
             return false
     }
@@ -257,6 +307,13 @@ export function getProviderStatus(provider: AIProvider): {
             return {
                 available,
                 message: available ? undefined : 'Add your Z.AI API key in Settings'
+            }
+        }
+        case 'claude': {
+            const available = isProviderAvailable('claude')
+            return {
+                available,
+                message: available ? undefined : 'Connect your Claude Code account in Settings'
             }
         }
         default:

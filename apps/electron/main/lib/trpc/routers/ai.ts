@@ -5,14 +5,15 @@ import log from "electron-log";
 import { sendToRenderer } from "../../window-manager";
 import { supabase } from "../../supabase/client";
 import { getSecureApiKeyStore } from "../../auth/api-key-store";
-import { getChatGPTAuthManager } from "../../auth";
+import { getChatGPTAuthManager, getClaudeCodeAuthManager } from "../../auth";
 import { getCredentialManager } from "../../shared/credentials";
 // NOTE: Gemini auth disabled - OAuth token incompatible with generativelanguage.googleapis.com
 // import { getChatGPTAuthManager, getGeminiAuthManager } from '../../auth'
 
 import OpenAI from "openai";
 import type { Responses } from "openai/resources/responses/responses";
-import { OpenAIFileService } from "../../ai";
+import { OpenAIFileService, shouldUseAISDK, streamWithAISDK } from "../../ai";
+import { streamWithClaudeAgentSDK } from "../../ai/claude-agent-sdk";
 import {
   getDocumentContext,
   shouldUseLocalContext,
@@ -23,6 +24,7 @@ import {
   IMAGE_TOOLS,
   CHART_TOOLS,
   PLAN_TOOLS,
+  UI_NAVIGATION_TOOLS,
   executeTool,
   generateImageDirect,
   type ToolContext,
@@ -33,7 +35,14 @@ import type {
   NativeToolsConfig,
   AIProvider,
 } from "@s-agi/core/types/ai";
-import { AI_MODELS, DEFAULT_MODELS, getModelById } from "@s-agi/core/types/ai";
+import {
+  AI_MODELS,
+  DEFAULT_MODELS,
+  getModelById,
+  resolveModelForProvider,
+  resolveModelIdForApi,
+  sanitizeOpenAiResponseId,
+} from "@s-agi/core/types/ai";
 import { generateSuggestions } from "../../ai";
 import {
   selectAgent,
@@ -472,7 +481,7 @@ You are in PLANNING MODE. Your ONLY job is to create a plan and call the ExitPla
 
 When the user asks for something:
 1. Think about what steps are needed
-2. Create a plan in markdown format  
+2. Create a plan in markdown format
 3. Call ExitPlanMode with the plan parameter
 
 ## PLAN FORMAT (JSON for the tool)
@@ -1276,7 +1285,7 @@ export const aiRouter = router({
     .query(({ input }) => {
       const chatGPTAuth = getChatGPTAuthManager();
       return {
-        availableProviders: ["openai", "chatgpt-plus", "zai"] as const,
+        availableProviders: ["openai", "chatgpt-plus", "zai", "claude"] as const,
         availableModels: AI_MODELS,
         availableTools: getAllToolNames({
           modelId: input?.modelId,
@@ -1302,7 +1311,9 @@ export const aiRouter = router({
         chatId: z.string().uuid(),
         prompt: z.string(),
         mode: z.enum(["plan", "agent"]).default("agent"),
-        provider: z.enum(["openai", "chatgpt-plus", "zai"]).default("openai"),
+        provider: z
+          .enum(["openai", "chatgpt-plus", "zai", "claude"])
+          .default("openai"),
         apiKey: z.string().optional(), // Optional for chatgpt-plus provider
         tavilyApiKey: z.string().optional(),
         model: z.string().optional(),
@@ -1447,15 +1458,44 @@ export const aiRouter = router({
       const runAgentLoop = async () => {
         const startTime = Date.now();
         try {
-          // Determine provider and model
+          // Determine provider and model using manifest defaults
           const provider = input.provider || "openai";
-          const modelId =
-            input.model ||
-            DEFAULT_MODELS[provider as keyof typeof DEFAULT_MODELS];
-          const modelDef = getModelById(modelId);
-          const apiModelId =
-            (modelDef as { modelIdForApi?: string } | undefined)
-              ?.modelIdForApi || modelId;
+          const modelDef = resolveModelForProvider(
+            provider as AIProvider,
+            input.model,
+          );
+          const modelId = modelDef.id;
+          const apiModelId = resolveModelIdForApi(modelId);
+
+          const hasHistoricalImages = !!input.messages?.some(
+            (message) => message.images && message.images.length > 0,
+          );
+          const canUseAiSdkStreaming =
+            shouldUseAISDK() &&
+            provider !== "claude" &&
+            input.mode === "plan" &&
+            !input.nativeTools &&
+            !input.generateImage &&
+            !input.targetDocument &&
+            !input.images?.length &&
+            !hasHistoricalImages;
+
+          if (canUseAiSdkStreaming) {
+            await streamWithAISDK({
+              chatId: input.chatId,
+              prompt: input.prompt,
+              provider: provider as AIProvider,
+              modelId,
+              userId: ctx.userId,
+              messages: input.messages?.map((message) => ({
+                role: message.role,
+                content: message.content,
+              })),
+              mode: input.mode,
+              signal: abortController.signal,
+            });
+            return;
+          }
 
           // ========================================================================
           // SPECIALIZED AGENT CHECK
@@ -1535,7 +1575,7 @@ export const aiRouter = router({
           }
 
           // Create OpenAI client based on provider
-          let client: OpenAI;
+          let client: OpenAI | null = null;
           let chatGPTAccountId: string | null = null;
           let zaiBaseURL: string | null = null;
 
@@ -1686,22 +1726,22 @@ export const aiRouter = router({
                     } else if (provider === 'gemini-advanced') {
                         // Gemini Advanced / Google One - use OAuth token with OpenAI-compatible endpoint
                         const geminiAuth = getGeminiAuthManager()
-                        
+
                         if (!geminiAuth.isConnected()) {
                             throw new Error('Gemini Advanced not connected. Please connect your Google account in Settings.')
                         }
-                        
+
                         // Get a valid token (will refresh if expired)
                         const accessToken = await geminiAuth.getValidAccessToken()
-                        
+
                         if (!accessToken) {
                             throw new Error('Gemini token not available. Please reconnect.')
                         }
-                        
+
                         // Use Gemini's OpenAI-compatible endpoint with OAuth Bearer token
                         const GEMINI_OPENAI_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta/openai'
                         log.info(`[AI] Gemini Advanced: Using OpenAI-compatible endpoint with OAuth Bearer token`)
-                        
+
                         client = new OpenAI({
                             apiKey: 'oauth-placeholder', // Required by SDK but we use Bearer auth
                             baseURL: GEMINI_OPENAI_BASE_URL,
@@ -1730,6 +1770,9 @@ export const aiRouter = router({
               defaultHeaders: {
                 "X-Source": ZAI_SOURCE_HEADER,
               },
+              // CRITICAL: Disable any internal buffering for fastest streaming
+              // This ensures chunks are processed immediately as they arrive
+              maxRetries: 0, // Don't retry on streaming errors (would cause delays)
             });
 
             // Update apiKey for tool context
@@ -1738,6 +1781,9 @@ export const aiRouter = router({
             log.info(
               `[AI] Using Z.AI provider endpoint: ${wantsCodingEndpoint ? "coding" : "general"}`,
             );
+          } else if (provider === "claude") {
+            // Claude uses AI SDK streaming path below (no OpenAI client needed)
+            client = null;
           } else {
             // Standard OpenAI API - fetch API key from credential manager if not provided
             const credentialManager = getCredentialManager();
@@ -1749,6 +1795,8 @@ export const aiRouter = router({
 
             client = new OpenAI({
               apiKey: openaiApiKey,
+              // CRITICAL: Disable any internal buffering for fastest streaming
+              maxRetries: 0, // Don't retry on streaming errors (would cause delays)
             });
 
             // Update apiKey for tool context
@@ -2212,6 +2260,49 @@ CITATION REQUIREMENTS (MANDATORY):
             );
           }
 
+          if (provider === "claude") {
+            // Get Claude OAuth token (priority) or fallback to API key
+            const claudeAuth = getClaudeCodeAuthManager();
+            const claudeToken = await claudeAuth.getValidToken();
+            const anthropicKey = getSecureApiKeyStore().getAnthropicKey();
+
+            if (!claudeToken && !anthropicKey) {
+              throw new Error(
+                "Claude Code not connected. Please connect your Claude account in Settings > API Keys.",
+              );
+            }
+
+            log.info(`[AI] Claude auth: oauthToken=${!!claudeToken}, apiKey=${!!anthropicKey}`);
+            log.info(`[AI] Using Claude Agent SDK (simple chat, native tools only)`);
+
+            // Map reasoning config for Claude SDK
+            // Claude SDK uses maxThinkingTokens instead of effort levels
+            const claudeReasoning = input.reasoning
+              ? {
+                  effort: input.reasoning.effort as 'low' | 'medium' | 'high' | 'none',
+                }
+              : undefined;
+
+            await streamWithClaudeAgentSDK({
+              chatId: input.chatId,
+              prompt: input.prompt,
+              modelId: apiModelId,
+              systemPrompt,
+              messages: input.messages?.map((message) => ({
+                role: message.role,
+                content: message.content,
+              })),
+              images: input.images,
+              authToken: claudeToken || undefined,
+              apiKey: anthropicKey || undefined,
+              signal: abortController.signal,
+              reasoning: claudeReasoning,
+            });
+
+            activeStreams.delete(input.chatId);
+            return;
+          }
+
           // ResponseMode Thinking: paso 1 — plan (solo openai/chatgpt-plus)
           let planText = "";
           if (
@@ -2287,7 +2378,9 @@ CITATION REQUIREMENTS (MANDATORY):
           let currentStepNumber = 0;
           let fullText = "";
           let fullReasoningSummary = "";
-          let currentResponseId = input.previousResponseId;
+          let currentResponseId = sanitizeOpenAiResponseId(
+            input.previousResponseId,
+          );
           let pendingToolCalls: PendingToolCall[] = [];
           const usageTotals = {
             promptTokens: 0,
@@ -2351,6 +2444,11 @@ CITATION REQUIREMENTS (MANDATORY):
                 tools: chatTools.length > 0 ? chatTools : undefined,
                 tool_choice: chatTools.length > 0 ? "auto" : undefined,
                 stream: true,
+                // CRITICAL: Force immediate streaming without buffering
+                // This ensures tokens arrive as soon as they're generated
+                stream_options: {
+                  include_usage: true, // Include usage in final chunk
+                },
               };
 
               if (provider === "zai") {
@@ -2433,13 +2531,26 @@ CITATION REQUIREMENTS (MANDATORY):
               let lastChunk: any = null;
               let stepReasoning = "";
 
+              // Process stream chunks immediately without buffering
+              // This ensures fastest possible token-by-token delivery
               for await (const chunk of stream as any) {
                 lastChunk = chunk;
                 const delta = chunk.choices?.[0]?.delta;
-                if (!delta) continue;
+                
+                // Skip empty chunks but process immediately when content arrives
+                if (!delta) {
+                  // Check for finish reason or usage in non-delta chunks
+                  if (chunk.choices?.[0]?.finish_reason) {
+                    log.debug(`[AI] Stream finished: ${chunk.choices[0].finish_reason}`);
+                  }
+                  continue;
+                }
 
+                // CRITICAL: Emit text deltas immediately as they arrive
+                // No buffering - each token is sent to renderer instantly
                 if (delta.content) {
                   fullText += delta.content;
+                  // Emit immediately without waiting for more chunks
                   emit({ type: "text-delta", delta: delta.content });
                 }
 
@@ -2809,7 +2920,9 @@ CITATION REQUIREMENTS (MANDATORY):
               tools: toolsForRequest.length > 0 ? toolsForRequest : undefined,
               instructions: effectiveInstructions,
               store: supportsOpenAiOptimizations,
-              previous_response_id: currentResponseId,
+              ...(currentResponseId && {
+                previous_response_id: currentResponseId,
+              }),
               reasoning: reasoningConfig
                 ? {
                     effort: reasoningConfig.effort,

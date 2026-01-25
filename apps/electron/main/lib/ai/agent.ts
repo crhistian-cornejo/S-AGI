@@ -1,6 +1,10 @@
 import { z } from 'zod'
 import log from 'electron-log'
 import { sendToRenderer } from '../window-manager'
+import {
+    DEFAULT_TOOL_APPROVAL_CONFIG,
+    getToolsRequiringApproval
+} from '@s-agi/core/types/ai'
 import type { AIProvider } from '@s-agi/core/types/ai'
 
 /**
@@ -180,12 +184,9 @@ export interface AgentToolContext {
 /**
  * Tools that should require user approval before execution
  */
-export const TOOLS_REQUIRING_APPROVAL = new Set([
-    'confirm_action',
-    'delete_row',
-    'delete_column',
-    'clear_range'
-])
+export const TOOLS_REQUIRING_APPROVAL = getToolsRequiringApproval(
+    DEFAULT_TOOL_APPROVAL_CONFIG
+)
 
 /**
  * Check if a tool requires approval

@@ -3,8 +3,8 @@ import { join } from 'path'
 import { mkdir, readFile, writeFile, stat, copyFile, rm } from 'fs/promises'
 import { existsSync } from 'fs'
 import crypto from 'crypto'
-import sharp from 'sharp'
 import log from 'electron-log'
+import { getSharp } from '../ai/image-processor'
 import type { FileManagerFile, FileManagerFolder, FileManagerState, QuickAccess } from './types'
 import { fileUrlFromPath, getExt, inferMime, isImageExt, safeFilename } from './utils'
 
@@ -253,6 +253,7 @@ export class FileManager {
                 if (isImage) {
                     try {
                         const thumbPath = this.getThumbPath(id)
+                        const sharp = await getSharp()
                         await sharp(destPath)
                             .rotate()
                             .resize({ width: 320, height: 320, fit: 'inside', withoutEnlargement: true })

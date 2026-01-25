@@ -777,10 +777,11 @@ function registerContentSecurityPolicy(): void {
   const devOrigins = rendererOrigins.join(" ");
 
   // Script src needs blob: for Web Workers (used by PDFium engine)
-  // In production, we should avoid 'unsafe-eval' and 'unsafe-inline' if possible
+  // 'unsafe-eval' is required for WebAssembly (used by PDFium WASM)
+  // In production, avoid eval/inline sources where possible
   const scriptSrc = is.dev
-    ? `'self' 'unsafe-eval' 'unsafe-inline' blob: ${devOrigins}`
-    : `'self' blob:`;
+    ? `'self' 'unsafe-inline' 'unsafe-eval' blob: ${devOrigins}`
+    : `'self' 'unsafe-eval' blob:`;
 
   const csp = [
     `default-src 'self' blob: ${devOrigins}`,
@@ -970,7 +971,7 @@ function createTray(): void {
 function createWindow(): void {
   // Create the browser window
   mainWindow = new BrowserWindow({
-    width: 980,
+    width: 1100,
     height: 850,
     minWidth: 835,
     minHeight: 400,
@@ -1116,12 +1117,24 @@ app.whenReady().then(() => {
     const iconPath = join(__dirname, "icon.icns");
     log.info("[App] Setting dock icon from:", iconPath);
     if (existsSync(iconPath)) {
-      const image = nativeImage.createFromPath(iconPath);
-      if (!image.isEmpty()) {
-        app.dock.setIcon(image);
+      try {
+        // Set icon directly from path - Electron handles .icns files natively
+        app.dock.setIcon(iconPath);
         log.info("[App] Dock icon set successfully");
-      } else {
-        log.error("[App] Dock icon image is empty");
+      } catch (error) {
+        log.error("[App] Failed to set dock icon:", error);
+        // Fallback: try creating NativeImage first
+        try {
+          const image = nativeImage.createFromPath(iconPath);
+          if (!image.isEmpty()) {
+            app.dock.setIcon(image);
+            log.info("[App] Dock icon set via NativeImage fallback");
+          } else {
+            log.warn("[App] Dock icon image is empty, skipping");
+          }
+        } catch (fallbackError) {
+          log.error("[App] Fallback method also failed:", fallbackError);
+        }
       }
     } else {
       log.error("[App] Dock icon file not found at:", iconPath);

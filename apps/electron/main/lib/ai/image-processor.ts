@@ -9,16 +9,57 @@
  * - Memory-safe processing with limits (adapted from Midday)
  */
 
-import sharp from 'sharp'
 import log from 'electron-log'
+import { existsSync } from 'fs'
+import { join } from 'path'
 
 // ============================================================================
 // Memory Safety Configuration (from Midday)
 // ============================================================================
 
-// Configure Sharp memory limits to prevent OOM
-sharp.cache({ memory: 256, files: 20, items: 100 }) // 256MB cache limit
-sharp.concurrency(2) // Limit parallel operations
+let sharpPromise: Promise<typeof import('sharp')> | null = null
+let sharpConfigured = false
+
+function ensureSharpLibvipsPath() {
+    if (process.platform !== 'darwin' || process.arch !== 'arm64') return
+
+    const candidatePaths = [
+        join(process.cwd(), 'node_modules', '@img', 'sharp-libvips-darwin-arm64', 'lib'),
+        join(
+            process.resourcesPath || '',
+            'app.asar.unpacked',
+            'node_modules',
+            '@img',
+            'sharp-libvips-darwin-arm64',
+            'lib'
+        )
+    ].filter(Boolean)
+
+    const existing = candidatePaths.filter((path) => existsSync(path))
+    if (existing.length === 0) return
+
+    const current = process.env.DYLD_LIBRARY_PATH || ''
+    const merged = Array.from(
+        new Set([current, ...existing].filter((p) => p && p.length > 0))
+    ).join(':')
+    process.env.DYLD_LIBRARY_PATH = merged
+}
+
+export async function getSharp() {
+    ensureSharpLibvipsPath()
+    if (!sharpPromise) {
+        sharpPromise = import('sharp')
+    }
+    const mod = await sharpPromise
+    const sharp = mod.default ?? mod
+    if (!sharpConfigured) {
+        // Configure Sharp memory limits to prevent OOM
+        sharp.cache({ memory: 256, files: 20, items: 100 }) // 256MB cache limit
+        sharp.concurrency(2) // Limit parallel operations
+        sharpConfigured = true
+    }
+    return sharp
+}
 
 // Maximum file sizes
 const MAX_HEIC_SIZE = 15 * 1024 * 1024 // 15MB - HEIC files larger than this skip processing
@@ -77,6 +118,7 @@ export async function processImage(
     inputBuffer: Buffer,
     options?: ImageProcessingOptions
 ): Promise<ProcessedImage> {
+    const sharp = await getSharp()
     const opts = { ...DEFAULT_OPTIONS, ...options }
     const originalSize = inputBuffer.length
 

@@ -112,6 +112,61 @@ function CodeBlock({ children }: { children: React.ReactNode }) {
 }
 
 // ============================================================================
+// Table Block Component
+// ============================================================================
+
+function TableBlock({ children, ...props }: React.TableHTMLAttributes<HTMLTableElement>) {
+    const tableRef = useRef<HTMLTableElement>(null)
+    const [tableText, setTableText] = useState('')
+    const [copied, setCopied] = useState(false)
+
+    useEffect(() => {
+        if (!tableRef.current) return
+        const rows = Array.from(tableRef.current.querySelectorAll('tr'))
+        const content = rows
+            .map((row) =>
+                Array.from(row.querySelectorAll('th, td'))
+                    .map((cell) => (cell.textContent || '').replace(/\s+/g, ' ').trim())
+                    .join('\t')
+            )
+            .join('\n')
+        setTableText(content)
+    }, [children])
+
+    const handleCopy = useCallback(() => {
+        if (!tableText) return
+        navigator.clipboard.writeText(tableText)
+        setCopied(true)
+        setTimeout(() => setCopied(false), 2000)
+    }, [tableText])
+
+    return (
+        <div className="not-prose my-4 overflow-hidden rounded-xl border border-border/50 shadow-sm">
+            <div className="flex items-center justify-end border-b border-border/40 bg-muted/40 px-2 py-1.5">
+                <button
+                    type="button"
+                    onClick={handleCopy}
+                    className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
+                    title={copied ? 'Copied!' : 'Copy table'}
+                    disabled={!tableText}
+                >
+                    {copied ? (
+                        <IconCheck size={14} className="text-emerald-500" />
+                    ) : (
+                        <IconCopy size={14} />
+                    )}
+                </button>
+            </div>
+            <div className="overflow-x-auto">
+                <table ref={tableRef} className="w-full text-sm" {...props}>
+                    {children}
+                </table>
+            </div>
+        </div>
+    )
+}
+
+// ============================================================================
 // Link Preview Component
 // ============================================================================
 
@@ -397,9 +452,9 @@ interface ChatMarkdownRendererProps {
 function sanitizeMarkdown(content: string): string {
     return content
         .replace(/^[\t ]*[-*+][\t ]*$/gm, '')
-        .replace(/^[\t ]*[-*+][\t ]+[\s\u200B\u200C\u200D\uFEFF]*$/gm, '')
+        .replace(/^[\t ]*[-*+][\t ]+(?:\s|\u200B|\u200C|\u200D|\uFEFF)*$/gm, '')
         .replace(/^[\t ]*\d+\.[\t ]*$/gm, '')
-        .replace(/^[\t ]*\d+\.[\t ]+[\s\u200B\u200C\u200D\uFEFF]*$/gm, '')
+        .replace(/^[\t ]*\d+\.[\t ]+(?:\s|\u200B|\u200C|\u200D|\uFEFF)*$/gm, '')
         .replace(/\n{3,}/g, '\n\n')
         .trim()
 }
@@ -532,9 +587,7 @@ export const ChatMarkdownRenderer = memo(function ChatMarkdownRenderer({
 
                     // Tables - Premium styling
                     table: ({ children, ...props }: any) => (
-                        <div className="not-prose my-4 overflow-x-auto rounded-xl border border-border/50 shadow-sm">
-                            <table className="w-full text-sm" {...props}>{children}</table>
-                        </div>
+                        <TableBlock {...props}>{children}</TableBlock>
                     ),
                     thead: ({ children, ...props }: any) => (
                         <thead className="bg-muted/50 border-b border-border/50" {...props}>{children}</thead>

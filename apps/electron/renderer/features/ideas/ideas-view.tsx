@@ -49,6 +49,7 @@ import {
   currentProviderAtom, 
   selectedNotePageIdAtom, 
   notePagesCacheAtom,
+  createNotePageActionAtom,
   notesSelectedModelIdAtom,
   notesEditorRefAtom,
   notesIsExportingPdfAtom,
@@ -58,6 +59,8 @@ import { trpc } from "@/lib/trpc";
 import { getCustomAIMenuItems } from "./custom-ai-menu";
 import { getPageById, savePage } from "@/lib/notes-storage";
 import { updateTabPage } from "@/lib/notes-tabs";
+import { Button } from "@/components/ui/button";
+import { IconFileText } from "@tabler/icons-react";
 
 interface IdeasEditorProps {
   initialContent: PartialBlock[];
@@ -285,6 +288,7 @@ export const IdeasView = () => {
   const editorRef = useRef<BlockNoteEditor<any, any, any> | null>(null);
   const setEditorRef = useSetAtom(notesEditorRefAtom);
   const [provider] = useAtom(currentProviderAtom);
+  const createPageAction = useAtomValue(createNotePageActionAtom);
 
   // Update selected model when provider changes
   useEffect(() => {
@@ -298,6 +302,12 @@ export const IdeasView = () => {
     },
     [],
   );
+
+  const handleCreatePage = useCallback(() => {
+    if (createPageAction) {
+      createPageAction();
+    }
+  }, [createPageAction]);
 
   // Export to PDF function
   const handleExportPdf = useCallback(async () => {
@@ -378,8 +388,8 @@ export const IdeasView = () => {
         setInitialContent(getDefaultContent());
       }
     } else {
-      // No page selected, show default
-      setInitialContent(getDefaultContent());
+      // No page selected
+      setInitialContent(null);
     }
     setIsLoading(false);
   }, [selectedPageId, pagesCache, getDefaultContent, setNotePage]);
@@ -412,6 +422,29 @@ export const IdeasView = () => {
         <div className="text-center">
           <div className="w-5 h-5 border-2 border-primary border-t-transparent rounded-full animate-spin mx-auto mb-2" />
           <p className="text-xs">Connecting...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!selectedPageId) {
+    return (
+      <div className="h-full w-full bg-background transition-colors duration-300 flex flex-col">
+        <div className="flex-1 flex items-center justify-center">
+          <div className="text-center text-muted-foreground max-w-md px-6">
+            <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-accent/40 text-foreground">
+              <IconFileText size={22} />
+            </div>
+            <h3 className="text-lg font-semibold text-foreground mb-2">
+              No hay ninguna nota abierta
+            </h3>
+            <p className="text-sm mb-4">
+              Selecciona una nota en la barra lateral o crea una nueva para empezar.
+            </p>
+            <Button onClick={handleCreatePage} disabled={!createPageAction}>
+              Crear nota
+            </Button>
+          </div>
         </div>
       </div>
     );

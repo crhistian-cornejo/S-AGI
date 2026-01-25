@@ -231,8 +231,8 @@ export const AI_MODELS: Record<string, ModelDefinition> = {
         defaultReasoningEffort: 'high',
         includedInSubscription: true
     },
-    'claude-sonnet-4-5-20251101': {
-        id: 'claude-sonnet-4-5-20251101',
+    'claude-sonnet-4-5-20250929': {
+        id: 'claude-sonnet-4-5-20250929',
         provider: 'claude',
         name: 'Claude Sonnet 4.5',
         description: 'Balanced performance and speed',
@@ -243,8 +243,8 @@ export const AI_MODELS: Record<string, ModelDefinition> = {
         defaultReasoningEffort: 'medium',
         includedInSubscription: true
     },
-    'claude-haiku-4-5-20251101': {
-        id: 'claude-haiku-4-5-20251101',
+    'claude-haiku-4-5-20251001': {
+        id: 'claude-haiku-4-5-20251001',
         provider: 'claude',
         name: 'Claude Haiku 4.5',
         description: 'Fast and efficient for quick tasks',
@@ -263,7 +263,7 @@ export const DEFAULT_MODELS: Record<AIProvider, string> = {
     openai: 'gpt-5',
     'chatgpt-plus': 'gpt-5.1-codex-max',
     zai: 'GLM-4.7-Flash',
-    claude: 'claude-sonnet-4-5-20251101'
+    claude: 'claude-sonnet-4-5-20250929'
 }
 
 /**
@@ -290,6 +290,45 @@ export function getModelById(modelId: string): ModelDefinition | undefined {
     }
 
     return undefined
+}
+
+/**
+ * Resolve a model for a provider, falling back to provider defaults when needed.
+ */
+export function resolveModelForProvider(
+    provider: AIProvider,
+    modelId?: string
+): ModelDefinition {
+    const candidate = modelId ? getModelById(modelId) : undefined
+    if (candidate && candidate.provider === provider) {
+        return candidate
+    }
+
+    const fallbackId = DEFAULT_MODELS[provider]
+    const fallback = getModelById(fallbackId)
+    if (!fallback) {
+        throw new Error(`Default model not found for provider: ${provider}`)
+    }
+
+    return fallback
+}
+
+/**
+ * Resolve the API model ID, honoring modelIdForApi when provided.
+ */
+export function resolveModelIdForApi(modelId: string): string {
+    const model = getModelById(modelId)
+    return model?.modelIdForApi ?? modelId
+}
+
+/**
+ * Only OpenAI Responses IDs start with "resp_".
+ * Ignore other values (e.g. Claude session IDs) when chaining requests.
+ */
+export function sanitizeOpenAiResponseId(
+    responseId?: string
+): string | undefined {
+    return responseId?.startsWith('resp_') ? responseId : undefined
 }
 
 /**
@@ -401,8 +440,11 @@ export const DEFAULT_TOOL_APPROVAL_CONFIG: ToolApprovalConfig = {
         set_column_width: 'auto',
         set_row_height: 'auto',
         add_row: 'auto',
-        delete_row: 'auto',
+        delete_row: 'ask',
         get_spreadsheet_summary: 'auto',
+        clear_range: 'ask',
+        delete_column: 'ask',
+        confirm_action: 'ask',
         // Native tools - auto approve
         web_search: 'auto',
         code_interpreter: 'auto',
@@ -415,6 +457,32 @@ export const DEFAULT_TOOL_APPROVAL_CONFIG: ToolApprovalConfig = {
         replace_document_content: 'auto',
         get_document_content: 'auto'
     }
+}
+
+/**
+ * Build a set of tools that require explicit approval (non-auto).
+ */
+export function getToolsRequiringApproval(
+    config: ToolApprovalConfig
+): Set<string> {
+    const tools = new Set<string>()
+
+    if (config.defaultBehavior !== 'auto') {
+        for (const [tool, behavior] of Object.entries(config.toolBehaviors)) {
+            if (behavior !== 'auto') {
+                tools.add(tool)
+            }
+        }
+        return tools
+    }
+
+    for (const [tool, behavior] of Object.entries(config.toolBehaviors)) {
+        if (behavior !== 'auto') {
+            tools.add(tool)
+        }
+    }
+
+    return tools
 }
 
 // ============================================================================

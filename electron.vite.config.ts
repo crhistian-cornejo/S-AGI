@@ -97,7 +97,7 @@ export default defineConfig({
                 input: {
                     index: resolve(__dirname, 'apps/electron/main/index.ts')
                 },
-                external: ['electron', 'better-sqlite3'],
+                external: ['electron', 'better-sqlite3', 'sharp'],
                 output: {
                     format: 'cjs'
                 }

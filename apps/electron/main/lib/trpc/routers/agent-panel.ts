@@ -8,13 +8,14 @@
 import { z } from "zod";
 import { router, protectedProcedure } from "../trpc";
 import { streamText } from "ai";
-import { createOpenAI } from "@ai-sdk/openai";
 import log from "electron-log";
 import { sendToRenderer } from "../../window-manager";
-import { getSecureApiKeyStore } from "../../auth/api-key-store";
-import { getChatGPTAuthManager } from "../../auth";
 import { getModelById, DEFAULT_MODELS } from "@s-agi/core/types/ai";
-import type { AIProvider } from "@s-agi/core/types/ai";
+import {
+  getLanguageModel,
+  getProviderStatus,
+  isProviderAvailable,
+} from "../../ai/providers";
 import {
   loadPDFContext,
   getPDFContext,
@@ -56,45 +57,6 @@ function emitAgentEvent(sessionId: string, event: AgentPanelStreamEvent) {
   sendToRenderer("agent-panel:stream", { sessionId, ...event });
 }
 
-// Get API key and create OpenAI client
-async function getOpenAIClient(
-  provider: AIProvider,
-): Promise<ReturnType<typeof createOpenAI> | null> {
-  const keyStore = getSecureApiKeyStore();
-
-  if (provider === "chatgpt-plus") {
-    const authManager = getChatGPTAuthManager();
-    if (!authManager.isConnected()) {
-      return null;
-    }
-    const token = authManager.getAccessToken();
-    if (!token) return null;
-
-    return createOpenAI({
-      apiKey: token,
-      baseURL: "https://chatgpt.com/backend-api/v1",
-    });
-  }
-
-  if (provider === "zai") {
-    // Z.AI uses OpenAI-compatible API, but we don't have a separate key store for it yet
-    // For now, fall back to OpenAI key if available (user can configure Z.AI URL in settings)
-    const openaiKey = keyStore.getOpenAIKey();
-    if (!openaiKey) return null;
-
-    return createOpenAI({
-      apiKey: openaiKey,
-      baseURL: "https://api.z.ai/api/paas/v4/",
-    });
-  }
-
-  // Default: OpenAI API
-  const openaiKey = keyStore.getOpenAIKey();
-  if (!openaiKey) return null;
-
-  return createOpenAI({ apiKey: openaiKey });
-}
-
 export const agentPanelRouter = router({
   /**
    * Stream a message to the appropriate document agent
@@ -106,7 +68,9 @@ export const agentPanelRouter = router({
         sessionId: z.string(),
         tabType: z.enum(["excel", "doc", "pdf"]),
         prompt: z.string(),
-        provider: z.enum(["openai", "chatgpt-plus", "zai"]).default("openai"),
+        provider: z
+          .enum(["openai", "chatgpt-plus", "zai", "claude"])
+          .default("openai"),
         modelId: z.string().optional(),
         messages: z
           .array(
@@ -182,17 +146,18 @@ export const agentPanelRouter = router({
           (modelDef as { modelIdForApi?: string } | undefined)?.modelIdForApi ||
           selectedModelId;
 
-        // Create OpenAI client
-        const openai = await getOpenAIClient(provider);
-        if (!openai) {
+        if (!isProviderAvailable(provider)) {
+          const status = getProviderStatus(provider);
           emitAgentEvent(sessionId, {
             type: "error",
-            error: `No API key configured for ${provider}. Please add one in Settings.`,
+            error:
+              status.message ||
+              `No credentials configured for ${provider}. Please update Settings.`,
           });
           return { success: false };
         }
 
-        const model = openai(apiModelId);
+        const model = getLanguageModel(provider, apiModelId);
 
         // Build agent context
         const agentContext: AgentContext = {
@@ -415,6 +380,7 @@ IMPORTANTE: CADA dato del PDF debe tener su citación [página N].`;
         log.info(
           `[AgentPanel] Starting ${tabType} agent stream for session ${sessionId}`,
         );
+        log.info(`[AgentPanel] Provider: ${provider}, Model: ${apiModelId}`);
 
         // Stream the response using AI SDK
         // Build user/assistant messages (exclude system - use system param instead)
@@ -424,6 +390,8 @@ IMPORTANTE: CADA dato del PDF debe tener su citación [página N].`;
             role: m.role as "user" | "assistant",
             content: m.content,
           }));
+
+        log.info(`[AgentPanel] Messages count: ${chatMessages.length}, Tools: ${Object.keys(agentTools).join(', ')}`);
 
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const result = streamText({
@@ -483,6 +451,11 @@ IMPORTANTE: CADA dato del PDF debe tener su citación [página N].`;
           // Get final usage
           const usage = await result.usage;
 
+          // Log warning if no text was generated
+          if (!fullText) {
+            log.warn(`[AgentPanel] Stream completed but no text was generated for session ${sessionId}`);
+          }
+
           emitAgentEvent(sessionId, {
             type: "text-done",
             text: fullText,
@@ -497,7 +470,7 @@ IMPORTANTE: CADA dato del PDF debe tener su citación [página N].`;
             },
           });
 
-          log.info(`[AgentPanel] Stream completed for session ${sessionId}`);
+          log.info(`[AgentPanel] Stream completed for session ${sessionId}, text length: ${fullText.length}`);
           return { success: true, text: fullText };
         } catch (streamError) {
           if (abortController.signal.aborted) {
@@ -509,7 +482,13 @@ IMPORTANTE: CADA dato del PDF debe tener su citación [página N].`;
       } catch (error) {
         const errorMessage =
           error instanceof Error ? error.message : "Unknown error";
-        log.error(`[AgentPanel] Error in agent stream:`, error);
+        const errorStack = error instanceof Error ? error.stack : undefined;
+        log.error(`[AgentPanel] Error in agent stream for ${provider}/${modelId}:`, {
+          error: errorMessage,
+          stack: errorStack,
+          sessionId,
+          tabType,
+        });
 
         emitAgentEvent(sessionId, {
           type: "error",

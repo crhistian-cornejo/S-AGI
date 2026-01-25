@@ -116,8 +116,12 @@ export class ClaudeCodeAuthManager {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
-                    'User-Agent': 'S-AGI/1.0',
-                    'Accept': 'application/json',
+                    'User-Agent':
+                        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+                    Accept: 'application/json, text/plain, */*',
+                    'Accept-Language': 'en-US,en;q=0.9',
+                    Referer: 'https://claude.ai/',
+                    Origin: 'https://claude.ai',
                 },
                 body: JSON.stringify({
                     grant_type: 'authorization_code',
@@ -126,7 +130,7 @@ export class ClaudeCodeAuthManager {
                     redirect_uri: REDIRECT_URI,
                     code_verifier: this.currentOAuthState.codeVerifier,
                     state: this.currentOAuthState.state,
-                })
+                }),
             })
 
             if (!response.ok) {

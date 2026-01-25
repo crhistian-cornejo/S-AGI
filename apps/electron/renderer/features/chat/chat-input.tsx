@@ -67,7 +67,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { ModelIcon } from "@/components/icons/model-icons";
-import { AI_MODELS } from "@s-agi/core/types/ai";
+import { getModelById } from "@s-agi/core/types/ai";
 import { trpc } from "@/lib/trpc";
 
 interface ChatInputProps {
@@ -126,7 +126,7 @@ export const ChatInput = memo(function ChatInput({
   const { data: keyStatus } = trpc.settings.getApiKeyStatus.useQuery();
 
   // Get current model info for display
-  const currentModelInfo = AI_MODELS[selectedModel];
+  const currentModelInfo = getModelById(selectedModel);
   const supportsResponseMode = !!(
     currentModelInfo as { supportsResponseMode?: boolean } | undefined
   )?.supportsResponseMode;
@@ -346,7 +346,7 @@ export const ChatInput = memo(function ChatInput({
   const handleModelChange = (modelId: string) => {
     setSelectedModel(modelId);
     // Get the provider from the model definition
-    const modelDef = AI_MODELS[modelId];
+    const modelDef = getModelById(modelId);
     if (modelDef) {
       setProvider(modelDef.provider);
     }

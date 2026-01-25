@@ -59,7 +59,9 @@ const DEFAULT_CONTEXT_WINDOW = 256000;
 // Pricing per 1M tokens (USD) — from official APIs
 // OpenAI: https://platform.openai.com/docs/pricing | https://openai.com/api/pricing/
 // Z.AI: https://docs.z.ai/guides/overview/pricing
+// Claude: https://platform.claude.com/docs/en/about-claude/pricing
 // ChatGPT Plus/Codex: included in subscription, no per-token charge
+// Claude Code Pro/Max: included in subscription, no per-token charge
 const MODEL_PRICING: Record<string, { input: number; output: number }> = {
   // OpenAI API (Standard $/1M: platform.openai.com/docs/pricing)
   "gpt-5": { input: 1.25, output: 10 },
@@ -72,6 +74,18 @@ const MODEL_PRICING: Record<string, { input: number; output: number }> = {
   "gpt-5.1-codex-mini": { input: 0, output: 0 },
   "gpt-5.2": { input: 0, output: 0 },
   "gpt-5.2-codex": { input: 0, output: 0 },
+  // Claude API ($/1M tokens - platform.claude.com/docs/en/about-claude/pricing)
+  "claude-opus-4-5-20250929": { input: 5, output: 25 },
+  "claude-sonnet-4-5-20250929": { input: 3, output: 15 },
+  "claude-haiku-4-5-20251001": { input: 0.25, output: 1.25 },
+  // Legacy Claude models
+  "claude-3-5-sonnet-20241022": { input: 3, output: 15 },
+  "claude-3-5-haiku-20241022": { input: 0.8, output: 4 },
+  "claude-3-opus-20240229": { input: 15, output: 75 },
+  // Claude Code Pro/Max (included in subscription - OAuth)
+  "claude-sonnet-4-5-20250929-oauth": { input: 0, output: 0 },
+  "claude-haiku-4-5-20251001-oauth": { input: 0, output: 0 },
+  "claude-opus-4-5-20250929-oauth": { input: 0, output: 0 },
   // Z.AI (GLM)
   "GLM-4.7": { input: 0.6, output: 2.2 },
   "GLM-4.7-FlashX": { input: 0.07, output: 0.4 },
@@ -85,6 +99,12 @@ function calculateCost(
   outputTokens: number,
   reasoningTokens?: number,
 ): number {
+  // Check if model is included in subscription (free to use)
+  const modelDef = getModelById(modelId);
+  if (modelDef?.includedInSubscription) {
+    return 0; // Free - included in subscription
+  }
+  
   const pricing = MODEL_PRICING[modelId];
   if (!pricing) return 0;
   const inputCost = (inputTokens / 1_000_000) * pricing.input;
@@ -738,9 +758,8 @@ const MessageItem = memo(function MessageItem({
   const modelId = message.model_id ?? message.metadata?.model_id;
   const modelName =
     message.model_name ?? message.metadata?.model_name ?? modelId;
-  /** Solo dos providers: OpenAI (openai+chatgpt-plus) o Z.AI */
-  const modelProvider =
-    getModelById(modelId || "")?.provider === "zai" ? "zai" : "openai";
+  /** Provider detection: OpenAI, ChatGPT Plus, Z.AI, or Claude */
+  const modelProvider = getModelById(modelId || "")?.provider || "openai";
 
   // Extract chart artifact IDs from tool calls (for "Ver Charts" button)
   const chartArtifactIds = useMemo(() => {

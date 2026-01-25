@@ -512,6 +512,19 @@ export function ChatView() {
         }
         // API key is fetched by main process
         apiKey = undefined;
+      } else if (provider === "claude") {
+        // Claude Code uses OAuth - backend handles auth
+        const status = await trpcClient.settings.getApiKeyStatus.query();
+        if (!status.hasClaudeCode) {
+          setStreamingError(
+            "Claude Code not connected. Please connect in Settings.",
+          );
+          setIsStreaming(false);
+          setStreamingStatus(chatId, "error");
+          chatSounds.playError();
+          return;
+        }
+        apiKey = undefined;
       } else {
         // Anthropic or other providers
         // SECURITY: Credentials are managed in main process only

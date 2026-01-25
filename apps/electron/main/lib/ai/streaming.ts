@@ -1,4 +1,4 @@
-import { streamText } from 'ai'
+import { streamText, type StopCondition, type ToolSet } from 'ai'
 import log from 'electron-log'
 import { sendToRenderer } from '../window-manager'
 import { getLanguageModel, isProviderAvailable } from './providers'
@@ -16,10 +16,17 @@ export interface StreamingOptions {
     provider: AIProvider
     modelId: string
     userId: string
-    messages?: Array<{ role: 'user' | 'assistant' | 'system'; content: string }>
+    messages?: Array<{
+        role: 'user' | 'assistant' | 'system'
+        content: string
+        images?: Array<{ type: 'image'; data: string; mediaType: string }>
+    }>
     images?: Array<{ type: 'image'; data: string; mediaType: string }>
     mode?: 'agent' | 'plan'
     signal?: AbortSignal
+    system?: string
+    tools?: ToolSet
+    stopWhen?: StopCondition<ToolSet> | Array<StopCondition<ToolSet>>
 }
 
 /**
@@ -33,7 +40,11 @@ function emit(event: AIStreamEvent): void {
  * Convert AI SDK messages to the internal format
  */
 function convertMessages(
-    messages: Array<{ role: 'user' | 'assistant' | 'system'; content: string }>,
+    messages: Array<{
+        role: 'user' | 'assistant' | 'system'
+        content: string
+        images?: Array<{ type: 'image'; data: string; mediaType: string }>
+    }>,
     currentPrompt: string,
     images?: Array<{ type: 'image'; data: string; mediaType: string }>
 ): Array<{ role: 'user' | 'assistant' | 'system'; content: string | Array<{ type: string; text?: string; image?: string }> }> {
@@ -41,7 +52,18 @@ function convertMessages(
 
     // Add previous messages
     for (const msg of messages) {
-        result.push({ role: msg.role, content: msg.content })
+        if (msg.images?.length) {
+            const content: Array<{ type: string; text?: string; image?: string }> = [
+                ...msg.images.map(img => ({
+                    type: 'image' as const,
+                    image: `data:${img.mediaType};base64,${img.data}`
+                })),
+                { type: 'text' as const, text: msg.content }
+            ]
+            result.push({ role: msg.role, content })
+        } else {
+            result.push({ role: msg.role, content: msg.content })
+        }
     }
 
     // Add current message with optional images
@@ -77,7 +99,10 @@ export async function streamWithAISDK(options: StreamingOptions): Promise<{
         messages = [],
         images,
         mode = 'agent',
-        signal
+        signal,
+        system,
+        tools,
+        stopWhen
     } = options
 
     // Validate provider availability
@@ -88,7 +113,7 @@ export async function streamWithAISDK(options: StreamingOptions): Promise<{
     }
 
     const model = getLanguageModel(provider, modelId)
-    const systemPrompt = getSystemPrompt(mode)
+    const systemPrompt = system ?? getSystemPrompt(mode)
 
     log.info(`[AI SDK] Starting stream with ${modelId} (provider: ${provider})`)
 
@@ -98,11 +123,14 @@ export async function streamWithAISDK(options: StreamingOptions): Promise<{
     let totalCompletionTokens = 0
 
     try {
+        const seenToolCalls = new Set<string>()
         const result = streamText({
             model,
             system: systemPrompt,
             messages: convertMessages(messages, prompt, images) as any,
             abortSignal: signal,
+            tools,
+            stopWhen,
             onChunk: ({ chunk }) => {
                 // Handle different chunk types
                 if (chunk.type === 'text-delta') {
@@ -125,6 +153,14 @@ export async function streamWithAISDK(options: StreamingOptions): Promise<{
                 // Handle tool calls and results
                 if (toolCalls) {
                     for (const toolCall of toolCalls) {
+                        if (!seenToolCalls.has(toolCall.toolCallId)) {
+                            seenToolCalls.add(toolCall.toolCallId)
+                            emit({
+                                type: 'tool-call-start',
+                                toolCallId: toolCall.toolCallId,
+                                toolName: toolCall.toolName
+                            })
+                        }
                         emit({
                             type: 'tool-call-done',
                             toolCallId: toolCall.toolCallId,
@@ -136,12 +172,19 @@ export async function streamWithAISDK(options: StreamingOptions): Promise<{
 
                 if (toolResults) {
                     for (const toolResult of toolResults) {
+                        const output = (toolResult as any).result || (toolResult as any).output
+                        const outputType =
+                            output && typeof output === 'object' && 'type' in output
+                                ? (output as { type?: string }).type
+                                : undefined
+                        const success = outputType !== 'error-text' && outputType !== 'execution-denied'
+
                         emit({
                             type: 'tool-result',
                             toolCallId: toolResult.toolCallId,
                             toolName: toolResult.toolName,
-                            result: (toolResult as any).result || (toolResult as any).output,
-                            success: true
+                            result: output,
+                            success
                         })
                     }
                 }
@@ -203,10 +246,14 @@ export async function streamWithAISDK(options: StreamingOptions): Promise<{
  * Check if AI SDK v6 streaming should be used
  * This allows gradual rollout of the new implementation
  */
-export function shouldUseAISDK(): boolean {
-    // For now, return false to use the existing implementation
-    // Set to true or use a feature flag to enable AI SDK v6
-    return false
+export function shouldUseAISDK(
+    env: Record<string, string | undefined> = (import.meta as any).env ?? {}
+): boolean {
+    const raw =
+        env.MAIN_VITE_AI_SDK_STREAMING ??
+        env.AI_SDK_STREAMING ??
+        ''
+    return raw === 'true' || raw === '1'
 }
 
 // Re-export UI tool utilities for use in other modules
