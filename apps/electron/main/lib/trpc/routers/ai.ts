@@ -6,6 +6,7 @@ import { sendToRenderer } from "../../window-manager";
 import { supabase } from "../../supabase/client";
 import { getSecureApiKeyStore } from "../../auth/api-key-store";
 import { getChatGPTAuthManager } from "../../auth";
+import { getCredentialManager } from "../../shared/credentials";
 // NOTE: Gemini auth disabled - OAuth token incompatible with generativelanguage.googleapis.com
 // import { getChatGPTAuthManager, getGeminiAuthManager } from '../../auth'
 
@@ -1710,8 +1711,12 @@ export const aiRouter = router({
                         })
                     */
           } else if (provider === "zai") {
-            if (!input.apiKey) {
-              throw new Error("Z.AI API key is required");
+            // SECURITY: Fetch API key from credential manager if not provided
+            const credentialManager = getCredentialManager();
+            const zaiApiKey = input.apiKey || await credentialManager.getZaiKey();
+
+            if (!zaiApiKey) {
+              throw new Error("Z.AI API key is required. Please configure it in Settings.");
             }
 
             const wantsCodingEndpoint = isLikelyCodingPrompt(input.prompt);
@@ -1720,25 +1725,34 @@ export const aiRouter = router({
               : ZAI_GENERAL_BASE_URL;
 
             client = new OpenAI({
-              apiKey: input.apiKey,
+              apiKey: zaiApiKey,
               baseURL: zaiBaseURL,
               defaultHeaders: {
                 "X-Source": ZAI_SOURCE_HEADER,
               },
             });
 
+            // Update apiKey for tool context
+            input.apiKey = zaiApiKey;
+
             log.info(
               `[AI] Using Z.AI provider endpoint: ${wantsCodingEndpoint ? "coding" : "general"}`,
             );
           } else {
-            // Standard OpenAI API - use API key
-            if (!input.apiKey) {
-              throw new Error("OpenAI API key is required");
+            // Standard OpenAI API - fetch API key from credential manager if not provided
+            const credentialManager = getCredentialManager();
+            const openaiApiKey = input.apiKey || await credentialManager.getOpenAIKey();
+
+            if (!openaiApiKey) {
+              throw new Error("OpenAI API key is required. Please configure it in Settings.");
             }
 
             client = new OpenAI({
-              apiKey: input.apiKey,
+              apiKey: openaiApiKey,
             });
+
+            // Update apiKey for tool context
+            input.apiKey = openaiApiKey;
           }
 
           // Build tool context for image generation and other API-requiring tools
@@ -3427,14 +3441,24 @@ CITATION REQUIREMENTS (MANDATORY):
             args: { prompt: input.prompt, size: imageSize, quality: "high" },
           });
 
-          // Get API key - prefer input key, fallback to stored
-          const apiKey = input.apiKey || getSecureApiKeyStore().getOpenAIKey();
+          // Get API key - prefer input key, fallback to credential manager
+          const credentialManager = getCredentialManager();
+          const provider = input.provider || "openai";
+
+          let apiKey = input.apiKey;
           if (!apiKey) {
-            throw new Error("OpenAI API key is required for image generation");
+            if (provider === "zai") {
+              apiKey = await credentialManager.getZaiKey();
+            } else {
+              apiKey = await credentialManager.getOpenAIKey();
+            }
           }
 
-          // Determine if using Z.AI
-          const provider = input.provider || "openai";
+          if (!apiKey) {
+            throw new Error(`${provider === "zai" ? "Z.AI" : "OpenAI"} API key is required for image generation. Please configure it in Settings.`);
+          }
+
+          // Determine base URL for Z.AI
           const baseURL = provider === "zai" ? ZAI_GENERAL_BASE_URL : undefined;
           const headers =
             provider === "zai" ? { "X-Source": ZAI_SOURCE_HEADER } : undefined;
