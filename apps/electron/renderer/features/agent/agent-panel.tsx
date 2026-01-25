@@ -385,6 +385,8 @@ export function AgentPanel() {
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  // Track streaming text in ref for finish handler (avoids stale closure)
+  const streamingTextRef = useRef<string>("");
 
   // Get agent context
   const agentContext = isAgentTab(activeTab) ? AGENT_CONTEXTS[activeTab] : null;
@@ -489,11 +491,17 @@ export function AgentPanel() {
 
       switch (event.type) {
         case "text-delta":
+          // Update both state (for UI) and ref (for finish handler)
+          streamingTextRef.current += event.delta || "";
           setStreamingText((prev) => prev + (event.delta || ""));
           break;
 
         case "text-done":
-          // Finalize the message
+          // Store the final text for finish handler
+          // text-done provides the complete accumulated text (backup if deltas missed)
+          if (event.text) {
+            streamingTextRef.current = event.text;
+          }
           break;
 
         case "tool-call-start":
@@ -551,6 +559,7 @@ export function AgentPanel() {
           break;
 
         case "error":
+          streamingTextRef.current = "";
           setStreamingText("");
           setIsStreaming(false);
           // Add error message
@@ -566,9 +575,9 @@ export function AgentPanel() {
           break;
 
         case "finish":
-          // Add final message
-          if (streamingText) {
-            const finalContent = streamingText;
+          // Add final message using ref (avoids stale closure issue)
+          if (streamingTextRef.current) {
+            const finalContent = streamingTextRef.current;
             setMessages((prev: AgentPanelMessage[]) => {
               // Update the last assistant message or add new one
               // Use reverse + findIndex for ES2015 compatibility
@@ -621,6 +630,7 @@ export function AgentPanel() {
               return updatedMessages;
             });
           }
+          streamingTextRef.current = "";
           setStreamingText("");
           setIsStreaming(false);
           break;
@@ -640,7 +650,12 @@ export function AgentPanel() {
       );
       cleanup?.();
     };
-  }, [sessionId, streamingText, setStreamingText, setIsStreaming, setMessages, activeTab]);
+    // Note: streamingText intentionally excluded from deps to prevent re-registering
+    // listener on every text-delta. The handler uses stable setStreamingText reference.
+    // The 'finish' case uses streamingText from closure which may be stale, but that's
+    // fine since we track full text in fullText variable inside the streaming handler.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionId, setStreamingText, setIsStreaming, setMessages, activeTab]);
 
   // Auto-scroll
   useEffect(() => {
