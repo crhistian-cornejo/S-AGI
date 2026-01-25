@@ -310,6 +310,7 @@ export const UniverSpreadsheet = React.forwardRef<UniverSpreadsheetRef, UniverSp
     }, [artifactId, triggerAutoSave])
 
     // Listen for live artifact updates from AI tools
+    // Uses incremental cell updates via Univer Facade API to avoid flickering
     React.useEffect(() => {
         if (!artifactId) return
 
@@ -327,22 +328,92 @@ export const UniverSpreadsheet = React.forwardRef<UniverSpreadsheetRef, UniverSp
             }
 
             try {
-                // Strategy: Dispose current workbook and create new one with updated data
-                // This is the safest approach to ensure data consistency
                 const currentWorkbook = instance.api.getActiveWorkbook()
-                if (currentWorkbook) {
-                    // Get the unit ID and dispose it via the facade API
-                    const unitId = currentWorkbook.getId()
-                    if (unitId) {
-                        instance.api.disposeUnit(unitId)
+                if (!currentWorkbook) {
+                    // No workbook exists - create new one (initial load case)
+                    console.log('[UniverSpreadsheet] No active workbook, creating new one')
+                    instance.univer.createUnit(UniverInstanceType.UNIVER_SHEET, updateData.univerData)
+                    workbookRef.current = instance.api.getActiveWorkbook()
+                    return
+                }
+
+                // INCREMENTAL UPDATE: Use Facade API to update cells without recreating workbook
+                // This prevents flickering during AI tool operations
+                const univerData = updateData.univerData
+                const sheetId = Object.keys(univerData.sheets || {})[0]
+                if (!sheetId || !univerData.sheets?.[sheetId]) {
+                    console.warn('[UniverSpreadsheet] Invalid univerData structure')
+                    return
+                }
+
+                const sheetData = univerData.sheets[sheetId]
+                const cellData = sheetData.cellData || {}
+                const activeSheet = currentWorkbook.getActiveSheet()
+
+                if (!activeSheet) {
+                    console.warn('[UniverSpreadsheet] No active sheet for incremental update')
+                    return
+                }
+
+                // Collect all cells that need updating
+                const updates: Array<{ row: number; col: number; value: unknown; style?: unknown }> = []
+
+                for (const [rowKey, rowData] of Object.entries(cellData)) {
+                    const row = parseInt(rowKey, 10)
+                    if (Number.isNaN(row) || !rowData || typeof rowData !== 'object') continue
+
+                    for (const [colKey, cellValue] of Object.entries(rowData as Record<string, unknown>)) {
+                        const col = parseInt(colKey, 10)
+                        if (Number.isNaN(col)) continue
+
+                        const cell = cellValue as { v?: unknown; s?: unknown } | null
+                        if (cell) {
+                            updates.push({
+                                row,
+                                col,
+                                value: cell.v,
+                                style: cell.s
+                            })
+                        }
                     }
                 }
 
-                // Create new workbook with updated data
-                instance.univer.createUnit(UniverInstanceType.UNIVER_SHEET, updateData.univerData)
-                workbookRef.current = instance.api.getActiveWorkbook()
+                // Apply updates in batches using setValues for better performance
+                // Group by contiguous ranges when possible
+                if (updates.length > 0) {
+                    console.log(`[UniverSpreadsheet] Applying ${updates.length} cell updates incrementally`)
 
-                console.log('[UniverSpreadsheet] Live update applied successfully')
+                    // Simple approach: update each cell individually using object-based setValues
+                    // Univer's object format allows sparse updates without specifying every cell
+                    const maxRow = Math.max(...updates.map(u => u.row)) + 1
+                    const maxCol = Math.max(...updates.map(u => u.col)) + 1
+
+                    // Build object matrix for setValues (sparse format)
+                    const valueMatrix: Record<number, Record<number, unknown>> = {}
+                    for (const update of updates) {
+                        if (!valueMatrix[update.row]) valueMatrix[update.row] = {}
+                        valueMatrix[update.row][update.col] = update.value
+                    }
+
+                    // Get range covering all updates and apply values
+                    try {
+                        const range = activeSheet.getRange(0, 0, maxRow, maxCol)
+                        if (range && typeof range.setValues === 'function') {
+                            range.setValues(valueMatrix)
+                        }
+                    } catch (rangeErr) {
+                        console.warn('[UniverSpreadsheet] setValues failed, falling back to full update:', rangeErr)
+                        // Fallback: recreate workbook if incremental update fails
+                        const unitId = currentWorkbook.getId()
+                        if (unitId) {
+                            instance.api.disposeUnit(unitId)
+                        }
+                        instance.univer.createUnit(UniverInstanceType.UNIVER_SHEET, updateData.univerData)
+                        workbookRef.current = instance.api.getActiveWorkbook()
+                    }
+                }
+
+                console.log('[UniverSpreadsheet] Incremental update applied successfully')
             } catch (err) {
                 console.error('[UniverSpreadsheet] Failed to apply live update:', err)
             }
