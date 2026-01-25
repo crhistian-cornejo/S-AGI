@@ -9,7 +9,7 @@
 
 import { z } from "zod";
 import { router, protectedProcedure } from "../trpc";
-import { streamText } from "ai";
+import { streamText, stepCountIs, tool } from "ai";
 import log from "electron-log";
 import { sendToRenderer } from "../../window-manager";
 import { getModelById, DEFAULT_MODELS } from "@s-agi/core/types/ai";
@@ -27,8 +27,6 @@ import {
   clearPDFContext,
 } from "../../agents/agent-service";
 import { createPDFTools } from "../../agents/pdf-agent";
-import { createExcelTools } from "../../agents/excel-agent";
-import { createDocsTools } from "../../agents/docs-agent";
 import {
   createExcelMcpTools,
   createPdfMcpTools,
@@ -65,6 +63,43 @@ export type AgentPanelStreamEvent =
 function emitAgentEvent(sessionId: string, event: AgentPanelStreamEvent) {
   log.info(`[AgentPanel] Emitting event:`, { sessionId, type: event.type });
   sendToRenderer("agent-panel:stream", { sessionId, ...event });
+}
+
+/** MCP tool shape used by createExcelMcpTools, createDocsMcpTools, etc. */
+type McpToolLike = {
+  name: string;
+  description: string;
+  inputSchema: z.ZodObject<z.ZodRawShape>;
+  handler: (args: unknown, extra: unknown) => Promise<{
+    content: Array<{ type: string; text: string }>;
+    isError?: boolean;
+  }>;
+};
+
+/**
+ * Convert MCP tools to AI SDK tool() format.
+ * MCP tools persist to DB and send artifact:update (full univerData); the renderer
+ * listens and the UI updates. Excel-agent tools use artifact:update-cells etc.
+ * which nothing handles, so we use MCP for OpenAI/Zai in the agent panel.
+ */
+function mcpToolsToAISDK(mcpTools: McpToolLike[]): Record<string, unknown> {
+  const record: Record<string, unknown> = {};
+  for (const m of mcpTools) {
+    record[m.name] = tool({
+      description: m.description,
+      inputSchema: m.inputSchema,
+      execute: async (args: unknown) => {
+        const result = await m.handler(args, {});
+        const text = result.content[0]?.text ?? "{}";
+        try {
+          return JSON.parse(text) as unknown;
+        } catch {
+          return text;
+        }
+      },
+    });
+  }
+  return record;
 }
 
 export const agentPanelRouter = router({
@@ -245,8 +280,11 @@ export const agentPanelRouter = router({
         }
 
         // Create specialized tools based on tab type and generate system prompt
+        // Excel/Doc use MCP tools (persist + artifact:update) so the UI updates. Agent tools use
+        // artifact:update-cells etc. which nothing listens to.
         let systemPrompt = "";
         let agentTools: Record<string, unknown> = {};
+        let mcpTools: McpToolLike[] = [];
 
         switch (tabType) {
           case "pdf": {
@@ -286,6 +324,7 @@ export const agentPanelRouter = router({
 
 IMPORTANTE: CADA dato del PDF debe tener su citación [página N].`;
             agentTools = createPDFTools(pdfContext);
+            mcpTools = createPdfMcpTools(pdfContext) as McpToolLike[];
             break;
           }
 
@@ -311,7 +350,8 @@ IMPORTANTE: CADA dato del PDF debe tener su citación [página N].`;
 2. Usa fórmulas cuando sea apropiado (SUM, AVERAGE, IF, VLOOKUP, etc.)
 3. Aplica formato numérico apropiado (moneda, porcentaje, fecha)
 4. Para datos financieros, usa 2 decimales`;
-            agentTools = createExcelTools(excelContext);
+            mcpTools = createExcelMcpTools(excelContext) as McpToolLike[];
+            agentTools = mcpToolsToAISDK(mcpTools);
             break;
           }
 
@@ -335,7 +375,8 @@ IMPORTANTE: CADA dato del PDF debe tener su citación [página N].`;
 - Incluye introducción, desarrollo y conclusión cuando sea apropiado
 - Usa listas para enumerar puntos
 - Usa tablas para datos comparativos`;
-            agentTools = createDocsTools(docsContext);
+            mcpTools = createDocsMcpTools(docsContext) as McpToolLike[];
+            agentTools = mcpToolsToAISDK(mcpTools);
             break;
           }
         }
@@ -418,48 +459,7 @@ IMPORTANTE: CADA dato del PDF debe tener su citación [página N].`;
             return { success: false };
           }
 
-          // Create MCP tools based on tab type (these work with OAuth via Claude SDK!)
-          let mcpTools: Array<{
-            name: string;
-            description: string;
-            inputSchema: unknown;
-            handler: (args: unknown, extra: unknown) => Promise<{ content: Array<{ type: string; text: string }>; isError?: boolean }>;
-          }> = [];
-
-          switch (tabType) {
-            case "excel": {
-              const excelContext: ExcelContext = {
-                ...agentContext,
-                workbookId: context?.workbookId,
-                sheetId: context?.sheetId,
-                selectedRange: context?.selectedRange,
-              };
-              mcpTools = createExcelMcpTools(excelContext);
-              break;
-            }
-            case "pdf": {
-              if (agentContext.pdfPages && agentContext.pdfPages.length > 0) {
-                const pdfContext: PDFContext = {
-                  ...agentContext,
-                  pdfPath: agentContext.pdfPath || "document.pdf",
-                  pages: agentContext.pdfPages,
-                };
-                mcpTools = createPdfMcpTools(pdfContext);
-              }
-              break;
-            }
-            case "doc": {
-              const docsContext: DocsContext = {
-                ...agentContext,
-                documentId: context?.documentId,
-                documentTitle: context?.documentTitle,
-                selectedText: context?.selectedText,
-              };
-              mcpTools = createDocsMcpTools(docsContext);
-              break;
-            }
-          }
-
+          // Use MCP tools built in main switch (excel/doc use MCP; pdf uses createPdfMcpTools)
           log.info(`[AgentPanel] Using Claude Agent SDK with ${mcpTools.length} MCP tools for ${tabType}`);
 
           try {
@@ -490,7 +490,8 @@ IMPORTANTE: CADA dato del PDF debe tener su citación [página N].`;
           }
         }
 
-        // For other providers, use AI SDK streamText
+        // For other providers (OpenAI, Zai, etc.), use AI SDK streamText
+        // stopWhen: stepCountIs(10) allows multi-step tool use (default is 1, so tools never got results → no text)
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const result = streamText({
           model: model as any,
@@ -498,6 +499,7 @@ IMPORTANTE: CADA dato del PDF debe tener su citación [página N].`;
           messages: chatMessages as any,
           tools: agentTools as any,
           abortSignal: abortController.signal,
+          stopWhen: stepCountIs(10),
         });
 
         // Process the stream

@@ -13,47 +13,42 @@ import { setDocsTheme } from './univer-docs-core'
 import { setCurrentVSCodeThemeColors, type VSCodeThemeColors } from './univer-theme'
 
 /**
- * Sync Univer theme with the application's full VSCode theme
+ * Sync Univer theme with the application's full VSCode theme.
+ * Uses resolvedTheme (not fullThemeData) so we always have the correct
+ * registered theme colors in dark mode – fullThemeData can be null on first render.
  */
 export function useUniverTheme(): void {
     const { resolvedTheme } = useTheme()
-    const { currentTheme, isDark } = useVSCodeTheme()
+    const { resolvedTheme: themeForUniver, isDark: isDarkFromContext } = useVSCodeTheme()
     const lastThemeRef = useRef<string | null>(null)
+    const isDark = themeForUniver ? themeForUniver.type === 'dark' : isDarkFromContext
 
     useEffect(() => {
-        // Create a unique key for the current theme state
-        const themeKey = `${currentTheme?.id || 'default'}-${isDark}`
-
-        // Skip if theme hasn't changed
+        const themeKey = `${themeForUniver?.id || 'default'}-${isDark}`
         if (themeKey === lastThemeRef.current) return
         lastThemeRef.current = themeKey
 
-        // Get colors from the current VSCode theme
-        const themeColors: VSCodeThemeColors | null = currentTheme?.colors || null
+        const themeColors: VSCodeThemeColors | null = themeForUniver?.colors ?? null
 
-        // Update the stored theme colors for initialization
         setCurrentVSCodeThemeColors(themeColors, isDark)
 
-        // IMPORTANT: Add/remove univer-dark class for Univer's dark mode selectors
-        // Univer uses .univer-dark for its dark mode styles, not .dark
         if (isDark) {
             document.documentElement.classList.add('univer-dark')
         } else {
             document.documentElement.classList.remove('univer-dark')
         }
 
-        // Apply theme to both Sheets and Docs instances with full colors
         setSheetsTheme(isDark, themeColors)
         setDocsTheme(isDark, themeColors)
 
         console.log('[UniverTheme] Theme synchronized:', {
-            themeId: currentTheme?.id,
-            themeName: currentTheme?.name,
+            themeId: themeForUniver?.id,
+            themeName: themeForUniver?.name,
             isDark,
             hasColors: !!themeColors,
             colorKeys: themeColors ? Object.keys(themeColors).length : 0,
         })
-    }, [resolvedTheme, currentTheme, isDark])
+    }, [resolvedTheme, themeForUniver, isDark])
 }
 
 /**

@@ -127,10 +127,12 @@ export function createExcelTools(context: ExcelContext) {
           },
         };
 
-        // Send to renderer
+        // Send to renderer (artifactId for handler fetch; id for backwards compat)
         sendToRenderer("artifact:created", {
           type: "spreadsheet",
           id: artifactId,
+          artifactId,
+          name: title,
           title,
           data: workbookData,
           chatId: context.chatId,

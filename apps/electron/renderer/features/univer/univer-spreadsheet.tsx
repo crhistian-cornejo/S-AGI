@@ -250,7 +250,37 @@ export const UniverSpreadsheet = React.forwardRef<UniverSpreadsheetRef, UniverSp
         }
     }, [effectiveDataId, artifactId, setSnapshotCache, saveSnapshot])
 
-    // Track user edits to mark as dirty (for autoguardado)
+    // Auto-save with debounce (3 seconds after last edit)
+    const autoSaveTimeoutRef = React.useRef<NodeJS.Timeout | null>(null)
+
+    const triggerAutoSave = React.useCallback(() => {
+        if (!artifactId || !workbookRef.current || isSaving) return
+
+        // Clear existing timeout
+        if (autoSaveTimeoutRef.current) {
+            clearTimeout(autoSaveTimeoutRef.current)
+        }
+
+        // Set new timeout for auto-save
+        autoSaveTimeoutRef.current = setTimeout(async () => {
+            try {
+                const snapshot = workbookRef.current?.save()
+                if (snapshot && artifactId && isDirtyRef.current) {
+                    console.log('[UniverSpreadsheet] Auto-saving...')
+                    await saveSnapshot.mutateAsync({
+                        id: artifactId,
+                        univerData: snapshot
+                    })
+                    isDirtyRef.current = false
+                    console.log('[UniverSpreadsheet] Auto-save completed')
+                }
+            } catch (err) {
+                console.error('[UniverSpreadsheet] Auto-save failed:', err)
+            }
+        }, 3000) // 3 seconds debounce
+    }, [artifactId, isSaving, saveSnapshot])
+
+    // Track user edits to mark as dirty and trigger auto-save
     React.useEffect(() => {
         if (!artifactId) return
 
@@ -260,6 +290,7 @@ export const UniverSpreadsheet = React.forwardRef<UniverSpreadsheetRef, UniverSp
 
         const handleInput = () => {
             isDirtyRef.current = true
+            triggerAutoSave()
         }
 
         // Listen for various edit events
@@ -271,8 +302,12 @@ export const UniverSpreadsheet = React.forwardRef<UniverSpreadsheetRef, UniverSp
             container.removeEventListener('input', handleInput)
             container.removeEventListener('keydown', handleInput)
             container.removeEventListener('paste', handleInput)
+            // Clear timeout on cleanup
+            if (autoSaveTimeoutRef.current) {
+                clearTimeout(autoSaveTimeoutRef.current)
+            }
         }
-    }, [artifactId])
+    }, [artifactId, triggerAutoSave])
 
     // Listen for live artifact updates from AI tools
     React.useEffect(() => {

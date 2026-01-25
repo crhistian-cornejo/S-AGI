@@ -9,6 +9,7 @@ import { IconCopy, IconCheck, IconExternalLink } from '@tabler/icons-react'
 import { cn } from '@/lib/utils'
 import { InlineCitation, type CitationData } from '@/components/inline-citation'
 import { useCitationNavigation } from '@/hooks'
+import { highlightCode } from '@/lib/shiki'
 
 import 'katex/dist/katex.min.css'
 
@@ -59,18 +60,50 @@ function CodeBlock({ children }: { children: React.ReactNode }) {
     const [codeText, setCodeText] = useState('')
     const [language, setLanguage] = useState<string | null>(null)
     const [copied, setCopied] = useState(false)
+    const [highlightedCode, setHighlightedCode] = useState<string | null>(null)
+    const [isDark, setIsDark] = useState(false)
+
+    // Detect theme
+    useEffect(() => {
+        const checkTheme = () => {
+            setIsDark(document.documentElement.classList.contains('dark'))
+        }
+        checkTheme()
+        const observer = new MutationObserver(checkTheme)
+        observer.observe(document.documentElement, {
+            attributes: true,
+            attributeFilter: ['class']
+        })
+        return () => observer.disconnect()
+    }, [])
 
     useEffect(() => {
         if (preRef.current) {
             const codeElement = preRef.current.querySelector('code')
             if (codeElement) {
-                setCodeText((codeElement.textContent || '').trim())
+                const text = (codeElement.textContent || '').trim()
+                setCodeText(text)
                 const className = codeElement.className || ''
                 const match = /language-(\w+)/.exec(className)
-                setLanguage(match ? match[1] : null)
+                const detectedLanguage = match ? match[1] : null
+                setLanguage(detectedLanguage)
+
+                // Apply syntax highlighting if language is detected
+                if (detectedLanguage && text && detectedLanguage !== 'plaintext') {
+                    highlightCode(text, detectedLanguage, isDark ? 'dark' : 'light')
+                        .then((highlighted) => {
+                            setHighlightedCode(highlighted)
+                        })
+                        .catch((error) => {
+                            console.error('Failed to highlight code:', error)
+                            setHighlightedCode(null)
+                        })
+                } else {
+                    setHighlightedCode(null)
+                }
             }
         }
-    }, [])
+    }, [children, isDark])
 
     const handleCopy = useCallback(() => {
         if (!codeText) return
@@ -80,21 +113,21 @@ function CodeBlock({ children }: { children: React.ReactNode }) {
     }, [codeText])
 
     return (
-        <div className="not-prose my-4 rounded-xl overflow-hidden border border-border/50 bg-zinc-950 shadow-lg">
+        <div className="not-prose my-4 rounded-xl overflow-hidden border border-border/50 bg-muted/30 dark:bg-zinc-950 shadow-lg">
             {/* Header */}
-            <div className="flex items-center justify-between px-4 py-2.5 bg-zinc-900/80 border-b border-border/30">
-                <span className="text-[11px] font-medium text-zinc-400 uppercase tracking-wider">
+            <div className="flex items-center justify-between px-4 py-2.5 bg-muted/50 dark:bg-zinc-900/80 border-b border-border/30">
+                <span className="text-[11px] font-medium text-muted-foreground dark:text-zinc-400 uppercase tracking-wider">
                     {language || 'code'}
                 </span>
                 <button
                     type="button"
                     onClick={handleCopy}
-                    className="p-1.5 rounded-md hover:bg-zinc-800 transition-colors text-zinc-500 hover:text-zinc-300"
+                    className="p-1.5 rounded-md hover:bg-muted dark:hover:bg-zinc-800 transition-colors text-muted-foreground dark:text-zinc-500 hover:text-foreground dark:hover:text-zinc-300"
                     title={copied ? 'Copied!' : 'Copy code'}
                     disabled={!codeText}
                 >
                     {copied ? (
-                        <IconCheck size={14} className="text-emerald-400" />
+                        <IconCheck size={14} className="text-emerald-500 dark:text-emerald-400" />
                     ) : (
                         <IconCopy size={14} />
                     )}
@@ -103,9 +136,21 @@ function CodeBlock({ children }: { children: React.ReactNode }) {
             {/* Code */}
             <pre
                 ref={preRef}
-                className="overflow-x-auto p-4 text-[13px] leading-relaxed font-mono [&_code]:bg-transparent [&_code]:p-0 [&_code]:text-inherit"
+                className={cn(
+                    "overflow-x-auto p-4 text-[13px] leading-relaxed font-mono",
+                    highlightedCode && "shiki"
+                )}
             >
-                {children}
+                {highlightedCode ? (
+                    <code
+                        className={cn(language ? `language-${language}` : '', "shiki")}
+                        dangerouslySetInnerHTML={{ __html: highlightedCode }}
+                    />
+                ) : (
+                    <code className={cn(language ? `language-${language}` : '', "text-foreground")}>
+                        {children}
+                    </code>
+                )}
             </pre>
         </div>
     )

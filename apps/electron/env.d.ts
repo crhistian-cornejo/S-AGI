@@ -133,9 +133,10 @@ interface ArtifactUpdateEvent {
 
 // Artifact created event from main process (for charts, etc.)
 interface ArtifactCreatedEvent {
-    artifactId: string
+    artifactId?: string
+    id?: string
     type: string
-    name: string
+    name?: string
 }
 
 // Types for tray popover

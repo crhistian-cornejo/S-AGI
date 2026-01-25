@@ -3,6 +3,8 @@ import {
     IconPlus,
     IconLayoutSidebarLeftExpand,
     IconHistory,
+    IconTable,
+    IconFileText,
 } from '@tabler/icons-react'
 import { ChatQueueProcessor } from '@/features/chat/components/queue-processor'
 import { trpc } from '@/lib/trpc'
@@ -441,28 +443,49 @@ export function MainLayout() {
                  * Key prop forces complete remount when artifact changes to avoid stale data issues.
                  */}
                 {activeTab === 'excel' && (
-                    <div className="flex-1 flex pt-10 animate-in fade-in zoom-in-95 duration-300 overflow-hidden">
+                    <div className="flex-1 flex flex-col pt-10 animate-in fade-in zoom-in-95 duration-300 overflow-hidden">
+                        {/* Document Header */}
+                        {selectedArtifact?.type === 'spreadsheet' && (
+                            <div className="h-10 border-b border-border bg-background/95 backdrop-blur-sm shrink-0 flex items-center justify-between px-4">
+                                <div className="flex items-center gap-2 min-w-0">
+                                    <IconTable size={16} className="text-muted-foreground shrink-0" />
+                                    <span className="text-sm font-medium truncate max-w-[400px]" title={selectedArtifact.name}>
+                                        {selectedArtifact.name}
+                                    </span>
+                                    <span className="text-xs text-muted-foreground shrink-0">
+                                        Guardado en Supabase
+                                    </span>
+                                    {selectedArtifact.updated_at && (
+                                        <span className="text-xs text-muted-foreground/60 shrink-0">
+                                            • {new Date(selectedArtifact.updated_at).toLocaleDateString()}
+                                        </span>
+                                    )}
+                                </div>
+                            </div>
+                        )}
                         {/* Main content */}
-                        <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-                            <Suspense fallback={<PanelLoadingFallback />}>
-                                <UniverSpreadsheet
-                                    key={selectedArtifact?.type === 'spreadsheet' ? selectedArtifact.id : 'new'}
-                                    artifactId={selectedArtifact?.type === 'spreadsheet' ? selectedArtifact.id : undefined}
-                                    data={selectedArtifact?.type === 'spreadsheet' ? selectedArtifact.univer_data : undefined}
-                                />
-                            </Suspense>
-                        </div>
-                        {/* Agent Panel - slides from right */}
-                        <div
-                            className={cn(
-                                'h-full border-l border-border/50 bg-background transition-all duration-300 ease-in-out overflow-hidden shrink-0',
-                                agentPanelOpen ? 'w-[380px] min-w-[320px]' : 'w-0 border-l-0'
-                            )}
-                        >
-                            <div className="w-[380px] min-w-[320px] h-full">
+                        <div className="flex-1 flex overflow-hidden">
+                            <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
                                 <Suspense fallback={<PanelLoadingFallback />}>
-                                    <AgentPanel />
+                                    <UniverSpreadsheet
+                                        key={selectedArtifact?.type === 'spreadsheet' ? selectedArtifact.id : 'new'}
+                                        artifactId={selectedArtifact?.type === 'spreadsheet' ? selectedArtifact.id : undefined}
+                                        data={selectedArtifact?.type === 'spreadsheet' ? selectedArtifact.univer_data : undefined}
+                                    />
                                 </Suspense>
+                            </div>
+                            {/* Agent Panel - slides from right */}
+                            <div
+                                className={cn(
+                                    'h-full border-l border-border/50 bg-background transition-all duration-300 ease-in-out overflow-hidden shrink-0',
+                                    agentPanelOpen ? 'w-[380px] min-w-[320px]' : 'w-0 border-l-0'
+                                )}
+                            >
+                                <div className="w-[380px] min-w-[320px] h-full">
+                                    <Suspense fallback={<PanelLoadingFallback />}>
+                                        <AgentPanel />
+                                    </Suspense>
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -474,28 +497,49 @@ export function MainLayout() {
                  * Key prop forces complete remount when artifact changes to avoid stale data issues.
                  */}
                 {activeTab === 'doc' && (
-                    <div className="flex-1 flex pt-10 animate-in fade-in zoom-in-95 duration-300 z-0 relative overflow-hidden">
+                    <div className="flex-1 flex flex-col pt-10 animate-in fade-in zoom-in-95 duration-300 z-0 relative overflow-hidden">
+                        {/* Document Header */}
+                        {selectedArtifact?.type === 'document' && (
+                            <div className="h-10 border-b border-border bg-background/95 backdrop-blur-sm shrink-0 flex items-center justify-between px-4">
+                                <div className="flex items-center gap-2 min-w-0">
+                                    <IconFileText size={16} className="text-muted-foreground shrink-0" />
+                                    <span className="text-sm font-medium truncate max-w-[400px]" title={selectedArtifact.name}>
+                                        {selectedArtifact.name}
+                                    </span>
+                                    <span className="text-xs text-muted-foreground shrink-0">
+                                        Guardado en Supabase
+                                    </span>
+                                    {selectedArtifact.updated_at && (
+                                        <span className="text-xs text-muted-foreground/60 shrink-0">
+                                            • {new Date(selectedArtifact.updated_at).toLocaleDateString()}
+                                        </span>
+                                    )}
+                                </div>
+                            </div>
+                        )}
                         {/* Main content */}
-                        <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-                            <Suspense fallback={<PanelLoadingFallback />}>
-                                <UniverDocument
-                                    key={selectedArtifact?.type === 'document' ? selectedArtifact.id : 'new'}
-                                    artifactId={selectedArtifact?.type === 'document' ? selectedArtifact.id : undefined}
-                                    data={selectedArtifact?.type === 'document' ? selectedArtifact.univer_data : undefined}
-                                />
-                            </Suspense>
-                        </div>
-                        {/* Agent Panel - slides from right */}
-                        <div
-                            className={cn(
-                                'h-full border-l border-border/50 bg-background transition-all duration-300 ease-in-out overflow-hidden shrink-0',
-                                agentPanelOpen ? 'w-[380px] min-w-[320px]' : 'w-0 border-l-0'
-                            )}
-                        >
-                            <div className="w-[380px] min-w-[320px] h-full">
+                        <div className="flex-1 flex overflow-hidden">
+                            <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
                                 <Suspense fallback={<PanelLoadingFallback />}>
-                                    <AgentPanel />
+                                    <UniverDocument
+                                        key={selectedArtifact?.type === 'document' ? selectedArtifact.id : 'new'}
+                                        artifactId={selectedArtifact?.type === 'document' ? selectedArtifact.id : undefined}
+                                        data={selectedArtifact?.type === 'document' ? selectedArtifact.univer_data : undefined}
+                                    />
                                 </Suspense>
+                            </div>
+                            {/* Agent Panel - slides from right */}
+                            <div
+                                className={cn(
+                                    'h-full border-l border-border/50 bg-background transition-all duration-300 ease-in-out overflow-hidden shrink-0',
+                                    agentPanelOpen ? 'w-[380px] min-w-[320px]' : 'w-0 border-l-0'
+                                )}
+                            >
+                                <div className="w-[380px] min-w-[320px] h-full">
+                                    <Suspense fallback={<PanelLoadingFallback />}>
+                                        <AgentPanel />
+                                    </Suspense>
+                                </div>
                             </div>
                         </div>
                     </div>

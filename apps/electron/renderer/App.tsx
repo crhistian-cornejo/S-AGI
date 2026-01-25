@@ -92,13 +92,17 @@ function ArtifactCreatedHandler() {
     useEffect(() => {
         const cleanup = window.desktopApi?.onArtifactCreated?.((data) => {
             console.log('[ArtifactCreated] New artifact created:', data)
+            const id = data?.artifactId ?? data?.id
+            if (!id || typeof id !== 'string') {
+                console.warn('[ArtifactCreated] Missing artifactId/id in event, skipping fetch:', data)
+                return
+            }
 
-            // Fetch the full artifact data and select it
-            utils.artifacts.get.fetch({ id: data.artifactId }).then((artifact) => {
+            // Fetch the full artifact data and select it (only when persisted in DB)
+            utils.artifacts.get.fetch({ id }).then((artifact) => {
                 if (artifact) {
                     setSelectedArtifact(artifact)
                     setArtifactPanelOpen(true)
-                    // Invalidate artifacts list so it shows up in sidebar
                     utils.artifacts.list.invalidate()
                     utils.artifacts.listAll.invalidate()
                     console.log('[ArtifactCreated] Artifact selected and panel opened:', artifact.name)

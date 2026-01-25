@@ -266,7 +266,91 @@
     stroke: hsl(var(--foreground)) !important;
 }
 
-/* Formula bar */
+/* ========== Dark mode: toolbar/ribbon + contrast + dropdowns ==========
+   Use --muted for toolbar (lighter than sheet), --primary for icons/arrows
+   so dropdown indicators and toolbar stand out. */
+.dark [data-u-comp="headerbar"],
+.univer-dark [data-u-comp="headerbar"] {
+    background-color: hsl(var(--muted)) !important;
+    border-color: hsl(var(--border)) !important;
+    border-bottom-width: 1px !important;
+    color: hsl(var(--foreground)) !important;
+}
+
+.dark [data-u-comp="headerbar"] *,
+.univer-dark [data-u-comp="headerbar"] * {
+    color: hsl(var(--foreground)) !important;
+    fill: hsl(var(--foreground)) !important;
+    stroke: hsl(var(--foreground)) !important;
+}
+
+/* Toolbar buttons + dropdown triggers: primary ring on hover for contrast */
+.dark [data-u-comp="headerbar"] button:hover,
+.dark [data-u-comp="headerbar"] [role="button"]:hover,
+.univer-dark [data-u-comp="headerbar"] button:hover,
+.univer-dark [data-u-comp="headerbar"] [role="button"]:hover {
+    background-color: hsl(var(--accent)) !important;
+    border-color: hsl(var(--primary) / 0.5) !important;
+    box-shadow: 0 0 0 1px hsl(var(--primary) / 0.3) !important;
+}
+
+/* Dropdown chevrons/arrows: primary for contrast (aria-haspopup = dropdown trigger) */
+.dark [data-u-comp="headerbar"] button[aria-haspopup="true"] svg:last-of-type,
+.dark [data-u-comp="headerbar"] button[aria-haspopup="menu"] svg:last-of-type,
+.univer-dark [data-u-comp="headerbar"] button[aria-haspopup="true"] svg:last-of-type,
+.univer-dark [data-u-comp="headerbar"] button[aria-haspopup="menu"] svg:last-of-type {
+    color: hsl(var(--primary)) !important;
+    fill: hsl(var(--primary)) !important;
+    stroke: hsl(var(--primary)) !important;
+}
+
+.dark [data-u-comp="headerbar"] input,
+.dark [data-u-comp="headerbar"] textarea,
+.univer-dark [data-u-comp="headerbar"] input,
+.univer-dark [data-u-comp="headerbar"] textarea {
+    background-color: hsl(var(--input-background)) !important;
+    border-color: hsl(var(--border)) !important;
+    color: hsl(var(--foreground)) !important;
+}
+
+/* Formula bar + header slot (above sheet) – muted like toolbar for contrast */
+.dark .univer-formula-bar,
+.dark [class*="univer-formula-bar"],
+.univer-dark .univer-formula-bar,
+.univer-dark [class*="univer-formula-bar"] {
+    background-color: hsl(var(--muted)) !important;
+    border-color: hsl(var(--border)) !important;
+    color: hsl(var(--foreground)) !important;
+}
+
+.dark .univer-formula-bar *,
+.dark [class*="univer-formula-bar"] *,
+.univer-dark .univer-formula-bar *,
+.univer-dark [class*="univer-formula-bar"] * {
+    color: hsl(var(--foreground)) !important;
+    fill: hsl(var(--foreground)) !important;
+    stroke: hsl(var(--foreground)) !important;
+}
+
+.dark .univer-formula-bar input,
+.dark .univer-formula-bar textarea,
+.univer-dark .univer-formula-bar input,
+.univer-dark [class*="univer-formula-bar"] input,
+.univer-dark [class*="univer-formula-bar"] textarea {
+    background-color: hsl(var(--input-background)) !important;
+    color: hsl(var(--foreground)) !important;
+    caret-color: hsl(var(--foreground)) !important;
+}
+
+/* Left sidebar (sheet tabs, etc.) */
+.dark [data-u-comp="left-sidebar"] *,
+.univer-dark [data-u-comp="left-sidebar"] * {
+    color: hsl(var(--foreground)) !important;
+    fill: hsl(var(--foreground)) !important;
+    stroke: hsl(var(--foreground)) !important;
+}
+
+/* Formula bar (shared rules) */
 .univer-formula-bar,
 [class*="univer-formula-bar"] {
     background-color: hsl(var(--background)) !important;
@@ -279,6 +363,55 @@
 [class*="univer-sheet-tab"] {
     background-color: hsl(var(--muted)) !important;
     border-color: hsl(var(--border)) !important;
+}
+
+/* Footer (sheet tabs + zoom bar) – dark mode */
+.dark [data-u-comp="workbench-layout"] footer,
+.univer-dark [data-u-comp="workbench-layout"] footer {
+    background-color: hsl(var(--muted)) !important;
+    border-top: 1px solid hsl(var(--border)) !important;
+    color: hsl(var(--foreground)) !important;
+}
+
+.dark [data-u-comp="workbench-layout"] footer *,
+.univer-dark [data-u-comp="workbench-layout"] footer * {
+    color: hsl(var(--foreground)) !important;
+    fill: hsl(var(--foreground)) !important;
+    stroke: hsl(var(--foreground)) !important;
+}
+
+.dark [data-u-comp="workbench-layout"] footer button:hover,
+.dark [data-u-comp="workbench-layout"] footer [role="button"]:hover,
+.dark [data-u-comp="workbench-layout"] footer [role="tab"]:hover,
+.univer-dark [data-u-comp="workbench-layout"] footer button:hover,
+.univer-dark [data-u-comp="workbench-layout"] footer [role="button"]:hover,
+.univer-dark [data-u-comp="workbench-layout"] footer [role="tab"]:hover {
+    background-color: hsl(var(--accent)) !important;
+    color: hsl(var(--accent-foreground)) !important;
+}
+
+.dark [data-u-comp="workbench-layout"] footer button:hover *,
+.dark [data-u-comp="workbench-layout"] footer [role="button"]:hover *,
+.dark [data-u-comp="workbench-layout"] footer [role="tab"]:hover *,
+.univer-dark [data-u-comp="workbench-layout"] footer button:hover *,
+.univer-dark [data-u-comp="workbench-layout"] footer [role="button"]:hover *,
+.univer-dark [data-u-comp="workbench-layout"] footer [role="tab"]:hover * {
+    color: hsl(var(--accent-foreground)) !important;
+    fill: hsl(var(--accent-foreground)) !important;
+    stroke: hsl(var(--accent-foreground)) !important;
+}
+
+.dark [data-u-comp="workbench-layout"] footer [role="tab"][aria-selected="true"],
+.univer-dark [data-u-comp="workbench-layout"] footer [role="tab"][aria-selected="true"] {
+    background-color: hsl(var(--primary) / 0.2) !important;
+    color: hsl(var(--primary)) !important;
+}
+
+.dark [data-u-comp="workbench-layout"] footer [role="tab"][aria-selected="true"] *,
+.univer-dark [data-u-comp="workbench-layout"] footer [role="tab"][aria-selected="true"] * {
+    color: hsl(var(--primary)) !important;
+    fill: hsl(var(--primary)) !important;
+    stroke: hsl(var(--primary)) !important;
 }
 
 /* Sidebar/panels */
@@ -299,6 +432,113 @@
     background-color: hsl(var(--popover)) !important;
     border-color: hsl(var(--border)) !important;
     color: hsl(var(--popover-foreground)) !important;
+}
+
+/* Dark: dropdowns – explicit high-contrast bg + text (guarantees visibility) */
+.dark .univer-dropdown,
+.dark .univer-popup,
+.dark .univer-menu,
+.dark [class*="univer-dropdown"],
+.dark [class*="univer-popup"],
+.dark [class*="univer-menu"],
+.dark .rc-dropdown .rc-dropdown-menu,
+.dark .rc-dropdown ul,
+.dark .rc-dropdown-menu,
+.dark [id^="univer-popup-portal"] > div,
+.dark [data-slot="dropdown-menu-content"],
+.dark [data-radix-popper-content-wrapper],
+.univer-dark .univer-dropdown,
+.univer-dark .univer-popup,
+.univer-dark .univer-menu,
+.univer-dark [class*="univer-dropdown"],
+.univer-dark [class*="univer-popup"],
+.univer-dark [class*="univer-menu"],
+.univer-dark .rc-dropdown .rc-dropdown-menu,
+.univer-dark .rc-dropdown ul,
+.univer-dark .rc-dropdown-menu,
+.univer-dark [id^="univer-popup-portal"] > div,
+.univer-dark [data-slot="dropdown-menu-content"],
+.univer-dark [data-radix-popper-content-wrapper] {
+    background-color: #262626 !important;
+    border: 1px solid rgba(255, 255, 255, 0.12) !important;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.08) !important;
+    color: #fafafa !important;
+}
+
+.dark .univer-dropdown *,
+.dark .univer-popup *,
+.dark .univer-menu *,
+.dark [class*="univer-dropdown"] *,
+.dark [class*="univer-popup"] *,
+.dark [class*="univer-menu"] *,
+.dark .rc-dropdown-menu *,
+.dark .rc-dropdown ul *,
+.dark [id^="univer-popup-portal"] > div *,
+.dark [data-slot="dropdown-menu-content"] *,
+.dark [data-radix-popper-content-wrapper] *,
+.univer-dark .univer-dropdown *,
+.univer-dark .univer-popup *,
+.univer-dark .univer-menu *,
+.univer-dark [class*="univer-dropdown"] *,
+.univer-dark [class*="univer-popup"] *,
+.univer-dark [class*="univer-menu"] *,
+.univer-dark .rc-dropdown-menu *,
+.univer-dark .rc-dropdown ul *,
+.univer-dark [id^="univer-popup-portal"] > div *,
+.univer-dark [data-slot="dropdown-menu-content"] *,
+.univer-dark [data-radix-popper-content-wrapper] * {
+    color: #fafafa !important;
+    fill: #fafafa !important;
+    stroke: #fafafa !important;
+}
+
+.dark .univer-dropdown [data-slot="dropdown-menu-item"]:hover,
+.dark .univer-menu [role="menuitem"]:hover,
+.dark [class*="univer-dropdown"] [role="menuitem"]:hover,
+.dark [class*="univer-popup"] [role="menuitem"]:hover,
+.dark [data-slot="dropdown-menu-content"] [role="menuitem"]:hover,
+.univer-dark .univer-dropdown [data-slot="dropdown-menu-item"]:hover,
+.univer-dark .univer-menu [role="menuitem"]:hover,
+.univer-dark [class*="univer-dropdown"] [role="menuitem"]:hover,
+.univer-dark [class*="univer-popup"] [role="menuitem"]:hover,
+.univer-dark [data-slot="dropdown-menu-content"] [role="menuitem"]:hover {
+    background-color: rgba(255, 255, 255, 0.1) !important;
+    color: #ffffff !important;
+}
+
+.dark .univer-dropdown [data-slot="dropdown-menu-item"]:hover *,
+.dark .univer-menu [role="menuitem"]:hover *,
+.univer-dark .univer-dropdown [data-slot="dropdown-menu-item"]:hover *,
+.univer-dark .univer-menu [role="menuitem"]:hover * {
+    color: #ffffff !important;
+    fill: #ffffff !important;
+    stroke: #ffffff !important;
+}
+
+/* Override Univer's muted text (gray-400/500) in dropdowns – was nearly invisible */
+.dark .univer-dropdown .univer-text-gray-400,
+.dark .univer-dropdown .univer-text-gray-500,
+.dark .univer-popup .univer-text-gray-400,
+.dark .univer-popup .univer-text-gray-500,
+.dark [class*="univer-dropdown"] .univer-text-gray-400,
+.dark [class*="univer-dropdown"] .univer-text-gray-500,
+.dark [class*="univer-popup"] .univer-text-gray-400,
+.dark [class*="univer-popup"] .univer-text-gray-500,
+.dark [data-slot="dropdown-menu-content"] .univer-text-gray-400,
+.dark [data-slot="dropdown-menu-content"] .univer-text-gray-500,
+.univer-dark .univer-dropdown .univer-text-gray-400,
+.univer-dark .univer-dropdown .univer-text-gray-500,
+.univer-dark .univer-popup .univer-text-gray-400,
+.univer-dark .univer-popup .univer-text-gray-500,
+.univer-dark [class*="univer-dropdown"] .univer-text-gray-400,
+.univer-dark [class*="univer-dropdown"] .univer-text-gray-500,
+.univer-dark [class*="univer-popup"] .univer-text-gray-400,
+.univer-dark [class*="univer-popup"] .univer-text-gray-500,
+.univer-dark [data-slot="dropdown-menu-content"] .univer-text-gray-400,
+.univer-dark [data-slot="dropdown-menu-content"] .univer-text-gray-500 {
+    color: #e5e5e5 !important;
+    fill: #e5e5e5 !important;
+    stroke: #e5e5e5 !important;
 }
 
 /* Buttons */

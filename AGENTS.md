@@ -36,11 +36,12 @@ src/
 │   ├── index.ts             # Entry, window lifecycle
 │   └── lib/
 │       ├── auth/            # Claude Code OAuth (safeStorage)
-│       ├── supabase/        # DB client
+│       ├── supabase/        # DB client + migrations
 │       └── trpc/
 │           ├── trpc.ts      # ⚠️ Base helpers (router, publicProcedure)
 │           ├── index.ts     # App router export
 │           └── routers/     # Individual routers
+│               ├── panel-messages.ts  # Panel messages (PDF Chat, Agent Panel)
 │
 ├── preload/                 # IPC bridge (context isolation)
 │   └── index.ts             # desktopApi + tRPC bridge
@@ -143,6 +144,85 @@ const createChat = trpc.chats.create.useMutation({
 });
 ```
 
+## Panel Messages
+
+**Panel Messages** es un sistema de mensajería independiente para paneles específicos (PDF Chat Panel y Agent Panel). A diferencia de los mensajes principales del chat, estos mensajes están asociados a documentos/artifacts específicos.
+
+### Tipos de Paneles
+
+- **`pdf_chat`**: Panel de chat para PDFs (asociado a `artifact_id` o `chat_file_id`)
+- **`agent_panel`**: Panel de agente con tabs (`excel`, `doc`, `pdf`)
+
+### Router: `panelMessages`
+
+```typescript
+// Listar mensajes de un panel
+trpc.panelMessages.list.useQuery({
+  panelType: 'pdf_chat' | 'agent_panel',
+  sourceId: string, // artifact_id, chat_file_id, o session_id
+  tabType?: 'excel' | 'doc' | 'pdf' // Solo para agent_panel
+})
+
+// Agregar mensaje
+trpc.panelMessages.add.useMutation({
+  panelType: 'pdf_chat' | 'agent_panel',
+  sourceId: string,
+  tabType?: 'excel' | 'doc' | 'pdf',
+  role: 'user' | 'assistant',
+  content: string,
+  metadata?: any,
+  modelId?: string,
+  modelName?: string
+})
+
+// Actualizar mensaje
+trpc.panelMessages.update.useMutation({
+  id: string,
+  content?: string,
+  metadata?: any
+})
+
+// Eliminar mensaje
+trpc.panelMessages.delete.useMutation({ id: string })
+
+// Limpiar todos los mensajes de un panel
+trpc.panelMessages.clear.useMutation({
+  panelType: 'pdf_chat' | 'agent_panel',
+  sourceId: string,
+  tabType?: 'excel' | 'doc' | 'pdf'
+})
+```
+
+### Tabla: `panel_messages`
+
+```sql
+-- Campos principales
+panel_type: 'pdf_chat' | 'agent_panel'
+source_id: TEXT (artifact_id, chat_file_id, session_id)
+tab_type: 'excel' | 'doc' | 'pdf' | NULL (solo para agent_panel)
+role: 'user' | 'assistant'
+content: TEXT
+metadata: JSONB (citations, tool calls, etc.)
+model_id, model_name: TEXT (para mensajes assistant)
+```
+
+### Uso en Componentes
+
+```typescript
+// PDF Chat Panel
+const { data: messages } = trpc.panelMessages.list.useQuery({
+  panelType: 'pdf_chat',
+  sourceId: source.id
+})
+
+// Agent Panel
+const { data: messages } = trpc.panelMessages.list.useQuery({
+  panelType: 'agent_panel',
+  sourceId: sessionId,
+  tabType: activeTab // 'excel' | 'doc' | 'pdf'
+})
+```
+
 ## Environment Variables
 
 ```bash
@@ -203,6 +283,9 @@ const { data } = await supabase
 
 // Update
 await supabase.from("chats").update({ title: newTitle }).eq("id", chatId);
+
+// Panel Messages (usar tRPC en lugar de Supabase directo)
+// Ver sección "Panel Messages" arriba
 ```
 
 ## Tech Stack
@@ -223,6 +306,7 @@ await supabase.from("chats").update({ title: newTitle }).eq("id", chatId);
 1. **Circular imports en tRPC**: Siempre importa `router`/`publicProcedure` desde `trpc.ts`
 2. **Variables de entorno vacías**: Usa `MAIN_VITE_*` para main process
 3. **Tipos de tRPC**: El renderer usa `AppRouter = any` para evitar cross-process imports
+4. **Panel Messages vs Chat Messages**: Los mensajes de paneles (`panel_messages`) son independientes de los mensajes principales del chat (`messages`). Usa `trpc.panelMessages.*` para paneles, no `trpc.messages.*`
 
 <skills_system priority="1">
 

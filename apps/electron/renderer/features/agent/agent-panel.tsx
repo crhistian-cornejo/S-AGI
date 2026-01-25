@@ -53,6 +53,7 @@ import {
   agentPanelStreamingTextAtom,
   agentPanelImagesAtom,
   activeTabAtom,
+  selectedArtifactAtom,
   selectedPdfAtom,
   type AgentPanelMessage,
   type AgentPanelImageAttachment,
@@ -375,6 +376,7 @@ export function AgentPanel() {
   );
   const [images, setImages] = useAtom(agentPanelImagesAtom);
   const activeTab = useAtomValue(activeTabAtom);
+  const selectedArtifact = useAtomValue(selectedArtifactAtom);
   const selectedPdf = useAtomValue(selectedPdfAtom);
 
   const [input, setInput] = useState("");
@@ -713,36 +715,43 @@ export function AgentPanel() {
     setStreamingText("");
 
     try {
-      // Build context for PDF tab
-      const pdfContext =
-        activeTab === "pdf" && selectedPdf
-          ? {
-              // For local PDFs, pass the local path
-              pdfPath: selectedPdf.metadata?.localPath,
-              // For display/identification
-              pdfName: selectedPdf.name,
-              // For remote PDFs with pre-extracted content, pass the pages directly
-              pdfPages: selectedPdf.pages?.map((p) => ({
-                pageNumber: p.pageNumber,
-                content: p.content,
-                wordCount: p.wordCount || p.content.split(/\s+/).length,
-              })),
-            }
-          : undefined;
+      // Build context: Excel/Doc use current artifact so tools operate on the open spreadsheet/doc
+      let context: {
+        workbookId?: string;
+        sheetId?: string;
+        selectedRange?: string;
+        documentId?: string;
+        documentTitle?: string;
+        pdfPath?: string;
+        pdfName?: string;
+        pdfPages?: { pageNumber: number; content: string; wordCount: number }[];
+      } | undefined;
 
-      // Debug logging
+      if (activeTab === "excel" && selectedArtifact?.type === "spreadsheet") {
+        context = { workbookId: selectedArtifact.id };
+      } else if (activeTab === "doc" && selectedArtifact?.type === "document") {
+        context = {
+          documentId: selectedArtifact.id,
+          documentTitle: selectedArtifact.name,
+        };
+      } else if (activeTab === "pdf" && selectedPdf) {
+        context = {
+          pdfPath: selectedPdf.metadata?.localPath,
+          pdfName: selectedPdf.name,
+          pdfPages: selectedPdf.pages?.map((p) => ({
+            pageNumber: p.pageNumber,
+            content: p.content,
+            wordCount: p.wordCount || p.content.split(/\s+/).length,
+          })),
+        };
+      }
+
       console.log("[AgentPanel] Sending to backend:", {
         sessionId,
         tabType: activeTab,
-        selectedPdfType: selectedPdf?.type,
-        selectedPdfId: selectedPdf?.id,
-        selectedPdfName: selectedPdf?.name,
-        hasLocalPath: !!selectedPdf?.metadata?.localPath,
-        localPath: selectedPdf?.metadata?.localPath,
-        hasPages: !!selectedPdf?.pages,
-        pagesCount: selectedPdf?.pages?.length ?? 0,
-        contextPdfPath: pdfContext?.pdfPath,
-        contextPdfPagesCount: pdfContext?.pdfPages?.length ?? 0,
+        contextWorkbookId: context?.workbookId,
+        contextDocumentId: context?.documentId,
+        contextPdfPagesCount: context?.pdfPages?.length ?? 0,
       });
 
       await chatMutation.mutateAsync({
@@ -759,7 +768,7 @@ export function AgentPanel() {
           data: img.data,
           mediaType: img.mediaType,
         })),
-        context: pdfContext,
+        context,
       });
     } catch (error) {
       console.error("Agent chat error:", error);
@@ -775,6 +784,7 @@ export function AgentPanel() {
     sessionId,
     activeTab,
     config,
+    selectedArtifact,
     selectedPdf,
     chatMutation,
     setImages,

@@ -58,6 +58,12 @@ interface McpToolResult {
     isError?: boolean
 }
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+function asChatIdOrNull(v: string | undefined): string | null {
+    if (!v) return null
+    return UUID_RE.test(v) ? v : null
+}
+
 /**
  * Helper: Notify renderer of artifact updates for live UI sync
  */
@@ -222,18 +228,8 @@ export function createExcelMcpTools(context: ExcelContext): McpToolDefinition[] 
                         }
                     }
 
-                    if (!context.chatId) {
-                        return {
-                            content: [{
-                                type: 'text',
-                                text: JSON.stringify({
-                                    success: false,
-                                    error: 'No hay chat activo. Abre o crea un chat primero.'
-                                })
-                            }],
-                            isError: true
-                        }
-                    }
+                    // chat_id optional for agent panel (sessionId is not a UUID); use null when invalid
+                    const chatId = asChatIdOrNull(context.chatId)
 
                     // Validate required fields
                     if (!title || !headers || !Array.isArray(headers)) {
@@ -298,11 +294,11 @@ export function createExcelMcpTools(context: ExcelContext): McpToolDefinition[] 
                         }
                     }
 
-                    // Save to database
+                    // Save to database (chat_id null when agent panel uses sessionId like 'excel-default')
                     const { data: artifact, error } = await supabase
                         .from('artifacts')
                         .insert({
-                            chat_id: context.chatId,
+                            chat_id: chatId,
                             user_id: context.userId,
                             type: 'spreadsheet',
                             name: title,
@@ -1238,6 +1234,8 @@ export function createDocsMcpTools(context: DocsContext): McpToolDefinition[] {
                 sendToRenderer('artifact:created', {
                     type: 'document',
                     id: artifactId,
+                    artifactId,
+                    name: title,
                     title,
                     data: { title, content },
                     chatId: context.chatId,

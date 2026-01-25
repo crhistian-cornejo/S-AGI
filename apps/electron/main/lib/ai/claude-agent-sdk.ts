@@ -783,9 +783,11 @@ export interface AgentPanelClaudeOptions {
     mcpTools?: McpToolDef[]
 }
 
+const MCP_SERVER_NAME = 's-agi-tools'
+const MCP_TOOL_PREFIX = `mcp__${MCP_SERVER_NAME}__`
+
 /**
- * Build a tool handler map for direct execution
- * This bypasses the broken createSdkMcpServer which passes wrong args
+ * Build a tool handler map for direct execution fallback
  */
 function buildToolHandlerMap(mcpTools?: McpToolDef[]): Map<string, McpToolDef['handler']> {
     const map = new Map<string, McpToolDef['handler']>()
@@ -794,10 +796,24 @@ function buildToolHandlerMap(mcpTools?: McpToolDef[]): Map<string, McpToolDef['h
     for (const tool of mcpTools) {
         map.set(tool.name, tool.handler)
         // Also map with mcp__ prefix in case SDK uses that format
-        map.set(`mcp__s-agi-tools__${tool.name}`, tool.handler)
+        map.set(`${MCP_TOOL_PREFIX}${tool.name}`, tool.handler)
     }
 
     return map
+}
+
+function extractToolResult(result: unknown): unknown {
+    if (!result || typeof result !== 'object') return result
+
+    const content = (result as { content?: Array<{ type?: string; text?: string }> }).content
+    const text = content?.[0]?.text
+    if (!text) return result
+
+    try {
+        return JSON.parse(text)
+    } catch {
+        return text
+    }
 }
 
 /**
@@ -858,21 +874,31 @@ export async function streamClaudeForAgentPanel(options: AgentPanelClaudeOptions
         })
 
         const sdk = await loadClaudeSdk()
-        const { query, AbortError } = sdk
+        const { query, AbortError, createSdkMcpServer } = sdk
 
-        // Build tool handler map for DIRECT execution
-        // This bypasses the broken createSdkMcpServer which passes wrong args to handlers
-        const toolHandlers = buildToolHandlerMap(mcpTools)
-        const allowedTools: string[] = ['WebSearch', 'WebFetch']
+        const mcpServerName = MCP_SERVER_NAME
+        const mcpToolPrefix = MCP_TOOL_PREFIX
+        const allowedToolsSet = new Set<string>(['WebSearch', 'WebFetch'])
+        const mcpToolNames = new Set<string>()
+        const useMcpServer = !!(mcpTools && mcpTools.length > 0)
+        const toolHandlers = useMcpServer ? new Map<string, McpToolDef['handler']>() : buildToolHandlerMap(mcpTools)
 
         // Add our tool names to allowed tools (Claude will see them as available)
-        if (mcpTools && mcpTools.length > 0) {
-            log.info('[Claude SDK AgentPanel] Registering tools for direct execution:', mcpTools.map(t => t.name))
+        if (useMcpServer && mcpTools) {
+            log.info('[Claude SDK AgentPanel] Registering MCP tools:', mcpTools.map(t => t.name))
             for (const tool of mcpTools) {
-                // Use simple names - we'll handle execution directly
-                allowedTools.push(tool.name)
+                const namespacedName = `${mcpToolPrefix}${tool.name}`
+                allowedToolsSet.add(tool.name)
+                allowedToolsSet.add(namespacedName)
+                mcpToolNames.add(tool.name)
+                mcpToolNames.add(namespacedName)
             }
         }
+
+        const allowedTools = Array.from(allowedToolsSet)
+        const normalizeToolName = (toolName: string) =>
+            toolName.startsWith(mcpToolPrefix) ? toolName.slice(mcpToolPrefix.length) : toolName
+        const shouldEmitToolEvents = (toolName: string) => mcpToolNames.has(toolName)
 
         log.info('[Claude SDK AgentPanel] Starting query with prompt length:', finalPrompt.length)
         log.info('[Claude SDK AgentPanel] Allowed tools:', allowedTools)
@@ -888,9 +914,59 @@ export async function streamClaudeForAgentPanel(options: AgentPanelClaudeOptions
                 allowDangerouslySkipPermissions: true,
                 allowedTools,
                 includePartialMessages: true,
-                // NOTE: Not using mcpServers because createSdkMcpServer passes wrong args to handlers
-                // We handle tool execution directly in the streaming loop below
-                mcpServers: {},
+                mcpServers: useMcpServer && mcpTools
+                    ? { [mcpServerName]: createSdkMcpServer({ name: mcpServerName, tools: mcpTools }) }
+                    : {},
+                hooks: useMcpServer
+                    ? {
+                        PreToolUse: [{
+                            hooks: [async (input) => {
+                                const toolName = (input as { tool_name?: string }).tool_name
+                                const toolCallId = (input as { tool_use_id?: string }).tool_use_id
+                                if (toolName && toolCallId && shouldEmitToolEvents(toolName)) {
+                                    emitEvent({
+                                        type: 'tool-call-start',
+                                        toolName: normalizeToolName(toolName),
+                                        toolCallId
+                                    })
+                                }
+                                return { continue: true }
+                            }]
+                        }],
+                        PostToolUse: [{
+                            hooks: [async (input) => {
+                                const toolName = (input as { tool_name?: string }).tool_name
+                                const toolCallId = (input as { tool_use_id?: string }).tool_use_id
+                                const toolResponse = (input as { tool_response?: unknown }).tool_response
+                                if (toolName && toolCallId && shouldEmitToolEvents(toolName)) {
+                                    emitEvent({
+                                        type: 'tool-call-done',
+                                        toolName: normalizeToolName(toolName),
+                                        toolCallId,
+                                        result: extractToolResult(toolResponse)
+                                    })
+                                }
+                                return { continue: true }
+                            }]
+                        }],
+                        PostToolUseFailure: [{
+                            hooks: [async (input) => {
+                                const toolName = (input as { tool_name?: string }).tool_name
+                                const toolCallId = (input as { tool_use_id?: string }).tool_use_id
+                                const error = (input as { error?: string }).error
+                                if (toolName && toolCallId && shouldEmitToolEvents(toolName)) {
+                                    emitEvent({
+                                        type: 'tool-call-done',
+                                        toolName: normalizeToolName(toolName),
+                                        toolCallId,
+                                        result: { success: false, error: error || 'Tool execution failed' }
+                                    })
+                                }
+                                return { continue: true }
+                            }]
+                        }]
+                    }
+                    : undefined,
                 persistSession: false,
                 env,
                 stderr: (data: string) => {
@@ -986,6 +1062,9 @@ export async function streamClaudeForAgentPanel(options: AgentPanelClaudeOptions
                 }
 
                 case 'tool_call': {
+                    if (useMcpServer) {
+                        break
+                    }
                     const toolName = typeof message.tool_name === 'string' ? message.tool_name : 'unknown'
                     const toolCallId = typeof message.tool_call_id === 'string' ? message.tool_call_id : `tool-${Date.now()}`
                     const toolInput = message.input as Record<string, unknown> | undefined
@@ -997,7 +1076,7 @@ export async function streamClaudeForAgentPanel(options: AgentPanelClaudeOptions
 
                     emitEvent({ type: 'tool-call-start', toolName, toolCallId })
 
-                    // DIRECT TOOL EXECUTION: Execute our tools here instead of relying on broken MCP
+                    // Direct tool execution fallback when MCP server is disabled
                     const handler = toolHandlers.get(toolName)
                     if (handler && toolInput) {
                         log.info(`[Claude SDK AgentPanel] Executing tool directly: ${toolName}`)
@@ -1008,7 +1087,7 @@ export async function streamClaudeForAgentPanel(options: AgentPanelClaudeOptions
                                 type: 'tool-call-done',
                                 toolName,
                                 toolCallId,
-                                result: result.content?.[0]?.text ? JSON.parse(result.content[0].text) : result
+                                result: extractToolResult(result)
                             })
                         } catch (toolError) {
                             const errorMsg = toolError instanceof Error ? toolError.message : 'Tool execution failed'
@@ -1027,6 +1106,9 @@ export async function streamClaudeForAgentPanel(options: AgentPanelClaudeOptions
                 }
 
                 case 'tool_result': {
+                    if (useMcpServer) {
+                        break
+                    }
                     const toolName = typeof message.tool_name === 'string' ? message.tool_name : 'unknown'
                     const toolCallId = typeof message.tool_call_id === 'string' ? message.tool_call_id : `tool-${Date.now()}`
                     emitEvent({ type: 'tool-call-done', toolName, toolCallId, result: message.result })

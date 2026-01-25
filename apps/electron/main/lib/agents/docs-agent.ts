@@ -89,6 +89,8 @@ export function createDocsTools(context: DocsContext) {
         sendToRenderer("artifact:created", {
           type: "document",
           id: artifactId,
+          artifactId,
+          name: title,
           title,
           data: documentData,
           template,

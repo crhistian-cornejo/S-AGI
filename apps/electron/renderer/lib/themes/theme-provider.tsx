@@ -39,17 +39,13 @@ import {
  * Theme context value
  */
 interface ThemeContextValue {
-    // Current theme
+    /** Cached theme (updated in effect); may be stale on first render */
     currentTheme: VSCodeFullTheme | null
+    /** Resolved theme from useMemo – always in sync with selection/system; use this for Univer */
+    resolvedTheme: VSCodeFullTheme | null
     currentThemeId: string | null
-
-    // Theme type (light/dark)
     isDark: boolean
-
-    // All available themes
     allThemes: VSCodeFullTheme[]
-
-    // Theme actions
     setThemeById: (id: string | null) => void
 }
 
@@ -152,12 +148,14 @@ export function VSCodeThemeProvider({ children }: VSCodeThemeProviderProps) {
 
     const contextValue = useMemo((): ThemeContextValue => ({
         currentTheme: fullThemeData,
+        resolvedTheme: currentTheme,
         currentThemeId: selectedThemeId,
         isDark,
         allThemes,
         setThemeById,
     }), [
         fullThemeData,
+        currentTheme,
         selectedThemeId,
         isDark,
         allThemes,

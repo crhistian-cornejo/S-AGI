@@ -1,4 +1,5 @@
 import { useState, useCallback, useRef, useEffect, memo } from 'react'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
 import { useAtom, useAtomValue } from 'jotai'
 import {
     IconSend,
@@ -11,7 +12,9 @@ import {
     IconRobot,
     IconListDetails,
     IconTrash,
-    IconWand
+    IconWand,
+    IconHistory,
+    IconRefresh
 } from '@tabler/icons-react'
 import { trpc } from '@/lib/trpc'
 import {
@@ -72,6 +75,7 @@ export const PdfChatPanel = memo(function PdfChatPanel({
     const streamingStatus = useStreamingStatusStore(state => state.getStatus(source.id))
 
     const [input, setInput] = useState('')
+    const [historyDialogOpen, setHistoryDialogOpen] = useState(false)
     const inputRef = useRef<HTMLTextAreaElement>(null)
     const messagesEndRef = useRef<HTMLDivElement>(null)
 
@@ -84,6 +88,44 @@ export const PdfChatPanel = memo(function PdfChatPanel({
 
     // Query PDF mutation for AI answers
     const queryPdf = trpc.pdf.queryPdf.useMutation()
+    
+    // Panel messages mutations
+    const addMessage = trpc.panelMessages.add.useMutation()
+    const clearMessages = trpc.panelMessages.clear.useMutation()
+    const utils = trpc.useUtils()
+
+    // Load messages from Supabase when source changes
+    const { data: savedMessages, refetch: refetchMessages, isLoading: isLoadingHistory } = trpc.panelMessages.list.useQuery(
+        {
+            panelType: 'pdf_chat',
+            sourceId: source.id
+        },
+        {
+            enabled: source.type === 'artifact' || source.type === 'chat_file', // Only for cloud PDFs
+            refetchOnWindowFocus: false
+        }
+    )
+
+    const hasSavedHistory = savedMessages && savedMessages.length > 0
+    const historyCount = savedMessages?.length || 0
+
+    // Sync saved messages to local state
+    useEffect(() => {
+        if (savedMessages && savedMessages.length > 0) {
+            const syncedMessages: PdfChatMessage[] = savedMessages.map((msg: { id: string; role: string; content: string; created_at: string; metadata?: { citations?: unknown } }) => ({
+                id: msg.id,
+                role: msg.role as 'user' | 'assistant',
+                content: msg.content,
+                createdAt: new Date(msg.created_at),
+                citations: msg.metadata?.citations as PdfChatMessage['citations']
+            }))
+            setMessages(syncedMessages)
+        } else if (savedMessages && savedMessages.length === 0 && messages.length > 0) {
+            // If no saved messages but we have local messages, clear local state
+            // This happens when switching to a different PDF
+            setMessages([])
+        }
+    }, [savedMessages, setMessages, messages])
 
     // Auto-scroll to bottom when new messages arrive
     useEffect(() => {
@@ -113,6 +155,21 @@ export const PdfChatPanel = memo(function PdfChatPanel({
             setInput('')
             setIsStreaming(true)
             useStreamingStatusStore.getState().setStatus(source.id, 'processing')
+
+            // Save user message to Supabase (only for cloud PDFs)
+            if (source.type === 'artifact' || source.type === 'chat_file') {
+                try {
+                    await addMessage.mutateAsync({
+                        panelType: 'pdf_chat',
+                        sourceId: source.id,
+                        role: 'user',
+                        content: text
+                    })
+                    await utils.panelMessages.list.invalidate({ panelType: 'pdf_chat', sourceId: source.id })
+                } catch (err) {
+                    console.error('Failed to save user message:', err)
+                }
+            }
 
             try {
                 // Only call AI for artifact or chat_file sources
@@ -146,6 +203,20 @@ export const PdfChatPanel = memo(function PdfChatPanel({
                     }
 
                     setMessages(prev => [...prev, aiMessage])
+
+                    // Save assistant message to Supabase
+                    try {
+                        await addMessage.mutateAsync({
+                            panelType: 'pdf_chat',
+                            sourceId: source.id,
+                            role: 'assistant',
+                            content: result.answer,
+                            metadata: citations ? { citations } : undefined
+                        })
+                        await utils.panelMessages.list.invalidate({ panelType: 'pdf_chat', sourceId: source.id })
+                    } catch (err) {
+                        console.error('Failed to save assistant message:', err)
+                    }
                 } else {
                     // For local PDFs, show a note about limitations
                     const aiMessage: PdfChatMessage = {
@@ -181,7 +252,7 @@ export const PdfChatPanel = memo(function PdfChatPanel({
             addToQueue(source.id, queueItem)
             setInput('')
         }
-    }, [input, isStreaming, streamingStatus, source, currentPage, selectedText, setMessages, setIsStreaming, queryPdf, addToQueue])
+    }, [input, isStreaming, streamingStatus, source, currentPage, selectedText, setMessages, setIsStreaming, queryPdf, addToQueue, addMessage, utils])
 
     const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
         if (e.key === 'Enter' && !e.shiftKey) {
@@ -201,9 +272,21 @@ export const PdfChatPanel = memo(function PdfChatPanel({
         handleSendMessage(prompt)
     }, [source.name, selectedText, handleSendMessage])
 
-    const handleClearChat = useCallback(() => {
+    const handleClearChat = useCallback(async () => {
         setMessages([])
-    }, [setMessages])
+        // Clear messages from Supabase (only for cloud PDFs)
+        if (source.type === 'artifact' || source.type === 'chat_file') {
+            try {
+                await clearMessages.mutateAsync({
+                    panelType: 'pdf_chat',
+                    sourceId: source.id
+                })
+                await utils.panelMessages.list.invalidate({ panelType: 'pdf_chat', sourceId: source.id })
+            } catch (err) {
+                console.error('Failed to clear messages:', err)
+            }
+        }
+    }, [setMessages, source, clearMessages, utils])
 
     const handleRemoveQueuedItem = useCallback((itemId: string) => {
         removeFromQueue(source.id, itemId)
@@ -222,7 +305,51 @@ export const PdfChatPanel = memo(function PdfChatPanel({
                     </div>
                     <span className="text-sm font-semibold">Ask AI</span>
                 </div>
-                <div className="flex items-center gap-0.5">
+                <div className="flex items-center gap-1.5">
+                    {/* History button - more visible */}
+                    {(source.type === 'artifact' || source.type === 'chat_file') && hasSavedHistory && (
+                        <Tooltip>
+                            <TooltipTrigger asChild>
+                                <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="h-7 px-2.5 text-xs gap-1.5"
+                                    onClick={() => setHistoryDialogOpen(true)}
+                                >
+                                    <IconHistory size={13} className="text-primary" />
+                                    <span className="font-medium">Historial</span>
+                                    {historyCount > 0 && (
+                                        <span className="h-4 w-4 rounded-full bg-primary text-[9px] text-primary-foreground flex items-center justify-center font-bold">
+                                            {historyCount > 9 ? '9+' : historyCount}
+                                        </span>
+                                    )}
+                                </Button>
+                            </TooltipTrigger>
+                            <TooltipContent side="bottom">
+                                Ver {historyCount} mensaje{historyCount !== 1 ? 's' : ''} guardado{historyCount !== 1 ? 's' : ''}
+                            </TooltipContent>
+                        </Tooltip>
+                    )}
+                    {/* Refresh button (only when no history) */}
+                    {(source.type === 'artifact' || source.type === 'chat_file') && !hasSavedHistory && (
+                        <Tooltip>
+                            <TooltipTrigger asChild>
+                                <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-7 w-7"
+                                    onClick={() => {
+                                        refetchMessages()
+                                        utils.panelMessages.list.invalidate({ panelType: 'pdf_chat', sourceId: source.id })
+                                    }}
+                                    disabled={isLoadingHistory}
+                                >
+                                    <IconRefresh size={14} className={cn("text-muted-foreground", isLoadingHistory && "animate-spin")} />
+                                </Button>
+                            </TooltipTrigger>
+                            <TooltipContent side="bottom">Recargar historial</TooltipContent>
+                        </Tooltip>
+                    )}
                     {messages.length > 0 && (
                         <Tooltip>
                             <TooltipTrigger asChild>
@@ -235,18 +362,23 @@ export const PdfChatPanel = memo(function PdfChatPanel({
                                     <IconTrash size={14} />
                                 </Button>
                             </TooltipTrigger>
-                            <TooltipContent>Clear chat</TooltipContent>
+                            <TooltipContent side="bottom">Limpiar chat actual</TooltipContent>
                         </Tooltip>
                     )}
                     {onClose && (
-                        <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-7 w-7"
-                            onClick={onClose}
-                        >
-                            <IconX size={14} />
-                        </Button>
+                        <Tooltip>
+                            <TooltipTrigger asChild>
+                                <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-7 w-7"
+                                    onClick={onClose}
+                                >
+                                    <IconX size={14} />
+                                </Button>
+                            </TooltipTrigger>
+                            <TooltipContent side="bottom">Cerrar panel</TooltipContent>
+                        </Tooltip>
                     )}
                 </div>
             </div>
@@ -297,6 +429,56 @@ export const PdfChatPanel = memo(function PdfChatPanel({
                     )}
                 </div>
             </ScrollArea>
+
+            {/* History Dialog */}
+            <Dialog open={historyDialogOpen} onOpenChange={setHistoryDialogOpen}>
+                <DialogContent className="max-w-2xl max-h-[80vh]">
+                    <DialogHeader>
+                        <DialogTitle>Historial de Conversación</DialogTitle>
+                        <DialogDescription>
+                            {historyCount} mensaje{historyCount !== 1 ? 's' : ''} guardado{historyCount !== 1 ? 's' : ''} para este documento
+                        </DialogDescription>
+                    </DialogHeader>
+                    <ScrollArea className="max-h-[60vh] pr-4">
+                        <div className="space-y-3">
+                            {savedMessages && savedMessages.length > 0 ? (
+                                savedMessages.map((msg: { id: string; role: string; content: string; created_at: string; metadata?: { citations?: unknown } }) => (
+                                    <div key={msg.id} className={cn("flex gap-2", msg.role === 'user' ? "justify-end" : "justify-start")}>
+                                        {msg.role === 'assistant' && (
+                                            <div className="w-7 h-7 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
+                                                <IconRobot size={14} className="text-primary" />
+                                            </div>
+                                        )}
+                                        <div
+                                            className={cn(
+                                                "max-w-[85%] rounded-xl px-3 py-2.5",
+                                                msg.role === 'user'
+                                                    ? "bg-primary text-primary-foreground rounded-br-sm"
+                                                    : "bg-muted rounded-bl-sm"
+                                            )}
+                                        >
+                                            {msg.role === 'user' ? (
+                                                <p className="text-sm leading-relaxed">{msg.content}</p>
+                                            ) : (
+                                                <ChatMarkdownRenderer content={msg.content} size="sm" />
+                                            )}
+                                        </div>
+                                        {msg.role === 'user' && (
+                                            <div className="w-7 h-7 rounded-lg bg-muted flex items-center justify-center shrink-0">
+                                                <IconUser size={14} className="text-muted-foreground" />
+                                            </div>
+                                        )}
+                                    </div>
+                                ))
+                            ) : (
+                                <div className="text-center py-8 text-muted-foreground text-sm">
+                                    No hay mensajes guardados
+                                </div>
+                            )}
+                        </div>
+                    </ScrollArea>
+                </DialogContent>
+            </Dialog>
 
             {/* Input Area */}
             <div className="p-3 border-t border-border shrink-0">

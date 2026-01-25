@@ -18,6 +18,7 @@ import { usageRouter } from "./routers/usage";
 import { agentPanelRouter } from "./routers/agent-panel";
 import { ideasRouter } from "./routers/ideas";
 import { permissionsRouter } from "./routers/permissions";
+import { panelMessagesRouter } from "./routers/panel-messages";
 
 // Main app router
 export const appRouter = router({
@@ -36,6 +37,7 @@ export const appRouter = router({
   agentPanel: agentPanelRouter,
   ideas: ideasRouter,
   permissions: permissionsRouter,
+  panelMessages: panelMessagesRouter,
 });
 
 // Export type for client

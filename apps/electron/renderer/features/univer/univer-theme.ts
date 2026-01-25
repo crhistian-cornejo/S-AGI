@@ -125,41 +125,55 @@ function generatePalette(baseHex: string): ColorPalette {
 }
 
 /**
- * Generate a gray palette based on the theme's background brightness
- * 
- * IMPORTANT: For dark mode, the palette is INVERTED so that:
- * - gray-50 is dark (used for backgrounds)
- * - gray-900 is light (used for text)
+ * Generate a gray palette based on the theme's background brightness.
+ *
+ * Univer uses the SAME convention in light and dark:
+ * - gray-50 = lightest, gray-900 = darkest.
+ * In dark mode, components use e.g. dark:!univer-bg-gray-800 (bg) and
+ * dark:!univer-text-gray-200 (text). So gray-800 must be DARK, gray-200 LIGHT.
+ * We keep 50→light, 900→dark; only the hex values change per mode.
  */
-function generateGrayPalette(_backgroundColor: string, isDark: boolean): ColorPalette {
+function generateGrayPalette(
+    backgroundColor: string,
+    isDark: boolean,
+    foregroundColor?: string
+): ColorPalette {
     if (isDark) {
-        // For dark themes: INVERTED - low numbers are dark, high numbers are light
+        // Dark mode: gray-50–200 = light (text/borders), gray-300–900 = dark (bgs).
+        // Use theme colors when available so we match the app.
+        const bg = normalizeHex(backgroundColor)
+        const fg = foregroundColor ? normalizeHex(foregroundColor) : '#fafafa'
+        const { r: br, g: bgG, b: bb } = parseHexToRgb(bg)
+        const { r: fr, g: fgG, b: fb } = parseHexToRgb(fg)
+        const mix = (t: number) => (a: number, b: number) =>
+            Math.round(a * (1 - t) + b * t)
+        const toHex = (r: number, g: number, b: number) =>
+            `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`
         return {
-            50: '#171717',   // darkest - backgrounds
-            100: '#1f1f1f',
-            200: '#262626',
-            300: '#333333',
-            400: '#525252',
-            500: '#737373',  // mid gray
-            600: '#a3a3a3',
-            700: '#d4d4d4',
-            800: '#e5e5e5',
-            900: '#fafafa',  // lightest - text
+            50: fg,
+            100: toHex(mix(0.25)(fr, br), mix(0.25)(fgG, bgG), mix(0.25)(fb, bb)),
+            200: toHex(mix(0.5)(fr, br), mix(0.5)(fgG, bgG), mix(0.5)(fb, bb)),
+            300: toHex(mix(0.75)(fr, br), mix(0.75)(fgG, bgG), mix(0.75)(fb, bb)),
+            400: toHex(mix(0.9)(fr, br), mix(0.9)(fgG, bgG), mix(0.9)(fb, bb)),
+            500: toHex((br + fr) / 2, (bgG + fgG) / 2, (bb + fb) / 2),
+            600: bg,
+            700: bg,
+            800: bg,
+            900: bg,
         }
-    } else {
-        // For light themes: normal - low numbers are light, high numbers are dark
-        return {
-            50: '#fafafa',   // lightest - backgrounds
-            100: '#f4f4f5',
-            200: '#e4e4e7',
-            300: '#d4d4d8',
-            400: '#a1a1aa',
-            500: '#71717a',  // mid gray
-            600: '#52525b',
-            700: '#3f3f46',
-            800: '#27272a',
-            900: '#18181b',  // darkest - text
-        }
+    }
+    // Light mode: low = light, high = dark
+    return {
+        50: '#fafafa',
+        100: '#f4f4f5',
+        200: '#e4e4e7',
+        300: '#d4d4d8',
+        400: '#a1a1aa',
+        500: '#71717a',
+        600: '#52525b',
+        700: '#3f3f46',
+        800: '#27272a',
+        900: '#18181b',
     }
 }
 
@@ -180,7 +194,7 @@ export function createThemeFromVSCodeColors(colors: VSCodeThemeColors, isDark: b
 
     // Generate all palettes
     const primaryPalette = generatePalette(primaryColor)
-    const grayPalette = generateGrayPalette(backgroundColor, isDark)
+    const grayPalette = generateGrayPalette(backgroundColor, isDark, foregroundColor)
     const bluePalette = generatePalette(linkColor)
     const greenPalette = generatePalette(greenColor)
     const redPalette = generatePalette(errorColor)
