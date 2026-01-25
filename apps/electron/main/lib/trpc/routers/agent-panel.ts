@@ -395,50 +395,69 @@ IMPORTANTE: CADA dato del PDF debe tener su citación [página N].`;
             content: m.content,
           }));
 
-        log.info(`[AgentPanel] Messages count: ${chatMessages.length}, Tools: ${Object.keys(agentTools).join(', ')}`);
+        const hasCustomTools = Object.keys(agentTools).length > 0;
+        log.info(`[AgentPanel] Messages count: ${chatMessages.length}, Tools: ${Object.keys(agentTools).join(', ')}, hasCustomTools: ${hasCustomTools}`);
 
-        // For Claude provider, use Claude Agent SDK with OAuth (subscription access)
+        // For Claude provider:
+        // - If we have custom tools (Excel, PDF, Docs): MUST use AI SDK with API key
+        //   (Claude SDK doesn't support custom tools - only built-in Claude Code tools)
+        // - If no custom tools: can use Claude SDK with OAuth for general chat/web search
         if (provider === "claude") {
-          log.info(`[AgentPanel] Using Claude Agent SDK for provider: ${provider}`);
-
-          // Get OAuth token or API key
-          const claudeManager = getClaudeCodeAuthManager();
           const apiKeyStore = getSecureApiKeyStore();
-          const authToken = await claudeManager.getValidToken();
           const apiKey = apiKeyStore.getAnthropicKey();
 
-          if (!authToken && !apiKey) {
-            emitAgentEvent(sessionId, {
-              type: "error",
-              error: "Claude not configured. Connect Claude Code in Settings or add an Anthropic API key.",
-            });
-            return { success: false };
-          }
-
-          try {
-            const result = await streamClaudeForAgentPanel({
-              sessionId,
-              prompt,
-              messages: chatMessages.map((m) => ({
-                role: m.role,
-                content: typeof m.content === "string" ? m.content : JSON.stringify(m.content),
-              })),
-              modelId: apiModelId,
-              systemPrompt,
-              signal: abortController.signal,
-              authToken: authToken || undefined,
-              apiKey: apiKey || undefined,
-              emitEvent: (event) => emitAgentEvent(sessionId, event),
-            });
-
-            log.info(`[AgentPanel] Claude SDK stream completed for session ${sessionId}, text length: ${result.text.length}`);
-            return { success: true, text: result.text };
-          } catch (streamError) {
-            if (abortController.signal.aborted) {
-              log.info(`[AgentPanel] Claude SDK stream cancelled for session ${sessionId}`);
-              return { success: false, cancelled: true };
+          if (hasCustomTools) {
+            // Custom tools require API key - Claude SDK can't use them
+            if (!apiKey) {
+              log.warn(`[AgentPanel] Claude + custom tools requires API key, OAuth not supported for tools`);
+              emitAgentEvent(sessionId, {
+                type: "error",
+                error: "Para usar Claude con herramientas de Excel/PDF/Docs necesitas agregar tu Anthropic API key en Settings. El OAuth de Claude Code solo funciona para chat general sin herramientas.",
+              });
+              return { success: false };
             }
-            throw streamError;
+            // Fall through to AI SDK streamText below (will use getLanguageModel with API key)
+            log.info(`[AgentPanel] Using AI SDK for Claude with custom tools (API key)`);
+          } else {
+            // No custom tools - can use Claude SDK with OAuth or API key
+            const claudeManager = getClaudeCodeAuthManager();
+            const authToken = await claudeManager.getValidToken();
+
+            if (!authToken && !apiKey) {
+              emitAgentEvent(sessionId, {
+                type: "error",
+                error: "Claude not configured. Connect Claude Code in Settings or add an Anthropic API key.",
+              });
+              return { success: false };
+            }
+
+            log.info(`[AgentPanel] Using Claude Agent SDK for provider: ${provider} (no custom tools)`);
+
+            try {
+              const result = await streamClaudeForAgentPanel({
+                sessionId,
+                prompt,
+                messages: chatMessages.map((m) => ({
+                  role: m.role,
+                  content: typeof m.content === "string" ? m.content : JSON.stringify(m.content),
+                })),
+                modelId: apiModelId,
+                systemPrompt,
+                signal: abortController.signal,
+                authToken: authToken || undefined,
+                apiKey: apiKey || undefined,
+                emitEvent: (event) => emitAgentEvent(sessionId, event),
+              });
+
+              log.info(`[AgentPanel] Claude SDK stream completed for session ${sessionId}, text length: ${result.text.length}`);
+              return { success: true, text: result.text };
+            } catch (streamError) {
+              if (abortController.signal.aborted) {
+                log.info(`[AgentPanel] Claude SDK stream cancelled for session ${sessionId}`);
+                return { success: false, cancelled: true };
+              }
+              throw streamError;
+            }
           }
         }
 
