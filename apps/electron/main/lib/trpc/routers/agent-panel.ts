@@ -3,6 +3,8 @@
  *
  * Provides streaming AI responses for Excel, Docs, and PDF tabs using
  * the AI SDK with specialized agents.
+ *
+ * For Claude provider, uses Claude Agent SDK with OAuth for subscription access.
  */
 
 import { z } from "zod";
@@ -16,6 +18,9 @@ import {
   getProviderStatus,
   isProviderAvailable,
 } from "../../ai/providers";
+import { streamClaudeForAgentPanel } from "../../ai/claude-agent-sdk";
+import { getClaudeCodeAuthManager } from "../../auth/claude-code-manager";
+import { getSecureApiKeyStore } from "../../auth/api-key-store";
 import {
   loadPDFContext,
   getPDFContext,
@@ -382,7 +387,6 @@ IMPORTANTE: CADA dato del PDF debe tener su citación [página N].`;
         );
         log.info(`[AgentPanel] Provider: ${provider}, Model: ${apiModelId}`);
 
-        // Stream the response using AI SDK
         // Build user/assistant messages (exclude system - use system param instead)
         const chatMessages = inputMessages
           .filter((m) => m.role !== "system")
@@ -393,6 +397,52 @@ IMPORTANTE: CADA dato del PDF debe tener su citación [página N].`;
 
         log.info(`[AgentPanel] Messages count: ${chatMessages.length}, Tools: ${Object.keys(agentTools).join(', ')}`);
 
+        // For Claude provider, use Claude Agent SDK with OAuth (subscription access)
+        if (provider === "claude") {
+          log.info(`[AgentPanel] Using Claude Agent SDK for provider: ${provider}`);
+
+          // Get OAuth token or API key
+          const claudeManager = getClaudeCodeAuthManager();
+          const apiKeyStore = getSecureApiKeyStore();
+          const authToken = await claudeManager.getValidToken();
+          const apiKey = apiKeyStore.getAnthropicKey();
+
+          if (!authToken && !apiKey) {
+            emitAgentEvent(sessionId, {
+              type: "error",
+              error: "Claude not configured. Connect Claude Code in Settings or add an Anthropic API key.",
+            });
+            return { success: false };
+          }
+
+          try {
+            const result = await streamClaudeForAgentPanel({
+              sessionId,
+              prompt,
+              messages: chatMessages.map((m) => ({
+                role: m.role,
+                content: typeof m.content === "string" ? m.content : JSON.stringify(m.content),
+              })),
+              modelId: apiModelId,
+              systemPrompt,
+              signal: abortController.signal,
+              authToken: authToken || undefined,
+              apiKey: apiKey || undefined,
+              emitEvent: (event) => emitAgentEvent(sessionId, event),
+            });
+
+            log.info(`[AgentPanel] Claude SDK stream completed for session ${sessionId}, text length: ${result.text.length}`);
+            return { success: true, text: result.text };
+          } catch (streamError) {
+            if (abortController.signal.aborted) {
+              log.info(`[AgentPanel] Claude SDK stream cancelled for session ${sessionId}`);
+              return { success: false, cancelled: true };
+            }
+            throw streamError;
+          }
+        }
+
+        // For other providers, use AI SDK streamText
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const result = streamText({
           model: model as any,

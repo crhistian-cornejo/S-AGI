@@ -755,3 +755,239 @@ RESPONSE STYLE FOR CLAUDE
         throw error
     }
 }
+
+/**
+ * Agent Panel specific streaming options
+ */
+export interface AgentPanelClaudeOptions {
+    sessionId: string
+    prompt: string
+    messages?: Array<{ role: 'user' | 'assistant'; content: string }>
+    modelId: string
+    systemPrompt: string
+    signal?: AbortSignal
+    authToken?: string
+    apiKey?: string
+    emitEvent: (event: AgentPanelStreamEvent) => void
+}
+
+/**
+ * Agent Panel stream event types (matches agent-panel.ts types)
+ */
+export type AgentPanelStreamEvent =
+    | { type: 'text-delta'; delta: string }
+    | { type: 'text-done'; text: string }
+    | { type: 'tool-call-start'; toolName: string; toolCallId: string }
+    | { type: 'tool-call-done'; toolName: string; toolCallId: string; result: unknown }
+    | { type: 'error'; error: string }
+    | { type: 'finish'; usage?: { promptTokens: number; completionTokens: number } }
+
+/**
+ * Stream Claude responses for Agent Panel using Claude Agent SDK with OAuth
+ * This allows the Agent Panel to use Claude Pro/Max subscription
+ */
+export async function streamClaudeForAgentPanel(options: AgentPanelClaudeOptions): Promise<{
+    text: string
+    sessionId?: string
+}> {
+    const {
+        sessionId,
+        prompt,
+        messages,
+        modelId,
+        systemPrompt,
+        signal,
+        authToken,
+        apiKey,
+        emitEvent
+    } = options
+
+    const finalPrompt = buildPrompt(prompt, messages)
+    let fullText = ''
+    let claudeSessionId: string | undefined
+    let finishEmitted = false
+
+    try {
+        // Build env for subprocess
+        const env: Record<string, string | undefined> = { ...process.env }
+        if (authToken) {
+            env.CLAUDE_CODE_OAUTH_TOKEN = authToken
+            delete env.ANTHROPIC_API_KEY
+        } else if (apiKey) {
+            env.ANTHROPIC_API_KEY = apiKey
+            delete env.CLAUDE_CODE_OAUTH_TOKEN
+        }
+
+        const sdkDefaults = getClaudeSdkDefaults()
+        log.info('[Claude SDK AgentPanel] Options:', {
+            sessionId,
+            modelId,
+            hasOAuthToken: !!authToken,
+            hasApiKey: !!apiKey
+        })
+
+        const { query, AbortError } = await loadClaudeSdk()
+        log.info('[Claude SDK AgentPanel] Starting query with prompt length:', finalPrompt.length)
+
+        const response = query({
+            prompt: finalPrompt,
+            options: {
+                ...sdkDefaults,
+                model: modelId,
+                systemPrompt,
+                permissionMode: 'bypassPermissions',
+                allowDangerouslySkipPermissions: true,
+                // Enable native Claude tools for web search
+                allowedTools: ['WebSearch', 'WebFetch'],
+                includePartialMessages: true,
+                mcpServers: {},
+                persistSession: false,
+                env,
+                stderr: (data: string) => {
+                    const trimmed = data.trim()
+                    if (trimmed) {
+                        log.info('[Claude SDK AgentPanel stderr]', trimmed)
+                    }
+                }
+            }
+        })
+
+        log.info('[Claude SDK AgentPanel] Query initiated...')
+
+        for await (const message of response as AsyncIterable<ClaudeSdkMessage>) {
+            if (signal?.aborted) {
+                throw new AbortError('Aborted')
+            }
+
+            if (!message || typeof message !== 'object') continue
+
+            log.debug('[Claude SDK AgentPanel] Message:', message.type)
+
+            switch (message.type) {
+                case 'stream_event': {
+                    const event = message.event as {
+                        type?: string
+                        delta?: { type?: string; text?: string }
+                        content_block?: { type?: string; text?: string }
+                    }
+
+                    if (event?.type === 'content_block_delta' && event.delta?.type === 'text_delta') {
+                        const text = event.delta.text || ''
+                        if (text) {
+                            fullText += text
+                            emitEvent({ type: 'text-delta', delta: text })
+                        }
+                    } else if (event?.type === 'content_block_start' && event.content_block?.type === 'text') {
+                        const text = event.content_block.text || ''
+                        if (text) {
+                            fullText += text
+                            emitEvent({ type: 'text-delta', delta: text })
+                        }
+                    }
+                    break
+                }
+
+                case 'assistant': {
+                    const betaMessage = message.message as {
+                        content?: Array<{ type?: string; text?: string }>
+                    } | undefined
+
+                    if (betaMessage?.content && Array.isArray(betaMessage.content)) {
+                        for (const block of betaMessage.content) {
+                            if (block?.type === 'text' && block.text) {
+                                if (fullText.length === 0 || !fullText.endsWith(block.text)) {
+                                    fullText += block.text
+                                    emitEvent({ type: 'text-delta', delta: block.text })
+                                }
+                            }
+                        }
+                    }
+                    break
+                }
+
+                case 'result': {
+                    if (message.subtype === 'success') {
+                        const resultText = typeof message.result === 'string' ? message.result : ''
+                        if (fullText.length === 0 && resultText) {
+                            fullText = resultText
+                            emitEvent({ type: 'text-delta', delta: resultText })
+                        }
+
+                        const modelUsage = message.modelUsage as Record<string, {
+                            inputTokens?: number
+                            outputTokens?: number
+                        }> | undefined
+                        const modelUsageEntry = modelUsage ? Object.values(modelUsage)[0] : undefined
+
+                        finishEmitted = true
+                        emitEvent({ type: 'text-done', text: fullText })
+                        emitEvent({
+                            type: 'finish',
+                            usage: {
+                                promptTokens: modelUsageEntry?.inputTokens || 0,
+                                completionTokens: modelUsageEntry?.outputTokens || 0
+                            }
+                        })
+                    } else if (message.subtype === 'error') {
+                        const errorText = typeof message.result === 'string' ? message.result : 'Unknown error'
+                        emitEvent({ type: 'error', error: errorText })
+                    }
+                    break
+                }
+
+                case 'tool_call': {
+                    const toolName = typeof message.tool_name === 'string' ? message.tool_name : 'unknown'
+                    const toolCallId = typeof message.tool_call_id === 'string' ? message.tool_call_id : `tool-${Date.now()}`
+                    emitEvent({ type: 'tool-call-start', toolName, toolCallId })
+                    break
+                }
+
+                case 'tool_result': {
+                    const toolName = typeof message.tool_name === 'string' ? message.tool_name : 'unknown'
+                    const toolCallId = typeof message.tool_call_id === 'string' ? message.tool_call_id : `tool-${Date.now()}`
+                    emitEvent({ type: 'tool-call-done', toolName, toolCallId, result: message.result })
+                    break
+                }
+
+                case 'error': {
+                    const errorText = message.error && typeof message.error === 'object'
+                        ? JSON.stringify(message.error)
+                        : String(message.error || 'Unknown error')
+                    emitEvent({ type: 'error', error: errorText })
+                    break
+                }
+
+                case 'system': {
+                    if (message.subtype === 'init' && message.session_id) {
+                        claudeSessionId = message.session_id as string
+                    }
+                    break
+                }
+            }
+        }
+
+        if (!finishEmitted) {
+            if (fullText) {
+                emitEvent({ type: 'text-done', text: fullText })
+            }
+            emitEvent({ type: 'finish' })
+        }
+
+        log.info('[Claude SDK AgentPanel] Completed, text length:', fullText.length)
+        return { text: fullText, sessionId: claudeSessionId }
+
+    } catch (error) {
+        log.error('[Claude SDK AgentPanel] Error:', error)
+
+        const { AbortError } = await loadClaudeSdk()
+        if (error instanceof AbortError || signal?.aborted) {
+            log.info('[Claude SDK AgentPanel] Aborted')
+            emitEvent({ type: 'finish' })
+            return { text: fullText, sessionId: claudeSessionId }
+        }
+
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error'
+        emitEvent({ type: 'error', error: errorMessage })
+        throw error
+    }
+}

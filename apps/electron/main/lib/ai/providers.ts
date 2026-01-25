@@ -4,6 +4,7 @@ import { createAnthropic } from '@ai-sdk/anthropic'
 import log from 'electron-log'
 import { getTokenManager, sanitizeToken } from '../auth/token-manager'
 import { getChatGPTAuthManager } from '../auth/chatgpt-manager'
+import { getClaudeCodeAuthManager } from '../auth/claude-code-manager'
 import { getZaiAuthManager } from '../auth/zai-manager'
 import { getSecureApiKeyStore } from '../auth/api-key-store'
 import { resolveModelIdForApi } from '@s-agi/core/types/ai'
@@ -268,8 +269,8 @@ export function isProviderAvailable(provider: AIProvider): boolean {
         case 'zai':
             return !!getZaiAuthManager().getApiKey()
         case 'claude':
-            // Anthropic API only supports API keys, not OAuth
-            return getSecureApiKeyStore().hasAnthropicKey()
+            // Claude supports OAuth (via Claude Agent SDK) or API key
+            return getClaudeCodeAuthManager().isConnected() || getSecureApiKeyStore().hasAnthropicKey()
         default:
             return false
     }
@@ -311,7 +312,7 @@ export function getProviderStatus(provider: AIProvider): {
             const available = isProviderAvailable('claude')
             return {
                 available,
-                message: available ? undefined : 'Add your Anthropic API key in Settings'
+                message: available ? undefined : 'Connect Claude Code or add Anthropic API key in Settings'
             }
         }
         default:
