@@ -4,7 +4,6 @@ import { createAnthropic } from '@ai-sdk/anthropic'
 import log from 'electron-log'
 import { getTokenManager, sanitizeToken } from '../auth/token-manager'
 import { getChatGPTAuthManager } from '../auth/chatgpt-manager'
-import { getClaudeCodeAuthManager } from '../auth/claude-code-manager'
 import { getZaiAuthManager } from '../auth/zai-manager'
 import { getSecureApiKeyStore } from '../auth/api-key-store'
 import { resolveModelIdForApi } from '@s-agi/core/types/ai'
@@ -152,33 +151,31 @@ function createZaiProvider() {
 }
 
 /**
- * Create a Claude provider with OAuth token (Claude Code Pro/Max)
- * Falls back to Anthropic API key if configured.
+ * Create a Claude provider for the Anthropic API.
+ * IMPORTANT: The Anthropic API (api.anthropic.com) only supports API keys, NOT OAuth.
+ * OAuth from Claude Code subscription is for claude.ai, not the API.
+ * This provider prioritizes API key authentication.
  */
 function createClaudeProvider() {
-    const claudeManager = getClaudeCodeAuthManager()
     const apiKeyStore = getSecureApiKeyStore()
 
     return createAnthropic({
-        authToken: 'claude-oauth-placeholder',
+        apiKey: apiKeyStore.getAnthropicKey() || 'placeholder',
         fetch: async (url, init) => {
             const headers = new Headers(init?.headers)
 
+            // Clear any existing auth headers
             headers.delete('authorization')
             headers.delete('x-api-key')
 
-            const oauthToken = await claudeManager.getValidToken()
-            if (oauthToken) {
-                headers.set('Authorization', `Bearer ${oauthToken}`)
-                log.debug(`[AI] Claude OAuth request to ${url}, token: ${sanitizeToken(oauthToken)}`)
-            } else {
-                const apiKey = apiKeyStore.getAnthropicKey()
-                if (!apiKey) {
-                    throw new Error('Claude Code not connected. Please connect your account in Settings.')
-                }
-                headers.set('x-api-key', apiKey)
-                log.debug(`[AI] Claude API key request to ${url}, key: ${sanitizeToken(apiKey)}`)
+            // Anthropic API requires x-api-key, NOT OAuth Bearer token
+            const apiKey = apiKeyStore.getAnthropicKey()
+            if (!apiKey) {
+                throw new Error('Anthropic API key not configured. Add your API key in Settings to use Claude models.')
             }
+
+            headers.set('x-api-key', apiKey)
+            log.debug(`[AI] Claude API request to ${url}, key: ${sanitizeToken(apiKey)}`)
 
             return fetch(url, {
                 ...init,
@@ -271,7 +268,8 @@ export function isProviderAvailable(provider: AIProvider): boolean {
         case 'zai':
             return !!getZaiAuthManager().getApiKey()
         case 'claude':
-            return getClaudeCodeAuthManager().isConnected() || getSecureApiKeyStore().hasAnthropicKey()
+            // Anthropic API only supports API keys, not OAuth
+            return getSecureApiKeyStore().hasAnthropicKey()
         default:
             return false
     }
@@ -313,7 +311,7 @@ export function getProviderStatus(provider: AIProvider): {
             const available = isProviderAvailable('claude')
             return {
                 available,
-                message: available ? undefined : 'Connect your Claude Code account in Settings'
+                message: available ? undefined : 'Add your Anthropic API key in Settings'
             }
         }
         default:
