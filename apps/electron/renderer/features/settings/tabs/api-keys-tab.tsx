@@ -142,6 +142,7 @@ export function ApiKeysTab() {
         onSuccess: () => {
             toast.success('Disconnected from Claude Code')
             utils.auth.getClaudeCodeStatus.invalidate()
+            if (currentProvider === 'claude') setCurrentProvider('openai')
         },
         onError: (e) => toast.error(e.message)
     })
@@ -188,11 +189,19 @@ export function ApiKeysTab() {
             const defaultModel = {
                 openai: 'gpt-5',
                 'chatgpt-plus': 'gpt-5.1-codex-max',
-                zai: 'GLM-4.7-Flash'
+                zai: 'GLM-4.7-Flash',
+                claude: 'claude-sonnet-4-5-20251101'
             }[p]
             setSelectedModel(defaultModel || models[0].id)
         }
     }
+
+    // Auto-switch away from Claude if disconnected
+    useEffect(() => {
+        if (currentProvider === 'claude' && !claudeCodeStatus?.isConnected) {
+            setCurrentProvider('openai')
+        }
+    }, [claudeCodeStatus?.isConnected, currentProvider, setCurrentProvider])
 
     return (
         <div className="space-y-6 p-6">
@@ -223,6 +232,14 @@ export function ApiKeysTab() {
                                 </SelectItem>
                                 <SelectItem value="zai">
                                     <div className="flex items-center gap-2"><ZaiIcon size={14} className="text-amber-500" /><span>Z.AI Subscription</span></div>
+                                </SelectItem>
+                                <SelectItem value="claude" disabled={!claudeCodeStatus?.isConnected}>
+                                    <div className="flex items-center gap-2">
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" className="text-orange-500">
+                                            <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/>
+                                        </svg>
+                                        <span>Claude Pro/Max</span>
+                                    </div>
                                 </SelectItem>
                             </SelectContent>
                         </Select>

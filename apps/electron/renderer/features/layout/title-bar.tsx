@@ -47,7 +47,7 @@ import {
 } from '@tabler/icons-react'
 import { Button } from '@/components/ui/button'
 import { Logo } from '@/components/ui/logo'
-import { ZaiIcon, OpenAIIcon, ModelIcon } from '@/components/icons/model-icons'
+import { ZaiIcon, OpenAIIcon, ModelIcon, ClaudeIcon } from '@/components/icons/model-icons'
 import type { AIProvider } from '@s-agi/core/types/ai'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { cn, isMacOS, isElectron, isWindows } from '@/lib/utils'
@@ -135,7 +135,9 @@ export function TitleBar({ className, noTrafficLightSpace }: TitleBarProps) {
             ? keyStatus?.hasOpenAI
             : provider === 'zai'
                 ? keyStatus?.hasZai
-                : false
+                : provider === 'claude'
+                    ? keyStatus?.hasClaudeCode
+                    : false
 
     const providerIcon = (() => {
         if (!isConnected) return { icon: OpenAIIcon, className: "text-muted-foreground" }
@@ -143,6 +145,7 @@ export function TitleBar({ className, noTrafficLightSpace }: TitleBarProps) {
             case 'chatgpt-plus': return { icon: OpenAIIcon, className: "text-emerald-600" }
             case 'openai': return { icon: OpenAIIcon, className: "" }
             case 'zai': return { icon: ZaiIcon, className: "text-amber-500" }
+            case 'claude': return { icon: ClaudeIcon, className: "text-orange-500" }
             default: return { icon: OpenAIIcon, className: "text-muted-foreground" }
         }
     })()

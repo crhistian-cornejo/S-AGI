@@ -171,7 +171,9 @@ export function ChatView() {
         ? keyStatus?.hasChatGPTPlus
         : provider === "zai"
           ? keyStatus?.hasZai
-          : keyStatus?.hasAnthropic;
+          : provider === "claude"
+            ? keyStatus?.hasClaudeCode
+            : keyStatus?.hasAnthropic;
 
   // Fetch messages for selected chat
   const {

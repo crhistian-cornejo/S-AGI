@@ -603,7 +603,9 @@ export function Sidebar() {
         ? keyStatus?.hasOpenAI
         : provider === "zai"
           ? keyStatus?.hasZai
-          : keyStatus?.hasAnthropic;
+          : provider === "claude"
+            ? keyStatus?.hasClaudeCode
+            : keyStatus?.hasAnthropic;
 
   // Fetch session
   const { data: session } = trpc.auth.getSession.useQuery();

@@ -90,6 +90,26 @@ export function ZaiIcon({ className, size = 16 }: { className?: string; size?: n
 }
 
 /**
+ * Claude icon (Anthropic's Claude model)
+ */
+export function ClaudeIcon({ className, size = 16 }: { className?: string; size?: number }) {
+    return (
+        <svg
+            viewBox="0 0 24 24"
+            fill="currentColor"
+            width={size}
+            height={size}
+            className={className}
+            role="img"
+            aria-labelledby="claude-title"
+        >
+            <title id="claude-title">Claude</title>
+            <path d="M17.304 3.541h-3.672l6.696 16.918h3.672l-6.696-16.918Zm-10.608 0L0 20.459h3.744l1.368-3.553h6.912l1.368 3.553h3.744L10.44 3.541H6.696Zm-.456 10.37 2.376-6.167 2.376 6.167H6.24Z" />
+        </svg>
+    )
+}
+
+/**
  * Generic AI model icon that renders based on provider
  */
 export function ModelIcon({ provider, className, size = 16 }: ModelIconProps) {
@@ -100,6 +120,8 @@ export function ModelIcon({ provider, className, size = 16 }: ModelIconProps) {
             return <ChatGPTPlusIcon className={className} size={size} />
         case 'zai':
             return <ZaiIcon className={className} size={size} />
+        case 'claude':
+            return <ClaudeIcon className={className} size={size} />
         default:
             return <OpenAIIcon className={className} size={size} />
     }

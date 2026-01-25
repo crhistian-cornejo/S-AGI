@@ -953,10 +953,36 @@ export const ChatInput = memo(function ChatInput({
                   </>
                 )}
 
+                {/* Claude Pro/Max models (via Claude Code OAuth) */}
+                {keyStatus?.hasClaudeCode && allModelsGrouped.claude?.length > 0 && (
+                  <>
+                    <div className="h-px bg-border/40 my-1.5 mx-2" />
+                    <div className="text-[10px] font-bold uppercase text-muted-foreground/50 px-3 py-2 flex items-center gap-1.5">
+                      <ModelIcon provider="claude" size={12} />
+                      Claude Pro/Max
+                      <span className="ml-auto text-[9px] font-medium text-orange-500 bg-orange-500/10 px-1.5 py-0.5 rounded">
+                        Subscription
+                      </span>
+                    </div>
+                    {allModelsGrouped.claude.map((model) => (
+                      <SelectItem
+                        key={model.id}
+                        value={model.id}
+                        className="rounded-lg"
+                      >
+                        <div className="flex items-center gap-2">
+                          <span>{model.name}</span>
+                        </div>
+                      </SelectItem>
+                    ))}
+                  </>
+                )}
+
                 {/* Show message if no providers configured */}
                 {!keyStatus?.hasOpenAI &&
                   !keyStatus?.hasZai &&
-                  !keyStatus?.hasChatGPTPlus && (
+                  !keyStatus?.hasChatGPTPlus &&
+                  !keyStatus?.hasClaudeCode && (
                     <div className="text-xs text-muted-foreground px-3 py-4 text-center">
                       No API keys configured.
                       <br />

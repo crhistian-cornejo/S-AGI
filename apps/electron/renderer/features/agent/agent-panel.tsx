@@ -236,6 +236,7 @@ const ModelSelector = memo(function ModelSelector({
       openai: getModelsByProvider("openai"),
       "chatgpt-plus": getModelsByProvider("chatgpt-plus"),
       zai: getModelsByProvider("zai"),
+      claude: getModelsByProvider("claude"),
     }),
     [],
   );
@@ -324,10 +325,31 @@ const ModelSelector = memo(function ModelSelector({
           </>
         )}
 
+        {/* Claude models */}
+        {keyStatus?.hasClaudeCode && modelGroups.claude?.length > 0 && (
+          <>
+            <div className="h-px bg-border/40 my-1 mx-2" />
+            <div className="text-[9px] font-bold uppercase text-muted-foreground/50 px-2.5 py-1.5 flex items-center gap-1.5">
+              <ModelIcon provider="claude" size={10} />
+              Claude Pro/Max
+            </div>
+            {modelGroups.claude.map((model) => (
+              <SelectItem
+                key={model.id}
+                value={model.id}
+                className="rounded-lg text-xs"
+              >
+                {model.name}
+              </SelectItem>
+            ))}
+          </>
+        )}
+
         {/* No providers configured */}
         {!keyStatus?.hasOpenAI &&
           !keyStatus?.hasZai &&
-          !keyStatus?.hasChatGPTPlus && (
+          !keyStatus?.hasChatGPTPlus &&
+          !keyStatus?.hasClaudeCode && (
             <div className="text-xs text-muted-foreground px-3 py-3 text-center">
               No API keys configured
             </div>

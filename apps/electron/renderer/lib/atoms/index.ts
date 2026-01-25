@@ -112,6 +112,7 @@ export const allModelsGroupedAtom = atom(() => {
     openai: getModelsByProvider("openai"),
     "chatgpt-plus": getModelsByProvider("chatgpt-plus"),
     zai: getModelsByProvider("zai"),
+    claude: getModelsByProvider("claude"),
   };
 });
 

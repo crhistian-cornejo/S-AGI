@@ -9,8 +9,9 @@ import { z } from 'zod'
  * - 'openai': Standard OpenAI API (requires API key)
  * - 'chatgpt-plus': ChatGPT Plus/Pro via Codex OAuth (uses subscription)
  * - 'zai': Z.AI Coding Plan (GLM models via OpenAI-compatible endpoint)
+ * - 'claude': Claude Pro/Max via OAuth (uses subscription)
  */
-export type AIProvider = 'openai' | 'chatgpt-plus' | 'zai'
+export type AIProvider = 'openai' | 'chatgpt-plus' | 'zai' | 'claude'
 
 /**
  * - 'none': No reasoning (GPT-5.2, lowest latency)
@@ -212,6 +213,46 @@ export const AI_MODELS: Record<string, ModelDefinition> = {
         supportsTools: true,
         supportsReasoning: false,
         includedInSubscription: true // Free tier fallback
+    },
+
+    // ========================================================================
+    // Claude Models (via OAuth - included in Pro/Max subscription)
+    // These models use the Claude Pro/Max subscription
+    // ========================================================================
+    'claude-opus-4-5-20251101': {
+        id: 'claude-opus-4-5-20251101',
+        provider: 'claude',
+        name: 'Claude Opus 4.5',
+        description: 'Most capable Claude model with extended thinking',
+        contextWindow: 200000,
+        supportsImages: true,
+        supportsTools: true,
+        supportsReasoning: true,
+        defaultReasoningEffort: 'high',
+        includedInSubscription: true
+    },
+    'claude-sonnet-4-5-20251101': {
+        id: 'claude-sonnet-4-5-20251101',
+        provider: 'claude',
+        name: 'Claude Sonnet 4.5',
+        description: 'Balanced performance and speed',
+        contextWindow: 200000,
+        supportsImages: true,
+        supportsTools: true,
+        supportsReasoning: true,
+        defaultReasoningEffort: 'medium',
+        includedInSubscription: true
+    },
+    'claude-haiku-4-5-20251101': {
+        id: 'claude-haiku-4-5-20251101',
+        provider: 'claude',
+        name: 'Claude Haiku 4.5',
+        description: 'Fast and efficient for quick tasks',
+        contextWindow: 200000,
+        supportsImages: true,
+        supportsTools: true,
+        supportsReasoning: false,
+        includedInSubscription: true
     }
 } as const
 
@@ -221,7 +262,8 @@ export const AI_MODELS: Record<string, ModelDefinition> = {
 export const DEFAULT_MODELS: Record<AIProvider, string> = {
     openai: 'gpt-5',
     'chatgpt-plus': 'gpt-5.1-codex-max',
-    zai: 'GLM-4.7-Flash'
+    zai: 'GLM-4.7-Flash',
+    claude: 'claude-sonnet-4-5-20251101'
 }
 
 /**
@@ -470,7 +512,7 @@ export type ServiceTier = 'auto' | 'flex'
 // Zod Schemas for Validation
 // ============================================================================
 
-export const AIProviderSchema = z.enum(['openai', 'chatgpt-plus', 'zai'])
+export const AIProviderSchema = z.enum(['openai', 'chatgpt-plus', 'zai', 'claude'])
 
 export const ReasoningEffortSchema = z.enum(['low', 'medium', 'high'])
 
