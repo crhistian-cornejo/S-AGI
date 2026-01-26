@@ -1,6 +1,6 @@
 /**
  * Notes Sidebar - Notion-like sidebar for managing notes, pages, and spaces
- * 
+ *
  * Features:
  * - Hierarchical page structure (pages can have sub-pages)
  * - Spaces (collections of pages)
@@ -26,6 +26,7 @@ import {
   IconFolderPlus,
   IconHome,
   IconLayoutSidebarLeftCollapse,
+  IconLayoutSidebarLeftExpand,
   IconFileTypePdf,
 } from "@tabler/icons-react";
 import {
@@ -52,7 +53,12 @@ import {
   type NotePage,
   type NoteSpace,
 } from "@/lib/notes-storage";
-import { addOpenTab, getOpenTabs, updateTabPage, replaceCurrentTab } from "@/lib/notes-tabs";
+import {
+  addOpenTab,
+  getOpenTabs,
+  updateTabPage,
+  replaceCurrentTab,
+} from "@/lib/notes-tabs";
 import {
   Tooltip,
   TooltipContent,
@@ -66,7 +72,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { cn } from "@/lib/utils";
+import { cn, isWindows } from "@/lib/utils";
 import { toast } from "sonner";
 import { ModelIcon } from "@/components/icons/model-icons";
 import type { AIProvider } from "@s-agi/core/types/ai";
@@ -237,10 +243,7 @@ function PageItem({
 
       {/* Icon */}
       {onChangeIcon ? (
-        <IconPicker
-          currentIcon={page.icon}
-          onSelect={onChangeIcon}
-        >
+        <IconPicker currentIcon={page.icon} onSelect={onChangeIcon}>
           <div
             onClick={(e) => e.stopPropagation()}
             onKeyDown={(e) => {
@@ -251,7 +254,7 @@ function PageItem({
             }}
             className={cn(
               "shrink-0 flex items-center justify-center w-5 h-5 rounded hover:bg-accent transition-colors cursor-pointer",
-              isSelected ? "text-primary" : "text-muted-foreground/60"
+              isSelected ? "text-primary" : "text-muted-foreground/60",
             )}
             role="button"
             tabIndex={0}
@@ -267,7 +270,7 @@ function PageItem({
             cn(
               "shrink-0 transition-colors",
               isSelected ? "text-primary" : "text-muted-foreground/60",
-            )
+            ),
           )}
         </div>
       )}
@@ -334,7 +337,7 @@ function PageItem({
 
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <div 
+            <div
               className="p-1 hover:bg-accent rounded transition-colors cursor-pointer"
               onClick={(e) => e.stopPropagation()}
               onKeyDown={(e) => {
@@ -362,10 +365,7 @@ function PageItem({
             {onChangeIcon && (
               <>
                 <DropdownMenuItem asChild>
-                  <IconPicker
-                    currentIcon={page.icon}
-                    onSelect={onChangeIcon}
-                  >
+                  <IconPicker currentIcon={page.icon} onSelect={onChangeIcon}>
                     <div className="flex items-center w-full cursor-pointer">
                       <IconPencil size={14} className="mr-2" />
                       Change icon
@@ -472,9 +472,7 @@ function SpaceSection({
           onToggleExpand={() => onTogglePageExpand(page.id)}
         />
         {isExpanded && hasChildren && (
-          <div>
-            {children.map((child) => renderPageTree(child, level + 1))}
-          </div>
+          <div>{children.map((child) => renderPageTree(child, level + 1))}</div>
         )}
       </div>
     );
@@ -502,47 +500,50 @@ function SpaceSection({
         <span className="flex-1 text-[11px] font-semibold text-muted-foreground uppercase tracking-wider truncate">
           {space.name}
         </span>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <button type="button" className="opacity-0 group-hover:opacity-100 p-1 hover:bg-accent rounded transition-opacity">
-                  <IconDots size={12} className="text-muted-foreground" />
-                </button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-40">
-                <DropdownMenuItem onClick={() => onCreatePage(space.id)}>
-                  <IconPlus size={14} className="mr-2" />
-                  New Page
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem
-                  onClick={() => onDeleteSpace(space.id)}
-                  className="text-destructive focus:text-destructive"
-                >
-                  <IconTrash size={14} className="mr-2" />
-                  Delete Space
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </div>
-          {isExpanded && (
-            <div className="ml-2 space-y-0.5">
-              {rootPages.map((page) => renderPageTree(page, 0))}
-              {rootPages.length === 0 && (
-                <div className="px-2 py-1 text-xs text-muted-foreground/60 italic">
-                  No pages yet
-                </div>
-              )}
-              {/* Add content button (Notion-style) */}
-              <button
-                type="button"
-                onClick={() => onCreatePage(space.id)}
-                className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-xs text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors mt-1"
-              >
-                <IconPlus size={12} />
-                <span>Add content</span>
-              </button>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button
+              type="button"
+              className="opacity-0 group-hover:opacity-100 p-1 hover:bg-accent rounded transition-opacity"
+            >
+              <IconDots size={12} className="text-muted-foreground" />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-40">
+            <DropdownMenuItem onClick={() => onCreatePage(space.id)}>
+              <IconPlus size={14} className="mr-2" />
+              New Page
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              onClick={() => onDeleteSpace(space.id)}
+              className="text-destructive focus:text-destructive"
+            >
+              <IconTrash size={14} className="mr-2" />
+              Delete Space
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
+      {isExpanded && (
+        <div className="ml-2 space-y-0.5">
+          {rootPages.map((page) => renderPageTree(page, 0))}
+          {rootPages.length === 0 && (
+            <div className="px-2 py-1 text-xs text-muted-foreground/60 italic">
+              No pages yet
             </div>
           )}
+          {/* Add content button (Notion-style) */}
+          <button
+            type="button"
+            onClick={() => onCreatePage(space.id)}
+            className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-xs text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors mt-1"
+          >
+            <IconPlus size={12} />
+            <span>Add content</span>
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -562,19 +563,39 @@ export function NotesSidebar() {
   const setNotePage = useSetAtom(notePagesCacheAtom);
 
   // Notes editor controls (same as titlebar)
-  const [selectedModelId, setSelectedModelId] = useAtom(notesSelectedModelIdAtom);
+  const [selectedModelId, setSelectedModelId] = useAtom(
+    notesSelectedModelIdAtom,
+  );
   const editorRef = useAtomValue(notesEditorRefAtom);
   const [isExportingPdf] = useAtom(notesIsExportingPdfAtom);
   const provider = useAtomValue(currentProviderAtom);
+  const isWindowsPlatform = isWindows();
 
   // Available models for notes
   const availableModels = useMemo(() => {
     const models = {
       openai: [
-        { id: "gpt-5-mini", name: "GPT-5 Mini", description: "Fast & capable", provider: "openai" as AIProvider },
-        { id: "gpt-5-nano", name: "GPT-5 Nano", description: "Ultra fast", provider: "openai" as AIProvider },
+        {
+          id: "gpt-5-mini",
+          name: "GPT-5 Mini",
+          description: "Fast & capable",
+          provider: "openai" as AIProvider,
+        },
+        {
+          id: "gpt-5-nano",
+          name: "GPT-5 Nano",
+          description: "Ultra fast",
+          provider: "openai" as AIProvider,
+        },
       ],
-      zai: [{ id: "GLM-4.7-Flash", name: "GLM-4.7 Flash", description: "Fast", provider: "zai" as AIProvider }],
+      zai: [
+        {
+          id: "GLM-4.7-Flash",
+          name: "GLM-4.7 Flash",
+          description: "Fast",
+          provider: "zai" as AIProvider,
+        },
+      ],
     };
     return provider === "zai" ? models.zai : models.openai;
   }, [provider]);
@@ -604,7 +625,7 @@ export function NotesSidebar() {
     const allPages = getAllPages();
     const allSpaces = getAllSpaces();
     const favs = getFavoritesPages();
-    
+
     setPages(allPages);
     setSpaces(allSpaces);
     setFavorites(favs);
@@ -613,11 +634,11 @@ export function NotesSidebar() {
   // Listen for page updates from header or other components
   const pageUpdated = useAtomValue(notesPageUpdatedAtom);
   const notifyPageUpdate = useSetAtom(notesPageUpdatedAtom);
-  
+
   useEffect(() => {
     refreshData();
   }, [refreshData]);
-  
+
   // Separate effect to refresh when page is updated externally
   useEffect(() => {
     if (pageUpdated > 0) {
@@ -630,8 +651,7 @@ export function NotesSidebar() {
     if (!searchQuery.trim()) return pages;
     const query = searchQuery.toLowerCase();
     return pages.filter(
-      (p) =>
-        p.title.toLowerCase().includes(query) && !p.archived,
+      (p) => p.title.toLowerCase().includes(query) && !p.archived,
     );
   }, [pages, searchQuery]);
 
@@ -642,11 +662,11 @@ export function NotesSidebar() {
       if (page) {
         // Load page into cache
         setNotePage((prev) => ({ ...prev, [pageId]: page }));
-        
+
         const existingTabs = getOpenTabs();
         const isAlreadyOpen = existingTabs.some((t) => t.pageId === pageId);
         const isRootPage = !page.parentId;
-        
+
         if (isAlreadyOpen) {
           // Page is already open in a tab, just update it
           updateTabPage(page);
@@ -677,7 +697,7 @@ export function NotesSidebar() {
   );
 
   const setCreatePageAction = useSetAtom(createNotePageActionAtom);
-  
+
   const handleCreatePage = useCallback(
     (spaceId: string | null = null, parentId: string | null = null) => {
       const newPage = createPage("Untitled", spaceId, parentId);
@@ -695,7 +715,13 @@ export function NotesSidebar() {
       // Also notify external components
       notifyPageUpdate(Date.now());
     },
-    [setSelectedPageId, setNotePage, setOpenTabs, refreshData, notifyPageUpdate],
+    [
+      setSelectedPageId,
+      setNotePage,
+      setOpenTabs,
+      refreshData,
+      notifyPageUpdate,
+    ],
   );
 
   const handleCreateSubPage = useCallback(
@@ -718,7 +744,14 @@ export function NotesSidebar() {
         notifyPageUpdate(Date.now());
       }
     },
-    [pages, setSelectedPageId, setNotePage, setOpenTabs, refreshData, notifyPageUpdate],
+    [
+      pages,
+      setSelectedPageId,
+      setNotePage,
+      setOpenTabs,
+      refreshData,
+      notifyPageUpdate,
+    ],
   );
 
   // Expose create page function to tabs
@@ -752,13 +785,16 @@ export function NotesSidebar() {
     [pages, refreshData],
   );
 
-  const handleStartRename = useCallback((pageId: string) => {
-    const page = pages.find((p) => p.id === pageId);
-    if (page) {
-      setEditingPageId(pageId);
-      setEditingTitle(page.title);
-    }
-  }, [pages]);
+  const handleStartRename = useCallback(
+    (pageId: string) => {
+      const page = pages.find((p) => p.id === pageId);
+      if (page) {
+        setEditingPageId(pageId);
+        setEditingTitle(page.title);
+      }
+    },
+    [pages],
+  );
 
   const handleSaveRename = useCallback(
     (pageId: string, title: string) => {
@@ -854,215 +890,196 @@ export function NotesSidebar() {
   return (
     <div
       className={cn(
-        "h-full border-r border-border bg-sidebar flex flex-col shrink-0 transition-all duration-300",
-        sidebarOpen ? "w-72" : "w-0 border-r-0 overflow-hidden"
+        "relative h-full shrink-0 transition-all duration-300",
+        sidebarOpen ? "w-72" : "w-7",
       )}
     >
-      {sidebarOpen && (
-        <>
-          {/* Sidebar Header with Toggle and Controls (right side) */}
-          <div className="flex items-center gap-2 px-3 py-2 border-b border-border/50">
-            <div className="flex-1" />
-            
-            {/* Model selector and PDF export - only when sidebar is expanded */}
-            {currentModel && (
-              <>
-                {/* Model selector - icon only */}
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <button
-                          type="button"
-                          className={cn(
-                            "flex items-center justify-center w-7 h-7 rounded-md transition-all duration-200",
-                            "hover:bg-accent/50 text-muted-foreground hover:text-foreground"
-                          )}
-                        >
-                          <ModelIcon 
-                            provider={providerForIcon} 
-                            size={16}
-                            className={providerForIcon === "zai" ? "text-amber-500" : ""}
-                          />
-                        </button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end" className="w-48">
-                        {availableModels.map((model) => (
-                          <DropdownMenuItem
-                            key={model.id}
-                            onClick={() => setSelectedModelId(model.id)}
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            type="button"
+            onClick={() => setSidebarOpen(!sidebarOpen)}
+            className={cn(
+              "absolute top-3 right-1 z-10 flex items-center justify-center h-6 w-6 rounded-full border bg-background shadow-sm",
+              "hover:bg-accent transition-colors text-muted-foreground hover:text-foreground",
+            )}
+          >
+            {sidebarOpen ? (
+              <IconLayoutSidebarLeftCollapse size={14} />
+            ) : (
+              <IconLayoutSidebarLeftExpand size={14} />
+            )}
+          </button>
+        </TooltipTrigger>
+        <TooltipContent side="right">
+          {sidebarOpen ? "Collapse sidebar" : "Expand sidebar"}
+        </TooltipContent>
+      </Tooltip>
+
+      <div
+        className={cn(
+          "h-full border-r border-border bg-sidebar flex flex-col transition-all duration-300 overflow-hidden",
+          sidebarOpen ? "w-full" : "w-0 border-r-0",
+        )}
+      >
+        {sidebarOpen && (
+          <>
+            <div className="flex items-center gap-2 px-3 py-2 border-b border-border/50">
+              {isWindowsPlatform ? (
+                <div className="flex-1 flex items-center gap-2 min-w-0">
+                  <img src="/logo.svg" alt="S-AGI" className="h-6 w-6" />
+                  <div className="flex flex-col leading-tight min-w-0">
+                    <span className="text-sm font-semibold text-foreground truncate">
+                      S-AGI
+                    </span>
+                    <span className="text-[11px] text-muted-foreground truncate">
+                      Notas
+                    </span>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex-1" />
+              )}
+
+              {/* Model selector and PDF export - only when sidebar is expanded */}
+              {currentModel && (
+                <>
+                  {/* Model selector - icon only */}
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <button
+                            type="button"
                             className={cn(
-                              "text-xs",
-                              model.id === selectedModelId && "bg-accent",
+                              "flex items-center justify-center w-7 h-7 rounded-md transition-all duration-200",
+                              "hover:bg-accent/50 text-muted-foreground hover:text-foreground",
                             )}
                           >
-                            <div className="flex items-center gap-2 w-full">
-                              <ModelIcon
-                                provider={model.provider || providerForIcon}
-                                size={14}
-                                className={cn(
-                                  "shrink-0",
-                                  model.provider === "zai" ? "text-amber-500" : ""
-                                )}
-                              />
-                              <div className="flex flex-col min-w-0">
-                                <span className="font-medium">{model.name}</span>
-                                <span className="text-[10px] text-muted-foreground">
-                                  {model.description}
-                                </span>
+                            <ModelIcon
+                              provider={providerForIcon}
+                              size={16}
+                              className={
+                                providerForIcon === "zai"
+                                  ? "text-amber-500"
+                                  : ""
+                              }
+                            />
+                          </button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" className="w-48">
+                          {availableModels.map((model) => (
+                            <DropdownMenuItem
+                              key={model.id}
+                              onClick={() => setSelectedModelId(model.id)}
+                              className={cn(
+                                "text-xs",
+                                model.id === selectedModelId && "bg-accent",
+                              )}
+                            >
+                              <div className="flex items-center gap-2 w-full">
+                                <ModelIcon
+                                  provider={model.provider || providerForIcon}
+                                  size={14}
+                                  className={cn(
+                                    "shrink-0",
+                                    model.provider === "zai"
+                                      ? "text-amber-500"
+                                      : "",
+                                  )}
+                                />
+                                <div className="flex flex-col min-w-0">
+                                  <span className="font-medium">
+                                    {model.name}
+                                  </span>
+                                  <span className="text-[10px] text-muted-foreground">
+                                    {model.description}
+                                  </span>
+                                </div>
                               </div>
-                            </div>
-                          </DropdownMenuItem>
-                        ))}
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </TooltipTrigger>
-                  <TooltipContent side="right">
-                    <p>{currentModel?.name || "AI Model"}</p>
-                  </TooltipContent>
-                </Tooltip>
+                            </DropdownMenuItem>
+                          ))}
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </TooltipTrigger>
+                    <TooltipContent side="right">
+                      <p>{currentModel?.name || "AI Model"}</p>
+                    </TooltipContent>
+                  </Tooltip>
 
-                <div className="w-px h-4 bg-border" />
+                  <div className="w-px h-4 bg-border" />
 
-                {/* PDF export button */}
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <button
-                      type="button"
-                      onClick={handleExportPdf}
-                      disabled={isExportingPdf || !editorRef}
-                      className={cn(
-                        "flex items-center justify-center w-7 h-7 rounded-md transition-all duration-200",
-                        "hover:bg-accent/50 text-muted-foreground hover:text-foreground",
-                        (isExportingPdf || !editorRef) && "opacity-50 cursor-not-allowed"
-                      )}
-                    >
-                      {isExportingPdf ? (
-                        <div className="w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin" />
-                      ) : (
-                        <IconFileTypePdf size={16} />
-                      )}
-                    </button>
-                  </TooltipTrigger>
-                  <TooltipContent side="right">
-                    <p>Export to PDF</p>
-                  </TooltipContent>
-                </Tooltip>
+                  {/* PDF export button */}
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        type="button"
+                        onClick={handleExportPdf}
+                        disabled={isExportingPdf || !editorRef}
+                        className={cn(
+                          "flex items-center justify-center w-7 h-7 rounded-md transition-all duration-200",
+                          "hover:bg-accent/50 text-muted-foreground hover:text-foreground",
+                          (isExportingPdf || !editorRef) &&
+                            "opacity-50 cursor-not-allowed",
+                        )}
+                      >
+                        {isExportingPdf ? (
+                          <div className="w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin" />
+                        ) : (
+                          <IconFileTypePdf size={16} />
+                        )}
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="right">
+                      <p>Export to PDF</p>
+                    </TooltipContent>
+                  </Tooltip>
 
-                <div className="w-px h-4 bg-border" />
-              </>
-            )}
-
-            {/* Sidebar toggle button */}
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  type="button"
-                  onClick={() => setSidebarOpen(false)}
-                  className="p-1.5 hover:bg-accent rounded transition-colors"
-                >
-                  <IconLayoutSidebarLeftCollapse size={16} className="text-muted-foreground" />
-                </button>
-              </TooltipTrigger>
-              <TooltipContent side="right">Collapse sidebar</TooltipContent>
-            </Tooltip>
-          </div>
-
-          {/* Search */}
-          <div className="px-3 py-2 border-b border-border/50">
-            <div className="relative">
-              <IconSearch
-                size={14}
-                className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground"
-              />
-              <Input
-                placeholder="Search notes..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="h-8 pl-8 text-sm bg-background/50 border-border/50"
-              />
+                  <div className="w-px h-4 bg-border" />
+                </>
+              )}
             </div>
-          </div>
 
-          {/* Quick Navigation (Notion-style) */}
-          <div className="px-2 py-1.5 border-b border-border/50">
-            <button
-              type="button"
-              className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-sm text-foreground/80 hover:bg-accent/50 hover:text-foreground transition-colors"
-            >
-              <IconHome size={16} className="text-muted-foreground" />
-              <span>Home</span>
-            </button>
-          </div>
-
-      {/* Content */}
-      <FadeScrollArea>
-        <div className="px-2 py-2 space-y-0.5">
-
-          {/* Favorites */}
-          {favorites.length > 0 && (
-            <div className="mb-3">
-              <div className="px-2 py-1.5 text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
-                Favorites
-              </div>
-              <div className="space-y-0.5">
-                {favorites.map((page) => (
-                  <PageItem
-                    key={page.id}
-                    page={page}
-                    isSelected={selectedPageId === page.id}
-                    isEditing={editingPageId === page.id}
-                    editingTitle={editingTitle}
-                    level={0}
-                    onSelect={() => handleSelectPage(page.id)}
-                    onStartRename={() => handleStartRename(page.id)}
-                    onSaveRename={(title) => handleSaveRename(page.id, title)}
-                    onCancelRename={handleCancelRename}
-                    onSetEditingTitle={setEditingTitle}
-                    onDelete={() => handleDeletePage(page.id)}
-                    onTogglePin={() => handleTogglePin(page.id)}
-                    onChangeIcon={(icon) => handleChangeIcon(page.id, icon)}
-                    hasChildren={false}
-                  />
-                ))}
+            {/* Search */}
+            <div className="px-3 py-2 border-b border-border/50">
+              <div className="relative">
+                <IconSearch
+                  size={14}
+                  className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground"
+                />
+                <Input
+                  placeholder="Search notes..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="h-8 pl-8 text-sm bg-background/50 border-border/50"
+                />
               </div>
             </div>
-          )}
 
-          {/* Private (root level pages) */}
-          {!searchQuery && (
-            <div className="mb-3">
-              <div className="flex items-center justify-between px-2 py-1.5 group">
-                <div className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
-                  Private
-                </div>
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <button type="button" className="opacity-0 group-hover:opacity-100 p-1 hover:bg-accent rounded transition-opacity">
-                      <IconPlus size={12} className="text-muted-foreground" />
-                    </button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end" className="w-40">
-                    <DropdownMenuItem onClick={() => handleCreatePage()}>
-                      <IconFileText size={14} className="mr-2" />
-                      New Page
-                    </DropdownMenuItem>
-                    <DropdownMenuItem onClick={handleCreateSpace}>
-                      <IconFolderPlus size={14} className="mr-2" />
-                      New Space
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              </div>
-              <div className="space-y-0.5">
-                {pages
-                  .filter((p) => !p.spaceId && !p.parentId && !p.archived)
-                  .map((page) => {
-                    const children = pages.filter((p) => p.parentId === page.id);
-                    const isExpanded = expandedPages.has(page.id);
-                    return (
-                      <div key={page.id}>
+            {/* Quick Navigation (Notion-style) */}
+            <div className="px-2 py-1.5 border-b border-border/50">
+              <button
+                type="button"
+                className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-sm text-foreground/80 hover:bg-accent/50 hover:text-foreground transition-colors"
+              >
+                <IconHome size={16} className="text-muted-foreground" />
+                <span>Home</span>
+              </button>
+            </div>
+
+            {/* Content */}
+            <FadeScrollArea>
+              <div className="px-2 py-2 space-y-0.5">
+                {/* Favorites */}
+                {favorites.length > 0 && (
+                  <div className="mb-3">
+                    <div className="px-2 py-1.5 text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
+                      Favorites
+                    </div>
+                    <div className="space-y-0.5">
+                      {favorites.map((page) => (
                         <PageItem
+                          key={page.id}
                           page={page}
                           isSelected={selectedPageId === page.id}
                           isEditing={editingPageId === page.id}
@@ -1070,138 +1087,235 @@ export function NotesSidebar() {
                           level={0}
                           onSelect={() => handleSelectPage(page.id)}
                           onStartRename={() => handleStartRename(page.id)}
-                          onSaveRename={(title) => handleSaveRename(page.id, title)}
+                          onSaveRename={(title) =>
+                            handleSaveRename(page.id, title)
+                          }
                           onCancelRename={handleCancelRename}
                           onSetEditingTitle={setEditingTitle}
                           onDelete={() => handleDeletePage(page.id)}
                           onTogglePin={() => handleTogglePin(page.id)}
-                          onChangeIcon={(icon) => handleChangeIcon(page.id, icon)}
-                          onCreateSubPage={() => handleCreateSubPage(page.id)}
-                          hasChildren={children.length > 0}
-                          isExpanded={isExpanded}
-                          onToggleExpand={() => handleTogglePageExpand(page.id)}
+                          onChangeIcon={(icon) =>
+                            handleChangeIcon(page.id, icon)
+                          }
+                          hasChildren={false}
                         />
-                        {isExpanded && children.length > 0 && (
-                          <div className="ml-4">
-                            {children.map((child) => {
-                              const grandChildren = pages.filter((p) => p.parentId === child.id);
-                              return (
-                                <PageItem
-                                  key={child.id}
-                                  page={child}
-                                  isSelected={selectedPageId === child.id}
-                                  isEditing={editingPageId === child.id}
-                                  editingTitle={editingTitle}
-                                  level={1}
-                                  onSelect={() => handleSelectPage(child.id)}
-                                  onStartRename={() => handleStartRename(child.id)}
-                                  onSaveRename={(title) => handleSaveRename(child.id, title)}
-                                  onCancelRename={handleCancelRename}
-                                  onSetEditingTitle={setEditingTitle}
-                                  onDelete={() => handleDeletePage(child.id)}
-                                  onTogglePin={() => handleTogglePin(child.id)}
-                                  onChangeIcon={(icon) => handleChangeIcon(child.id, icon)}
-                                  onCreateSubPage={() => handleCreateSubPage(child.id)}
-                                  hasChildren={grandChildren.length > 0}
-                                  isExpanded={expandedPages.has(child.id)}
-                                  onToggleExpand={() => handleTogglePageExpand(child.id)}
-                                />
-                              );
-                            })}
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-              </div>
-            </div>
-          )}
-
-          {/* Team Spaces (Notion-style) */}
-          {!searchQuery &&
-            spaces
-              .filter((s) => !s.archived)
-              .map((space) => {
-                const spacePages = pages.filter(
-                  (p) => p.spaceId === space.id && !p.archived,
-                );
-                return (
-                  <div key={space.id} className="mb-3">
-                    <SpaceSection
-                      space={space}
-                      pages={spacePages}
-                      selectedPageId={selectedPageId}
-                      expandedSpaces={expandedSpaces}
-                      expandedPages={expandedPages}
-                      editingPageId={editingPageId}
-                      editingTitle={editingTitle}
-                      onToggleSpace={() => handleToggleSpace(space.id)}
-                      onSelectPage={handleSelectPage}
-                      onStartRenamePage={handleStartRename}
-                      onSaveRenamePage={handleSaveRename}
-                      onCancelRenamePage={handleCancelRename}
-                      onSetEditingTitle={setEditingTitle}
-                      onDeletePage={handleDeletePage}
-                      onTogglePinPage={handleTogglePin}
-                      onChangeIconPage={handleChangeIcon}
-                      onTogglePageExpand={handleTogglePageExpand}
-                      onCreatePage={(spaceId, parentId) => handleCreatePage(spaceId, parentId)}
-                      onCreateSubPage={handleCreateSubPage}
-                      onDeleteSpace={handleDeleteSpace}
-                    />
+                      ))}
+                    </div>
                   </div>
-                );
-              })}
+                )}
 
-          {/* Search Results */}
-          {searchQuery && filteredPages.length > 0 && (
-            <div className="space-y-0.5">
-              {filteredPages.map((page) => (
-                <PageItem
-                  key={page.id}
-                  page={page}
-                  isSelected={selectedPageId === page.id}
-                  isEditing={editingPageId === page.id}
-                  editingTitle={editingTitle}
-                  level={0}
-                  onSelect={() => handleSelectPage(page.id)}
-                  onStartRename={() => handleStartRename(page.id)}
-                  onSaveRename={(title) => handleSaveRename(page.id, title)}
-                  onCancelRename={handleCancelRename}
-                  onSetEditingTitle={setEditingTitle}
-                  onDelete={() => handleDeletePage(page.id)}
-                  onTogglePin={() => handleTogglePin(page.id)}
-                  onChangeIcon={(icon) => handleChangeIcon(page.id, icon)}
-                  hasChildren={false}
-                />
-              ))}
+                {/* Private (root level pages) */}
+                {!searchQuery && (
+                  <div className="mb-3">
+                    <div className="flex items-center justify-between px-2 py-1.5 group">
+                      <div className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
+                        Private
+                      </div>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <button
+                            type="button"
+                            className="opacity-0 group-hover:opacity-100 p-1 hover:bg-accent rounded transition-opacity"
+                          >
+                            <IconPlus
+                              size={12}
+                              className="text-muted-foreground"
+                            />
+                          </button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" className="w-40">
+                          <DropdownMenuItem onClick={() => handleCreatePage()}>
+                            <IconFileText size={14} className="mr-2" />
+                            New Page
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onClick={handleCreateSpace}>
+                            <IconFolderPlus size={14} className="mr-2" />
+                            New Space
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </div>
+                    <div className="space-y-0.5">
+                      {pages
+                        .filter((p) => !p.spaceId && !p.parentId && !p.archived)
+                        .map((page) => {
+                          const children = pages.filter(
+                            (p) => p.parentId === page.id,
+                          );
+                          const isExpanded = expandedPages.has(page.id);
+                          return (
+                            <div key={page.id}>
+                              <PageItem
+                                page={page}
+                                isSelected={selectedPageId === page.id}
+                                isEditing={editingPageId === page.id}
+                                editingTitle={editingTitle}
+                                level={0}
+                                onSelect={() => handleSelectPage(page.id)}
+                                onStartRename={() => handleStartRename(page.id)}
+                                onSaveRename={(title) =>
+                                  handleSaveRename(page.id, title)
+                                }
+                                onCancelRename={handleCancelRename}
+                                onSetEditingTitle={setEditingTitle}
+                                onDelete={() => handleDeletePage(page.id)}
+                                onTogglePin={() => handleTogglePin(page.id)}
+                                onChangeIcon={(icon) =>
+                                  handleChangeIcon(page.id, icon)
+                                }
+                                onCreateSubPage={() =>
+                                  handleCreateSubPage(page.id)
+                                }
+                                hasChildren={children.length > 0}
+                                isExpanded={isExpanded}
+                                onToggleExpand={() =>
+                                  handleTogglePageExpand(page.id)
+                                }
+                              />
+                              {isExpanded && children.length > 0 && (
+                                <div className="ml-4">
+                                  {children.map((child) => {
+                                    const grandChildren = pages.filter(
+                                      (p) => p.parentId === child.id,
+                                    );
+                                    return (
+                                      <PageItem
+                                        key={child.id}
+                                        page={child}
+                                        isSelected={selectedPageId === child.id}
+                                        isEditing={editingPageId === child.id}
+                                        editingTitle={editingTitle}
+                                        level={1}
+                                        onSelect={() =>
+                                          handleSelectPage(child.id)
+                                        }
+                                        onStartRename={() =>
+                                          handleStartRename(child.id)
+                                        }
+                                        onSaveRename={(title) =>
+                                          handleSaveRename(child.id, title)
+                                        }
+                                        onCancelRename={handleCancelRename}
+                                        onSetEditingTitle={setEditingTitle}
+                                        onDelete={() =>
+                                          handleDeletePage(child.id)
+                                        }
+                                        onTogglePin={() =>
+                                          handleTogglePin(child.id)
+                                        }
+                                        onChangeIcon={(icon) =>
+                                          handleChangeIcon(child.id, icon)
+                                        }
+                                        onCreateSubPage={() =>
+                                          handleCreateSubPage(child.id)
+                                        }
+                                        hasChildren={grandChildren.length > 0}
+                                        isExpanded={expandedPages.has(child.id)}
+                                        onToggleExpand={() =>
+                                          handleTogglePageExpand(child.id)
+                                        }
+                                      />
+                                    );
+                                  })}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                    </div>
+                  </div>
+                )}
+
+                {/* Team Spaces (Notion-style) */}
+                {!searchQuery &&
+                  spaces
+                    .filter((s) => !s.archived)
+                    .map((space) => {
+                      const spacePages = pages.filter(
+                        (p) => p.spaceId === space.id && !p.archived,
+                      );
+                      return (
+                        <div key={space.id} className="mb-3">
+                          <SpaceSection
+                            space={space}
+                            pages={spacePages}
+                            selectedPageId={selectedPageId}
+                            expandedSpaces={expandedSpaces}
+                            expandedPages={expandedPages}
+                            editingPageId={editingPageId}
+                            editingTitle={editingTitle}
+                            onToggleSpace={() => handleToggleSpace(space.id)}
+                            onSelectPage={handleSelectPage}
+                            onStartRenamePage={handleStartRename}
+                            onSaveRenamePage={handleSaveRename}
+                            onCancelRenamePage={handleCancelRename}
+                            onSetEditingTitle={setEditingTitle}
+                            onDeletePage={handleDeletePage}
+                            onTogglePinPage={handleTogglePin}
+                            onChangeIconPage={handleChangeIcon}
+                            onTogglePageExpand={handleTogglePageExpand}
+                            onCreatePage={(spaceId, parentId) =>
+                              handleCreatePage(spaceId, parentId)
+                            }
+                            onCreateSubPage={handleCreateSubPage}
+                            onDeleteSpace={handleDeleteSpace}
+                          />
+                        </div>
+                      );
+                    })}
+
+                {/* Search Results */}
+                {searchQuery && filteredPages.length > 0 && (
+                  <div className="space-y-0.5">
+                    {filteredPages.map((page) => (
+                      <PageItem
+                        key={page.id}
+                        page={page}
+                        isSelected={selectedPageId === page.id}
+                        isEditing={editingPageId === page.id}
+                        editingTitle={editingTitle}
+                        level={0}
+                        onSelect={() => handleSelectPage(page.id)}
+                        onStartRename={() => handleStartRename(page.id)}
+                        onSaveRename={(title) =>
+                          handleSaveRename(page.id, title)
+                        }
+                        onCancelRename={handleCancelRename}
+                        onSetEditingTitle={setEditingTitle}
+                        onDelete={() => handleDeletePage(page.id)}
+                        onTogglePin={() => handleTogglePin(page.id)}
+                        onChangeIcon={(icon) => handleChangeIcon(page.id, icon)}
+                        hasChildren={false}
+                      />
+                    ))}
+                  </div>
+                )}
+
+                {searchQuery && filteredPages.length === 0 && (
+                  <div className="px-2 py-4 text-center text-sm text-muted-foreground">
+                    No pages found
+                  </div>
+                )}
+              </div>
+            </FadeScrollArea>
+
+            {/* Help/Support (Bottom) - Notion-style */}
+            <div className="mt-auto border-t border-border/50 px-2 py-2">
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    className="w-full flex items-center justify-center p-2 rounded-md hover:bg-accent/50 transition-colors"
+                  >
+                    <IconDots size={16} className="text-muted-foreground" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="right">Help & Support</TooltipContent>
+              </Tooltip>
             </div>
-          )}
-
-          {searchQuery && filteredPages.length === 0 && (
-            <div className="px-2 py-4 text-center text-sm text-muted-foreground">
-              No pages found
-            </div>
-          )}
-        </div>
-      </FadeScrollArea>
-
-          {/* Help/Support (Bottom) - Notion-style */}
-          <div className="mt-auto border-t border-border/50 px-2 py-2">
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  type="button"
-                  className="w-full flex items-center justify-center p-2 rounded-md hover:bg-accent/50 transition-colors"
-                >
-                  <IconDots size={16} className="text-muted-foreground" />
-                </button>
-              </TooltipTrigger>
-              <TooltipContent side="right">Help & Support</TooltipContent>
-            </Tooltip>
-          </div>
-        </>
-      )}
+          </>
+        )}
+      </div>
     </div>
   );
 }

@@ -60,13 +60,14 @@ export const artifactPanelWidthAtom = atomWithStorage(
 );
 
 // === ARTIFACT SNAPSHOT CACHE ===
-// Cache for unsaved artifact changes - prevents data loss on tab switch
+// Cache for unsaved artifact changes - PERSISTED to prevent data loss on tab switch
 export interface ArtifactSnapshot {
   univerData: unknown;
   timestamp: number;
   isDirty: boolean;
 }
-export const artifactSnapshotCacheAtom = atom<Record<string, ArtifactSnapshot>>(
+export const artifactSnapshotCacheAtom = atomWithStorage<Record<string, ArtifactSnapshot>>(
+  'artifact-snapshot-cache',
   {},
 );
 
@@ -684,6 +685,9 @@ export {
   // Snapshot cache
   fileSnapshotCacheAtom,
   getFileSnapshotAtom,
+  // Scratch session IDs (for tabs without a file selected)
+  excelScratchSessionIdAtom,
+  docScratchSessionIdAtom,
   // Saving state
   fileSavingAtom,
   isFileSavingAtom,

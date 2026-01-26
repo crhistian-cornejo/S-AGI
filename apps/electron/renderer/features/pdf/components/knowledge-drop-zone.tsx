@@ -1,7 +1,7 @@
 import { useState, useCallback, useRef } from "react";
 import { useSetAtom } from "jotai";
 import { toast } from "sonner";
-import { cn } from "@/lib/utils";
+import { cn, isElectron } from "@/lib/utils";
 import {
   IconUpload,
   IconCloud,
@@ -23,7 +23,7 @@ import { Button } from "@/components/ui/button";
 import {
   addLocalPdfAtom,
   selectedPdfAtom,
-  setLocalPdfBlobAtom,
+  createPdfSourceFromLocalFile,
   type PdfSource,
 } from "@/lib/atoms/pdf";
 import { trpc } from "@/lib/trpc";
@@ -63,7 +63,6 @@ export function KnowledgeDropZone({
   // Atoms for PDF state management
   const addLocalPdf = useSetAtom(addLocalPdfAtom);
   const setSelectedPdf = useSetAtom(selectedPdfAtom);
-  const setLocalPdfBlob = useSetAtom(setLocalPdfBlobAtom);
 
   // SECURITY: Credentials are managed in main process only - just check status
   const { data: apiKeyStatus } = trpc.settings.getApiKeyStatus.useQuery();
@@ -171,8 +170,7 @@ export function KnowledgeDropZone({
 
         // Success handled by mutation callbacks
       } else {
-        // Local upload - just use it as a chat_file type with blob URL
-        // This way it works the same as cloud files but stored locally
+        // Local upload - use proper local file handling
 
         // Check if it's a PDF file
         if (selectedFile.type !== "application/pdf" && !selectedFile.name.toLowerCase().endsWith(".pdf")) {
@@ -181,30 +179,49 @@ export function KnowledgeDropZone({
           return;
         }
 
-        // Create blob URL for immediate display (same as cloud files)
-        const blob = new Blob([selectedFile], { type: "application/pdf" });
-        const blobUrl = URL.createObjectURL(blob);
+        // In Electron, use the file path for persistent local storage
+        // The file.path property is available in Electron's File objects
+        const filePath = (selectedFile as File & { path?: string }).path;
 
-        // Create PdfSource as a "chat_file" type (not "local") so it uses the URL directly
-        const pdfSource: PdfSource = {
-          type: "chat_file", // Use chat_file type to avoid IPC loading
-          id: `local-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-          name: selectedFile.name,
-          url: blobUrl, // Direct blob URL
-          chatId: "local-knowledge", // Mark as local knowledge
-          metadata: {
-            fileSize: selectedFile.size,
-            createdAt: new Date().toISOString(),
-          },
-        };
+        if (isElectron() && filePath) {
+          // Use the existing local file system which loads via IPC
+          const pdfSource = createPdfSourceFromLocalFile({
+            path: filePath,
+            name: selectedFile.name,
+            size: selectedFile.size,
+          });
 
-        // Add to local PDFs list
-        addLocalPdf(pdfSource);
+          // Add to local PDFs list
+          addLocalPdf(pdfSource);
 
-        // Set as selected PDF to display it immediately
-        setSelectedPdf(pdfSource);
+          // Set as selected PDF to display it immediately
+          setSelectedPdf(pdfSource);
 
-        toast.success(`Added "${selectedFile.name}" to local knowledge`);
+          toast.success(`Added "${selectedFile.name}" to local knowledge`);
+        } else {
+          // In browser (non-Electron), blob URLs don't persist across page reloads
+          // Create a blob URL for the current session only
+          const blob = new Blob([selectedFile], { type: "application/pdf" });
+          const blobUrl = URL.createObjectURL(blob);
+
+          const pdfSource: PdfSource = {
+            type: "local",
+            id: `local-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+            name: selectedFile.name,
+            url: blobUrl,
+            metadata: {
+              fileSize: selectedFile.size,
+              createdAt: new Date().toISOString(),
+            },
+          };
+
+          // Note: This PDF will only be available until page reload
+          // since blob URLs don't persist
+          setSelectedPdf(pdfSource);
+
+          toast.success(`Viewing "${selectedFile.name}" (session only)`);
+        }
+
         setIsUploading(false);
         setShowDialog(false);
         setSelectedFile(null);
@@ -218,7 +235,7 @@ export function KnowledgeDropZone({
       );
       setIsUploading(false);
     }
-  }, [selectedFile, uploadType, hasApiKey, uploadMutation, addLocalPdf, setSelectedPdf, setLocalPdfBlob, onUploadComplete]);
+  }, [selectedFile, uploadType, hasApiKey, uploadMutation, addLocalPdf, setSelectedPdf, onUploadComplete]);
 
   const handleCancel = useCallback(() => {
     setShowDialog(false);

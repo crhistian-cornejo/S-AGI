@@ -8,6 +8,7 @@ import {
     currentProviderAtom,
     sidebarOpenAtom,
     notesSidebarOpenAtom,
+    pdfSidebarOpenAtom,
     agentPanelOpenAtom,
     shortcutsDialogOpenAtom,
     notesSelectedModelIdAtom,
@@ -91,8 +92,9 @@ export function TitleBar({ className, noTrafficLightSpace }: TitleBarProps) {
     }, [])
 
     const provider = useAtomValue(currentProviderAtom)
-    const sidebarOpen = useAtomValue(sidebarOpenAtom)
+    const [sidebarOpen, setSidebarOpen] = useAtom(sidebarOpenAtom)
     const [notesSidebarOpen, setNotesSidebarOpen] = useAtom(notesSidebarOpenAtom)
+    const [pdfSidebarOpen, setPdfSidebarOpen] = useAtom(pdfSidebarOpenAtom)
     const [agentPanelOpen, setAgentPanelOpen] = useAtom(agentPanelOpenAtom)
     const { data: keyStatus } = trpc.settings.getApiKeyStatus.useQuery()
     
@@ -166,24 +168,6 @@ export function TitleBar({ className, noTrafficLightSpace }: TitleBarProps) {
                     "flex items-center gap-2 no-drag shrink-0 z-10",
                     showTrafficLights ? "ml-4" : "ml-2"
                 )}>
-                    {/* Sidebar toggle button */}
-                    <Tooltip>
-                        <TooltipTrigger asChild>
-                            <button
-                                type="button"
-                                onClick={() => setNotesSidebarOpen(true)}
-                                className={cn(
-                                    "flex items-center justify-center w-7 h-7 rounded-md transition-all duration-200",
-                                    "hover:bg-accent/50 text-muted-foreground hover:text-foreground"
-                                )}
-                            >
-                                <IconLayoutSidebarLeftExpand size={16} />
-                            </button>
-                        </TooltipTrigger>
-                        <TooltipContent side="bottom">
-                            Show sidebar
-                        </TooltipContent>
-                    </Tooltip>
 
                     {/* Model selector and PDF export - only when sidebar is collapsed */}
                     {currentModel && (
@@ -279,7 +263,58 @@ export function TitleBar({ className, noTrafficLightSpace }: TitleBarProps) {
                     )}
                 </div>
             )}
-            {activeTab !== 'ideas' && !showTrafficLights && (!isWindows() || !sidebarOpen) && (
+            {activeTab === 'pdf' && !pdfSidebarOpen && isWindows() && (
+                <div className={cn(
+                    "flex items-center gap-2 no-drag shrink-0 z-10",
+                    showTrafficLights ? "ml-4" : "ml-2"
+                )}>
+                    {/* Logo - opens agent panel */}
+                    <Tooltip>
+                        <TooltipTrigger asChild>
+                            <button
+                                type="button"
+                                onClick={() => setAgentPanelOpen(!agentPanelOpen)}
+                                className={cn(
+                                    "flex items-center gap-2 transition-all duration-200",
+                                    "hover:opacity-80 active:scale-95 cursor-pointer",
+                                    agentPanelOpen && "text-primary"
+                                )}
+                            >
+                                <div className="relative">
+                                    <Logo size={20} />
+                                    {agentPanelOpen && (
+                                        <span className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-primary" />
+                                    )}
+                                </div>
+                                <span className="text-sm font-semibold text-foreground tracking-tight">S-AGI</span>
+                            </button>
+                        </TooltipTrigger>
+                        <TooltipContent side="bottom">
+                            {agentPanelOpen ? 'Close chat panel' : 'Open chat panel'}
+                        </TooltipContent>
+                    </Tooltip>
+
+                    <div className="w-px h-4 bg-border" />
+
+                    {/* Sidebar toggle */}
+                    <Tooltip>
+                        <TooltipTrigger asChild>
+                            <button
+                                type="button"
+                                onClick={() => setPdfSidebarOpen(true)}
+                                className={cn(
+                                    "flex items-center justify-center w-7 h-7 rounded-md transition-all duration-200",
+                                    "hover:bg-accent/50 text-muted-foreground hover:text-foreground"
+                                )}
+                            >
+                                <IconLayoutSidebarLeftExpand size={16} />
+                            </button>
+                        </TooltipTrigger>
+                        <TooltipContent side="bottom">Show sidebar</TooltipContent>
+                    </Tooltip>
+                </div>
+            )}
+            {activeTab !== 'ideas' && (!isWindows() || activeTab !== 'pdf') && !showTrafficLights && (!isWindows() || !sidebarOpen) && (
                 /* Logo (clickable for agent panel in excel/doc/pdf tabs) */
                 <Tooltip>
                     <TooltipTrigger asChild>
@@ -393,7 +428,7 @@ export function TitleBar({ className, noTrafficLightSpace }: TitleBarProps) {
             {isDesktop && <div className="flex-1" />}
 
             <div className="flex items-center no-drag pr-0">
-                {showTrafficLights && (
+                {showTrafficLights && activeTab !== 'pdf' && (
                     <Tooltip>
                         <TooltipTrigger asChild>
                             <button

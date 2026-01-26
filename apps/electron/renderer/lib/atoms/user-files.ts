@@ -97,6 +97,7 @@ export const getFileAtom = (type: UserFileType) => {
 
 // =====================================================
 // SNAPSHOT CACHE (for unsaved changes)
+// Persisted to localStorage to survive tab switches and page reloads
 // =====================================================
 
 export interface FileSnapshot {
@@ -106,8 +107,28 @@ export interface FileSnapshot {
   isDirty: boolean
 }
 
-// Cache for unsaved file changes - prevents data loss on tab switch
-export const fileSnapshotCacheAtom = atom<Record<string, FileSnapshot>>({})
+// Cache for unsaved file changes - PERSISTED to prevent data loss on tab switch
+export const fileSnapshotCacheAtom = atomWithStorage<Record<string, FileSnapshot>>(
+  'file-snapshot-cache',
+  {}
+)
+
+// =====================================================
+// SCRATCH SESSION IDs (for tabs without a file selected)
+// These provide stable IDs for unsaved "scratch" content
+// =====================================================
+
+// Stable session ID for Excel tab when no file is selected
+export const excelScratchSessionIdAtom = atomWithStorage<string>(
+  'excel-scratch-session-id',
+  `scratch-excel-${Date.now()}`
+)
+
+// Stable session ID for Doc tab when no file is selected
+export const docScratchSessionIdAtom = atomWithStorage<string>(
+  'doc-scratch-session-id',
+  `scratch-doc-${Date.now()}`
+)
 
 // Helper atom to get/set individual file snapshots
 export const getFileSnapshotAtom = (fileId: string) =>

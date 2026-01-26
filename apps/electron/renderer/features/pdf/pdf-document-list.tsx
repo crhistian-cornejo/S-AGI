@@ -22,15 +22,6 @@ import {
     createPdfSourceFromLocalFile,
     type PdfSource
 } from '@/lib/atoms'
-import {
-    SidebarGroup,
-    SidebarGroupLabel,
-    SidebarGroupContent,
-    SidebarMenu,
-    SidebarMenuItem,
-    SidebarMenuButton,
-    SidebarGroupAction,
-} from '@/components/ui/sidebar'
 import { Separator } from '@/components/ui/separator'
 import { cn, isElectron } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -203,23 +194,29 @@ export const PdfDocumentList = memo(function PdfDocumentList({
         <div className={cn("flex flex-col gap-1 py-1", className)}>
             {/* Local PDFs Section - Session Only */}
             {isElectron() && (
-                <SidebarGroup className="py-1.5">
+                <div className="py-1.5">
                     <div className="flex items-center justify-between px-2 mb-1">
-                        <SidebarGroupLabel className="flex items-center gap-1.5 h-6 px-0">
+                        <div className="flex items-center gap-1.5 h-6">
                             <IconDeviceFloppy size={12} className="text-amber-500" />
-                            <span className="text-[11px] font-medium uppercase tracking-wide">Local</span>
-                        </SidebarGroupLabel>
-                        <SidebarGroupAction 
-                            onClick={handleAddLocalPdf} 
-                            title="Add local PDF"
-                            className="relative right-0 top-0 h-5 w-5"
-                        >
-                            <IconPlus size={12} />
-                        </SidebarGroupAction>
+                            <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Local</span>
+                        </div>
+                        <Tooltip>
+                            <TooltipTrigger asChild>
+                                <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-5 w-5"
+                                    onClick={handleAddLocalPdf}
+                                >
+                                    <IconPlus size={12} />
+                                </Button>
+                            </TooltipTrigger>
+                            <TooltipContent side="right">Add local PDF</TooltipContent>
+                        </Tooltip>
                     </div>
-                    <SidebarGroupContent>
+                    <div>
                         {localPdfs.length > 0 ? (
-                            <SidebarMenu>
+                            <div className="space-y-0.5">
                                 {localPdfs.map((pdf) => (
                                     <PdfListItem
                                         key={pdf.id}
@@ -231,7 +228,7 @@ export const PdfDocumentList = memo(function PdfDocumentList({
                                         fileSize={formatFileSize(pdf.metadata?.fileSize)}
                                     />
                                 ))}
-                            </SidebarMenu>
+                            </div>
                         ) : (
                             <div className="px-2 py-2.5 text-center rounded-lg bg-muted/30 mx-1">
                                 <p className="text-[11px] text-muted-foreground/70">
@@ -242,8 +239,8 @@ export const PdfDocumentList = memo(function PdfDocumentList({
                                 </p>
                             </div>
                         )}
-                    </SidebarGroupContent>
-                </SidebarGroup>
+                    </div>
+                </div>
             )}
 
             {/* Separator between local and cloud */}
@@ -253,44 +250,42 @@ export const PdfDocumentList = memo(function PdfDocumentList({
 
             {/* Cloud PDFs Section */}
             {cloudPdfCount > 0 && (
-                <SidebarGroup className="py-1.5">
+                <div className="py-1.5">
                     <div className="flex items-center px-2 mb-1">
-                        <SidebarGroupLabel className="flex items-center gap-1.5 h-6 px-0">
+                        <div className="flex items-center gap-1.5 h-6">
                             <IconCloudFilled size={12} className="text-blue-500" />
-                            <span className="text-[11px] font-medium uppercase tracking-wide">Cloud</span>
+                            <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">Cloud</span>
                             <span className="text-[10px] text-muted-foreground ml-1">
                                 {cloudPdfCount}
                             </span>
-                        </SidebarGroupLabel>
+                        </div>
                     </div>
-                    <SidebarGroupContent>
-                        <SidebarMenu>
-                            {/* Generated PDFs (Artifacts) */}
-                            {artifactPdfs.map((pdf) => (
-                                <PdfListItem
-                                    key={pdf.id}
-                                    pdf={pdf as PdfSource}
-                                    isSelected={selectedPdf?.id === pdf.id}
-                                    onClick={() => handleSelect(pdf as PdfSource)}
-                                    sourceType="artifact"
-                                />
-                            ))}
+                    <div className="space-y-0.5">
+                        {/* Generated PDFs (Artifacts) */}
+                        {artifactPdfs.map((pdf) => (
+                            <PdfListItem
+                                key={pdf.id}
+                                pdf={pdf as PdfSource}
+                                isSelected={selectedPdf?.id === pdf.id}
+                                onClick={() => handleSelect(pdf as PdfSource)}
+                                sourceType="artifact"
+                            />
+                        ))}
 
-                            {/* Knowledge Documents (Chat Files) */}
-                            {chatFilePdfs.map((pdf) => (
-                                <PdfListItem
-                                    key={pdf.id}
-                                    pdf={pdf as PdfSource}
-                                    isSelected={selectedPdf?.id === pdf.id}
-                                    onClick={() => handleSelect(pdf as PdfSource)}
-                                    sourceType="chat_file"
-                                    processingIcon={getProcessingIcon(pdf.metadata?.processingStatus)}
-                                    fileSize={formatFileSize(pdf.metadata?.fileSize)}
-                                />
-                            ))}
-                        </SidebarMenu>
-                    </SidebarGroupContent>
-                </SidebarGroup>
+                        {/* Knowledge Documents (Chat Files) */}
+                        {chatFilePdfs.map((pdf) => (
+                            <PdfListItem
+                                key={pdf.id}
+                                pdf={pdf as PdfSource}
+                                isSelected={selectedPdf?.id === pdf.id}
+                                onClick={() => handleSelect(pdf as PdfSource)}
+                                sourceType="chat_file"
+                                processingIcon={getProcessingIcon(pdf.metadata?.processingStatus)}
+                                fileSize={formatFileSize(pdf.metadata?.fileSize)}
+                            />
+                        ))}
+                    </div>
+                </div>
             )}
 
             {/* Empty state when no cloud PDFs but local exists */}
@@ -330,27 +325,28 @@ const PdfListItem = memo(function PdfListItem({
     sourceType,
     onRemove
 }: PdfListItemProps) {
-    const iconColor = isLocal 
-        ? "text-amber-500" 
-        : sourceType === 'artifact' 
-            ? "text-purple-500" 
+    const iconColor = isLocal
+        ? "text-amber-500"
+        : sourceType === 'artifact'
+            ? "text-purple-500"
             : "text-red-500"
 
     return (
-        <SidebarMenuItem>
-            <SidebarMenuButton
-                isActive={isSelected}
+        <div className="relative group/pdf-item px-1">
+            <button
+                type="button"
                 onClick={onClick}
-                tooltip={pdf.name}
                 className={cn(
-                    "h-auto py-2 pr-8 group/pdf-item transition-all",
-                    isSelected && "bg-sidebar-accent"
+                    "w-full flex items-center gap-2 h-auto py-2 px-2 pr-8 rounded-md transition-all text-left",
+                    isSelected
+                        ? "bg-accent text-accent-foreground"
+                        : "hover:bg-accent/50"
                 )}
             >
                 <div className={cn(
                     "w-7 h-7 rounded-lg flex items-center justify-center shrink-0",
-                    isSelected 
-                        ? "bg-background shadow-sm" 
+                    isSelected
+                        ? "bg-background shadow-sm"
                         : "bg-muted/50"
                 )}>
                     <IconFileTypePdf
@@ -358,7 +354,7 @@ const PdfListItem = memo(function PdfListItem({
                         className={cn(iconColor, !isSelected && "opacity-70")}
                     />
                 </div>
-                <div className="flex-1 min-w-0 text-left ml-0.5">
+                <div className="flex-1 min-w-0 text-left">
                     <p className={cn(
                         "text-sm truncate leading-tight",
                         isSelected ? "font-medium" : "font-normal"
@@ -380,17 +376,17 @@ const PdfListItem = memo(function PdfListItem({
                         )}
                     </div>
                 </div>
-            </SidebarMenuButton>
+            </button>
             {isLocal && onRemove && (
                 <Button
                     variant="ghost"
                     size="icon"
-                    className="absolute right-1 top-1/2 -translate-y-1/2 h-6 w-6 opacity-0 group-hover/menu-item:opacity-100 transition-opacity hover:bg-destructive/10 hover:text-destructive rounded-md"
+                    className="absolute right-2 top-1/2 -translate-y-1/2 h-6 w-6 opacity-0 group-hover/pdf-item:opacity-100 transition-opacity hover:bg-destructive/10 hover:text-destructive rounded-md"
                     onClick={onRemove}
                 >
                     <IconX size={12} />
                 </Button>
             )}
-        </SidebarMenuItem>
+        </div>
     )
 })

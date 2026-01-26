@@ -11,6 +11,7 @@ import { trpc } from '@/lib/trpc'
 import {
     sidebarOpenAtom,
     notesSidebarOpenAtom,
+    pdfSidebarOpenAtom,
     artifactPanelOpenAtom,
     selectedArtifactAtom,
     selectedChatIdAtom,
@@ -27,6 +28,10 @@ import {
     agentPanelOpenAtom,
     type ReasoningEffort,
 } from '@/lib/atoms'
+import {
+    excelScratchSessionIdAtom,
+    docScratchSessionIdAtom,
+} from '@/lib/atoms/user-files'
 import { Sidebar } from '@/features/sidebar/sidebar'
 import { NotesSidebar } from '@/features/notes/notes-sidebar'
 import { NotesPageTabs } from '@/features/notes/notes-page-tabs'
@@ -63,9 +68,12 @@ function PanelLoadingFallback() {
 export function MainLayout() {
     const [sidebarOpen, setSidebarOpen] = useAtom(sidebarOpenAtom)
     const [notesSidebarOpen] = useAtom(notesSidebarOpenAtom)
+    const [pdfSidebarOpen] = useAtom(pdfSidebarOpenAtom)
     const [artifactPanelOpen, setArtifactPanelOpen] = useAtom(artifactPanelOpenAtom)
     const [agentPanelOpen, setAgentPanelOpen] = useAtom(agentPanelOpenAtom)
     const selectedArtifact = useAtomValue(selectedArtifactAtom)
+    const excelScratchId = useAtomValue(excelScratchSessionIdAtom)
+    const docScratchId = useAtomValue(docScratchSessionIdAtom)
     const setSelectedChatId = useSetAtom(selectedChatIdAtom)
     const [activeTab, setActiveTab] = useAtom(activeTabAtom)
     const [, setShortcutsOpen] = useAtom(shortcutsDialogOpenAtom)
@@ -394,9 +402,11 @@ export function MainLayout() {
                         ? "left-72"
                         : activeTab === 'ideas' && notesSidebarOpen
                         ? "left-72"
+                        : activeTab === 'pdf' && pdfSidebarOpen
+                        ? "left-72"
                         : "left-0"
                 )} 
-                noTrafficLightSpace={((activeTab === 'chat' || activeTab === 'gallery') && sidebarOpen) || (activeTab === 'ideas' && notesSidebarOpen)}
+                noTrafficLightSpace={((activeTab === 'chat' || activeTab === 'gallery') && sidebarOpen) || (activeTab === 'ideas' && notesSidebarOpen) || (activeTab === 'pdf' && pdfSidebarOpen)}
             />
             <ShortcutsDialog />
             <CommandKDialog />
@@ -604,11 +614,11 @@ export function MainLayout() {
                                     {/*
                                       * Key is stable ('spreadsheet') to prevent remounts during AI operations.
                                       * The component handles artifact changes via onArtifactUpdate listener.
-                                      * Previous key based on artifact.id caused constant flickering when AI created/updated spreadsheets.
+                                      * When no artifact is selected, uses a stable scratch session ID for persistence.
                                       */}
                                     <UniverSpreadsheet
                                         key="spreadsheet"
-                                        artifactId={selectedArtifact?.type === 'spreadsheet' ? selectedArtifact.id : undefined}
+                                        artifactId={selectedArtifact?.type === 'spreadsheet' ? selectedArtifact.id : excelScratchId}
                                         data={selectedArtifact?.type === 'spreadsheet' ? selectedArtifact.univer_data : undefined}
                                     />
                                 </Suspense>
@@ -660,9 +670,13 @@ export function MainLayout() {
                         <div className="flex-1 flex overflow-hidden">
                             <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
                                 <Suspense fallback={<PanelLoadingFallback />}>
+                                    {/*
+                                      * When no artifact is selected, uses a stable scratch session ID for persistence.
+                                      * This prevents data loss when switching tabs.
+                                      */}
                                     <UniverDocument
-                                        key={selectedArtifact?.type === 'document' ? selectedArtifact.id : 'new'}
-                                        artifactId={selectedArtifact?.type === 'document' ? selectedArtifact.id : undefined}
+                                        key={selectedArtifact?.type === 'document' ? selectedArtifact.id : docScratchId}
+                                        artifactId={selectedArtifact?.type === 'document' ? selectedArtifact.id : docScratchId}
                                         data={selectedArtifact?.type === 'document' ? selectedArtifact.univer_data : undefined}
                                     />
                                 </Suspense>
@@ -690,7 +704,7 @@ export function MainLayout() {
                  * Includes AI-powered Q&A panel.
                  */}
                 {activeTab === 'pdf' && (
-                    <div className="flex-1 flex pt-10 animate-in fade-in zoom-in-95 duration-300 overflow-hidden">
+                    <div className="flex-1 flex animate-in fade-in zoom-in-95 duration-300 overflow-hidden">
                         {/* Main content */}
                         <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
                             <Suspense fallback={<PanelLoadingFallback />}>

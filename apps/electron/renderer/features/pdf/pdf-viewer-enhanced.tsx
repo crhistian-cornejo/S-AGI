@@ -167,18 +167,41 @@ export const PdfViewerEnhanced = memo(function PdfViewerEnhanced({
     setLocalPdfUrl(null);
     setLocalError(null);
 
-    // For local files, check if source already has a blob URL (browser upload)
+    // For local files with blob URLs (browser upload in non-Electron)
+    // Validate the blob URL is still accessible before using it
     if (
       sourceType === "local" &&
       source?.url &&
       source.url.startsWith("blob:")
     ) {
-      console.log(
-        "[PDF Local] Using existing blob URL from source:",
-        source.url,
-      );
-      setLocalPdfUrl(source.url);
-      return;
+      // Blob URLs don't persist across page reloads, so we need to validate
+      // If we have a localPath and are in Electron, skip and use IPC loading instead
+      if (localPath && isElectron()) {
+        console.log(
+          "[PDF Local] Has localPath, will load via IPC instead of blob URL",
+        );
+        // Don't return - let it fall through to IPC loading
+      } else {
+        // Validate the blob URL is still accessible
+        fetch(source.url, { method: "HEAD" })
+          .then(() => {
+            console.log(
+              "[PDF Local] Using existing blob URL from source:",
+              source.url,
+            );
+            setLocalPdfUrl(source.url);
+          })
+          .catch(() => {
+            console.warn(
+              "[PDF Local] Blob URL is no longer valid (session expired):",
+              source.url,
+            );
+            setLocalError(
+              "This PDF is no longer available. It was loaded in a previous session and blob URLs don't persist. Please add the file again.",
+            );
+          });
+        return;
+      }
     }
 
     // For local files in Electron, check cache first, then read via IPC
@@ -355,6 +378,11 @@ const PdfViewerCore = memo(function PdfViewerCore({
 }: PdfViewerCoreProps) {
   console.log("[PDF Core] Initializing with URL:", pdfUrl, "ID:", pdfId);
 
+  const pdfiumWasmUrl = useMemo(
+    () => new URL("pdfium.wasm", window.location.href).toString(),
+    [],
+  );
+
   // Use local WASM file and disable Web Worker to avoid CSP issues in Electron
   const {
     engine,
@@ -362,7 +390,7 @@ const PdfViewerCore = memo(function PdfViewerCore({
     error: engineError,
   } = usePdfiumEngine({
     worker: false,
-    wasmUrl: "/pdfium.wasm",
+    wasmUrl: pdfiumWasmUrl,
   });
 
   // Build plugins configuration with full annotation support

@@ -13,3 +13,6 @@ export * from './auth'
 
 // Agent permission system
 export * from './agent'
+
+// Storage helpers
+export * from '../storage'
