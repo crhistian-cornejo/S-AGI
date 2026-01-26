@@ -61,6 +61,7 @@ secure/
 
 # Reference projects (not part of S-AGI)
 craft-agents-oss/
+midday/
 
 # Gemini
 .gemini-clipboard/

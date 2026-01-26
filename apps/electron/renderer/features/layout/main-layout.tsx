@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useCallback } from 'react'
+import { lazy, Suspense, useEffect, useCallback, useRef } from 'react'
 import {
     IconPlus,
     IconLayoutSidebarLeftExpand,
@@ -31,7 +31,13 @@ import {
 import {
     excelScratchSessionIdAtom,
     docScratchSessionIdAtom,
+    currentExcelFileIdAtom,
+    currentExcelFileAtom,
+    currentDocFileIdAtom,
+    currentDocFileAtom,
+    fileSnapshotCacheAtom,
 } from '@/lib/atoms/user-files'
+import { excelSidebarOpenAtom, docSidebarOpenAtom } from '@/lib/atoms'
 import { Sidebar } from '@/features/sidebar/sidebar'
 import { NotesSidebar } from '@/features/notes/notes-sidebar'
 import { NotesPageTabs } from '@/features/notes/notes-page-tabs'
@@ -54,6 +60,8 @@ const UniverDocument = lazy(() => import('@/features/univer/univer-document').th
 const PdfTabView = lazy(() => import('@/features/pdf/pdf-tab-view').then(m => ({ default: m.PdfTabView })))
 const IdeasView = lazy(() => import('@/features/ideas/ideas-view').then(m => ({ default: m.IdeasView })))
 const AgentPanel = lazy(() => import('@/features/agent/agent-panel').then(m => ({ default: m.AgentPanel })))
+const FilesSidebar = lazy(() => import('@/features/files/files-sidebar').then(m => ({ default: m.FilesSidebar })))
+const FileHeader = lazy(() => import('@/features/files/file-header').then(m => ({ default: m.FileHeader })))
 const settingsTabs: SettingsTab[] = ['account', 'appearance', 'api-keys', 'advanced', 'shortcuts', 'debug', 'usage']
 
 // Loading fallback for lazy components
@@ -76,6 +84,23 @@ export function MainLayout() {
     const docScratchId = useAtomValue(docScratchSessionIdAtom)
     const setSelectedChatId = useSetAtom(selectedChatIdAtom)
     const [activeTab, setActiveTab] = useAtom(activeTabAtom)
+
+    // Excel file system atoms
+    const [excelSidebarOpen, setExcelSidebarOpen] = useAtom(excelSidebarOpenAtom)
+    const currentExcelFileId = useAtomValue(currentExcelFileIdAtom)
+    const currentExcelFile = useAtomValue(currentExcelFileAtom)
+    const setFileSnapshotCache = useSetAtom(fileSnapshotCacheAtom)
+
+    // Doc file system atoms
+    const [docSidebarOpen, setDocSidebarOpen] = useAtom(docSidebarOpenAtom)
+    const currentDocFileId = useAtomValue(currentDocFileIdAtom)
+    const currentDocFile = useAtomValue(currentDocFileAtom)
+
+    // Ref to UniverSpreadsheet for saving
+    const univerSpreadsheetRef = useRef<any>(null)
+
+    // Track previous tab to save on tab switch
+    const previousTabRef = useRef<string>(activeTab)
     const [, setShortcutsOpen] = useAtom(shortcutsDialogOpenAtom)
     const setSettingsOpen = useSetAtom(settingsModalOpenAtom)
     const setSettingsTab = useSetAtom(settingsActiveTabAtom)
@@ -88,6 +113,33 @@ export function MainLayout() {
 
     // Sync Univer theme with app dark/light mode
     useUniverTheme()
+
+    // Save Excel state when switching tabs
+    useEffect(() => {
+        if (previousTabRef.current === 'excel' && activeTab !== 'excel') {
+            // Switching away from Excel tab - save current state
+            if (univerSpreadsheetRef.current?.getSnapshot) {
+                const effectiveId = currentExcelFileId || excelScratchId
+                try {
+                    const snapshot = univerSpreadsheetRef.current.getSnapshot()
+                    if (snapshot && effectiveId) {
+                        setFileSnapshotCache(prev => ({
+                            ...prev,
+                            [effectiveId]: {
+                                univerData: snapshot,
+                                timestamp: Date.now(),
+                                isDirty: true
+                            }
+                        }))
+                        console.log('[MainLayout] Saved Excel snapshot on tab switch:', effectiveId)
+                    }
+                } catch (err) {
+                    console.error('[MainLayout] Failed to save Excel snapshot on tab switch:', err)
+                }
+            }
+        }
+        previousTabRef.current = activeTab
+    }, [activeTab, currentExcelFileId, excelScratchId, setFileSnapshotCache])
 
     const createChat = trpc.chats.create.useMutation({
         onSuccess: (chat) => {
@@ -395,7 +447,7 @@ export function MainLayout() {
         <div className="h-screen w-screen bg-background relative overflow-hidden">
             {/* Global queue processor for chat messages */}
             <ChatQueueProcessor />
-            <TitleBar 
+            <TitleBar
                 className={cn(
                     "absolute top-0 right-0 z-50 h-10 transition-all duration-300",
                     (activeTab === 'chat' || activeTab === 'gallery') && sidebarOpen
@@ -404,9 +456,19 @@ export function MainLayout() {
                         ? "left-72"
                         : activeTab === 'pdf' && pdfSidebarOpen
                         ? "left-72"
+                        : activeTab === 'excel' && excelSidebarOpen
+                        ? "left-72"
+                        : activeTab === 'doc' && docSidebarOpen
+                        ? "left-72"
                         : "left-0"
-                )} 
-                noTrafficLightSpace={((activeTab === 'chat' || activeTab === 'gallery') && sidebarOpen) || (activeTab === 'ideas' && notesSidebarOpen) || (activeTab === 'pdf' && pdfSidebarOpen)}
+                )}
+                noTrafficLightSpace={
+                    ((activeTab === 'chat' || activeTab === 'gallery') && sidebarOpen) ||
+                    (activeTab === 'ideas' && notesSidebarOpen) ||
+                    (activeTab === 'pdf' && pdfSidebarOpen) ||
+                    (activeTab === 'excel' && excelSidebarOpen) ||
+                    (activeTab === 'doc' && docSidebarOpen)
+                }
             />
             <ShortcutsDialog />
             <CommandKDialog />
@@ -582,120 +644,158 @@ export function MainLayout() {
                 )}
 
                 {/*
-                 * Excel Tab - Conditional rendering to avoid Univer DI conflicts.
-                 * Only one Univer instance exists at a time.
-                 * Key prop forces complete remount when artifact changes to avoid stale data issues.
+                 * Excel Tab - Persistent file system with sidebar
+                 * Sidebar outside content area (like chat) for consistent behavior
                  */}
                 {activeTab === 'excel' && (
-                    <div className="flex-1 flex flex-col pt-10 animate-in fade-in zoom-in-95 duration-300 overflow-hidden">
-                        {/* Document Header */}
-                        {selectedArtifact?.type === 'spreadsheet' && (
-                            <div className="h-10 border-b border-border bg-background/95 backdrop-blur-sm shrink-0 flex items-center justify-between px-4">
-                                <div className="flex items-center gap-2 min-w-0">
-                                    <IconTable size={16} className="text-muted-foreground shrink-0" />
-                                    <span className="text-sm font-medium truncate max-w-[400px]" title={selectedArtifact.name}>
-                                        {selectedArtifact.name}
-                                    </span>
-                                    <span className="text-xs text-muted-foreground shrink-0">
-                                        Guardado en Supabase
-                                    </span>
-                                    {selectedArtifact.updated_at && (
-                                        <span className="text-xs text-muted-foreground/60 shrink-0">
-                                            • {new Date(selectedArtifact.updated_at).toLocaleDateString()}
-                                        </span>
-                                    )}
-                                </div>
-                            </div>
-                        )}
-                        {/* Main content */}
-                        <div className="flex-1 flex overflow-hidden">
-                            <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+                    <>
+                        {/* Excel File Sidebar - full height like chat sidebar */}
+                        <div
+                            className={cn(
+                                'h-full border-r border-border bg-sidebar transition-all duration-300 ease-in-out overflow-hidden shrink-0',
+                                excelSidebarOpen ? 'w-72' : 'w-0 border-r-0'
+                            )}
+                        >
+                            <div className="w-72 h-full">
                                 <Suspense fallback={<PanelLoadingFallback />}>
-                                    {/*
-                                      * Key is stable ('spreadsheet') to prevent remounts during AI operations.
-                                      * The component handles artifact changes via onArtifactUpdate listener.
-                                      * When no artifact is selected, uses a stable scratch session ID for persistence.
-                                      */}
-                                    <UniverSpreadsheet
-                                        key="spreadsheet"
-                                        artifactId={selectedArtifact?.type === 'spreadsheet' ? selectedArtifact.id : excelScratchId}
-                                        data={selectedArtifact?.type === 'spreadsheet' ? selectedArtifact.univer_data : undefined}
+                                    <FilesSidebar
+                                        type="excel"
+                                        onToggle={() => setExcelSidebarOpen(!excelSidebarOpen)}
                                     />
                                 </Suspense>
                             </div>
-                            {/* Agent Panel - slides from right */}
-                            <div
-                                className={cn(
-                                    'h-full border-l border-border/50 bg-background transition-all duration-300 ease-in-out overflow-hidden shrink-0',
-                                    agentPanelOpen ? 'w-[380px] min-w-[320px]' : 'w-0 border-l-0'
-                                )}
-                            >
-                                <div className="w-[380px] min-w-[320px] h-full">
+                        </div>
+
+                        {/* Main content area */}
+                        <div className="flex-1 flex flex-col min-w-0 overflow-hidden pt-10 animate-in fade-in zoom-in-95 duration-300">
+                            {/* File Header - shows when file is selected */}
+                            {currentExcelFile && (
+                                <Suspense fallback={null}>
+                                    <FileHeader
+                                        file={currentExcelFile}
+                                        onRename={() => {
+                                            // Rename handled via mutation in sidebar
+                                        }}
+                                        onOpenHistory={() => {
+                                            // TODO: Open version history panel
+                                        }}
+                                    />
+                                </Suspense>
+                            )}
+                            {/* Scratch header when no file selected */}
+                            {!currentExcelFile && !currentExcelFileId && (
+                                <div className="h-10 border-b border-border/50 bg-background/50 flex items-center px-4">
+                                    <IconTable size={16} className="text-muted-foreground mr-2" />
+                                    <span className="text-sm text-muted-foreground">Hoja nueva - Guarda para crear un archivo</span>
+                                </div>
+                            )}
+                            {/* Spreadsheet */}
+                            <div className="flex-1 flex overflow-hidden">
+                                <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
                                     <Suspense fallback={<PanelLoadingFallback />}>
-                                        <AgentPanel />
+                                        <UniverSpreadsheet
+                                            ref={univerSpreadsheetRef}
+                                            key="spreadsheet"
+                                            fileId={currentExcelFileId || undefined}
+                                            fileData={currentExcelFile?.univer_data}
+                                            artifactId={!currentExcelFileId ? (selectedArtifact?.type === 'spreadsheet' ? selectedArtifact.id : excelScratchId) : undefined}
+                                            data={!currentExcelFileId ? (selectedArtifact?.type === 'spreadsheet' ? selectedArtifact.univer_data : undefined) : undefined}
+                                        />
                                     </Suspense>
+                                </div>
+                                {/* Agent Panel - slides from right */}
+                                <div
+                                    className={cn(
+                                        'h-full border-l border-border/50 bg-background transition-all duration-300 ease-in-out overflow-hidden shrink-0',
+                                        agentPanelOpen ? 'w-[380px] min-w-[320px]' : 'w-0 border-l-0'
+                                    )}
+                                >
+                                    <div className="w-[380px] min-w-[320px] h-full">
+                                        <Suspense fallback={<PanelLoadingFallback />}>
+                                            <AgentPanel />
+                                        </Suspense>
+                                    </div>
                                 </div>
                             </div>
                         </div>
-                    </div>
+                    </>
                 )}
 
                 {/*
-                 * Doc Tab - Conditional rendering to avoid Univer DI conflicts.
-                 * Only one Univer instance exists at a time.
-                 * Key prop forces complete remount when artifact changes to avoid stale data issues.
+                 * Doc Tab - Persistent file system with sidebar
+                 * Sidebar outside content area (like chat) for consistent behavior
                  */}
                 {activeTab === 'doc' && (
-                    <div className="flex-1 flex flex-col pt-10 animate-in fade-in zoom-in-95 duration-300 z-0 relative overflow-hidden">
-                        {/* Document Header */}
-                        {selectedArtifact?.type === 'document' && (
-                            <div className="h-10 border-b border-border bg-background/95 backdrop-blur-sm shrink-0 flex items-center justify-between px-4">
-                                <div className="flex items-center gap-2 min-w-0">
-                                    <IconFileText size={16} className="text-muted-foreground shrink-0" />
-                                    <span className="text-sm font-medium truncate max-w-[400px]" title={selectedArtifact.name}>
-                                        {selectedArtifact.name}
-                                    </span>
-                                    <span className="text-xs text-muted-foreground shrink-0">
-                                        Guardado en Supabase
-                                    </span>
-                                    {selectedArtifact.updated_at && (
-                                        <span className="text-xs text-muted-foreground/60 shrink-0">
-                                            • {new Date(selectedArtifact.updated_at).toLocaleDateString()}
-                                        </span>
-                                    )}
-                                </div>
-                            </div>
-                        )}
-                        {/* Main content */}
-                        <div className="flex-1 flex overflow-hidden">
-                            <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+                    <>
+                        {/* Doc File Sidebar - full height like chat sidebar */}
+                        <div
+                            className={cn(
+                                'h-full border-r border-border bg-sidebar transition-all duration-300 ease-in-out overflow-hidden shrink-0',
+                                docSidebarOpen ? 'w-72' : 'w-0 border-r-0'
+                            )}
+                        >
+                            <div className="w-72 h-full">
                                 <Suspense fallback={<PanelLoadingFallback />}>
-                                    {/*
-                                      * When no artifact is selected, uses a stable scratch session ID for persistence.
-                                      * This prevents data loss when switching tabs.
-                                      */}
-                                    <UniverDocument
-                                        key={selectedArtifact?.type === 'document' ? selectedArtifact.id : docScratchId}
-                                        artifactId={selectedArtifact?.type === 'document' ? selectedArtifact.id : docScratchId}
-                                        data={selectedArtifact?.type === 'document' ? selectedArtifact.univer_data : undefined}
+                                    <FilesSidebar
+                                        type="doc"
+                                        onToggle={() => setDocSidebarOpen(!docSidebarOpen)}
                                     />
                                 </Suspense>
                             </div>
-                            {/* Agent Panel - slides from right */}
-                            <div
-                                className={cn(
-                                    'h-full border-l border-border/50 bg-background transition-all duration-300 ease-in-out overflow-hidden shrink-0',
-                                    agentPanelOpen ? 'w-[380px] min-w-[320px]' : 'w-0 border-l-0'
-                                )}
-                            >
-                                <div className="w-[380px] min-w-[320px] h-full">
+                        </div>
+
+                        {/* Main content area */}
+                        <div className="flex-1 flex flex-col min-w-0 overflow-hidden pt-10 animate-in fade-in zoom-in-95 duration-300">
+                            {/* File Header - shows when file is selected */}
+                            {currentDocFile && (
+                                <Suspense fallback={null}>
+                                    <FileHeader
+                                        file={currentDocFile}
+                                        onRename={() => {
+                                            // Rename handled via mutation in sidebar
+                                        }}
+                                        onOpenHistory={() => {
+                                            // TODO: Open version history panel
+                                        }}
+                                    />
+                                </Suspense>
+                            )}
+                            {/* Scratch header when no file selected */}
+                            {!currentDocFile && !currentDocFileId && (
+                                <div className="h-10 border-b border-border/50 bg-background/50 flex items-center px-4">
+                                    <IconFileText size={16} className="text-muted-foreground mr-2" />
+                                    <span className="text-sm text-muted-foreground">Documento nuevo - Guarda para crear un archivo</span>
+                                </div>
+                            )}
+                            {/* Document */}
+                            <div className="flex-1 flex overflow-hidden">
+                                <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
                                     <Suspense fallback={<PanelLoadingFallback />}>
-                                        <AgentPanel />
+                                        <UniverDocument
+                                            key="document"
+                                            fileId={currentDocFileId || undefined}
+                                            fileData={currentDocFile?.univer_data}
+                                            artifactId={!currentDocFileId ? (selectedArtifact?.type === 'document' ? selectedArtifact.id : docScratchId) : undefined}
+                                            data={!currentDocFileId ? (selectedArtifact?.type === 'document' ? selectedArtifact.univer_data : undefined) : undefined}
+                                        />
                                     </Suspense>
+                                </div>
+                                {/* Agent Panel - slides from right */}
+                                <div
+                                    className={cn(
+                                        'h-full border-l border-border/50 bg-background transition-all duration-300 ease-in-out overflow-hidden shrink-0',
+                                        agentPanelOpen ? 'w-[380px] min-w-[320px]' : 'w-0 border-l-0'
+                                    )}
+                                >
+                                    <div className="w-[380px] min-w-[320px] h-full">
+                                        <Suspense fallback={<PanelLoadingFallback />}>
+                                            <AgentPanel />
+                                        </Suspense>
+                                    </div>
                                 </div>
                             </div>
                         </div>
-                    </div>
+                    </>
                 )}
 
                 {/*

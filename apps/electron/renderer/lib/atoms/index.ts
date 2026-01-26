@@ -640,6 +640,10 @@ export const selectedNotePageIdAtom = atomWithStorage<string | null>(
 
 export const notesSidebarOpenAtom = atomWithStorage("notes-sidebar-open", true);
 
+// === EXCEL FILE SIDEBAR STATE ===
+export const excelSidebarOpenAtom = atomWithStorage("excel-sidebar-open", true);
+export const docSidebarOpenAtom = atomWithStorage("doc-sidebar-open", true);
+
 // Cache for note pages content (loaded on demand)
 export const notePagesCacheAtom = atom<Record<string, NotePage>>({});
 

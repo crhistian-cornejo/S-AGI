@@ -4,7 +4,19 @@
  */
 import * as React from 'react'
 import { useAtomValue } from 'jotai'
-import { Check, Cloud, CloudOff, History, MoreHorizontal, Pencil, Pin, PinOff, Archive, Trash2, Download, Copy } from 'lucide-react'
+import {
+    IconCheck,
+    IconCloud,
+    IconHistory,
+    IconDotsVertical,
+    IconPencil,
+    IconPin,
+    IconPinnedOff,
+    IconArchive,
+    IconTrash,
+    IconDownload,
+    IconCopy
+} from '@tabler/icons-react'
 import { Button } from '@/components/ui/button'
 import {
     DropdownMenu,
@@ -124,12 +136,12 @@ export function FileHeader({
                         className="flex-1 min-w-0 text-left group flex items-center gap-1"
                     >
                         <span className="text-sm font-medium truncate">{file.name}</span>
-                        <Pencil className="w-3 h-3 opacity-0 group-hover:opacity-50 transition-opacity flex-shrink-0" />
+                        <IconPencil size={12} className="opacity-0 group-hover:opacity-50 transition-opacity flex-shrink-0" />
                     </button>
                 )}
 
                 {file.is_pinned && (
-                    <Pin className="w-3 h-3 text-primary flex-shrink-0" />
+                    <IconPin size={12} className="text-primary flex-shrink-0" />
                 )}
             </div>
 
@@ -139,7 +151,7 @@ export function FileHeader({
                     <Tooltip>
                         <TooltipTrigger asChild>
                             <div className="flex items-center gap-1 text-muted-foreground">
-                                <Cloud className="w-3.5 h-3.5 animate-pulse" />
+                                <IconCloud size={14} className="animate-pulse" />
                                 <span className="text-xs">Guardando...</span>
                             </div>
                         </TooltipTrigger>
@@ -149,7 +161,7 @@ export function FileHeader({
                     <Tooltip>
                         <TooltipTrigger asChild>
                             <div className="flex items-center gap-1 text-muted-foreground/60">
-                                <Check className="w-3.5 h-3.5" />
+                                <IconCheck size={14} />
                                 <span className="text-xs">Guardado</span>
                             </div>
                         </TooltipTrigger>
@@ -169,7 +181,7 @@ export function FileHeader({
                             className="h-7 px-2 gap-1"
                             onClick={onOpenHistory}
                         >
-                            <History className="w-3.5 h-3.5" />
+                            <IconHistory size={14} />
                             <span className="text-xs">v{file.version_count}</span>
                         </Button>
                     </TooltipTrigger>
@@ -182,54 +194,54 @@ export function FileHeader({
                 <DropdownMenu>
                     <DropdownMenuTrigger asChild>
                         <Button variant="ghost" size="icon" className="h-7 w-7">
-                            <MoreHorizontal className="w-4 h-4" />
+                            <IconDotsVertical size={16} />
                         </Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end" className="w-48">
                         <DropdownMenuItem onClick={handleStartEdit}>
-                            <Pencil className="w-4 h-4 mr-2" />
+                            <IconPencil size={16} className="mr-2" />
                             Renombrar
                         </DropdownMenuItem>
                         <DropdownMenuItem onClick={onTogglePin}>
                             {file.is_pinned ? (
                                 <>
-                                    <PinOff className="w-4 h-4 mr-2" />
+                                    <IconPinnedOff size={16} className="mr-2" />
                                     Desfijar
                                 </>
                             ) : (
                                 <>
-                                    <Pin className="w-4 h-4 mr-2" />
+                                    <IconPin size={16} className="mr-2" />
                                     Fijar
                                 </>
                             )}
                         </DropdownMenuItem>
                         <DropdownMenuSeparator />
                         <DropdownMenuItem onClick={onOpenHistory}>
-                            <History className="w-4 h-4 mr-2" />
+                            <IconHistory size={16} className="mr-2" />
                             Historial de versiones
                         </DropdownMenuItem>
                         {onDuplicate && (
                             <DropdownMenuItem onClick={onDuplicate}>
-                                <Copy className="w-4 h-4 mr-2" />
+                                <IconCopy size={16} className="mr-2" />
                                 Duplicar
                             </DropdownMenuItem>
                         )}
                         {onExport && (
                             <DropdownMenuItem onClick={onExport}>
-                                <Download className="w-4 h-4 mr-2" />
+                                <IconDownload size={16} className="mr-2" />
                                 Exportar
                             </DropdownMenuItem>
                         )}
                         <DropdownMenuSeparator />
                         <DropdownMenuItem onClick={onToggleArchive}>
-                            <Archive className="w-4 h-4 mr-2" />
+                            <IconArchive size={16} className="mr-2" />
                             {file.is_archived ? 'Desarchivar' : 'Archivar'}
                         </DropdownMenuItem>
                         <DropdownMenuItem
                             onClick={onDelete}
                             className="text-destructive focus:text-destructive"
                         >
-                            <Trash2 className="w-4 h-4 mr-2" />
+                            <IconTrash size={16} className="mr-2" />
                             Eliminar
                         </DropdownMenuItem>
                     </DropdownMenuContent>

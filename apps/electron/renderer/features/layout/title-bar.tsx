@@ -14,6 +14,8 @@ import {
     notesSelectedModelIdAtom,
     notesEditorRefAtom,
     notesIsExportingPdfAtom,
+    excelSidebarOpenAtom,
+    docSidebarOpenAtom,
 } from '@/lib/atoms'
 import { trpc } from '@/lib/trpc'
 import {
@@ -96,6 +98,8 @@ export function TitleBar({ className, noTrafficLightSpace }: TitleBarProps) {
     const [notesSidebarOpen, setNotesSidebarOpen] = useAtom(notesSidebarOpenAtom)
     const [pdfSidebarOpen, setPdfSidebarOpen] = useAtom(pdfSidebarOpenAtom)
     const [agentPanelOpen, setAgentPanelOpen] = useAtom(agentPanelOpenAtom)
+    const [excelSidebarOpen, setExcelSidebarOpen] = useAtom(excelSidebarOpenAtom)
+    const [docSidebarOpen, setDocSidebarOpen] = useAtom(docSidebarOpenAtom)
     const { data: keyStatus } = trpc.settings.getApiKeyStatus.useQuery()
     
     // Notes editor controls (for titlebar)
@@ -168,6 +172,21 @@ export function TitleBar({ className, noTrafficLightSpace }: TitleBarProps) {
                     "flex items-center gap-2 no-drag shrink-0 z-10",
                     showTrafficLights ? "ml-4" : "ml-2"
                 )}>
+                    <Tooltip>
+                        <TooltipTrigger asChild>
+                            <button
+                                type="button"
+                                onClick={() => setNotesSidebarOpen(true)}
+                                className={cn(
+                                    "flex items-center justify-center w-7 h-7 rounded-md transition-all duration-200",
+                                    "hover:bg-accent/50 text-muted-foreground hover:text-foreground"
+                                )}
+                            >
+                                <IconLayoutSidebarLeftExpand size={16} />
+                            </button>
+                        </TooltipTrigger>
+                        <TooltipContent side="bottom">Show sidebar</TooltipContent>
+                    </Tooltip>
 
                     {/* Model selector and PDF export - only when sidebar is collapsed */}
                     {currentModel && (
@@ -314,7 +333,117 @@ export function TitleBar({ className, noTrafficLightSpace }: TitleBarProps) {
                     </Tooltip>
                 </div>
             )}
-            {activeTab !== 'ideas' && (!isWindows() || activeTab !== 'pdf') && !showTrafficLights && (!isWindows() || !sidebarOpen) && (
+            {/* Excel tab - show sidebar toggle when collapsed */}
+            {activeTab === 'excel' && !excelSidebarOpen && (
+                <div className={cn(
+                    "flex items-center gap-2 no-drag shrink-0 z-10",
+                    showTrafficLights ? "ml-4" : "ml-2"
+                )}>
+                    {/* Logo - opens agent panel */}
+                    <Tooltip>
+                        <TooltipTrigger asChild>
+                            <button
+                                type="button"
+                                onClick={() => setAgentPanelOpen(!agentPanelOpen)}
+                                className={cn(
+                                    "flex items-center gap-2 transition-all duration-200",
+                                    "hover:opacity-80 active:scale-95 cursor-pointer",
+                                    agentPanelOpen && "text-primary"
+                                )}
+                            >
+                                <div className="relative">
+                                    <Logo size={20} />
+                                    {agentPanelOpen && (
+                                        <span className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-primary" />
+                                    )}
+                                </div>
+                                <span className="text-sm font-semibold text-foreground tracking-tight">S-AGI</span>
+                            </button>
+                        </TooltipTrigger>
+                        <TooltipContent side="bottom">
+                            {agentPanelOpen ? 'Cerrar panel' : 'Abrir panel AI'}
+                        </TooltipContent>
+                    </Tooltip>
+
+                    <div className="w-px h-4 bg-border" />
+
+                    {/* Sidebar toggle */}
+                    <Tooltip>
+                        <TooltipTrigger asChild>
+                            <button
+                                type="button"
+                                onClick={() => setExcelSidebarOpen(true)}
+                                className={cn(
+                                    "flex items-center justify-center w-7 h-7 rounded-md transition-all duration-200",
+                                    "hover:bg-accent/50 text-muted-foreground hover:text-foreground"
+                                )}
+                            >
+                                <IconLayoutSidebarLeftExpand size={16} />
+                            </button>
+                        </TooltipTrigger>
+                        <TooltipContent side="bottom">Mostrar archivos</TooltipContent>
+                    </Tooltip>
+                </div>
+            )}
+            {/* Doc tab - show sidebar toggle when collapsed */}
+            {activeTab === 'doc' && !docSidebarOpen && (
+                <div className={cn(
+                    "flex items-center gap-2 no-drag shrink-0 z-10",
+                    showTrafficLights ? "ml-4" : "ml-2"
+                )}>
+                    {/* Logo - opens agent panel */}
+                    <Tooltip>
+                        <TooltipTrigger asChild>
+                            <button
+                                type="button"
+                                onClick={() => setAgentPanelOpen(!agentPanelOpen)}
+                                className={cn(
+                                    "flex items-center gap-2 transition-all duration-200",
+                                    "hover:opacity-80 active:scale-95 cursor-pointer",
+                                    agentPanelOpen && "text-primary"
+                                )}
+                            >
+                                <div className="relative">
+                                    <Logo size={20} />
+                                    {agentPanelOpen && (
+                                        <span className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-primary" />
+                                    )}
+                                </div>
+                                <span className="text-sm font-semibold text-foreground tracking-tight">S-AGI</span>
+                            </button>
+                        </TooltipTrigger>
+                        <TooltipContent side="bottom">
+                            {agentPanelOpen ? 'Cerrar panel' : 'Abrir panel AI'}
+                        </TooltipContent>
+                    </Tooltip>
+
+                    <div className="w-px h-4 bg-border" />
+
+                    {/* Sidebar toggle */}
+                    <Tooltip>
+                        <TooltipTrigger asChild>
+                            <button
+                                type="button"
+                                onClick={() => setDocSidebarOpen(true)}
+                                className={cn(
+                                    "flex items-center justify-center w-7 h-7 rounded-md transition-all duration-200",
+                                    "hover:bg-accent/50 text-muted-foreground hover:text-foreground"
+                                )}
+                            >
+                                <IconLayoutSidebarLeftExpand size={16} />
+                            </button>
+                        </TooltipTrigger>
+                        <TooltipContent side="bottom">Mostrar archivos</TooltipContent>
+                    </Tooltip>
+                </div>
+            )}
+            {activeTab !== 'ideas' &&
+             (!isWindows() || activeTab !== 'pdf') &&
+             !showTrafficLights &&
+             (!isWindows() || !sidebarOpen) &&
+             // Don't show default logo when excel/doc sidebar is closed (already shown with toggle)
+             !(activeTab === 'excel' && !excelSidebarOpen) &&
+             !(activeTab === 'doc' && !docSidebarOpen) && (
                 /* Logo (clickable for agent panel in excel/doc/pdf tabs) */
                 <Tooltip>
                     <TooltipTrigger asChild>
