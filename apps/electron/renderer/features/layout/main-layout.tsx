@@ -63,8 +63,8 @@ function PanelLoadingFallback() {
 export function MainLayout() {
     const [sidebarOpen, setSidebarOpen] = useAtom(sidebarOpenAtom)
     const [notesSidebarOpen] = useAtom(notesSidebarOpenAtom)
-    const [artifactPanelOpen] = useAtom(artifactPanelOpenAtom)
-    const [agentPanelOpen] = useAtom(agentPanelOpenAtom)
+    const [artifactPanelOpen, setArtifactPanelOpen] = useAtom(artifactPanelOpenAtom)
+    const [agentPanelOpen, setAgentPanelOpen] = useAtom(agentPanelOpenAtom)
     const selectedArtifact = useAtomValue(selectedArtifactAtom)
     const setSelectedChatId = useSetAtom(selectedChatIdAtom)
     const [activeTab, setActiveTab] = useAtom(activeTabAtom)
@@ -155,6 +155,140 @@ export function MainLayout() {
             }
         }
     }, [handleNewChat, setActiveTab, setSelectedArtifact, setSelectedChatId, setSettingsOpen, setSettingsTab, addLocalPdf])
+
+    // Global Listeners for Native Menu Bar Events (macOS File, Edit, View menus)
+    useEffect(() => {
+        const api = window.desktopApi
+        if (!api?.menu) return
+
+        const cleanups = [
+            // File menu
+            api.menu.onNewChat(() => {
+                handleNewChat()
+            }),
+            api.menu.onNewSpreadsheet(() => {
+                setActiveTab('excel')
+                setSelectedArtifact(null)
+            }),
+            api.menu.onNewDocument(() => {
+                setActiveTab('doc')
+                setSelectedArtifact(null)
+            }),
+            api.menu.onFilesImported(() => {
+                console.log('[MainLayout] Files imported from menu')
+            }),
+            api.menu.onOpenPdf((data: { files: Array<{ path: string; name: string; size: number }> }) => {
+                console.log('[MainLayout] Opening PDFs from menu:', data.files.length)
+                for (const file of data.files) {
+                    const pdfSource = createPdfSourceFromLocalFile({
+                        path: file.path,
+                        name: file.name,
+                        size: file.size
+                    })
+                    addLocalPdf(pdfSource)
+                }
+                setActiveTab('pdf')
+            }),
+            // View menu
+            api.menu.onToggleSidebar(() => {
+                setSidebarOpen((prev) => !prev)
+            }),
+            api.menu.onShowShortcuts(() => {
+                setShortcutsOpen((prev) => !prev)
+            }),
+            // Go menu
+            api.menu.onGoToTab((data: { tab: string }) => {
+                const validTabs: Array<'chat' | 'excel' | 'doc' | 'pdf' | 'ideas' | 'gallery'> = ['chat', 'excel', 'doc', 'pdf', 'ideas', 'gallery']
+                if (validTabs.includes(data.tab as any)) {
+                    setActiveTab(data.tab as any)
+                }
+            }),
+            api.menu.onCommandK(() => {
+                setCommandKOpen(true)
+            }),
+            // Chat menu
+            api.menu.onStopGeneration(() => {
+                // Send event to chat view to stop generation
+                window.dispatchEvent(new CustomEvent('chat:stop-generation'))
+            }),
+            api.menu.onCycleReasoning(() => {
+                if (supportsReasoning) {
+                    setReasoningEffort((prev) => ({ low: 'medium', medium: 'high', high: 'low' }[prev] as ReasoningEffort))
+                }
+            }),
+            api.menu.onClearChat(() => {
+                // Send event to chat view to clear messages
+                window.dispatchEvent(new CustomEvent('chat:clear'))
+            }),
+            api.menu.onArchiveChat(() => {
+                // Send event to sidebar to archive current chat
+                window.dispatchEvent(new CustomEvent('chat:archive'))
+            }),
+            api.menu.onDeleteChat(() => {
+                // Send event to sidebar to delete current chat
+                window.dispatchEvent(new CustomEvent('chat:delete'))
+            }),
+            // Artifact menu
+            api.menu.onSaveArtifact(() => {
+                // Send event to artifact panel to save
+                window.dispatchEvent(new CustomEvent('artifact:save'))
+            }),
+            api.menu.onExportExcel(() => {
+                window.dispatchEvent(new CustomEvent('artifact:export-excel'))
+            }),
+            api.menu.onExportChartPng(() => {
+                window.dispatchEvent(new CustomEvent('artifact:export-chart-png'))
+            }),
+            api.menu.onExportChartPdf(() => {
+                window.dispatchEvent(new CustomEvent('artifact:export-chart-pdf'))
+            }),
+            api.menu.onCopyChart(() => {
+                window.dispatchEvent(new CustomEvent('artifact:copy-chart'))
+            }),
+            api.menu.onDownloadPdf(() => {
+                window.dispatchEvent(new CustomEvent('artifact:download-pdf'))
+            }),
+            api.menu.onOpenPdfBrowser(() => {
+                window.dispatchEvent(new CustomEvent('artifact:open-pdf-browser'))
+            }),
+            api.menu.onCloseArtifact(() => {
+                setSelectedArtifact(null)
+                setArtifactPanelOpen(false)
+            }),
+            // PDF menu
+            api.menu.onSavePdfAnnotations(() => {
+                window.dispatchEvent(new CustomEvent('pdf:save-annotations'))
+            }),
+            api.menu.onPdfNavigate(() => {
+                window.dispatchEvent(new CustomEvent('pdf:navigate'))
+            }),
+            api.menu.onPdfHighlight(() => {
+                window.dispatchEvent(new CustomEvent('pdf:highlight'))
+            }),
+            api.menu.onPdfZoomIn(() => {
+                window.dispatchEvent(new CustomEvent('pdf:zoom-in'))
+            }),
+            api.menu.onPdfZoomOut(() => {
+                window.dispatchEvent(new CustomEvent('pdf:zoom-out'))
+            }),
+            api.menu.onPdfZoomReset(() => {
+                window.dispatchEvent(new CustomEvent('pdf:zoom-reset'))
+            }),
+            // Agent menu
+            api.menu.onToggleAgentPanel(() => {
+                setAgentPanelOpen((prev) => !prev)
+            }),
+            api.menu.onClearAgentHistory(() => {
+                window.dispatchEvent(new CustomEvent('agent:clear-history'))
+            })
+        ]
+
+        return () => {
+            for (const cleanup of cleanups) {
+                cleanup()
+            }
+        }
+    }, [handleNewChat, setActiveTab, setSelectedArtifact, setSidebarOpen, setShortcutsOpen, setCommandKOpen, addLocalPdf, createPdfSourceFromLocalFile, setArtifactPanelOpen, setAgentPanelOpen, supportsReasoning, setReasoningEffort])
 
     useEffect(() => {
         const api = window.desktopApi

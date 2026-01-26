@@ -4,21 +4,43 @@ import { trpc } from '@/lib/trpc'
 import { initSheetsUniver, createWorkbook, disposeSheetsUniver, getSheetsInstanceVersion, getSheetsInstance } from './univer-sheets-core'
 import { UniverInstanceType } from '@univerjs/core'
 import { artifactSnapshotCacheAtom, type ArtifactSnapshot } from '@/lib/atoms'
+import {
+    fileSnapshotCacheAtom,
+    type FileSnapshot,
+    currentExcelFileIdAtom,
+    currentExcelFileAtom,
+    fileSavingAtom,
+} from '@/lib/atoms/user-files'
 
 interface UniverSpreadsheetProps {
+    // Legacy: artifact-based props (for backward compatibility)
     artifactId?: string
     data?: any
+    // New: file-based props
+    fileId?: string
+    fileData?: any
+    // Optional: callback when version is created
+    onVersionCreated?: (versionNumber: number) => void
 }
 
 export interface UniverSpreadsheetRef {
     save: () => Promise<void>
     getSnapshot: () => any | null
     markDirty: () => void
+    // New: save with AI metadata for Agent Panel
+    saveWithAIMetadata: (options: {
+        aiModel: string
+        aiPrompt: string
+        toolName: string
+    }) => Promise<void>
 }
 
 export const UniverSpreadsheet = React.forwardRef<UniverSpreadsheetRef, UniverSpreadsheetProps>(({
     artifactId,
-    data
+    data,
+    fileId,
+    fileData,
+    onVersionCreated
 }, ref) => {
     const containerRef = React.useRef<HTMLDivElement>(null)
     const [isLoading, setIsLoading] = React.useState(true)
@@ -28,58 +50,182 @@ export const UniverSpreadsheet = React.forwardRef<UniverSpreadsheetRef, UniverSp
     const versionRef = React.useRef<number>(-1)
     const isDirtyRef = React.useRef(false)
 
-    // Snapshot cache for persistence across tab switches
-    const [snapshotCache, setSnapshotCache] = useAtom(artifactSnapshotCacheAtom)
+    // Determine if using new file system or legacy artifact system
+    const useFileSystem = !!fileId
+    const effectiveId = fileId || artifactId
+    const effectiveData = fileData || data
 
-    // Use artifact ID for data purposes; fallback to a stable per-mount ID
+    // === LEGACY: Artifact snapshot cache ===
+    const [artifactSnapshotCache, setArtifactSnapshotCache] = useAtom(artifactSnapshotCacheAtom)
+
+    // === NEW: File snapshot cache ===
+    const [fileSnapshotCache, setFileSnapshotCache] = useAtom(fileSnapshotCacheAtom)
+    const [, setSavingState] = useAtom(fileSavingAtom)
+
+    // Get the appropriate snapshot cache based on mode
+    const getSnapshotCache = React.useCallback(() => {
+        if (useFileSystem && fileId) {
+            return fileSnapshotCache[fileId]
+        } else if (artifactId) {
+            return artifactSnapshotCache[artifactId]
+        }
+        return null
+    }, [useFileSystem, fileId, artifactId, fileSnapshotCache, artifactSnapshotCache])
+
+    // Set snapshot in appropriate cache
+    const setSnapshotInCache = React.useCallback((id: string, snapshot: any, isDirty: boolean) => {
+        if (useFileSystem) {
+            const entry: FileSnapshot = {
+                univerData: snapshot,
+                timestamp: Date.now(),
+                isDirty
+            }
+            setFileSnapshotCache(prev => ({
+                ...prev,
+                [id]: entry
+            }))
+        } else {
+            const entry: ArtifactSnapshot = {
+                univerData: snapshot,
+                timestamp: Date.now(),
+                isDirty
+            }
+            setArtifactSnapshotCache(prev => ({
+                ...prev,
+                [id]: entry
+            }))
+        }
+    }, [useFileSystem, setFileSnapshotCache, setArtifactSnapshotCache])
+
+    // Use effective ID for data purposes; fallback to a stable per-mount ID
     const instanceIdRef = React.useRef<string>(`spreadsheet-${Date.now()}`)
-    const effectiveDataId = artifactId ?? instanceIdRef.current
+    const effectiveDataId = effectiveId ?? instanceIdRef.current
 
     // Check if we have a cached snapshot that's newer than the DB data
     const getCachedOrDbData = React.useCallback(() => {
-        if (!artifactId) return data
-        const cached = snapshotCache[artifactId]
+        if (!effectiveId) return effectiveData
+        const cached = getSnapshotCache()
         if (cached && cached.isDirty) {
-            console.log('[UniverSpreadsheet] Using cached snapshot (dirty)', artifactId)
+            console.log('[UniverSpreadsheet] Using cached snapshot (dirty)', effectiveId)
             return cached.univerData
         }
-        return data
-    }, [artifactId, data, snapshotCache])
+        return effectiveData
+    }, [effectiveId, effectiveData, getSnapshotCache])
 
     // Debug: log received data
     React.useEffect(() => {
-        console.log('[UniverSpreadsheet] Mounted with data:', {
-            artifactId,
-            hasData: !!data,
-            hasCachedData: artifactId ? !!snapshotCache[artifactId] : false,
-            dataKeys: data ? Object.keys(data) : [],
-            sheetsKeys: data?.sheets ? Object.keys(data.sheets) : [],
+        console.log('[UniverSpreadsheet] Mounted with:', {
+            mode: useFileSystem ? 'file' : 'artifact',
+            effectiveId,
+            hasData: !!effectiveData,
+            hasCachedData: !!getSnapshotCache(),
+            dataKeys: effectiveData ? Object.keys(effectiveData) : [],
         })
-    }, [artifactId, data, snapshotCache])
+    }, [useFileSystem, effectiveId, effectiveData, getSnapshotCache])
 
+    // === MUTATIONS ===
+    // Legacy: Artifact save mutation
+    const saveArtifactSnapshot = trpc.artifacts.saveUniverSnapshot.useMutation()
 
-    // Save mutation
-    const saveSnapshot = trpc.artifacts.saveUniverSnapshot.useMutation()
+    // New: File update mutation
+    const updateFileMutation = trpc.userFiles.update.useMutation({
+        onSuccess: (result) => {
+            if (fileId) {
+                setSavingState(prev => ({ ...prev, [fileId]: false }))
+                // Clear dirty flag in cache
+                setFileSnapshotCache(prev => {
+                    const existing = prev[fileId]
+                    if (existing) {
+                        return {
+                            ...prev,
+                            [fileId]: { ...existing, isDirty: false }
+                        }
+                    }
+                    return prev
+                })
+            }
+            if (onVersionCreated && result?.version_count) {
+                onVersionCreated(result.version_count)
+            }
+        },
+        onError: () => {
+            if (fileId) {
+                setSavingState(prev => ({ ...prev, [fileId]: false }))
+            }
+        }
+    })
 
+    // Handle save (unified for both modes)
     const handleSave = React.useCallback(async () => {
-        if (!workbookRef.current || isSaving) return
+        if (!workbookRef.current || isSaving || !effectiveId) return
 
         try {
             setIsSaving(true)
             const snapshot = workbookRef.current.save()
 
-            if (snapshot && artifactId) {
-                await saveSnapshot.mutateAsync({
-                    id: artifactId,
-                    univerData: snapshot
-                })
+            if (snapshot) {
+                if (useFileSystem && fileId) {
+                    // New file system
+                    setSavingState(prev => ({ ...prev, [fileId]: true }))
+                    await updateFileMutation.mutateAsync({
+                        id: fileId,
+                        univerData: snapshot,
+                        changeType: 'manual_save',
+                        changeDescription: 'Guardado manual'
+                    })
+                    isDirtyRef.current = false
+                } else if (artifactId) {
+                    // Legacy artifact system
+                    await saveArtifactSnapshot.mutateAsync({
+                        id: artifactId,
+                        univerData: snapshot
+                    })
+                    isDirtyRef.current = false
+                }
             }
         } catch (err) {
             console.error('Failed to save spreadsheet:', err)
         } finally {
             setIsSaving(false)
         }
-    }, [artifactId, isSaving, saveSnapshot])
+    }, [effectiveId, useFileSystem, fileId, artifactId, isSaving, updateFileMutation, saveArtifactSnapshot, setSavingState])
+
+    // Save with AI metadata (for Agent Panel)
+    const handleSaveWithAIMetadata = React.useCallback(async (options: {
+        aiModel: string
+        aiPrompt: string
+        toolName: string
+    }) => {
+        if (!workbookRef.current || !fileId) {
+            console.warn('[UniverSpreadsheet] Cannot save with AI metadata - no fileId or workbook')
+            return
+        }
+
+        try {
+            setIsSaving(true)
+            setSavingState(prev => ({ ...prev, [fileId]: true }))
+
+            const snapshot = workbookRef.current.save()
+
+            if (snapshot) {
+                await updateFileMutation.mutateAsync({
+                    id: fileId,
+                    univerData: snapshot,
+                    changeType: 'ai_edit',
+                    changeDescription: `Editado por ${options.toolName}`,
+                    aiModel: options.aiModel,
+                    aiPrompt: options.aiPrompt,
+                    toolName: options.toolName
+                })
+                isDirtyRef.current = false
+                console.log('[UniverSpreadsheet] Saved with AI metadata:', options.toolName)
+            }
+        } catch (err) {
+            console.error('[UniverSpreadsheet] Failed to save with AI metadata:', err)
+        } finally {
+            setIsSaving(false)
+        }
+    }, [fileId, updateFileMutation, setSavingState])
 
     // Mark as dirty when user makes changes
     const markDirty = React.useCallback(() => {
@@ -89,20 +235,18 @@ export const UniverSpreadsheet = React.forwardRef<UniverSpreadsheetRef, UniverSp
     React.useImperativeHandle(ref, () => ({
         save: handleSave,
         getSnapshot: () => workbookRef.current?.save?.() ?? null,
-        markDirty
+        markDirty,
+        saveWithAIMetadata: handleSaveWithAIMetadata
     }))
 
     // Store data in a ref to avoid re-initialization on every render
-    // Only the initial data matters - subsequent changes should use Univer's API
-    // Use cached data if available and dirty
-    const effectiveData = getCachedOrDbData()
-    const initialDataRef = React.useRef(effectiveData)
+    const cachedData = getCachedOrDbData()
+    const initialDataRef = React.useRef(cachedData)
     const isInitializedRef = React.useRef(false)
-    // Track current artifact ID to detect switches
-    const currentArtifactIdRef = React.useRef<string | undefined>(artifactId)
+    // Track current ID to detect switches
+    const currentIdRef = React.useRef<string | undefined>(effectiveId)
 
     // Initialize Univer ONCE on mount, dispose ONLY on unmount
-    // Does NOT depend on artifactId - artifact switches are handled separately
     React.useEffect(() => {
         let mounted = true
 
@@ -117,11 +261,8 @@ export const UniverSpreadsheet = React.forwardRef<UniverSpreadsheetRef, UniverSp
                 setIsLoading(true)
                 setError(null)
 
-                // Wait for next frame to ensure container is fully in DOM
-                // This prevents race conditions with React's render cycle
                 await new Promise(resolve => requestAnimationFrame(resolve))
 
-                // Check if still mounted after waiting
                 if (!mounted || !containerRef.current) {
                     console.log('[UniverSpreadsheet] Aborted init - component unmounted during wait')
                     return
@@ -129,29 +270,24 @@ export const UniverSpreadsheet = React.forwardRef<UniverSpreadsheetRef, UniverSp
 
                 console.log('[UniverSpreadsheet] Initializing sheets instance (one-time)')
 
-                // Get the sheets Univer instance
                 const instance = await initSheetsUniver(containerRef.current)
-
-                // Store version for cleanup
                 versionRef.current = instance.version
 
                 if (!mounted) {
-                    // Component unmounted during init - defer dispose with version check
                     const version = versionRef.current
                     setTimeout(() => disposeSheetsUniver(version), 0)
                     return
                 }
 
-                // Create workbook with initial data
                 const workbook = createWorkbook(instance.univer, instance.api, initialDataRef.current, effectiveDataId)
                 workbookRef.current = workbook
                 isInitializedRef.current = true
-                currentArtifactIdRef.current = artifactId
+                currentIdRef.current = effectiveId
 
                 console.log('[UniverSpreadsheet] Workbook created:', effectiveDataId)
                 setIsLoading(false)
 
-                // Focus the container to enable keyboard input for cell editing
+                // Focus the container
                 requestAnimationFrame(() => {
                     setTimeout(() => {
                         const containerEl = containerRef.current
@@ -169,18 +305,6 @@ export const UniverSpreadsheet = React.forwardRef<UniverSpreadsheetRef, UniverSp
                         } else {
                             containerEl.focus()
                         }
-
-                        setTimeout(() => {
-                            const retryContainerEl = containerRef.current
-                            const retryUniverCanvas = retryContainerEl?.querySelector('.univer-render-canvas, [class*="univer-canvas"]') as HTMLElement | null
-                            const retryActiveElement = document.activeElement
-
-                            if (retryUniverCanvas && retryActiveElement !== retryUniverCanvas) {
-                                retryUniverCanvas.focus()
-                            } else if (retryContainerEl && retryActiveElement !== retryContainerEl) {
-                                retryContainerEl.focus()
-                            }
-                        }, 500)
                     }, 300)
                 })
 
@@ -195,29 +319,30 @@ export const UniverSpreadsheet = React.forwardRef<UniverSpreadsheetRef, UniverSp
 
         initUniver()
 
-        // Cleanup ONLY on unmount - save to cache and defer dispose
+        // Cleanup ONLY on unmount
         return () => {
             mounted = false
 
-            // AUTOGUARDADO: Save current state to cache before unmounting
-            const currentId = currentArtifactIdRef.current
+            const currentId = currentIdRef.current
             if (workbookRef.current && currentId) {
                 try {
                     const snapshot = workbookRef.current.save()
                     if (snapshot) {
-                        const cacheEntry: ArtifactSnapshot = {
-                            univerData: snapshot,
-                            timestamp: Date.now(),
-                            isDirty: isDirtyRef.current
-                        }
-                        setSnapshotCache(prev => ({
-                            ...prev,
-                            [currentId]: cacheEntry
-                        }))
+                        setSnapshotInCache(currentId, snapshot, isDirtyRef.current)
                         console.log('[UniverSpreadsheet] Cached snapshot on unmount:', currentId, 'isDirty:', isDirtyRef.current)
 
+                        // Trigger async save if dirty
                         if (isDirtyRef.current) {
-                            saveSnapshot.mutate({ id: currentId, univerData: snapshot })
+                            if (useFileSystem) {
+                                updateFileMutation.mutate({
+                                    id: currentId,
+                                    univerData: snapshot,
+                                    changeType: 'auto_save',
+                                    changeDescription: 'Auto-guardado'
+                                })
+                            } else {
+                                saveArtifactSnapshot.mutate({ id: currentId, univerData: snapshot })
+                            }
                             console.log('[UniverSpreadsheet] Triggered async save to DB')
                         }
                     }
@@ -242,52 +367,39 @@ export const UniverSpreadsheet = React.forwardRef<UniverSpreadsheetRef, UniverSp
             }, 0)
         }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [setSnapshotCache]) // Only run on mount/unmount, not on artifact changes
+    }, []) // Only run on mount/unmount
 
-    // Handle artifact switches WITHOUT remounting Univer
-    // When artifactId or data changes, update the workbook in place
+    // Handle ID switches WITHOUT remounting Univer
     React.useEffect(() => {
-        // Skip if not initialized yet (init effect will handle it)
         if (!isInitializedRef.current) return
+        if (currentIdRef.current === effectiveId) return
 
-        // Skip if artifact hasn't actually changed
-        if (currentArtifactIdRef.current === artifactId) return
-
-        console.log('[UniverSpreadsheet] Artifact switch detected:', currentArtifactIdRef.current, '->', artifactId)
+        console.log('[UniverSpreadsheet] ID switch detected:', currentIdRef.current, '->', effectiveId)
 
         const instance = getSheetsInstance()
         if (!instance) {
-            console.warn('[UniverSpreadsheet] No instance for artifact switch')
+            console.warn('[UniverSpreadsheet] No instance for ID switch')
             return
         }
 
         // Save current workbook to cache before switching
-        const oldArtifactId = currentArtifactIdRef.current
-        if (workbookRef.current && oldArtifactId) {
+        const oldId = currentIdRef.current
+        if (workbookRef.current && oldId) {
             try {
                 const snapshot = workbookRef.current.save()
                 if (snapshot) {
-                    const cacheEntry: ArtifactSnapshot = {
-                        univerData: snapshot,
-                        timestamp: Date.now(),
-                        isDirty: isDirtyRef.current
-                    }
-                    setSnapshotCache(prev => ({
-                        ...prev,
-                        [oldArtifactId]: cacheEntry
-                    }))
-                    console.log('[UniverSpreadsheet] Cached snapshot before switch:', oldArtifactId)
+                    setSnapshotInCache(oldId, snapshot, isDirtyRef.current)
+                    console.log('[UniverSpreadsheet] Cached snapshot before switch:', oldId)
                 }
             } catch (err) {
                 console.error('[UniverSpreadsheet] Failed to cache before switch:', err)
             }
         }
 
-        // Update current artifact ID ref
-        currentArtifactIdRef.current = artifactId
+        currentIdRef.current = effectiveId
         isDirtyRef.current = false
 
-        // Dispose current workbook and create new one with new data
+        // Dispose current workbook and create new one
         const currentWorkbook = instance.api.getActiveWorkbook()
         if (currentWorkbook) {
             const unitId = currentWorkbook.getId()
@@ -296,10 +408,9 @@ export const UniverSpreadsheet = React.forwardRef<UniverSpreadsheetRef, UniverSp
             }
         }
 
-        // Get data for new artifact (from props or cache)
+        // Get data for new file/artifact
         const newData = getCachedOrDbData()
 
-        // Create new workbook
         instance.univer.createUnit(UniverInstanceType.UNIVER_SHEET, newData || {
             id: effectiveDataId,
             name: 'Workbook',
@@ -318,44 +429,53 @@ export const UniverSpreadsheet = React.forwardRef<UniverSpreadsheetRef, UniverSp
         })
         workbookRef.current = instance.api.getActiveWorkbook()
 
-        console.log('[UniverSpreadsheet] Artifact switch completed:', artifactId)
-    }, [artifactId, effectiveDataId, getCachedOrDbData, setSnapshotCache])
+        console.log('[UniverSpreadsheet] ID switch completed:', effectiveId)
+    }, [effectiveId, effectiveDataId, getCachedOrDbData, setSnapshotInCache])
 
     // Auto-save with debounce (3 seconds after last edit)
     const autoSaveTimeoutRef = React.useRef<NodeJS.Timeout | null>(null)
 
     const triggerAutoSave = React.useCallback(() => {
-        if (!artifactId || !workbookRef.current || isSaving) return
+        if (!effectiveId || !workbookRef.current || isSaving) return
 
-        // Clear existing timeout
         if (autoSaveTimeoutRef.current) {
             clearTimeout(autoSaveTimeoutRef.current)
         }
 
-        // Set new timeout for auto-save
         autoSaveTimeoutRef.current = setTimeout(async () => {
             try {
                 const snapshot = workbookRef.current?.save()
-                if (snapshot && artifactId && isDirtyRef.current) {
+                if (snapshot && effectiveId && isDirtyRef.current) {
                     console.log('[UniverSpreadsheet] Auto-saving...')
-                    await saveSnapshot.mutateAsync({
-                        id: artifactId,
-                        univerData: snapshot
-                    })
+
+                    if (useFileSystem && fileId) {
+                        setSavingState(prev => ({ ...prev, [fileId]: true }))
+                        await updateFileMutation.mutateAsync({
+                            id: fileId,
+                            univerData: snapshot,
+                            changeType: 'auto_save',
+                            changeDescription: 'Auto-guardado'
+                        })
+                    } else if (artifactId) {
+                        await saveArtifactSnapshot.mutateAsync({
+                            id: artifactId,
+                            univerData: snapshot
+                        })
+                    }
+
                     isDirtyRef.current = false
                     console.log('[UniverSpreadsheet] Auto-save completed')
                 }
             } catch (err) {
                 console.error('[UniverSpreadsheet] Auto-save failed:', err)
             }
-        }, 3000) // 3 seconds debounce
-    }, [artifactId, isSaving, saveSnapshot])
+        }, 3000)
+    }, [effectiveId, useFileSystem, fileId, artifactId, isSaving, updateFileMutation, saveArtifactSnapshot, setSavingState])
 
-    // Track user edits to mark as dirty and trigger auto-save
+    // Track user edits
     React.useEffect(() => {
-        if (!artifactId) return
+        if (!effectiveId) return
 
-        // Mark dirty on any keyboard input in the container
         const container = containerRef.current
         if (!container) return
 
@@ -364,7 +484,6 @@ export const UniverSpreadsheet = React.forwardRef<UniverSpreadsheetRef, UniverSp
             triggerAutoSave()
         }
 
-        // Listen for various edit events
         container.addEventListener('input', handleInput)
         container.addEventListener('keydown', handleInput)
         container.addEventListener('paste', handleInput)
@@ -373,43 +492,41 @@ export const UniverSpreadsheet = React.forwardRef<UniverSpreadsheetRef, UniverSp
             container.removeEventListener('input', handleInput)
             container.removeEventListener('keydown', handleInput)
             container.removeEventListener('paste', handleInput)
-            // Clear timeout on cleanup
             if (autoSaveTimeoutRef.current) {
                 clearTimeout(autoSaveTimeoutRef.current)
             }
         }
-    }, [artifactId, triggerAutoSave])
+    }, [effectiveId, triggerAutoSave])
 
-    // Listen for live artifact updates from AI tools
-    // Uses incremental cell updates via Univer Facade API to avoid flickering
+    // Listen for live updates from AI tools
     React.useEffect(() => {
-        if (!artifactId) return
+        if (!effectiveId) return
 
         const unsubscribe = window.desktopApi?.onArtifactUpdate?.((updateData) => {
-            // Only process updates for this artifact
-            if (updateData.artifactId !== artifactId) return
+            // Handle both artifact and file updates
+            const matchesArtifact = updateData.artifactId === artifactId
+            const matchesFile = updateData.fileId === fileId
+            if (!matchesArtifact && !matchesFile) return
             if (updateData.type !== 'spreadsheet') return
 
-            console.log('[UniverSpreadsheet] Received live update for artifact:', artifactId)
+            console.log('[UniverSpreadsheet] Received live update for:', effectiveId)
 
             const instance = getSheetsInstance()
             if (!instance) {
-                console.warn('[UniverSpreadsheet] No Univer instance available for live update')
+                console.warn('[UniverSpreadsheet] No Univer instance for live update')
                 return
             }
 
             try {
                 const currentWorkbook = instance.api.getActiveWorkbook()
                 if (!currentWorkbook) {
-                    // No workbook exists - create new one (initial load case)
                     console.log('[UniverSpreadsheet] No active workbook, creating new one')
                     instance.univer.createUnit(UniverInstanceType.UNIVER_SHEET, updateData.univerData)
                     workbookRef.current = instance.api.getActiveWorkbook()
                     return
                 }
 
-                // INCREMENTAL UPDATE: Use Facade API to update cells without recreating workbook
-                // This prevents flickering during AI tool operations
+                // INCREMENTAL UPDATE
                 const univerData = updateData.univerData
                 const sheetId = Object.keys(univerData.sheets || {})[0]
                 if (!sheetId || !univerData.sheets?.[sheetId]) {
@@ -426,7 +543,6 @@ export const UniverSpreadsheet = React.forwardRef<UniverSpreadsheetRef, UniverSp
                     return
                 }
 
-                // Collect all cells that need updating
                 const updates: Array<{ row: number; col: number; value: unknown; style?: unknown }> = []
 
                 for (const [rowKey, rowData] of Object.entries(cellData)) {
@@ -449,32 +565,25 @@ export const UniverSpreadsheet = React.forwardRef<UniverSpreadsheetRef, UniverSp
                     }
                 }
 
-                // Apply updates in batches using setValues for better performance
-                // Group by contiguous ranges when possible
                 if (updates.length > 0) {
                     console.log(`[UniverSpreadsheet] Applying ${updates.length} cell updates incrementally`)
 
-                    // Simple approach: update each cell individually using object-based setValues
-                    // Univer's object format allows sparse updates without specifying every cell
                     const maxRow = Math.max(...updates.map(u => u.row)) + 1
                     const maxCol = Math.max(...updates.map(u => u.col)) + 1
 
-                    // Build object matrix for setValues (sparse format)
                     const valueMatrix: Record<number, Record<number, unknown>> = {}
                     for (const update of updates) {
                         if (!valueMatrix[update.row]) valueMatrix[update.row] = {}
                         valueMatrix[update.row][update.col] = update.value
                     }
 
-                    // Get range covering all updates and apply values
                     try {
                         const range = activeSheet.getRange(0, 0, maxRow, maxCol)
                         if (range && typeof range.setValues === 'function') {
                             range.setValues(valueMatrix)
                         }
                     } catch (rangeErr) {
-                        console.warn('[UniverSpreadsheet] setValues failed, falling back to full update:', rangeErr)
-                        // Fallback: recreate workbook if incremental update fails
+                        console.warn('[UniverSpreadsheet] setValues failed, falling back:', rangeErr)
                         const unitId = currentWorkbook.getId()
                         if (unitId) {
                             instance.api.disposeUnit(unitId)
@@ -484,7 +593,7 @@ export const UniverSpreadsheet = React.forwardRef<UniverSpreadsheetRef, UniverSp
                     }
                 }
 
-                console.log('[UniverSpreadsheet] Incremental update applied successfully')
+                console.log('[UniverSpreadsheet] Incremental update applied')
             } catch (err) {
                 console.error('[UniverSpreadsheet] Failed to apply live update:', err)
             }
@@ -493,7 +602,53 @@ export const UniverSpreadsheet = React.forwardRef<UniverSpreadsheetRef, UniverSp
         return () => {
             unsubscribe?.()
         }
-    }, [artifactId])
+    }, [effectiveId, artifactId, fileId])
+
+    // Listen for AI tool completion events to save with metadata
+    React.useEffect(() => {
+        if (!fileId) return
+
+        // @ts-expect-error - desktopApi type extended in preload
+        const unsubscribe = window.desktopApi?.onFileSaveWithAIMetadata?.((data: {
+            fileId: string;
+            tabType: "excel" | "doc";
+            aiModel: string;
+            aiPrompt: string;
+            toolName: string;
+        }) => {
+            if (data.fileId !== fileId || data.tabType !== 'excel') return
+
+            console.log('[UniverSpreadsheet] Received AI save request:', data.toolName)
+
+            // Get current snapshot and save with AI metadata
+            if (workbookRef.current) {
+                try {
+                    const snapshot = workbookRef.current.save()
+                    if (snapshot) {
+                        setSavingState(prev => ({ ...prev, [fileId]: true }))
+                        updateFileMutation.mutate({
+                            id: fileId,
+                            univerData: snapshot,
+                            changeType: 'ai_edit',
+                            changeDescription: `Editado por ${data.toolName}`,
+                            aiModel: data.aiModel,
+                            aiPrompt: data.aiPrompt,
+                            toolName: data.toolName
+                        })
+                        isDirtyRef.current = false
+                        console.log('[UniverSpreadsheet] Saved with AI metadata:', data.toolName)
+                    }
+                } catch (err) {
+                    console.error('[UniverSpreadsheet] Failed to save with AI metadata:', err)
+                    setSavingState(prev => ({ ...prev, [fileId]: false }))
+                }
+            }
+        })
+
+        return () => {
+            unsubscribe?.()
+        }
+    }, [fileId, updateFileMutation, setSavingState])
 
     if (error) {
         return (
@@ -506,7 +661,7 @@ export const UniverSpreadsheet = React.forwardRef<UniverSpreadsheetRef, UniverSp
     return (
         <div className="relative w-full h-full">
             {isLoading && (
-            <div 
+            <div
                 className="absolute inset-0 flex items-center justify-center bg-background/80 z-10"
                 style={{ pointerEvents: 'auto' }}
             >
@@ -516,10 +671,8 @@ export const UniverSpreadsheet = React.forwardRef<UniverSpreadsheetRef, UniverSp
                     </div>
                 </div>
             )}
-            {/* tabIndex=0 is required for the canvas to receive keyboard events */}
-            {/* biome-ignore lint/a11y/noNoninteractiveTabindex: Required for Univer canvas keyboard input */}
-            <div 
-                ref={containerRef} 
+            <div
+                ref={containerRef}
                 className="w-full h-full outline-none"
             />
         </div>

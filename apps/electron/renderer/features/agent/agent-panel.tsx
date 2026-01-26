@@ -56,6 +56,11 @@ import {
   selectedPdfAtom,
   type AgentPanelMessage,
   type AgentPanelImageAttachment,
+  // New file system atoms
+  currentExcelFileIdAtom,
+  currentExcelFileAtom,
+  currentDocFileIdAtom,
+  currentDocFileAtom,
 } from "@/lib/atoms";
 import { AI_MODELS, getModelsByProvider } from "@s-agi/core/types/ai";
 import type { AIProvider } from "@s-agi/core/types/ai";
@@ -350,6 +355,12 @@ export function AgentPanel() {
   const selectedArtifact = useAtomValue(selectedArtifactAtom);
   const selectedPdf = useAtomValue(selectedPdfAtom);
 
+  // New file system state
+  const currentExcelFileId = useAtomValue(currentExcelFileIdAtom);
+  const currentExcelFile = useAtomValue(currentExcelFileAtom);
+  const currentDocFileId = useAtomValue(currentDocFileIdAtom);
+  const currentDocFile = useAtomValue(currentDocFileAtom);
+
   const [input, setInput] = useState("");
   const [historyDialogOpen, setHistoryDialogOpen] = useState(false);
 
@@ -386,13 +397,23 @@ export function AgentPanel() {
     [activeTab, setAllMessages],
   );
 
-  // Session ID for streaming (combine tab + artifact id)
+  // Session ID for streaming (combine tab + file/artifact id)
   const sessionId = useMemo(() => {
     if (activeTab === "pdf" && selectedPdf) {
       return `${activeTab}-${selectedPdf.id}`;
     }
+    // Use file ID for new file system, fall back to artifact ID
+    if (activeTab === "excel" && currentExcelFileId) {
+      return `${activeTab}-file-${currentExcelFileId}`;
+    }
+    if (activeTab === "doc" && currentDocFileId) {
+      return `${activeTab}-file-${currentDocFileId}`;
+    }
+    if (selectedArtifact) {
+      return `${activeTab}-${selectedArtifact.id}`;
+    }
     return `${activeTab}-default`;
-  }, [activeTab, selectedPdf]);
+  }, [activeTab, selectedPdf, currentExcelFileId, currentDocFileId, selectedArtifact]);
 
   // tRPC mutations
   const chatMutation = trpc.agentPanel.chat.useMutation();
@@ -702,7 +723,7 @@ export function AgentPanel() {
     setStreamingText("");
 
     try {
-      // Build context: Excel/Doc use current artifact so tools operate on the open spreadsheet/doc
+      // Build context: Excel/Doc use current file (new) or artifact (legacy) so tools operate on the open spreadsheet/doc
       let context: {
         workbookId?: string;
         sheetId?: string;
@@ -712,15 +733,36 @@ export function AgentPanel() {
         pdfPath?: string;
         pdfName?: string;
         pdfPages?: { pageNumber: number; content: string; wordCount: number }[];
+        fileId?: string;
+        fileName?: string;
       } | undefined;
 
-      if (activeTab === "excel" && selectedArtifact?.type === "spreadsheet") {
-        context = { workbookId: selectedArtifact.id };
-      } else if (activeTab === "doc" && selectedArtifact?.type === "document") {
-        context = {
-          documentId: selectedArtifact.id,
-          documentTitle: selectedArtifact.name,
-        };
+      if (activeTab === "excel") {
+        // Prefer new file system, fall back to legacy artifact
+        if (currentExcelFileId && currentExcelFile) {
+          context = {
+            workbookId: currentExcelFileId, // For backward compatibility with tools
+            fileId: currentExcelFileId,
+            fileName: currentExcelFile.name,
+          };
+        } else if (selectedArtifact?.type === "spreadsheet") {
+          context = { workbookId: selectedArtifact.id };
+        }
+      } else if (activeTab === "doc") {
+        // Prefer new file system, fall back to legacy artifact
+        if (currentDocFileId && currentDocFile) {
+          context = {
+            documentId: currentDocFileId, // For backward compatibility with tools
+            documentTitle: currentDocFile.name,
+            fileId: currentDocFileId,
+            fileName: currentDocFile.name,
+          };
+        } else if (selectedArtifact?.type === "document") {
+          context = {
+            documentId: selectedArtifact.id,
+            documentTitle: selectedArtifact.name,
+          };
+        }
       } else if (activeTab === "pdf" && selectedPdf) {
         context = {
           pdfPath: selectedPdf.metadata?.localPath,
@@ -773,6 +815,10 @@ export function AgentPanel() {
     config,
     selectedArtifact,
     selectedPdf,
+    currentExcelFileId,
+    currentExcelFile,
+    currentDocFileId,
+    currentDocFile,
     chatMutation,
     setImages,
     setIsStreaming,

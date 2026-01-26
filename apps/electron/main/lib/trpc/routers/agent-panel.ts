@@ -151,13 +151,16 @@ export const agentPanelRouter = router({
                 }),
               )
               .optional(),
-            // Excel specific
+            // Excel specific (legacy artifact system)
             workbookId: z.string().optional(),
             sheetId: z.string().optional(),
             selectedRange: z.string().optional(),
-            // Docs specific
+            // Docs specific (legacy artifact system)
             documentId: z.string().optional(),
             documentTitle: z.string().optional(),
+            // New file system
+            fileId: z.string().optional(),
+            fileName: z.string().optional(),
           })
           .optional(),
       }),
@@ -479,6 +482,18 @@ IMPORTANTE: CADA dato del PDF debe tener su citación [página N].`;
               mcpTools: mcpTools.length > 0 ? mcpTools : undefined,
             });
 
+            // If using file system and MCP tools exist, emit save event
+            if (context?.fileId && mcpTools.length > 0) {
+              log.info(`[AgentPanel] Emitting file save event for fileId: ${context.fileId}`);
+              sendToRenderer("file:save-with-ai-metadata", {
+                fileId: context.fileId,
+                tabType,
+                aiModel: apiModelId,
+                aiPrompt: prompt,
+                toolName: tabType === "excel" ? "ExcelAgent" : "DocsAgent",
+              });
+            }
+
             log.info(`[AgentPanel] Claude SDK stream completed for session ${sessionId}, text length: ${result.text.length}`);
             return { success: true, text: result.text };
           } catch (streamError) {
@@ -570,6 +585,18 @@ IMPORTANTE: CADA dato del PDF debe tener su citación [página N].`;
               completionTokens: usage.outputTokens ?? 0,
             },
           });
+
+          // If using file system and tools were called, emit save event
+          if (context?.fileId && Object.keys(agentTools).length > 0) {
+            log.info(`[AgentPanel] Emitting file save event for fileId: ${context.fileId}`);
+            sendToRenderer("file:save-with-ai-metadata", {
+              fileId: context.fileId,
+              tabType,
+              aiModel: apiModelId,
+              aiPrompt: prompt,
+              toolName: tabType === "excel" ? "ExcelAgent" : "DocsAgent",
+            });
+          }
 
           log.info(`[AgentPanel] Stream completed for session ${sessionId}, text length: ${fullText.length}`);
           return { success: true, text: fullText };

@@ -7,7 +7,6 @@ import log from 'electron-log'
 // Claude Code OAuth endpoints (using craft-agents-oss patterns)
 const CLAUDE_AUTH_URL = 'https://claude.ai/oauth/authorize'
 const CLAUDE_TOKEN_URL = 'https://console.anthropic.com/v1/oauth/token'
-const CLAUDE_REFRESH_URL = 'https://api.anthropic.com/v1/oauth/token'
 const REDIRECT_URI = 'https://console.anthropic.com/oauth/code/callback'
 
 // Client ID from craft-agents-oss (public client, no secret needed)
@@ -295,27 +294,43 @@ export class ClaudeCodeAuthManager {
 
     /**
      * Refresh token using Anthropic API
+     * Uses the same endpoint and format as token exchange (JSON body, same headers)
      */
     private async refreshToken(refreshToken: string): Promise<{
         accessToken: string
         refreshToken?: string
         expiresAt?: number
     }> {
-        const params = new URLSearchParams({
-            grant_type: 'refresh_token',
-            refresh_token: refreshToken,
-            client_id: 'claude-desktop',
-        })
+        log.info('[ClaudeCodeAuth] Attempting token refresh')
 
-        const response = await fetch(CLAUDE_REFRESH_URL, {
+        const response = await fetch(CLAUDE_TOKEN_URL, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            body: params.toString(),
+            headers: {
+                'Content-Type': 'application/json',
+                'User-Agent':
+                    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+                Accept: 'application/json, text/plain, */*',
+                'Accept-Language': 'en-US,en;q=0.9',
+                Referer: 'https://claude.ai/',
+                Origin: 'https://claude.ai',
+            },
+            body: JSON.stringify({
+                grant_type: 'refresh_token',
+                refresh_token: refreshToken,
+                client_id: CLAUDE_CLIENT_ID,
+            }),
         })
 
         if (!response.ok) {
-            const error = await response.text()
-            throw new Error(`Failed to refresh Claude token: ${error}`)
+            const errorText = await response.text()
+            let errorMessage: string
+            try {
+                const errorJson = JSON.parse(errorText)
+                errorMessage = errorJson.error_description || errorJson.error || errorText
+            } catch {
+                errorMessage = errorText
+            }
+            throw new Error(`Failed to refresh Claude token: ${errorMessage}`)
         }
 
         const data = await response.json() as {
@@ -324,6 +339,8 @@ export class ClaudeCodeAuthManager {
             expires_in?: number
             token_type?: string
         }
+
+        log.info('[ClaudeCodeAuth] Token refresh successful, expires_in:', data.expires_in)
 
         return {
             accessToken: data.access_token,

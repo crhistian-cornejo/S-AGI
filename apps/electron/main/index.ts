@@ -60,7 +60,9 @@ function sendToMainWindow(channel: string, ...args: unknown[]): boolean {
 // See: https://www.electronjs.org/docs/latest/tutorial/fuses
 // For this app, fuses should be configured in the build process.
 
-// Basic menu to enable standard shortcuts like Copy/Paste
+// Native macOS menu bar implementation (similar to Craft app)
+// On macOS, Menu.setApplicationMenu() displays menus in the system menu bar at the top of the screen
+// This is the standard Electron approach for native macOS menu integration
 function updateApplicationMenu() {
   const openSettings = (tab?: string) => {
     if (!mainWindow || mainWindow.isDestroyed()) return;
@@ -69,7 +71,14 @@ function updateApplicationMenu() {
     mainWindow.webContents.send("app:open-settings", { tab });
   };
 
+  const sendMenuAction = (action: string, data?: unknown) => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send(`menu:${action}`, data);
+    }
+  };
+
   const template: Electron.MenuItemConstructorOptions[] = [
+    // macOS: First menu is always the app name menu (appears as "S-AGI" in menu bar)
     ...(process.platform === "darwin"
       ? [
           {
@@ -98,6 +107,92 @@ function updateApplicationMenu() {
           },
         ]
       : []),
+    // File menu - All file operations and new document creation
+    {
+      label: "File",
+      submenu: [
+        {
+          label: "New Chat",
+          accelerator: process.platform === "darwin" ? "Command+N" : "Ctrl+N",
+          click: () => sendMenuAction("new-chat"),
+        },
+        {
+          label: "New Spreadsheet",
+          accelerator:
+            process.platform === "darwin" ? "Command+Shift+N" : "Ctrl+Shift+N",
+          click: () => sendMenuAction("new-spreadsheet"),
+        },
+        {
+          label: "New Document",
+          accelerator:
+            process.platform === "darwin" ? "Command+Option+N" : "Ctrl+Alt+N",
+          click: () => sendMenuAction("new-document"),
+        },
+        { type: "separator" } as const,
+        {
+          label: "Import Files...",
+          accelerator: process.platform === "darwin" ? "Command+U" : "Ctrl+U",
+          click: async () => {
+            try {
+              const result = await dialog.showOpenDialog({
+                title: "Select files",
+                properties: ["openFile", "multiSelections"],
+              });
+              if (!result.canceled && result.filePaths.length > 0) {
+                const fm = getFileManager();
+                await fm.init();
+                await fm.importFromPaths(result.filePaths, "inbox");
+                sendMenuAction("files-imported");
+              }
+            } catch (err) {
+              log.warn("[Menu] Import failed:", err);
+            }
+          },
+        },
+        {
+          label: "Open PDF...",
+          accelerator:
+            process.platform === "darwin" ? "Command+O" : "Ctrl+O",
+          click: async () => {
+            try {
+              const result = await dialog.showOpenDialog({
+                title: "Select PDF files",
+                filters: [{ name: "PDF Documents", extensions: ["pdf"] }],
+                properties: ["openFile", "multiSelections"],
+              });
+              if (!result.canceled && result.filePaths.length > 0) {
+                const fs = await import("node:fs");
+                const path = await import("node:path");
+                const files = result.filePaths.map((filePath) => {
+                  const stats = fs.statSync(filePath);
+                  return {
+                    path: filePath,
+                    name: path.basename(filePath),
+                    size: stats.size,
+                  };
+                });
+                sendMenuAction("open-pdf", { files });
+              }
+            } catch (err) {
+              log.warn("[Menu] Open PDF failed:", err);
+            }
+          },
+        },
+        ...(process.platform !== "darwin"
+          ? [
+              { type: "separator" } as const,
+              {
+                label: "Settings...",
+                accelerator: "Ctrl+,",
+                click: () => openSettings("account"),
+              },
+              { type: "separator" } as const,
+              { role: "quit" } as const,
+            ]
+          : []),
+      ],
+    },
+    // Edit menu - Text editing operations
     {
       label: "Edit",
       submenu: [
@@ -107,9 +202,25 @@ function updateApplicationMenu() {
         { role: "cut" } as const,
         { role: "copy" } as const,
         { role: "paste" } as const,
+        { role: "pasteAndMatchStyle" } as const,
+        { role: "delete" } as const,
+        { type: "separator" } as const,
         { role: "selectAll" } as const,
+        ...(process.platform === "darwin"
+          ? [
+              { type: "separator" } as const,
+              {
+                label: "Speech",
+                submenu: [
+                  { role: "startSpeaking" } as const,
+                  { role: "stopSpeaking" } as const,
+                ],
+              },
+            ]
+          : []),
       ],
     },
+    // View menu - UI controls and preferences
     {
       label: "View",
       submenu: [
@@ -124,6 +235,18 @@ function updateApplicationMenu() {
         { role: "togglefullscreen" } as const,
         { type: "separator" } as const,
         {
+          label: "Toggle Sidebar",
+          accelerator:
+            process.platform === "darwin" ? "Command+\\" : "Ctrl+\\",
+          click: () => sendMenuAction("toggle-sidebar"),
+        },
+        {
+          label: "Show Keyboard Shortcuts",
+          accelerator: "Shift+?",
+          click: () => sendMenuAction("show-shortcuts"),
+        },
+        { type: "separator" } as const,
+        {
           label: "Show Tray Icon",
           type: "checkbox",
           checked: appPreferences.trayEnabled,
@@ -133,7 +256,6 @@ function updateApplicationMenu() {
             appPreferences = next;
             applyTrayPreference(newValue);
             updateApplicationMenu();
-            // Notify renderer if needed
             if (mainWindow && !mainWindow.isDestroyed()) {
               mainWindow.webContents.send("preferences:updated", next);
             }
@@ -149,7 +271,6 @@ function updateApplicationMenu() {
             appPreferences = next;
             applyQuickPromptPreference(newValue);
             updateApplicationMenu();
-            // Notify renderer if needed
             if (mainWindow && !mainWindow.isDestroyed()) {
               mainWindow.webContents.send("preferences:updated", next);
             }
@@ -157,6 +278,211 @@ function updateApplicationMenu() {
         },
       ],
     },
+    // Chat menu - Chat-specific operations
+    {
+      label: "Chat",
+      submenu: [
+        {
+          label: "Stop Generation",
+          accelerator: "Escape",
+          click: () => sendMenuAction("stop-generation"),
+        },
+        {
+          label: "Cycle Reasoning Effort",
+          accelerator: "Ctrl+Tab",
+          click: () => sendMenuAction("cycle-reasoning"),
+        },
+        { type: "separator" } as const,
+        {
+          label: "Clear Chat",
+          click: () => sendMenuAction("clear-chat"),
+        },
+        {
+          label: "Archive Chat",
+          click: () => sendMenuAction("archive-chat"),
+        },
+        {
+          label: "Delete Chat",
+          accelerator: process.platform === "darwin" ? "Command+Backspace" : "Ctrl+Delete",
+          click: () => sendMenuAction("delete-chat"),
+        },
+      ],
+    },
+    // Artifact menu - Artifact operations (spreadsheets, documents, charts)
+    {
+      label: "Artifact",
+      submenu: [
+        {
+          label: "Save Artifact",
+          accelerator: process.platform === "darwin" ? "Command+S" : "Ctrl+S",
+          click: () => sendMenuAction("save-artifact"),
+        },
+        {
+          label: "Export as Excel...",
+          click: () => sendMenuAction("export-excel"),
+        },
+        {
+          label: "Export Chart as PNG...",
+          click: () => sendMenuAction("export-chart-png"),
+        },
+        {
+          label: "Export Chart as PDF...",
+          click: () => sendMenuAction("export-chart-pdf"),
+        },
+        {
+          label: "Copy Chart to Clipboard",
+          click: () => sendMenuAction("copy-chart"),
+        },
+        {
+          label: "Download PDF",
+          click: () => sendMenuAction("download-pdf"),
+        },
+        {
+          label: "Open PDF in Browser",
+          click: () => sendMenuAction("open-pdf-browser"),
+        },
+        { type: "separator" } as const,
+        {
+          label: "Close Artifact Panel",
+          accelerator: "Escape",
+          click: () => sendMenuAction("close-artifact"),
+        },
+      ],
+    },
+    // PDF menu - PDF-specific operations
+    {
+      label: "PDF",
+      submenu: [
+        {
+          label: "Save PDF with Annotations",
+          accelerator: process.platform === "darwin" ? "Command+S" : "Ctrl+S",
+          click: () => sendMenuAction("save-pdf-annotations"),
+        },
+        {
+          label: "Navigate to Page...",
+          accelerator: process.platform === "darwin" ? "Command+G" : "Ctrl+G",
+          click: () => sendMenuAction("pdf-navigate"),
+        },
+        {
+          label: "Highlight Selected Text",
+          accelerator: process.platform === "darwin" ? "Command+H" : "Ctrl+H",
+          click: () => sendMenuAction("pdf-highlight"),
+        },
+        { type: "separator" } as const,
+        {
+          label: "Zoom In",
+          accelerator: process.platform === "darwin" ? "Command+=" : "Ctrl+=",
+          click: () => sendMenuAction("pdf-zoom-in"),
+        },
+        {
+          label: "Zoom Out",
+          accelerator: process.platform === "darwin" ? "Command+-" : "Ctrl+-",
+          click: () => sendMenuAction("pdf-zoom-out"),
+        },
+        {
+          label: "Reset Zoom",
+          accelerator: process.platform === "darwin" ? "Command+0" : "Ctrl+0",
+          click: () => sendMenuAction("pdf-zoom-reset"),
+        },
+      ],
+    },
+    // Agent menu - Agent Panel operations
+    {
+      label: "Agent",
+      submenu: [
+        {
+          label: "Toggle Agent Panel",
+          accelerator: process.platform === "darwin" ? "Command+Shift+A" : "Ctrl+Shift+A",
+          click: () => sendMenuAction("toggle-agent-panel"),
+        },
+        {
+          label: "Clear Agent History",
+          click: () => sendMenuAction("clear-agent-history"),
+        },
+      ],
+    },
+    // Go menu - Navigation between tabs and quick actions
+    {
+      label: "Go",
+      submenu: [
+        {
+          label: "Go to Chat",
+          accelerator: process.platform === "darwin" ? "Command+1" : "Ctrl+1",
+          click: () => sendMenuAction("go-to-tab", { tab: "chat" }),
+        },
+        {
+          label: "Go to Spreadsheet",
+          accelerator: process.platform === "darwin" ? "Command+2" : "Ctrl+2",
+          click: () => sendMenuAction("go-to-tab", { tab: "excel" }),
+        },
+        {
+          label: "Go to Document",
+          accelerator: process.platform === "darwin" ? "Command+3" : "Ctrl+3",
+          click: () => sendMenuAction("go-to-tab", { tab: "doc" }),
+        },
+        {
+          label: "Go to PDF",
+          accelerator: process.platform === "darwin" ? "Command+4" : "Ctrl+4",
+          click: () => sendMenuAction("go-to-tab", { tab: "pdf" }),
+        },
+        {
+          label: "Go to Ideas",
+          accelerator: process.platform === "darwin" ? "Command+5" : "Ctrl+5",
+          click: () => sendMenuAction("go-to-tab", { tab: "ideas" }),
+        },
+        {
+          label: "Go to Gallery",
+          accelerator: process.platform === "darwin" ? "Command+6" : "Ctrl+6",
+          click: () => sendMenuAction("go-to-tab", { tab: "gallery" }),
+        },
+        { type: "separator" } as const,
+        {
+          label: "Search / Command K",
+          accelerator: process.platform === "darwin" ? "Command+K" : "Ctrl+K",
+          click: () => sendMenuAction("command-k"),
+        },
+      ],
+    },
+    // Settings menu - Quick access to all settings tabs
+    {
+      label: "Settings",
+      submenu: [
+        {
+          label: "Account",
+          click: () => openSettings("account"),
+        },
+        {
+          label: "Appearance",
+          click: () => openSettings("appearance"),
+        },
+        {
+          label: "API Keys",
+          click: () => openSettings("api-keys"),
+        },
+        {
+          label: "Advanced",
+          click: () => openSettings("advanced"),
+        },
+        {
+          label: "Shortcuts",
+          click: () => openSettings("shortcuts"),
+        },
+        {
+          label: "Usage",
+          click: () => openSettings("usage"),
+        },
+        ...(process.env.NODE_ENV === "development"
+          ? [
+              { type: "separator" } as const,
+              {
+                label: "Debug",
+                click: () => openSettings("debug"),
+              },
+            ]
+          : []),
+      ],
+    },
+    // Window menu - Window management
     {
       label: "Window",
       submenu: [
@@ -169,13 +495,40 @@ function updateApplicationMenu() {
               { type: "separator" } as const,
               { role: "window" } as const,
             ]
-          : [{ role: "close" } as const]),
+          : [{ type: "separator" } as const, { role: "close" } as const]),
+      ],
+    },
+    // Help menu - Documentation and shortcuts
+    {
+      label: "Help",
+      submenu: [
+        {
+          label: "Keyboard Shortcuts",
+          accelerator: "Shift+?",
+          click: () => sendMenuAction("show-shortcuts"),
+        },
+        {
+          label: "Learn More",
+          click: async () => {
+            await shell.openExternal("https://github.com/your-repo/s-agi");
+          },
+        },
       ],
     },
   ];
 
-  const menu = Menu.buildFromTemplate(template);
-  Menu.setApplicationMenu(menu);
+  try {
+    const menu = Menu.buildFromTemplate(template);
+    // On macOS, this displays the menu in the native system menu bar at the top of the screen
+    // This is the standard way apps like Craft implement native macOS menus
+    Menu.setApplicationMenu(menu);
+    
+    // Log menu items for debugging
+    const menuItems = menu.items.map((item) => item.label).filter(Boolean);
+    log.info("[Menu] Application menu updated with", menuItems.length, "items:", menuItems);
+  } catch (error) {
+    log.error("[Menu] Failed to build menu:", error);
+  }
 }
 
 // Suppress Chromium autofill console errors (cosmetic, not actual errors)
@@ -834,6 +1187,17 @@ function registerPermissionRequestHandler(): void {
         return callback(true);
       }
 
+      // Allow clipboard permissions for trusted origins (needed for Univer)
+      if (
+        (permission === "clipboard-write" || permission === "clipboard-read") &&
+        (isLocal || isTrustedOrigin)
+      ) {
+        log.info(
+          `[Security] Allowing clipboard permission '${permission}' for: ${url}`,
+        );
+        return callback(true);
+      }
+
       // Deny all other permissions by default
       log.warn(
         `[Security] Permission '${permission}' denied for: ${url}`,
@@ -1008,6 +1372,8 @@ function createWindow(): void {
   // Show window when ready
   mainWindow.on("ready-to-show", () => {
     mainWindow?.show();
+    // Ensure menu is set after window is ready
+    updateApplicationMenu();
   });
 
   // Notify renderer when maximized/unmaximized (for title-bar icon)
