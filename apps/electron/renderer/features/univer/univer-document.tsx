@@ -103,14 +103,36 @@ export const UniverDocument = React.forwardRef<UniverDocumentRef, UniverDocument
     const currentIdRef = React.useRef<string | undefined>(effectiveId)
     const isInitializedRef = React.useRef(false)
 
+    // Track when we received DB data from props (for cache comparison)
+    const dbDataTimestampRef = React.useRef<number>(Date.now())
+    React.useEffect(() => {
+        // Update timestamp whenever effectiveData changes from props
+        dbDataTimestampRef.current = Date.now()
+    }, [effectiveData])
+
     // Check if we have a cached snapshot that's newer than the DB data
+    // FIXED: Always prefer cache if it exists and is recent, not just when dirty
     const getCachedOrDbData = React.useCallback(() => {
         if (!effectiveId) return effectiveData
         const cached = getSnapshotCache()
-        if (cached && cached.isDirty) {
-            console.log('[UniverDocument] Using cached snapshot (dirty)', effectiveId)
-            return cached.univerData
+
+        if (cached) {
+            // Use cache if:
+            // 1. It's marked as dirty (has unsaved changes), OR
+            // 2. It's newer than when we received DB data (race condition protection)
+            const isCacheNewer = cached.timestamp > dbDataTimestampRef.current - 1000 // 1s tolerance
+            const shouldUseCache = cached.isDirty || isCacheNewer
+
+            if (shouldUseCache) {
+                console.log('[UniverDocument] Using cached snapshot:', effectiveId, {
+                    isDirty: cached.isDirty,
+                    isCacheNewer,
+                    cacheTime: new Date(cached.timestamp).toISOString(),
+                })
+                return cached.univerData
+            }
         }
+
         return effectiveData
     }, [effectiveId, effectiveData, getSnapshotCache])
 
@@ -127,21 +149,60 @@ export const UniverDocument = React.forwardRef<UniverDocumentRef, UniverDocument
     }, [useFileSystem, effectiveId, effectiveData, getSnapshotCache])
 
     // === MUTATIONS ===
-    // Legacy: Artifact save mutation
-    const saveArtifactSnapshot = trpc.artifacts.saveUniverSnapshot.useMutation()
-
-    // New: File update mutation
-    const updateFileMutation = trpc.userFiles.update.useMutation({
-        onSuccess: (result) => {
-            if (fileId) {
-                setSavingState(prev => ({ ...prev, [fileId]: false }))
-                // Clear dirty flag in cache
-                setFileSnapshotCache(prev => {
-                    const existing = prev[fileId]
+    // Legacy: Artifact save mutation (with proper error handling)
+    const saveArtifactSnapshot = trpc.artifacts.saveUniverSnapshot.useMutation({
+        onSuccess: (_result, variables) => {
+            const savedId = variables.id
+            if (savedId) {
+                console.log('[UniverDocument] Artifact save confirmed:', savedId)
+                // Clear dirty flag in artifact cache
+                setArtifactSnapshotCache(prev => {
+                    const existing = prev[savedId]
                     if (existing) {
                         return {
                             ...prev,
-                            [fileId]: { ...existing, isDirty: false }
+                            [savedId]: { ...existing, isDirty: false }
+                        }
+                    }
+                    return prev
+                })
+            }
+        },
+        onError: (error, variables) => {
+            const failedId = variables.id
+            console.error('[UniverDocument] Artifact save failed, keeping dirty flag:', failedId, error)
+            // Keep dirty flag TRUE on error
+            if (failedId) {
+                setArtifactSnapshotCache(prev => {
+                    const existing = prev[failedId]
+                    if (existing && !existing.isDirty) {
+                        return {
+                            ...prev,
+                            [failedId]: { ...existing, isDirty: true }
+                        }
+                    }
+                    return prev
+                })
+            }
+        }
+    })
+
+    // New: File update mutation
+    const updateFileMutation = trpc.userFiles.update.useMutation({
+        onSuccess: (result, variables) => {
+            // Use the ID from the mutation variables, not from current fileId
+            // This handles race conditions where fileId changed during save
+            const savedId = variables.id
+            if (savedId) {
+                setSavingState(prev => ({ ...prev, [savedId]: false }))
+                // Clear dirty flag in cache - save confirmed
+                setFileSnapshotCache(prev => {
+                    const existing = prev[savedId]
+                    if (existing) {
+                        console.log('[UniverDocument] DB save confirmed, clearing dirty flag:', savedId)
+                        return {
+                            ...prev,
+                            [savedId]: { ...existing, isDirty: false }
                         }
                     }
                     return prev
@@ -151,9 +212,22 @@ export const UniverDocument = React.forwardRef<UniverDocumentRef, UniverDocument
                 onVersionCreated(result.version_count)
             }
         },
-        onError: () => {
-            if (fileId) {
-                setSavingState(prev => ({ ...prev, [fileId]: false }))
+        onError: (error, variables) => {
+            const failedId = variables.id
+            console.error('[UniverDocument] DB save failed, keeping dirty flag:', failedId, error)
+            if (failedId) {
+                setSavingState(prev => ({ ...prev, [failedId]: false }))
+                // IMPORTANT: Keep dirty flag TRUE on error so data isn't lost
+                setFileSnapshotCache(prev => {
+                    const existing = prev[failedId]
+                    if (existing && !existing.isDirty) {
+                        return {
+                            ...prev,
+                            [failedId]: { ...existing, isDirty: true }
+                        }
+                    }
+                    return prev
+                })
             }
         }
     })
@@ -315,15 +389,21 @@ export const UniverDocument = React.forwardRef<UniverDocumentRef, UniverDocument
             mounted = false
 
             const currentId = currentIdRef.current
+            const wasDirty = isDirtyRef.current
+
             if (documentRef.current && currentId) {
                 try {
                     const snapshot = documentRef.current.save()
                     if (snapshot) {
-                        setSnapshotInCache(currentId, snapshot, isDirtyRef.current)
-                        console.log('[UniverDocument] Cached snapshot on unmount:', currentId, 'isDirty:', isDirtyRef.current)
+                        // CRITICAL FIX: Always save to cache with isDirty: true when unmounting
+                        // The cache will be cleared by mutation onSuccess if/when DB save succeeds
+                        // This prevents data loss if tab switch happens before DB save completes
+                        setSnapshotInCache(currentId, snapshot, true)
+                        console.log('[UniverDocument] Cached snapshot on unmount:', currentId, 'wasDirty:', wasDirty)
 
-                        // Trigger async save if dirty
-                        if (isDirtyRef.current) {
+                        // Trigger async save to DB (fire and forget)
+                        // The mutation's onSuccess will clear the dirty flag in cache
+                        if (wasDirty) {
                             if (useFileSystem) {
                                 updateFileMutation.mutate({
                                     id: currentId,
@@ -335,6 +415,11 @@ export const UniverDocument = React.forwardRef<UniverDocumentRef, UniverDocument
                                 saveArtifactSnapshot.mutate({ id: currentId, univerData: snapshot })
                             }
                             console.log('[UniverDocument] Triggered async save to DB')
+                        } else {
+                            // Even if not dirty, still mark cache as clean after a delay
+                            setTimeout(() => {
+                                setSnapshotInCache(currentId, snapshot, false)
+                            }, 2000)
                         }
                     }
                 } catch (err) {
@@ -344,7 +429,7 @@ export const UniverDocument = React.forwardRef<UniverDocumentRef, UniverDocument
 
             documentRef.current = null
             isInitializedRef.current = false
-            isDirtyRef.current = false
+            // NOTE: Don't reset isDirtyRef here - it's no longer relevant after unmount
 
             // Capture version at cleanup time
             const version = versionRef.current
@@ -377,14 +462,31 @@ export const UniverDocument = React.forwardRef<UniverDocumentRef, UniverDocument
             return
         }
 
-        // Save current document to cache before switching
+        // Save current document to cache AND DB before switching
         const oldId = currentIdRef.current
+        const wasDirty = isDirtyRef.current
         if (documentRef.current && oldId) {
             try {
                 const snapshot = documentRef.current.save()
                 if (snapshot) {
-                    setSnapshotInCache(oldId, snapshot, isDirtyRef.current)
-                    console.log('[UniverDocument] Cached snapshot before switch:', oldId)
+                    // Always mark as dirty in cache until DB confirms save
+                    setSnapshotInCache(oldId, snapshot, true)
+                    console.log('[UniverDocument] Cached snapshot before switch:', oldId, 'wasDirty:', wasDirty)
+
+                    // Trigger async DB save if there were changes
+                    if (wasDirty) {
+                        if (useFileSystem) {
+                            updateFileMutation.mutate({
+                                id: oldId,
+                                univerData: snapshot,
+                                changeType: 'auto_save',
+                                changeDescription: 'Auto-guardado antes de cambio'
+                            })
+                        } else {
+                            saveArtifactSnapshot.mutate({ id: oldId, univerData: snapshot })
+                        }
+                        console.log('[UniverDocument] Triggered DB save before switch:', oldId)
+                    }
                 }
             } catch (err) {
                 console.error('[UniverDocument] Failed to cache before switch:', err)
@@ -392,7 +494,7 @@ export const UniverDocument = React.forwardRef<UniverDocumentRef, UniverDocument
         }
 
         currentIdRef.current = effectiveId
-        isDirtyRef.current = false
+        isDirtyRef.current = false // Reset for new file
 
         // Dispose current document and create new one
         const currentDoc = instance.api.getActiveDocument?.()

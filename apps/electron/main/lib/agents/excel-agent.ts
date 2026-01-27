@@ -1,14 +1,18 @@
 /**
  * Excel Agent - Specialized for Univer Spreadsheet operations
  *
+ * Based on midday patterns for progressive rendering and
+ * Claude for Excel citation system
+ *
  * Capabilities:
- * - Create and manage spreadsheets
+ * - Create and manage spreadsheets with progressive stages
  * - Update cells with data, formulas
  * - Format cells (bold, colors, borders)
  * - Apply conditional formatting
  * - Sort and filter data
  * - Generate charts from data
  * - Data analysis and calculations
+ * - Cell-level citations (Claude for Excel pattern)
  */
 
 import { Agent } from "@ai-sdk-tools/agents";
@@ -18,37 +22,17 @@ import type { LanguageModel } from "ai";
 import type { ExcelContext } from "./types";
 import { sendToRenderer } from "../window-manager";
 import log from "electron-log";
+import {
+  AGENT_METADATA,
+  AGENT_INSTRUCTIONS,
+  type ArtifactStage,
+  type CellCitation,
+} from "@s-agi/core";
 
 /**
- * Excel Agent Instructions
+ * Excel Agent Instructions - using centralized config
  */
-const EXCEL_INSTRUCTIONS = `Eres un experto en hojas de cálculo especializado en Univer (similar a Excel/Google Sheets).
-
-## Tus capacidades:
-- Crear hojas de cálculo con datos estructurados
-- Actualizar celdas con valores, fórmulas y formatos
-- Aplicar formatos condicionales
-- Ordenar y filtrar datos
-- Generar análisis y cálculos
-- Crear rangos con fórmulas avanzadas
-
-## Reglas:
-1. Siempre formatea los encabezados en negrita
-2. Ajusta el ancho de columnas según el contenido
-3. Usa fórmulas cuando sea apropiado (SUM, AVERAGE, IF, VLOOKUP, etc.)
-4. Aplica formato numérico apropiado (moneda, porcentaje, fecha)
-5. Para datos financieros, usa 2 decimales
-6. Para fechas, usa formato DD/MM/YYYY
-
-## Formato de celdas:
-- Las referencias de celda usan formato A1 (columna letra + fila número)
-- Los rangos se expresan como A1:B10
-- Las fórmulas comienzan con =
-
-## Respuestas:
-- Sé conciso pero informativo
-- Explica brevemente qué acciones tomaste
-- Si hay errores, sugiere alternativas`;
+const EXCEL_INSTRUCTIONS = AGENT_INSTRUCTIONS.excel;
 
 /**
  * Create Excel-specific tools
@@ -75,6 +59,13 @@ export function createExcelTools(context: ExcelContext) {
         log.info(`[ExcelAgent] Creating spreadsheet: ${title}`);
 
         const artifactId = crypto.randomUUID();
+
+        // Progressive stage: loading
+        sendToRenderer("artifact:stage-update", {
+          artifactId,
+          stage: "loading" as ArtifactStage,
+          message: "Preparando hoja de cálculo...",
+        });
 
         // Build cell data
         const cellData: Record<
@@ -127,7 +118,14 @@ export function createExcelTools(context: ExcelContext) {
           },
         };
 
-        // Send to renderer (artifactId for handler fetch; id for backwards compat)
+        // Progressive stage: data_ready
+        sendToRenderer("artifact:stage-update", {
+          artifactId,
+          stage: "data_ready" as ArtifactStage,
+          message: "Datos cargados",
+        });
+
+        // Send to renderer with progressive stages (midday pattern)
         sendToRenderer("artifact:created", {
           type: "spreadsheet",
           id: artifactId,
@@ -137,6 +135,21 @@ export function createExcelTools(context: ExcelContext) {
           data: workbookData,
           chatId: context.chatId,
           userId: context.userId,
+          // Progressive artifact data (midday pattern)
+          stage: "data_ready" as ArtifactStage,
+          metadata: {
+            rowCount: (data?.length || 0) + 1,
+            columnCount: headers.length,
+            hasFormulas: false,
+            hasCharts: false,
+          },
+        });
+
+        // Final stage: complete
+        sendToRenderer("artifact:stage-update", {
+          artifactId,
+          stage: "complete" as ArtifactStage,
+          message: "Hoja de cálculo lista",
         });
 
         return {
@@ -145,6 +158,7 @@ export function createExcelTools(context: ExcelContext) {
           title,
           rowCount: (data?.length || 0) + 1,
           columnCount: headers.length,
+          stage: "complete",
           message: `Hoja de cálculo "${title}" creada con ${headers.length} columnas y ${(data?.length || 0) + 1} filas.`,
         };
       },
@@ -443,25 +457,125 @@ export function createExcelTools(context: ExcelContext) {
         };
       },
     }),
+
+    // Claude for Excel pattern: Cell citations
+    cite_cell: tool({
+      description:
+        "Cita una celda o rango específico. Crea una citación clickeable que navega a la celda.",
+      inputSchema: z.object({
+        cell: z.string().describe("Celda a citar (ej: A1 o rango A1:B10)"),
+        label: z.string().optional().describe("Etiqueta para la citación"),
+        artifactId: z.string().optional(),
+        sheetName: z.string().optional().describe("Nombre de la hoja"),
+      }),
+      execute: async ({ cell, label, artifactId, sheetName }) => {
+        const targetId = artifactId || context.artifactId;
+        if (!targetId) {
+          return { success: false, error: "No hay hoja de cálculo activa" };
+        }
+
+        log.info(`[ExcelAgent] Creating cell citation: ${cell}`);
+
+        const citation: CellCitation = {
+          type: "cell",
+          cell,
+          range: cell.includes(":") ? cell : undefined,
+          value: label || cell,
+          artifactId: targetId,
+          sheetName,
+        };
+
+        // Send citation to renderer for UI display
+        sendToRenderer("artifact:citation", {
+          artifactId: targetId,
+          citation,
+        });
+
+        return {
+          success: true,
+          citation,
+          message: `Citación creada para ${cell}`,
+        };
+      },
+    }),
+
+    // Read cell value (for AI to understand current data)
+    read_cells: tool({
+      description:
+        "Lee los valores de un rango de celdas. Útil para analizar datos existentes.",
+      inputSchema: z.object({
+        range: z.string().describe("Rango de celdas a leer (ej: A1:C10)"),
+        artifactId: z.string().optional(),
+      }),
+      execute: async ({ range, artifactId }) => {
+        const targetId = artifactId || context.artifactId;
+        if (!targetId) {
+          return { success: false, error: "No hay hoja de cálculo activa" };
+        }
+
+        log.info(`[ExcelAgent] Reading cells ${range} from ${targetId}`);
+
+        // Request cell values from renderer
+        sendToRenderer("artifact:read-cells", {
+          artifactId: targetId,
+          range,
+        });
+
+        return {
+          success: true,
+          range,
+          message: `Solicitando datos del rango ${range}. Los valores serán proporcionados por la interfaz.`,
+        };
+      },
+    }),
+
+    // Navigate to artifact tab
+    navigate_to_excel: tool({
+      description:
+        "Navega al tab de Excel para mostrar la hoja de cálculo al usuario.",
+      inputSchema: z.object({
+        artifactId: z.string().optional(),
+      }),
+      execute: async ({ artifactId }) => {
+        const targetId = artifactId || context.artifactId;
+
+        log.info(`[ExcelAgent] Navigating to Excel tab`);
+
+        sendToRenderer("navigate:tab", {
+          tab: "excel",
+          artifactId: targetId,
+        });
+
+        return {
+          success: true,
+          message: "Navegando al tab de Excel.",
+        };
+      },
+    }),
   };
 }
 
 /**
+ * Get Excel agent metadata from centralized config
+ */
+const excelMeta = AGENT_METADATA.excel;
+
+/**
  * Create the Excel Agent
+ * Uses centralized configuration from @s-agi/core
  */
 export function createExcelAgent(
   model: LanguageModel,
   context: ExcelContext,
 ): Agent<ExcelContext> {
   return new Agent({
-    name: "ExcelAgent",
+    name: excelMeta.name,
     model,
     instructions: EXCEL_INSTRUCTIONS,
     tools: createExcelTools(context),
-    handoffDescription:
-      "Especialista en hojas de cálculo Univer. Úsalo para crear, editar y analizar spreadsheets.",
-    maxTurns: 10,
-    temperature: 0.3, // Lower temperature for precise operations
+    handoffDescription: excelMeta.description,
+    maxTurns: excelMeta.maxTurns,
+    temperature: excelMeta.temperature,
   });
 }
 

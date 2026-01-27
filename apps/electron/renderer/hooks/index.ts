@@ -43,3 +43,11 @@ export {
   type AutocompleteSuggestion,
   type SpellCheckResult,
 } from "./use-spell-check";
+
+// Data persistence hooks
+export {
+  useAutoSave,
+  useAutoSaveWithCompare,
+  type UseAutoSaveOptions,
+  type UseAutoSaveReturn,
+} from "./use-auto-save";

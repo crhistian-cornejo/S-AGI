@@ -20,6 +20,7 @@ import { ideasRouter } from "./routers/ideas";
 import { permissionsRouter } from "./routers/permissions";
 import { panelMessagesRouter } from "./routers/panel-messages";
 import { userFilesRouter } from "./routers/user-files";
+import { aiProvidersRouter } from "./routers/ai-providers";
 
 // Main app router
 export const appRouter = router({
@@ -40,6 +41,7 @@ export const appRouter = router({
   permissions: permissionsRouter,
   panelMessages: panelMessagesRouter,
   userFiles: userFilesRouter,
+  aiProviders: aiProvidersRouter,
 });
 
 // Export type for client

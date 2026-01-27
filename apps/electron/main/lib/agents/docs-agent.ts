@@ -1,8 +1,11 @@
 /**
  * Docs Agent - Specialized for Univer Document operations with research capabilities
  *
+ * Based on midday patterns for progressive rendering
+ * Uses centralized configuration from @s-agi/core
+ *
  * Capabilities:
- * - Create and edit rich text documents
+ * - Create and edit rich text documents with progressive stages
  * - Research topics using web search
  * - Generate structured content (reports, proposals, essays)
  * - Format text with styles (headings, lists, tables)
@@ -17,47 +20,16 @@ import type { LanguageModel } from "ai";
 import type { DocsContext } from "./types";
 import { sendToRenderer } from "../window-manager";
 import log from "electron-log";
+import {
+  AGENT_METADATA,
+  AGENT_INSTRUCTIONS,
+  type ArtifactStage,
+} from "@s-agi/core";
 
 /**
- * Docs Agent Instructions
+ * Docs Agent Instructions - using centralized config
  */
-const DOCS_INSTRUCTIONS = `Eres un experto escritor y editor de documentos especializado en Univer Docs (similar a Word/Google Docs).
-
-## Tus capacidades:
-- Crear documentos estructurados (informes, propuestas, ensayos, manuales)
-- Investigar temas usando búsqueda web
-- Generar contenido profesional y bien estructurado
-- Aplicar formato de texto (encabezados, listas, tablas)
-- Insertar elementos multimedia e hipervínculos
-- Organizar información de manera clara y lógica
-
-## Proceso de trabajo:
-1. Si el usuario pide un documento sobre un tema, PRIMERO investiga el tema
-2. Organiza la información en una estructura lógica
-3. Genera el contenido con formato apropiado
-4. Revisa y mejora la redacción
-
-## Estructura de documentos:
-- Usa encabezados jerárquicos (H1 para título, H2 para secciones, H3 para subsecciones)
-- Incluye introducción, desarrollo y conclusión cuando sea apropiado
-- Usa listas para enumerar puntos
-- Usa tablas para datos comparativos
-- Incluye fuentes/referencias cuando investigues
-
-## Estilo de escritura:
-- Profesional pero accesible
-- Claro y conciso
-- Sin repeticiones innecesarias
-- Párrafos de longitud moderada
-- Transiciones suaves entre secciones
-
-## Formato Markdown:
-El contenido se procesa como Markdown. Usa:
-- # para H1, ## para H2, ### para H3
-- **texto** para negrita, *texto* para cursiva
-- - item para listas
-- [texto](url) para enlaces
-- | tabla | formato | para tablas`;
+const DOCS_INSTRUCTIONS = AGENT_INSTRUCTIONS.docs;
 
 /**
  * Create Docs-specific tools
@@ -83,8 +55,22 @@ export function createDocsTools(context: DocsContext) {
 
         const artifactId = crypto.randomUUID();
 
+        // Progressive stage: loading
+        sendToRenderer("artifact:stage-update", {
+          artifactId,
+          stage: "loading" as ArtifactStage,
+          message: "Preparando documento...",
+        });
+
         // Convert markdown to Univer document format
         const documentData = markdownToUniverDoc(title, content);
+
+        // Progressive stage: data_ready
+        sendToRenderer("artifact:stage-update", {
+          artifactId,
+          stage: "data_ready" as ArtifactStage,
+          message: "Contenido procesado",
+        });
 
         sendToRenderer("artifact:created", {
           type: "document",
@@ -96,6 +82,21 @@ export function createDocsTools(context: DocsContext) {
           template,
           chatId: context.chatId,
           userId: context.userId,
+          // Progressive artifact data (midday pattern)
+          stage: "data_ready" as ArtifactStage,
+          metadata: {
+            wordCount: content.split(/\s+/).length,
+            sectionCount: (content.match(/^##?\s/gm) || []).length,
+            hasImages: content.includes("!["),
+            hasLinks: content.includes("["),
+          },
+        });
+
+        // Final stage: complete
+        sendToRenderer("artifact:stage-update", {
+          artifactId,
+          stage: "complete" as ArtifactStage,
+          message: "Documento listo",
         });
 
         return {
@@ -103,6 +104,7 @@ export function createDocsTools(context: DocsContext) {
           artifactId,
           title,
           wordCount: content.split(/\s+/).length,
+          stage: "complete",
           message: `Documento "${title}" creado exitosamente.`,
         };
       },
@@ -517,21 +519,26 @@ function markdownToUniverDoc(title: string, content: string): unknown {
 }
 
 /**
+ * Get Docs agent metadata from centralized config
+ */
+const docsMeta = AGENT_METADATA.docs;
+
+/**
  * Create the Docs Agent
+ * Uses centralized configuration from @s-agi/core
  */
 export function createDocsAgent(
   model: LanguageModel,
   context: DocsContext,
 ): Agent<DocsContext> {
   return new Agent({
-    name: "DocsAgent",
+    name: docsMeta.name,
     model,
     instructions: DOCS_INSTRUCTIONS,
     tools: createDocsTools(context),
-    handoffDescription:
-      "Especialista en documentos Univer con capacidades de investigación. Úsalo para crear informes, propuestas, ensayos y documentos profesionales.",
-    maxTurns: 15, // More turns for research + writing
-    temperature: 0.7, // Higher temperature for creative writing
+    handoffDescription: docsMeta.description,
+    maxTurns: docsMeta.maxTurns,
+    temperature: docsMeta.temperature,
   });
 }
 

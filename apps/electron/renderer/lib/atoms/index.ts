@@ -1,296 +1,183 @@
-import { atom } from "jotai";
-import { atomWithStorage } from "jotai/utils";
-import type { Chat, Artifact } from "@s-agi/core/types";
-import {
-  DEFAULT_MODELS,
-  getModelById,
-  getModelsByProvider,
-} from "@s-agi/core/types/ai";
-import type {
-  AIProvider,
-  ModelDefinition,
-  ResponseMode,
-} from "@s-agi/core/types/ai";
-
-export type { ResponseMode };
-
 /**
- * ⚠️ BUNDLE SIZE OPTIMIZATION NOTE:
+ * Atoms Index - Re-exports from Domain Files
  *
- * This file is a barrel export that collects all atoms. When importing from this file,
- * the bundler may need to parse and tree-shake all exports, which can impact build times.
+ * This file re-exports all atoms from domain-specific files.
+ * Import from here for convenience, or import directly from domain files
+ * for better tree-shaking.
  *
- * ✅ Use barrel imports when importing MULTIPLE atoms:
- *   import { selectedChatIdAtom, chatInputAtom } from '@/lib/atoms'
- *
- * ✅ Use direct imports when importing ONLY ONE atom:
- *   import { selectedChatIdAtom } from '@/lib/atoms/chat'
- *
- * Future optimization: Consider splitting into separate files (chat.ts, ui.ts, artifacts.ts, etc.)
- * if the bundle size becomes an issue.
+ * Structure:
+ * ├── chat.ts        # Chat selection, input, mode, todos, undo
+ * ├── ai.ts          # Provider, model, streaming, reasoning, auth
+ * ├── ui.ts          # Sidebar, theme, tabs, modals, settings
+ * ├── artifacts.ts   # Artifact selection, panel, snapshot cache
+ * ├── agent-panel.ts # Agent panel state, messages, config
+ * ├── notes.ts       # Notes state, tabs, editor
+ * ├── pdf.ts         # PDF tab state, bookmarks, search
+ * └── user-files.ts  # User files, versions, file browser
  */
-
-// === SIDEBAR STATE ===
-export const sidebarOpenAtom = atomWithStorage("sidebar-open", true);
-export const sidebarWidthAtom = atomWithStorage("sidebar-width", 280);
 
 // === CHAT STATE ===
-export const selectedChatIdAtom = atomWithStorage<string | null>(
-  "selected-chat-id",
-  null,
-);
-export const selectedChatAtom = atom<Chat | null>(null);
-
-// Pending message from Quick Prompt - ChatView will auto-send this
-export const pendingQuickPromptMessageAtom = atom<string | null>(null);
-
-// Note: Message queue moved to Zustand store (message-queue-store.ts)
-// for better global state management and subscription support
-
-// === ARTIFACT STATE ===
-export const selectedArtifactIdAtom = atom<string | null>(null);
-export const selectedArtifactAtom = atom<Artifact | null>(null);
-export const artifactPanelOpenAtom = atomWithStorage(
-  "artifact-panel-open",
-  true,
-);
-export const artifactPanelWidthAtom = atomWithStorage(
-  "artifact-panel-width",
-  500,
-);
-
-// === ARTIFACT SNAPSHOT CACHE ===
-// Cache for unsaved artifact changes - PERSISTED to prevent data loss on tab switch
-export interface ArtifactSnapshot {
-  univerData: unknown;
-  timestamp: number;
-  isDirty: boolean;
-}
-export const artifactSnapshotCacheAtom = atomWithStorage<Record<string, ArtifactSnapshot>>(
-  'artifact-snapshot-cache',
-  {},
-);
-
-// Helper atom to get/set individual artifact snapshots
-export const getArtifactSnapshotAtom = (artifactId: string) =>
-  atom(
-    (get) => get(artifactSnapshotCacheAtom)[artifactId] ?? null,
-    (get, set, snapshot: ArtifactSnapshot | null) => {
-      const cache = get(artifactSnapshotCacheAtom);
-      if (snapshot) {
-        set(artifactSnapshotCacheAtom, { ...cache, [artifactId]: snapshot });
-      } else {
-        const { [artifactId]: _, ...rest } = cache;
-        set(artifactSnapshotCacheAtom, rest);
-      }
-    },
-  );
+export {
+  // Selection
+  selectedChatIdAtom,
+  selectedChatAtom,
+  // Input
+  chatInputAtom,
+  pendingQuickPromptMessageAtom,
+  // Mode
+  chatModeAtom,
+  isPlanModeAtom,
+  pendingPlanApprovalsAtom,
+  // Todos
+  type TodoItem,
+  getTodosAtom,
+  // Undo
+  type UndoItem,
+  undoStackAtom,
+} from './chat'
 
 // === AI STATE ===
-export const isStreamingAtom = atom(false);
-export const currentProviderAtom = atomWithStorage<AIProvider>(
-  "ai-provider",
-  "openai",
-);
-export const selectedModelAtom = atomWithStorage<string>(
-  "ai-selected-model",
-  DEFAULT_MODELS.openai,
-);
-export const tavilyApiKeyAtom = atomWithStorage<string | null>(
-  "tavily-api-key",
-  null,
-);
+export {
+  // Provider & Model
+  currentProviderAtom,
+  selectedModelAtom,
+  tavilyApiKeyAtom,
+  availableModelsAtom,
+  allModelsGroupedAtom,
+  currentModelAtom,
+  supportsReasoningAtom,
+  // API Key Status
+  hasOpenaiKeyAtom,
+  hasAnthropicKeyAtom,
+  hasZaiKeyAtom,
+  hasChatGPTPlusAtom,
+  chatGPTPlusStatusAtom,
+  type ChatGPTPlusStatus,
+  hasGeminiAdvancedAtom,
+  geminiAdvancedStatusAtom,
+  type GeminiAdvancedStatus,
+  openaiApiKeyAtom,
+  anthropicApiKeyAtom,
+  // Connection
+  aiConnectionStatusAtom,
+  // Streaming
+  isStreamingAtom,
+  streamingToolCallsAtom,
+  streamingErrorAtom,
+  // Reasoning
+  streamingReasoningAtom,
+  isReasoningAtom,
+  lastReasoningAtom,
+  type ReasoningEffort,
+  reasoningEffortAtom,
+  responseModeAtom,
+  type ResponseMode,
+  // Web Search
+  type WebSearchInfo,
+  type UrlCitation,
+  type FileCitation,
+  type Annotation,
+  streamingWebSearchesAtom,
+  streamingAnnotationsAtom,
+  // File Search
+  type FileSearchInfo,
+  streamingFileSearchesAtom,
+  // Document Citations
+  type DocumentCitation,
+  streamingDocumentCitationsAtom,
+  streamingSuggestionsAtom,
+  // Auth Refresh
+  authRefreshingAtom,
+  type AuthError,
+  authErrorsAtom,
+  isAnyAuthRefreshingAtom,
+  setAuthRefreshingAtom,
+  setAuthErrorAtom,
+  // Legacy
+  isLoadingAtom,
+  claudeCodeConnectedAtom,
+} from './ai'
 
-// Computed atom for models based on provider
-export const availableModelsAtom = atom((get) => {
-  const provider = get(currentProviderAtom);
-  return getModelsByProvider(provider);
-});
+// === UI STATE ===
+export {
+  // Sidebar
+  sidebarOpenAtom,
+  sidebarWidthAtom,
+  // Tabs
+  type AppTab,
+  activeTabAtom,
+  // Theme
+  themeAtom,
+  type VSCodeFullTheme,
+  selectedFullThemeIdAtom,
+  systemLightThemeIdAtom,
+  systemDarkThemeIdAtom,
+  fullThemeDataAtom,
+  // Settings
+  settingsModalOpenAtom,
+  type SettingsTab,
+  settingsActiveTabAtom,
+  // Dialogs
+  shortcutsDialogOpenAtom,
+  commandKOpenAtom,
+  authDialogOpenAtom,
+  authDialogModeAtom,
+  onboardingCompletedAtom,
+  // Sound
+  chatSoundsEnabledAtom,
+  // Image Generation
+  isImageGenerationModeAtom,
+  type ImageAspectRatio,
+  imageAspectRatioAtom,
+  ASPECT_RATIO_TO_SIZE,
+  ASPECT_RATIO_LABELS,
+  type ImageEditDialogState,
+  imageEditDialogAtom,
+  // File Sidebars
+  excelSidebarOpenAtom,
+  docSidebarOpenAtom,
+} from './ui'
 
-// Atom to get all models grouped by provider
-export const allModelsGroupedAtom = atom(() => {
-  return {
-    openai: getModelsByProvider("openai"),
-    "chatgpt-plus": getModelsByProvider("chatgpt-plus"),
-    zai: getModelsByProvider("zai"),
-    claude: getModelsByProvider("claude"),
-  };
-});
-
-// Get current model definition
-export const currentModelAtom = atom((get): ModelDefinition | undefined => {
-  const modelId = get(selectedModelAtom);
-  return getModelById(modelId);
-});
-
-export const supportsReasoningAtom = atom((get) => {
-  const model = get(currentModelAtom);
-  return model?.supportsReasoning ?? false;
-});
-
-// === API KEY STATUS (actual keys stored securely in main process) ===
-// These atoms track whether keys are configured, not the keys themselves
-export const hasOpenaiKeyAtom = atom(false);
-export const hasAnthropicKeyAtom = atom(false);
-export const hasZaiKeyAtom = atom(false);
-// ChatGPT Plus connection info
-export interface ChatGPTPlusStatus {
-  isConnected: boolean;
-  email?: string;
-  accountId?: string;
-  connectedAt?: string;
-}
-export const hasChatGPTPlusAtom = atom(false);
-export const chatGPTPlusStatusAtom = atom<ChatGPTPlusStatus>({
-  isConnected: false,
-});
-
-// Gemini Advanced connection info - DISABLED
-// OAuth token incompatible with generativelanguage.googleapis.com
-export interface GeminiAdvancedStatus {
-  isConnected: boolean;
-  email?: string;
-  connectedAt?: string;
-}
-export const hasGeminiAdvancedAtom = atom(false); // Always false - disabled
-export const geminiAdvancedStatusAtom = atom<GeminiAdvancedStatus>({
-  isConnected: false,
-});
-
-// Legacy atoms for backward compatibility with chat-view
-export const openaiApiKeyAtom = atom<string | null>(null); // Dummy - real keys in safeStorage
-export const anthropicApiKeyAtom = atom<string | null>(null); // Dummy - real keys in safeStorage
-
-// === CONNECTION STATUS ===
-export const aiConnectionStatusAtom = atom<
-  "connected" | "disconnected" | "error"
->("disconnected");
-
-// === THEME STATE ===
-export const themeAtom = atomWithStorage<"system" | "light" | "dark">(
-  "theme",
-  "system",
-);
-
-// === FULL VS CODE THEME ATOMS ===
-/**
- * Full VS Code theme data type
- * Contains colors for UI and terminal
- */
-export type VSCodeFullTheme = {
-  id: string;
-  name: string;
-  type: "light" | "dark";
-  colors: Record<string, string>;
-  source: "builtin" | "imported";
-};
-
-/**
- * Selected full theme ID
- * When null, uses system light/dark mode with the themes specified in systemLightThemeIdAtom/systemDarkThemeIdAtom
- */
-export const selectedFullThemeIdAtom = atomWithStorage<string | null>(
-  "preferences:selected-full-theme-id",
-  null,
-);
-
-/**
- * Theme to use when system is in light mode (only used when selectedFullThemeIdAtom is null)
- */
-export const systemLightThemeIdAtom = atomWithStorage<string>(
-  "preferences:system-light-theme-id",
-  "sagi-light",
-);
-
-/**
- * Theme to use when system is in dark mode (only used when selectedFullThemeIdAtom is null)
- */
-export const systemDarkThemeIdAtom = atomWithStorage<string>(
-  "preferences:system-dark-theme-id",
-  "sagi-dark",
-);
-
-/**
- * Cached full theme data for the selected theme
- */
-export const fullThemeDataAtom = atom<VSCodeFullTheme | null>(null);
-
-// === TAB SYSTEM ===
-export type AppTab = "chat" | "excel" | "doc" | "gallery" | "pdf" | "ideas";
-export const activeTabAtom = atomWithStorage<AppTab>("active-tab", "chat");
+// === ARTIFACT STATE ===
+export {
+  selectedArtifactIdAtom,
+  selectedArtifactAtom,
+  artifactPanelOpenAtom,
+  artifactPanelWidthAtom,
+  type ArtifactSnapshot,
+  artifactSnapshotCacheAtom,
+  getArtifactSnapshotAtom,
+} from './artifacts'
 
 // === AGENT PANEL STATE ===
-// Slide-in panel for AI agent assistance in Excel, Docs, PDF tabs
+export {
+  type AgentPanelMessage,
+  type AgentPanelConfig,
+  agentPanelOpenAtom,
+  agentPanelWidthAtom,
+  agentPanelMessagesAtom,
+  getAgentMessagesAtom,
+  agentPanelConfigAtom,
+  agentPanelStreamingAtom,
+  agentPanelStreamingTextAtom,
+  type AgentPanelImageAttachment,
+  agentPanelImagesAtom,
+} from './agent-panel'
 
-// Agent panel message with optional images
-export interface AgentPanelMessage {
-  id: string;
-  role: "user" | "assistant";
-  content: string;
-  timestamp: number;
-  images?: Array<{
-    data: string;
-    mediaType: string;
-    filename?: string;
-  }>;
-  toolCalls?: Array<{
-    toolName: string;
-    toolCallId: string;
-    status: "executing" | "done" | "error";
-    result?: unknown;
-    args?: Record<string, unknown>;
-  }>;
-}
+// === NOTES STATE ===
+export {
+  selectedNotePageIdAtom,
+  notesSidebarOpenAtom,
+  notePagesCacheAtom,
+  openNoteTabsAtom,
+  notesSelectedModelIdAtom,
+  notesEditorRefAtom,
+  notesIsExportingPdfAtom,
+  createNotePageActionAtom,
+  notesPageUpdatedAtom,
+} from './notes'
 
-// Agent panel configuration
-export interface AgentPanelConfig {
-  provider: AIProvider;
-  modelId: string;
-}
-
-export const agentPanelOpenAtom = atomWithStorage("agent-panel-open", false);
-export const agentPanelWidthAtom = atomWithStorage("agent-panel-width", 380);
-
-// Messages stored per session (tab type)
-export const agentPanelMessagesAtom = atom<Record<string, AgentPanelMessage[]>>(
-  {},
-);
-
-// Get/set messages for a specific tab
-export const getAgentMessagesAtom = (tabType: string) =>
-  atom(
-    (get) => get(agentPanelMessagesAtom)[tabType] ?? [],
-    (get, set, messages: AgentPanelMessage[]) => {
-      const current = get(agentPanelMessagesAtom);
-      set(agentPanelMessagesAtom, { ...current, [tabType]: messages });
-    },
-  );
-
-// Agent panel provider/model config (persisted)
-export const agentPanelConfigAtom = atomWithStorage<AgentPanelConfig>(
-  "agent-panel-config",
-  {
-    provider: "openai",
-    modelId: "gpt-5-mini",
-  },
-);
-
-// Streaming state for agent panel
-export const agentPanelStreamingAtom = atom(false);
-export const agentPanelStreamingTextAtom = atom("");
-
-// Image attachments for agent panel input
-export interface AgentPanelImageAttachment {
-  id: string;
-  data: string;
-  mediaType: string;
-  filename: string;
-  url?: string;
-  isLoading?: boolean;
-}
-export const agentPanelImagesAtom = atom<AgentPanelImageAttachment[]>([]);
-
-// === PDF TAB ATOMS (re-exported from pdf.ts) ===
+// === PDF TAB ATOMS ===
 export {
   selectedPdfAtom,
   pdfCurrentPageAtom,
@@ -303,7 +190,7 @@ export {
   pdfSelectedTextAtom,
   pdfHasExtractedContentAtom,
   pdfTotalWordCountAtom,
-  // Local PDFs (persisted paths, data loaded on-demand)
+  // Local PDFs
   localPdfsAtom,
   addLocalPdfAtom,
   removeLocalPdfAtom,
@@ -326,12 +213,12 @@ export {
   pdfHasUnsavedChangesAtom,
   pdfLastSaveAtom,
   pdfSaveStatusAtom,
-  // Source highlights (for agent citations)
+  // Source highlights
   activeSourceHighlightsAtom,
   addSourceHighlightAtom,
   removeSourceHighlightAtom,
   clearSourceHighlightsAtom,
-  // Helper functions
+  // Helpers
   createPdfSourceFromArtifact,
   createPdfSourceFromChatFile,
   createPdfSourceFromLocalFile,
@@ -343,333 +230,9 @@ export {
   type PdfSearchResult,
   type SourceHighlight,
   type HighlightBoundingBox,
-} from "./pdf";
+} from './pdf'
 
-// === INPUT STATE ===
-export const chatInputAtom = atom("");
-export const chatModeAtom = atomWithStorage<"plan" | "agent">(
-  "chat-mode",
-  "agent",
-);
-
-// === PLAN MODE STATE ===
-export const isPlanModeAtom = atomWithStorage<boolean>(
-  "agents:isPlanMode",
-  false,
-);
-
-// === IMAGE GENERATION MODE ===
-// When true, the AI will generate an image based on the user's prompt
-export const isImageGenerationModeAtom = atom(false);
-
-// Aspect ratio options for image generation (maps to gpt-image-1.5 sizes)
-export type ImageAspectRatio = "square" | "landscape" | "portrait";
-export const imageAspectRatioAtom = atomWithStorage<ImageAspectRatio>(
-  "image-aspect-ratio",
-  "square",
-);
-
-// Maps aspect ratio to OpenAI image sizes
-export const ASPECT_RATIO_TO_SIZE: Record<ImageAspectRatio, string> = {
-  square: "1024x1024",
-  landscape: "1536x1024", // 3:2 ratio
-  portrait: "1024x1536", // 2:3 ratio
-};
-
-export const ASPECT_RATIO_LABELS: Record<ImageAspectRatio, string> = {
-  square: "1:1",
-  landscape: "3:2",
-  portrait: "2:3",
-};
-
-// === IMAGE EDIT DIALOG STATE ===
-export interface ImageEditDialogState {
-  isOpen: boolean;
-  imageUrl: string;
-  originalPrompt: string;
-}
-
-export const imageEditDialogAtom = atom<ImageEditDialogState>({
-  isOpen: false,
-  imageUrl: "",
-  originalPrompt: "",
-});
-
-// Track sub-chats with pending plan approval (plan ready but not yet implemented)
-// Set<subChatId>
-export const pendingPlanApprovalsAtom = atom<Set<string>>(new Set<string>());
-
-// === UNDO STATE ===
-export type UndoItem = {
-  action: "archive" | "delete";
-  chatId: string;
-  timeoutId: ReturnType<typeof setTimeout>;
-};
-
-export const undoStackAtom = atom<UndoItem[]>([]);
-
-// === TODO STATE ===
-export interface TodoItem {
-  id: string;
-  content: string;
-  status: "pending" | "in_progress" | "completed" | "cancelled";
-  priority: "high" | "medium" | "low";
-}
-
-interface TodoState {
-  todos: TodoItem[];
-  creationToolCallId: string | null;
-}
-
-// Storage atom for all todos by subChatId
-const allTodosStorageAtom = atom<Record<string, TodoState>>({});
-
-// atomFamily-like pattern: get/set todos per subChatId
-export const getTodosAtom = (subChatId: string) =>
-  atom(
-    (get) =>
-      get(allTodosStorageAtom)[subChatId] ?? {
-        todos: [],
-        creationToolCallId: null,
-      },
-    (get, set, newState: TodoState) => {
-      const current = get(allTodosStorageAtom);
-      set(allTodosStorageAtom, { ...current, [subChatId]: newState });
-    },
-  );
-
-// Note: File attachments are now managed via useFileUpload hook (local state, not global atom)
-
-// === STREAMING STATE ===
-// Note: Streaming text is now managed via useSmoothStream hook (local state, not global atom)
-export const streamingToolCallsAtom = atom<
-  Array<{
-    id: string;
-    name: string;
-    args: string;
-    status: "streaming" | "done" | "executing" | "complete" | "error";
-    result?: unknown;
-  }>
->([]);
-export const streamingErrorAtom = atom<string | null>(null);
-
-// === REASONING STATE (for GPT-5 with reasoning enabled) ===
-export const streamingReasoningAtom = atom("");
-export const isReasoningAtom = atom(false);
-// Stores the last completed reasoning to display after streaming ends
-export const lastReasoningAtom = atom("");
-// Matches OpenAI SDK ReasoningEffort: 'low' | 'medium' | 'high'
-export type ReasoningEffort = "low" | "medium" | "high";
-export const reasoningEffortAtom = atomWithStorage<ReasoningEffort>(
-  "reasoning-effort",
-  "low",
-);
-
-// ResponseMode: Instant / Thinking / Auto (solo GPT-5.2)
-export const responseModeAtom = atomWithStorage<ResponseMode>(
-  "response-mode",
-  "auto",
-);
-
-// === WEB SEARCH STATE (for native OpenAI web search) ===
-export interface WebSearchInfo {
-  searchId: string;
-  query?: string;
-  status: "searching" | "done";
-  action?: "search" | "open_page" | "find_in_page";
-  domains?: string[];
-  url?: string;
-}
-
-export interface UrlCitation {
-  type: "url_citation";
-  url: string;
-  title?: string;
-  startIndex: number;
-  endIndex: number;
-}
-
-export interface FileCitation {
-  type: "file_citation";
-  fileId: string;
-  filename: string;
-  index: number;
-}
-
-export type Annotation = UrlCitation | FileCitation;
-
-// Active web searches during streaming
-export const streamingWebSearchesAtom = atom<WebSearchInfo[]>([]);
-// URL citations from the response (collected at the end)
-export const streamingAnnotationsAtom = atom<Annotation[]>([]);
-
-// === FILE SEARCH STATE (for OpenAI file_search tool) ===
-export interface FileSearchInfo {
-  searchId: string;
-  status: "searching" | "done";
-  /** Optional: file being searched (if known) */
-  filename?: string;
-}
-
-// Active file searches during streaming
-export const streamingFileSearchesAtom = atom<FileSearchInfo[]>([]);
-
-// === DOCUMENT CITATIONS STATE (for local RAG with non-OpenAI providers) ===
-export interface DocumentCitation {
-  id: number;
-  filename: string;
-  pageNumber: number | null;
-  text: string;
-  marker?: string;
-}
-
-// Document citations for the current streaming response
-export const streamingDocumentCitationsAtom = atom<DocumentCitation[]>([]);
-export const streamingSuggestionsAtom = atom<string[]>([]);
-
-// === SOUND EFFECTS ===
-// Enable/disable chat sound effects
-export const chatSoundsEnabledAtom = atomWithStorage(
-  "chat-sounds-enabled",
-  true,
-);
-
-// === SETTINGS MODAL ===
-export const settingsModalOpenAtom = atom(false);
-export type SettingsTab =
-  | "account"
-  | "appearance"
-  | "api-keys"
-  | "advanced"
-  | "shortcuts"
-  | "debug"
-  | "usage";
-export const settingsActiveTabAtom = atom<SettingsTab>("account");
-
-// === HELP & SHORTCUTS ===
-export const shortcutsDialogOpenAtom = atom(false);
-
-// === COMMAND K / QUICK SEARCH ===
-export const commandKOpenAtom = atom(false);
-
-// === AUTH STATE ===
-export const authDialogOpenAtom = atom(false);
-export const authDialogModeAtom = atom<"signin" | "signup">("signin");
-// --- REFRESH ---
-export const onboardingCompletedAtom = atomWithStorage(
-  "onboarding-completed",
-  false,
-);
-
-// === AUTH REFRESH STATE ===
-// Track which providers are currently refreshing their tokens
-export const authRefreshingAtom = atom<Set<AIProvider>>(new Set<AIProvider>());
-
-// Track auth errors per provider
-export interface AuthError {
-  message: string;
-  code?: string;
-  timestamp: number;
-}
-export const authErrorsAtom = atom<Partial<Record<AIProvider, AuthError>>>({});
-
-// Helper atom to check if any provider is refreshing
-export const isAnyAuthRefreshingAtom = atom((get) => {
-  const refreshing = get(authRefreshingAtom);
-  return refreshing.size > 0;
-});
-
-// Helper atom to set refreshing state for a provider
-export const setAuthRefreshingAtom = atom(
-  null,
-  (
-    get,
-    set,
-    { provider, refreshing }: { provider: AIProvider; refreshing: boolean },
-  ) => {
-    const current = get(authRefreshingAtom);
-    const updated = new Set(current);
-    if (refreshing) {
-      updated.add(provider);
-    } else {
-      updated.delete(provider);
-    }
-    set(authRefreshingAtom, updated);
-  },
-);
-
-// Helper atom to set auth error for a provider
-export const setAuthErrorAtom = atom(
-  null,
-  (
-    get,
-    set,
-    { provider, error }: { provider: AIProvider; error: string | null },
-  ) => {
-    const current = get(authErrorsAtom);
-    if (error) {
-      set(authErrorsAtom, {
-        ...current,
-        [provider]: {
-          message: error,
-          timestamp: Date.now(),
-        },
-      });
-    } else {
-      const { [provider]: _, ...rest } = current;
-      set(authErrorsAtom, rest);
-    }
-  },
-);
-
-// Legacy atoms for backward compatibility
-export const isLoadingAtom = isStreamingAtom;
-export const claudeCodeConnectedAtom = atom((get) => {
-  const hasKey = get(hasOpenaiKeyAtom);
-  return hasKey;
-});
-
-// === NOTES STATE ===
-import type { NotePage } from "@/lib/notes-storage";
-import type { OpenNoteTab } from "@/lib/notes-tabs";
-
-export const selectedNotePageIdAtom = atomWithStorage<string | null>(
-  "selected-note-page-id",
-  null,
-);
-
-export const notesSidebarOpenAtom = atomWithStorage("notes-sidebar-open", true);
-
-// === EXCEL FILE SIDEBAR STATE ===
-export const excelSidebarOpenAtom = atomWithStorage("excel-sidebar-open", true);
-export const docSidebarOpenAtom = atomWithStorage("doc-sidebar-open", true);
-
-// Cache for note pages content (loaded on demand)
-export const notePagesCacheAtom = atom<Record<string, NotePage>>({});
-
-// Open tabs for notes (Notion-style)
-export const openNoteTabsAtom = atom<OpenNoteTab[]>([]);
-
-// Notes editor state (for titlebar controls)
-export const notesSelectedModelIdAtom = atomWithStorage<string>(
-  "notes-selected-model-id",
-  "gpt-5-mini",
-);
-
-export const notesEditorRefAtom = atom<{
-  editor: any;
-  exportPdf: () => Promise<void>;
-} | null>(null);
-
-export const notesIsExportingPdfAtom = atom(false);
-
-// Action atom for creating new pages (set by sidebar, called by tabs)
-export const createNotePageActionAtom = atom<((spaceId?: string | null, parentId?: string | null) => void) | null>(null);
-
-// Notification atom for sidebar refresh when pages are updated externally (from header, etc.)
-export const notesPageUpdatedAtom = atom<number>(0);
-
-// === USER FILES STATE (re-exported from user-files.ts) ===
+// === USER FILES STATE ===
 export {
   // Types
   type UserFileType,
@@ -689,7 +252,7 @@ export {
   // Snapshot cache
   fileSnapshotCacheAtom,
   getFileSnapshotAtom,
-  // Scratch session IDs (for tabs without a file selected)
+  // Scratch session IDs
   excelScratchSessionIdAtom,
   docScratchSessionIdAtom,
   // Saving state
@@ -714,4 +277,4 @@ export {
   hasUnsavedChangesAtom,
   dirtyFileIdsAtom,
   getCurrentFileAtom,
-} from './user-files';
+} from './user-files'

@@ -1,12 +1,17 @@
 /**
  * PDF Agent - Specialized for PDF context and conversation
  *
+ * Based on midday patterns for progressive rendering
+ * Uses centralized configuration from @s-agi/core
+ * Inspired by Claude for Excel citation system
+ *
  * Capabilities:
  * - Load and parse PDF content with page-level tracking
  * - Search within PDF using semantic and keyword search
  * - Answer questions with citations to specific pages
  * - Extract and summarize sections
  * - Navigate to specific pages/sections
+ * - Progressive artifact stages
  */
 
 import { Agent } from "@ai-sdk-tools/agents";
@@ -21,6 +26,11 @@ import {
 } from "../documents/document-processor";
 import * as pdfService from "../pdf/pdf-service";
 import log from "electron-log";
+import {
+  AGENT_METADATA,
+  type ArtifactStage,
+  type PageCitation,
+} from "@s-agi/core";
 
 /**
  * PDF Agent Instructions - Dynamic based on context
@@ -1277,25 +1287,111 @@ export function createPDFTools(context: PDFContext) {
         }
       },
     }),
+
+    // =========================================================================
+    // CITATION TOOLS (Claude for Excel pattern)
+    // =========================================================================
+
+    /**
+     * Create a clickable citation to a specific page/text
+     */
+    cite_page: tool({
+      description:
+        "Crea una citación clickeable a una página o texto específico del PDF. Similar a las citaciones de celda en Excel.",
+      inputSchema: z.object({
+        pageNumber: z.number().min(1).describe("Número de página a citar"),
+        text: z.string().describe("Texto a citar"),
+        label: z.string().optional().describe("Etiqueta para la citación"),
+      }),
+      execute: async ({ pageNumber, text, label }) => {
+        log.info(`[PDFAgent] Creating page citation: page ${pageNumber}`);
+
+        const citation: PageCitation = {
+          type: "page",
+          pageNumber,
+          text,
+          filename: context.pdfPath?.split("/").pop() || "PDF",
+        };
+
+        // Send citation to renderer for UI display
+        sendToRenderer("artifact:citation", {
+          artifactId: context.artifactId,
+          citation,
+        });
+
+        return {
+          success: true,
+          citation,
+          displayText: label || `[página ${pageNumber}]`,
+          message: `Citación creada para página ${pageNumber}`,
+        };
+      },
+    }),
+
+    /**
+     * Navigate to artifact tab
+     */
+    navigate_to_pdf: tool({
+      description:
+        "Navega al tab de PDF para mostrar el documento al usuario.",
+      inputSchema: z.object({
+        pageNumber: z.number().optional().describe("Página a mostrar"),
+      }),
+      execute: async ({ pageNumber }) => {
+        log.info(`[PDFAgent] Navigating to PDF tab`);
+
+        sendToRenderer("navigate:tab", {
+          tab: "pdf",
+          artifactId: context.artifactId,
+          pageNumber,
+        });
+
+        return {
+          success: true,
+          message: pageNumber
+            ? `Navegando a página ${pageNumber} del PDF.`
+            : "Navegando al tab de PDF.",
+        };
+      },
+    }),
   };
 }
 
 /**
+ * Get PDF agent metadata from centralized config
+ */
+const pdfMeta = AGENT_METADATA.pdf;
+
+/**
  * Create the PDF Agent
+ * Uses centralized configuration from @s-agi/core
  */
 export function createPDFAgent(
   model: LanguageModel,
   context: PDFContext,
 ): Agent<PDFContext> {
+  // Emit progressive stage: loading
+  sendToRenderer("artifact:stage-update", {
+    artifactId: context.artifactId,
+    stage: "loading" as ArtifactStage,
+    message: "Cargando PDF...",
+  });
+
+  // Emit progressive stage: data_ready
+  sendToRenderer("artifact:stage-update", {
+    artifactId: context.artifactId,
+    stage: "data_ready" as ArtifactStage,
+    message: `PDF cargado: ${context.pages.length} páginas`,
+  });
+
   return new Agent({
-    name: "PDFAgent",
+    name: pdfMeta.name,
     model,
     instructions: getPDFInstructions(context),
     tools: createPDFTools(context),
-    handoffDescription:
-      "Especialista en análisis de PDFs. Úsalo para buscar, resumir y responder preguntas sobre documentos PDF con citaciones precisas.",
-    maxTurns: 10,
-    temperature: 0.3, // Lower temperature for accurate citations
+    handoffDescription: pdfMeta.description,
+    maxTurns: pdfMeta.maxTurns,
+    temperature: pdfMeta.temperature,
   });
 }
 

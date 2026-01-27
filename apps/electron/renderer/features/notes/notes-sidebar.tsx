@@ -77,6 +77,7 @@ import { ModelIcon } from "@/components/icons/model-icons";
 import type { AIProvider } from "@s-agi/core/types/ai";
 import { IconPicker } from "@/components/ui/icon-picker";
 import { renderPageIcon } from "@/lib/notes-icon-utils";
+import { Logo } from "@/components/ui/logo";
 
 // ============================================================================
 // FadeScrollArea - Reuse from chat sidebar
@@ -894,8 +895,13 @@ export function NotesSidebar() {
     >
       {sidebarOpen && (
         <>
-          {/* Sidebar Header with Toggle and Controls (right side) */}
+          {/* Sidebar Header with Logo, Toggle and Controls */}
           <div className="flex items-center gap-2 px-3 py-2 border-b border-border/50">
+            {/* App Logo - shown when expanded */}
+            <div className="flex items-center gap-2">
+              <Logo size={24} />
+              <span className="text-sm font-semibold text-foreground">S-AGI</span>
+            </div>
             <div className="flex-1" />
 
             {/* Model selector and PDF export - only when sidebar is expanded */}
