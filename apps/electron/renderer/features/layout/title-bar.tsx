@@ -59,6 +59,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { cn, isMacOS, isElectron, isWindows } from "@/lib/utils";
+import { HamburgerMenu } from "./hamburger-menu";
 
 export interface TitleBarProps {
   className?: string;
@@ -205,10 +206,11 @@ export function TitleBar({ className, noTrafficLightSpace }: TitleBarProps) {
         /* Only show in titlebar when sidebar is collapsed */
         <div
           className={cn(
-            "flex items-center gap-2 no-drag shrink-0 z-10",
+            "flex items-center gap-2 no-drag shrink-0 z-[100] relative pointer-events-auto",
             showTrafficLights ? "ml-4" : "ml-2",
           )}
         >
+          {isWindows() && <HamburgerMenu />}
           {/* App Logo - shown when sidebar is collapsed */}
           <div className="flex items-center gap-2">
             <Logo size={20} className="text-primary" />
@@ -339,10 +341,11 @@ export function TitleBar({ className, noTrafficLightSpace }: TitleBarProps) {
       {activeTab === "pdf" && !pdfSidebarOpen && isWindows() && (
         <div
           className={cn(
-            "flex items-center gap-2 no-drag shrink-0 z-10",
+            "flex items-center gap-2 no-drag shrink-0 z-[100] relative pointer-events-auto",
             showTrafficLights ? "ml-4" : "ml-2",
           )}
         >
+          <HamburgerMenu />
           {/* Logo - opens agent panel */}
           <Tooltip>
             <TooltipTrigger asChild>
@@ -395,10 +398,11 @@ export function TitleBar({ className, noTrafficLightSpace }: TitleBarProps) {
       {activeTab === "excel" && !excelSidebarOpen && (
         <div
           className={cn(
-            "flex items-center gap-2 no-drag shrink-0 z-10",
+            "flex items-center gap-2 no-drag shrink-0 z-[100] relative pointer-events-auto",
             showTrafficLights ? "ml-4" : "ml-2",
           )}
         >
+          {isWindows() && <HamburgerMenu />}
           {/* Logo - opens agent panel */}
           <Tooltip>
             <TooltipTrigger asChild>
@@ -451,10 +455,11 @@ export function TitleBar({ className, noTrafficLightSpace }: TitleBarProps) {
       {activeTab === "doc" && !docSidebarOpen && (
         <div
           className={cn(
-            "flex items-center gap-2 no-drag shrink-0 z-10",
+            "flex items-center gap-2 no-drag shrink-0 z-[100] relative pointer-events-auto",
             showTrafficLights ? "ml-4" : "ml-2",
           )}
         >
+          {isWindows() && <HamburgerMenu />}
           {/* Logo - opens agent panel */}
           <Tooltip>
             <TooltipTrigger asChild>
@@ -503,14 +508,16 @@ export function TitleBar({ className, noTrafficLightSpace }: TitleBarProps) {
           </Tooltip>
         </div>
       )}
-      {activeTab !== "ideas" &&
-        (!isWindows() || activeTab !== "pdf") &&
-        !showTrafficLights &&
-        (!isWindows() || !sidebarOpen) &&
-        // Don't show default logo when excel/doc sidebar is closed (already shown with toggle)
-        !(activeTab === "excel" && !excelSidebarOpen) &&
-        !(activeTab === "doc" && !docSidebarOpen) && (
-          /* Logo (clickable for agent panel in excel/doc/pdf tabs) */
+      {/* Chat tab - always show hamburger menu on Windows */}
+      {activeTab === "chat" && isWindows() && (
+        <div
+          className={cn(
+            "flex items-center gap-2 no-drag shrink-0 z-[100] relative pointer-events-auto",
+            showTrafficLights ? "ml-4" : "ml-2",
+          )}
+        >
+          <HamburgerMenu />
+          {/* Logo (clickable for agent panel) */}
           <Tooltip>
             <TooltipTrigger asChild>
               <button
@@ -520,7 +527,7 @@ export function TitleBar({ className, noTrafficLightSpace }: TitleBarProps) {
                 }
                 disabled={!isAgentEnabled}
                 className={cn(
-                  "flex items-center gap-2 no-drag ml-2 shrink-0 z-10 transition-all duration-200",
+                  "flex items-center gap-2 transition-all duration-200",
                   isAgentEnabled &&
                     "hover:opacity-80 active:scale-95 cursor-pointer",
                   !isAgentEnabled && "cursor-default",
@@ -533,7 +540,7 @@ export function TitleBar({ className, noTrafficLightSpace }: TitleBarProps) {
                     <span className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-primary" />
                   )}
                 </div>
-                <span className="text-sm font-semibold text-foreground tracking-tight hidden sm:block">
+                <span className="text-sm font-semibold text-foreground tracking-tight">
                   S-AGI
                 </span>
               </button>
@@ -544,15 +551,59 @@ export function TitleBar({ className, noTrafficLightSpace }: TitleBarProps) {
               </TooltipContent>
             )}
           </Tooltip>
+        </div>
+      )}
+      {activeTab !== "ideas" &&
+        activeTab !== "chat" &&
+        (!isWindows() || activeTab !== "pdf") &&
+        !showTrafficLights &&
+        (!isWindows() || !sidebarOpen) &&
+        // Don't show default logo when excel/doc sidebar is closed (already shown with toggle)
+        !(activeTab === "excel" && !excelSidebarOpen) &&
+        !(activeTab === "doc" && !docSidebarOpen) && (
+          <div className="flex items-center z-[100] relative pointer-events-auto">
+            {isWindows() && <HamburgerMenu />}
+            {/* Logo (clickable for agent panel in excel/doc/pdf tabs) */}
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  onClick={() =>
+                    isAgentEnabled && setAgentPanelOpen(!agentPanelOpen)
+                  }
+                  disabled={!isAgentEnabled}
+                  className={cn(
+                    "flex items-center gap-2 no-drag ml-2 shrink-0 z-10 transition-all duration-200",
+                    isAgentEnabled &&
+                      "hover:opacity-80 active:scale-95 cursor-pointer",
+                    !isAgentEnabled && "cursor-default",
+                    isAgentEnabled && agentPanelOpen && "text-primary",
+                  )}
+                >
+                  <div className="relative">
+                    <Logo size={20} />
+                    {isAgentEnabled && agentPanelOpen && (
+                      <span className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-primary" />
+                    )}
+                  </div>
+                  <span className="text-sm font-semibold text-foreground tracking-tight hidden sm:block">
+                    S-AGI
+                  </span>
+                </button>
+              </TooltipTrigger>
+              {isAgentEnabled && (
+                <TooltipContent side="bottom">
+                  {agentPanelOpen ? "Close Agent Panel" : "Open Agent Panel"}
+                </TooltipContent>
+              )}
+            </Tooltip>
+          </div>
         )}
 
       {/* Center - Navigation tabs (absolute positioned for true centering) */}
       <div
         className={cn(
-          "no-drag z-0",
-          isDesktop
-            ? "absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2"
-            : "flex-1 flex justify-center",
+          "no-drag z-0 absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2",
         )}
       >
         <div className="flex items-center bg-background/40 backdrop-blur-md border border-border/50 rounded-lg p-0.5 h-8">
@@ -625,7 +676,7 @@ export function TitleBar({ className, noTrafficLightSpace }: TitleBarProps) {
       </div>
 
       {/* Spacer for right-side items */}
-      {isDesktop && <div className="flex-1" />}
+      <div className="flex-1" />
 
       <div className="flex items-center no-drag pr-0">
         {showTrafficLights && activeTab !== "pdf" && (

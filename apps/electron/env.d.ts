@@ -82,6 +82,14 @@ interface DesktopApi {
         showInFolder: (data: { fileId: string }) => Promise<{ success: boolean }>
         exportFiles: (data: { fileIds: string[] }) => Promise<{ exported: number }>
     }
+    excel: {
+        saveLocal: (data: { base64: string; suggestedName?: string }) => Promise<{
+            success: boolean
+            path?: string
+            error?: string
+            canceled?: boolean
+        }>
+    }
     security: {
         getSensitiveStatus: () => Promise<{ unlockedUntil: number; canBiometric: boolean; pinEnabled: boolean }>
         unlockSensitive: (data: { ttlMs?: number; reason?: string }) => Promise<{ success: boolean; unlockedUntil: number; error?: string }>

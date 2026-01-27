@@ -301,7 +301,7 @@ function PageItem({
       {/* Actions */}
       <div
         className={cn(
-          "flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity",
+          "flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity duration-150",
           isSelected && "opacity-100",
         )}
       >
@@ -504,7 +504,7 @@ function SpaceSection({
           <DropdownMenuTrigger asChild>
             <button
               type="button"
-              className="opacity-0 group-hover:opacity-100 p-1 hover:bg-accent rounded transition-opacity"
+              className="opacity-0 group-hover:opacity-100 p-1 hover:bg-accent rounded transition-opacity duration-150"
             >
               <IconDots size={12} className="text-muted-foreground" />
             </button>
@@ -900,7 +900,9 @@ export function NotesSidebar() {
             {/* App Logo - shown when expanded */}
             <div className="flex items-center gap-2">
               <Logo size={24} />
-              <span className="text-sm font-semibold text-foreground">S-AGI</span>
+              <span className="text-sm font-semibold text-foreground">
+                S-AGI
+              </span>
             </div>
             <div className="flex-1" />
 
@@ -1091,7 +1093,7 @@ export function NotesSidebar() {
                       <DropdownMenuTrigger asChild>
                         <button
                           type="button"
-                          className="opacity-0 group-hover:opacity-100 p-1 hover:bg-accent rounded transition-opacity"
+                          className="opacity-0 group-hover:opacity-100 p-1 hover:bg-accent rounded transition-opacity duration-150"
                         >
                           <IconPlus
                             size={12}

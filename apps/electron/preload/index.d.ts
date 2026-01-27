@@ -135,11 +135,61 @@ export interface DesktopApi {
     onOpenSettings: (callback: (data?: { tab?: string }) => void) => () => void;
   };
   preferences: {
-    get: () => Promise<{ trayEnabled: boolean; quickPromptEnabled: boolean }>;
+    get: () => Promise<{
+      trayEnabled: boolean;
+      quickPromptEnabled: boolean;
+      autoSaveDelay: number;
+    }>;
     set: (data: {
       trayEnabled?: boolean;
       quickPromptEnabled?: boolean;
-    }) => Promise<{ trayEnabled: boolean; quickPromptEnabled: boolean }>;
+      autoSaveDelay?: number;
+    }) => Promise<{
+      trayEnabled: boolean;
+      quickPromptEnabled: boolean;
+      autoSaveDelay: number;
+    }>;
+  };
+  // Menu API (for native macOS menu bar actions)
+  menu: {
+    onNewChat: (callback: () => void) => () => void;
+    onNewSpreadsheet: (callback: () => void) => () => void;
+    onNewDocument: (callback: () => void) => () => void;
+    onFilesImported: (callback: () => void) => () => void;
+    onOpenPdf: (
+      callback: (data: {
+        files: Array<{ path: string; name: string; size: number }>;
+      }) => void,
+    ) => () => void;
+    onToggleSidebar: (callback: () => void) => () => void;
+    onShowShortcuts: (callback: () => void) => () => void;
+    onGoToTab: (callback: (data: { tab: string }) => void) => () => void;
+    onCommandK: (callback: () => void) => () => void;
+    // Chat menu actions
+    onStopGeneration: (callback: () => void) => () => void;
+    onCycleReasoning: (callback: () => void) => () => void;
+    onClearChat: (callback: () => void) => () => void;
+    onArchiveChat: (callback: () => void) => () => void;
+    onDeleteChat: (callback: () => void) => () => void;
+    // Artifact menu actions
+    onSaveArtifact: (callback: () => void) => () => void;
+    onExportExcel: (callback: () => void) => () => void;
+    onExportChartPng: (callback: () => void) => () => void;
+    onExportChartPdf: (callback: () => void) => () => void;
+    onCopyChart: (callback: () => void) => () => void;
+    // PDF menu actions
+    onDownloadPdf: (callback: () => void) => () => void;
+    onOpenPdfBrowser: (callback: () => void) => () => void;
+    onCloseArtifact: (callback: () => void) => () => void;
+    onSavePdfAnnotations: (callback: () => void) => () => void;
+    onPdfNavigate: (callback: () => void) => () => void;
+    onPdfHighlight: (callback: () => void) => () => void;
+    onPdfZoomIn: (callback: () => void) => () => void;
+    onPdfZoomOut: (callback: () => void) => () => void;
+    onPdfZoomReset: (callback: () => void) => () => void;
+    // Agent panel menu actions
+    onToggleAgentPanel: (callback: () => void) => () => void;
+    onClearAgentHistory: (callback: () => void) => () => void;
   };
 }
 

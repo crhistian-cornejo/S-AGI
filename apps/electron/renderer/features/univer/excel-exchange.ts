@@ -51,13 +51,7 @@ interface UniverWorkbookData {
     sheets: Record<string, UniverSheetData>
 }
 
-/**
- * Export Univer workbook data to Excel (.xlsx) file
- */
-export async function exportToExcel(
-    univerData: UniverWorkbookData,
-    filename: string = 'spreadsheet.xlsx'
-): Promise<void> {
+function buildWorkbook(univerData: UniverWorkbookData): ExcelJS.Workbook {
     const workbook = new ExcelJS.Workbook()
     workbook.creator = 'S-AGI'
     workbook.created = new Date()
@@ -155,8 +149,26 @@ export async function exportToExcel(
         }
     }
 
-    // Generate blob and trigger download
+    return workbook
+}
+
+export async function exportToExcelBuffer(
+    univerData: UniverWorkbookData
+): Promise<ArrayBuffer> {
+    const workbook = buildWorkbook(univerData)
     const buffer = await workbook.xlsx.writeBuffer()
+    return buffer as ArrayBuffer
+}
+
+/**
+ * Export Univer workbook data to Excel (.xlsx) file
+ */
+export async function exportToExcel(
+    univerData: UniverWorkbookData,
+    filename: string = 'spreadsheet.xlsx'
+): Promise<void> {
+    // Generate blob and trigger download
+    const buffer = await exportToExcelBuffer(univerData)
     const blob = new Blob([buffer], { 
         type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' 
     })
@@ -184,9 +196,10 @@ export async function importFromExcel(file: File): Promise<UniverWorkbookData> {
         const rowData: Record<number, { h?: number }> = {}
         const mergeData: UniverSheetData['mergeData'] = []
 
-        // Process column widths
-        worksheet.columns.forEach((col, index) => {
-            if (col.width) {
+        // Process column widths (columns can be null in ExcelJS for empty sheets)
+        const worksheetColumns = Array.isArray(worksheet.columns) ? worksheet.columns : []
+        worksheetColumns.forEach((col, index) => {
+            if (col?.width) {
                 columnData[index] = { w: Math.round(col.width * 7) }  // Convert to pixels
             }
         })

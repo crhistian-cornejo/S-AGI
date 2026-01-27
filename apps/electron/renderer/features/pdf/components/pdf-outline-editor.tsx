@@ -1,7 +1,7 @@
-import { memo, useState, useEffect, useCallback } from 'react';
-import { useRegistry } from '@embedpdf/core/react';
-import { useLoaderCapability } from '@embedpdf/plugin-loader/react';
-import type { PdfEngine, PdfBookmarkObject } from '@embedpdf/models';
+import { memo, useState, useEffect, useCallback } from "react";
+import { useRegistry } from "@embedpdf/core/react";
+import { useLoaderCapability } from "@embedpdf/plugin-loader/react";
+import type { PdfEngine, PdfBookmarkObject } from "@embedpdf/models";
 import {
   Dialog,
   DialogContent,
@@ -9,8 +9,8 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from '@/components/ui/dialog';
-import { Button } from '@/components/ui/button';
+} from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
 import {
   IconLoader2,
   IconCheck,
@@ -19,8 +19,8 @@ import {
   IconTrash,
   IconChevronRight,
   IconChevronDown,
-} from '@tabler/icons-react';
-import { cn } from '@/lib/utils';
+} from "@tabler/icons-react";
+import { cn } from "@/lib/utils";
 
 interface BookmarkNode extends PdfBookmarkObject {
   /** Child bookmarks */
@@ -64,12 +64,12 @@ export const PdfOutlineEditor = memo(function PdfOutlineEditor({
       try {
         const doc = loaderApi.getDocument();
         if (!doc) {
-          throw new Error('No document loaded');
+          throw new Error("No document loaded");
         }
 
         const engine = registry.getEngine() as PdfEngine;
         if (!engine) {
-          throw new Error('PDF engine not available');
+          throw new Error("PDF engine not available");
         }
 
         // Use the engine's getBookmarks API
@@ -85,10 +85,12 @@ export const PdfOutlineEditor = memo(function PdfOutlineEditor({
         const rootBookmarks = bookmarksData.bookmarks.map(convertToNode);
 
         setBookmarks(rootBookmarks);
-        console.log('[PDF Outline] Loaded bookmarks:', rootBookmarks);
+        console.log("[PDF Outline] Loaded bookmarks:", rootBookmarks);
       } catch (err) {
-        console.error('[PDF Outline] Error loading bookmarks:', err);
-        setError(err instanceof Error ? err.message : 'Failed to load bookmarks');
+        console.error("[PDF Outline] Error loading bookmarks:", err);
+        setError(
+          err instanceof Error ? err.message : "Failed to load bookmarks",
+        );
       } finally {
         setIsLoading(false);
       }
@@ -154,10 +156,12 @@ export const PdfOutlineEditor = memo(function PdfOutlineEditor({
           return removeNode(prev, path);
         });
 
-        console.log('[PDF Outline] Deleted bookmark at path:', path);
+        console.log("[PDF Outline] Deleted bookmark at path:", path);
       } catch (err) {
-        console.error('[PDF Outline] Error deleting bookmark:', err);
-        setError(err instanceof Error ? err.message : 'Failed to delete bookmark');
+        console.error("[PDF Outline] Error deleting bookmark:", err);
+        setError(
+          err instanceof Error ? err.message : "Failed to delete bookmark",
+        );
       }
     },
     [registry, loaderApi],
@@ -170,17 +174,19 @@ export const PdfOutlineEditor = memo(function PdfOutlineEditor({
     try {
       // Add to state - will be saved when user clicks Save
       const newBookmark: BookmarkNode = {
-        title: 'New Bookmark',
+        title: "New Bookmark",
         pageIndex: 0,
         children: [],
         expanded: true,
       };
 
       setBookmarks((prev) => [...prev, newBookmark]);
-      console.log('[PDF Outline] Created new bookmark');
+      console.log("[PDF Outline] Created new bookmark");
     } catch (err) {
-      console.error('[PDF Outline] Error creating bookmark:', err);
-      setError(err instanceof Error ? err.message : 'Failed to create bookmark');
+      console.error("[PDF Outline] Error creating bookmark:", err);
+      setError(
+        err instanceof Error ? err.message : "Failed to create bookmark",
+      );
     }
   }, [registry, loaderApi]);
 
@@ -194,12 +200,12 @@ export const PdfOutlineEditor = memo(function PdfOutlineEditor({
     try {
       const doc = loaderApi.getDocument();
       if (!doc) {
-        throw new Error('No document loaded');
+        throw new Error("No document loaded");
       }
 
       const engine = registry.getEngine() as PdfEngine;
       if (!engine) {
-        throw new Error('PDF engine not available');
+        throw new Error("PDF engine not available");
       }
 
       // Convert BookmarkNode back to PdfBookmarkObject (remove UI state)
@@ -220,15 +226,15 @@ export const PdfOutlineEditor = memo(function PdfOutlineEditor({
       // Use the engine's setBookmarks API
       await engine.setBookmarks(doc, bookmarksToSave).toPromise();
 
-      console.log('[PDF Outline] Saved bookmarks successfully');
+      console.log("[PDF Outline] Saved bookmarks successfully");
       setSuccess(true);
       setTimeout(() => {
         onOpenChange(false);
         setSuccess(false);
       }, 1500);
     } catch (err) {
-      console.error('[PDF Outline] Error saving:', err);
-      setError(err instanceof Error ? err.message : 'Failed to save');
+      console.error("[PDF Outline] Error saving:", err);
+      setError(err instanceof Error ? err.message : "Failed to save");
     } finally {
       setIsSaving(false);
     }
@@ -246,7 +252,10 @@ export const PdfOutlineEditor = memo(function PdfOutlineEditor({
 
         {isLoading ? (
           <div className="flex items-center justify-center py-8">
-            <IconLoader2 size={24} className="animate-spin text-muted-foreground" />
+            <IconLoader2
+              size={24}
+              className="animate-spin text-muted-foreground"
+            />
           </div>
         ) : (
           <div className="flex flex-col gap-4 py-4 overflow-y-auto max-h-[50vh]">
@@ -307,7 +316,7 @@ export const PdfOutlineEditor = memo(function PdfOutlineEditor({
                 Saving...
               </>
             ) : (
-              'Save Changes'
+              "Save Changes"
             )}
           </Button>
         </DialogFooter>
@@ -343,8 +352,8 @@ const BookmarkTree = memo(function BookmarkTree({
           <div key={index}>
             <div
               className={cn(
-                'group flex items-center gap-2 p-2 rounded-md hover:bg-accent/50 transition-colors',
-                path.length > 0 && 'ml-6',
+                "group flex items-center gap-2 p-2 rounded-md hover:bg-accent/50 transition-colors",
+                path.length > 0 && "ml-6",
               )}
             >
               {/* Expand/collapse button */}
@@ -366,14 +375,16 @@ const BookmarkTree = memo(function BookmarkTree({
 
               {/* Bookmark info */}
               <div className="flex-1 min-w-0">
-                <div className="text-sm font-medium truncate">{bookmark.title}</div>
+                <div className="text-sm font-medium truncate">
+                  {bookmark.title}
+                </div>
                 <div className="text-xs text-muted-foreground">
                   Page {(bookmark.pageIndex ?? 0) + 1}
                 </div>
               </div>
 
               {/* Actions */}
-              <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+              <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity duration-150">
                 <Button
                   variant="ghost"
                   size="icon"

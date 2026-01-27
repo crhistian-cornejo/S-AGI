@@ -398,6 +398,16 @@ const desktopApi = {
       ipcRenderer.invoke("files:export", data),
   },
 
+  excel: {
+    saveLocal: (data: { base64: string; suggestedName?: string }) =>
+      ipcRenderer.invoke("excel:save-local", data) as Promise<{
+        success: boolean;
+        path?: string;
+        error?: string;
+        canceled?: boolean;
+      }>,
+  },
+
   // PDF local file picker (view only, no import)
   pdf: {
     pickLocal: () =>
@@ -665,12 +675,16 @@ const desktopApi = {
 
   preferences: {
     get: () => ipcRenderer.invoke("preferences:get"),
-    set: (data: { trayEnabled?: boolean; quickPromptEnabled?: boolean }) =>
-      ipcRenderer.invoke("preferences:set", data),
+    set: (data: {
+      trayEnabled?: boolean;
+      quickPromptEnabled?: boolean;
+      autoSaveDelay?: number;
+    }) => ipcRenderer.invoke("preferences:set", data),
     onPreferencesUpdated: (
       callback: (data: {
         trayEnabled: boolean;
         quickPromptEnabled: boolean;
+        autoSaveDelay: number;
       }) => void,
     ) => {
       const handler = (_: any, data: any) => callback(data);

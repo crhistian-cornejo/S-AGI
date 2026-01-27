@@ -36,7 +36,7 @@ export function SuggestedPrompts({
 
     setShowLeftGradient(hasOverflow && scrollLeft > 0);
     setShowRightGradient(
-      hasOverflow && scrollLeft < scrollWidth - clientWidth - 1
+      hasOverflow && scrollLeft < scrollWidth - clientWidth - 1,
     );
   }, []);
 
@@ -77,7 +77,7 @@ export function SuggestedPrompts({
         <div
           className={cn(
             "absolute left-0 top-0 bottom-0 w-8 bg-gradient-to-r from-background to-transparent z-10 pointer-events-none transition-opacity duration-200",
-            showLeftGradient ? "opacity-100" : "opacity-0"
+            showLeftGradient ? "opacity-100" : "opacity-0",
           )}
         />
 
@@ -110,12 +110,12 @@ export function SuggestedPrompts({
                   "active:scale-[0.98]",
                   "transition-all duration-150",
                   // For long text: allow wrapping up to 2 lines, then truncate
-                  isLong ? "max-w-[280px]" : "whitespace-nowrap"
+                  isLong ? "max-w-[280px]" : "whitespace-nowrap",
                 )}
               >
                 <span
                   className={cn(
-                    isLong && "line-clamp-2 text-left leading-tight"
+                    isLong && "line-clamp-2 text-left leading-tight",
                   )}
                 >
                   {displayText}
@@ -136,7 +136,7 @@ export function SuggestedPrompts({
                 className="flex-shrink-0"
               >
                 {isLong ? (
-                  <Tooltip delayDuration={300}>
+                  <Tooltip delayDuration={100} skipDelayDuration={0}>
                     <TooltipTrigger asChild>{buttonContent}</TooltipTrigger>
                     <TooltipContent
                       side="top"
@@ -157,7 +157,7 @@ export function SuggestedPrompts({
         <div
           className={cn(
             "absolute right-0 top-0 bottom-0 w-8 bg-gradient-to-l from-background to-transparent z-10 pointer-events-none transition-opacity duration-200",
-            showRightGradient ? "opacity-100" : "opacity-0"
+            showRightGradient ? "opacity-100" : "opacity-0",
           )}
         />
       </motion.div>

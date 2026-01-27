@@ -25,11 +25,7 @@ import { registerSecurityIpc } from "./lib/security/ipc";
 import { getFileManager } from "./lib/file-manager/file-manager";
 import { lockSensitiveNow } from "./lib/security/sensitive-lock";
 import { getPreferencesStore } from "./lib/preferences-store";
-import {
-  startAIServer,
-  stopAIServer,
-  waitForAIServerReady,
-} from "./lib/ai";
+import { startAIServer, stopAIServer, waitForAIServerReady } from "./lib/ai";
 import log from "electron-log";
 
 const appDisplayName = "S-AGI";
@@ -151,8 +147,7 @@ function updateApplicationMenu() {
         },
         {
           label: "Open PDF...",
-          accelerator:
-            process.platform === "darwin" ? "Command+O" : "Ctrl+O",
+          accelerator: process.platform === "darwin" ? "Command+O" : "Ctrl+O",
           click: async () => {
             try {
               const result = await dialog.showOpenDialog({
@@ -236,8 +231,7 @@ function updateApplicationMenu() {
         { type: "separator" } as const,
         {
           label: "Toggle Sidebar",
-          accelerator:
-            process.platform === "darwin" ? "Command+\\" : "Ctrl+\\",
+          accelerator: process.platform === "darwin" ? "Command+\\" : "Ctrl+\\",
           click: () => sendMenuAction("toggle-sidebar"),
         },
         {
@@ -303,7 +297,8 @@ function updateApplicationMenu() {
         },
         {
           label: "Delete Chat",
-          accelerator: process.platform === "darwin" ? "Command+Backspace" : "Ctrl+Delete",
+          accelerator:
+            process.platform === "darwin" ? "Command+Backspace" : "Ctrl+Delete",
           click: () => sendMenuAction("delete-chat"),
         },
       ],
@@ -392,7 +387,8 @@ function updateApplicationMenu() {
       submenu: [
         {
           label: "Toggle Agent Panel",
-          accelerator: process.platform === "darwin" ? "Command+Shift+A" : "Ctrl+Shift+A",
+          accelerator:
+            process.platform === "darwin" ? "Command+Shift+A" : "Ctrl+Shift+A",
           click: () => sendMenuAction("toggle-agent-panel"),
         },
         {
@@ -522,10 +518,15 @@ function updateApplicationMenu() {
     // On macOS, this displays the menu in the native system menu bar at the top of the screen
     // This is the standard way apps like Craft implement native macOS menus
     Menu.setApplicationMenu(menu);
-    
+
     // Log menu items for debugging
     const menuItems = menu.items.map((item) => item.label).filter(Boolean);
-    log.info("[Menu] Application menu updated with", menuItems.length, "items:", menuItems);
+    log.info(
+      "[Menu] Application menu updated with",
+      menuItems.length,
+      "items:",
+      menuItems,
+    );
   } catch (error) {
     log.error("[Menu] Failed to build menu:", error);
   }
@@ -1041,7 +1042,6 @@ function isAllowedNavigation(url: string, allowedOrigins: string[]): boolean {
   return allowedOrigins.some((origin) => url.startsWith(origin));
 }
 
-
 function attachNavigationGuards(
   window: BrowserWindow,
   allowedOrigins: string[],
@@ -1083,7 +1083,9 @@ function isSafeForExternalOpen(url: string): boolean {
 
     // Only allow http/https protocols
     if (parsedUrl.protocol !== "http:" && parsedUrl.protocol !== "https:") {
-      log.warn(`[Security] Blocked non-HTTP(S) protocol: ${parsedUrl.protocol}`);
+      log.warn(
+        `[Security] Blocked non-HTTP(S) protocol: ${parsedUrl.protocol}`,
+      );
       return false;
     }
 
@@ -1199,9 +1201,7 @@ function registerPermissionRequestHandler(): void {
       }
 
       // Deny all other permissions by default
-      log.warn(
-        `[Security] Permission '${permission}' denied for: ${url}`,
-      );
+      log.warn(`[Security] Permission '${permission}' denied for: ${url}`);
       callback(false);
     },
   );
@@ -1752,7 +1752,14 @@ ipcMain.handle("preferences:get", (event) => {
 
 ipcMain.handle(
   "preferences:set",
-  (event, patch: { trayEnabled?: boolean; quickPromptEnabled?: boolean }) => {
+  (
+    event,
+    patch: {
+      trayEnabled?: boolean;
+      quickPromptEnabled?: boolean;
+      autoSaveDelay?: number;
+    },
+  ) => {
     if (!validateIPCSender(event.sender)) {
       return getAppPreferences();
     }
@@ -1766,11 +1773,19 @@ ipcMain.handle(
         typeof safePatch.quickPromptEnabled === "boolean"
           ? safePatch.quickPromptEnabled
           : undefined,
+      autoSaveDelay:
+        typeof safePatch.autoSaveDelay === "number" &&
+        safePatch.autoSaveDelay >= 1000 &&
+        safePatch.autoSaveDelay <= 60000
+          ? safePatch.autoSaveDelay
+          : undefined,
     });
     appPreferences = next;
     applyTrayPreference(next.trayEnabled);
     applyQuickPromptPreference(next.quickPromptEnabled);
     updateApplicationMenu();
+    // Emit preferences updated event
+    mainWindow?.webContents.send("preferences:updated", next);
     return next;
   },
 );

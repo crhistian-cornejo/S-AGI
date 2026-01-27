@@ -164,6 +164,36 @@ export function registerFileManagerIpc(getTrayPopover: () => Electron.BrowserWin
         return res
     })
 
+    // Save Excel file to a user-selected local path
+    ipcMain.handle('excel:save-local', async (event, input: unknown) => {
+        if (!validateIPCSender(event.sender)) return { success: false, error: 'Unauthorized' }
+        const { base64, suggestedName } = z.object({
+            base64: z.string().min(1),
+            suggestedName: z.string().min(1).optional()
+        }).parse(input)
+
+        const result = await dialog.showSaveDialog({
+            title: 'Save Excel file',
+            defaultPath: suggestedName || 'spreadsheet.xlsx',
+            filters: [{ name: 'Excel Workbook', extensions: ['xlsx'] }]
+        })
+
+        if (result.canceled || !result.filePath) {
+            return { success: false, canceled: true }
+        }
+
+        try {
+            const buffer = Buffer.from(base64, 'base64')
+            await fs.promises.writeFile(result.filePath, buffer)
+            return { success: true, path: result.filePath }
+        } catch (error) {
+            return {
+                success: false,
+                error: error instanceof Error ? error.message : 'Failed to save file'
+            }
+        }
+    })
+
     // Pick local PDF files for viewing only (no import, just returns paths)
     ipcMain.handle('pdf:pick-local', async (event) => {
         if (!validateIPCSender(event.sender)) return { files: [] }

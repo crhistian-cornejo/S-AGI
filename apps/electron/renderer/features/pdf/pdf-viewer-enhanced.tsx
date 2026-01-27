@@ -510,6 +510,8 @@ const PdfViewerContent = memo(function PdfViewerContent({
 
   // Auto-save state
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const pendingSaveRef = useRef(false);
+  const isMountedRef = useRef(true);
   const [saveStatus, setSaveStatus] = useAtom(pdfSaveStatusAtom);
   const setHasUnsavedChanges = useSetAtom(pdfHasUnsavedChangesAtom);
   const setLastSave = useSetAtom(pdfLastSaveAtom);
@@ -517,6 +519,140 @@ const PdfViewerContent = memo(function PdfViewerContent({
   // tRPC mutation for saving PDFs
   const saveWithAnnotationsMutation =
     trpc.pdf.saveWithAnnotations.useMutation();
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
+
+  const performSave = useCallback(
+    async (options?: { updateStatus?: boolean }) => {
+      if (!registry || !loaderApi || !source) return;
+
+      const updateStatus = options?.updateStatus ?? true;
+
+      try {
+        const doc = loaderApi.getDocument();
+        if (!doc) {
+          console.warn("[PDF Auto-Save] No document available");
+          return;
+        }
+
+        const engine = registry.getEngine() as any;
+        if (!engine || !engine.saveAsCopy) {
+          console.warn("[PDF Auto-Save] Engine does not support saveAsCopy");
+          return;
+        }
+
+        // External PDFs can't be saved
+        if (source.type === "external") {
+          console.warn("[PDF Auto-Save] External PDFs cannot be saved");
+          return;
+        }
+
+        // Local session-only PDFs (uploaded via browser) can't be saved to backend
+        if (source.type === "chat_file" && source.chatId === "local-knowledge") {
+          console.warn(
+            "[PDF Auto-Save] Local session-only PDFs cannot be saved to backend storage",
+          );
+          return;
+        }
+
+        if (updateStatus && isMountedRef.current) {
+          setSaveStatus("saving");
+        }
+
+        console.log("[PDF Auto-Save] Exporting PDF with annotations...");
+
+        // Export PDF with embedded annotations
+        const task = engine.saveAsCopy(doc);
+        const pdfArrayBuffer = await new Promise<ArrayBuffer>(
+          (resolve, reject) => {
+            task.wait(resolve, reject);
+          },
+        );
+
+        console.log(
+          `[PDF Auto-Save] PDF exported successfully (${pdfArrayBuffer.byteLength} bytes)`,
+        );
+
+        try {
+          // Convert ArrayBuffer to base64 in chunks to avoid stack overflow
+          const uint8Array = new Uint8Array(pdfArrayBuffer);
+          const chunkSize = 0x8000; // 32KB chunks
+          let base64 = "";
+
+          for (let i = 0; i < uint8Array.length; i += chunkSize) {
+            const chunk = uint8Array.subarray(
+              i,
+              Math.min(i + chunkSize, uint8Array.length),
+            );
+            base64 += String.fromCharCode.apply(null, Array.from(chunk));
+          }
+
+          const base64Data = btoa(base64);
+
+          // Call tRPC mutation to save the PDF
+          await saveWithAnnotationsMutation.mutateAsync({
+            id: source.id,
+            type: source.type,
+            pdfData: base64Data,
+            localPath: source.metadata?.localPath,
+          });
+
+          pendingSaveRef.current = false;
+          if (isMountedRef.current) {
+            setHasUnsavedChanges(false);
+          }
+
+          if (updateStatus && isMountedRef.current) {
+            setSaveStatus("saved");
+            setLastSave(new Date());
+            console.log("[PDF Auto-Save] Successfully saved to storage");
+
+            // Reset to idle after 2 seconds
+            setTimeout(() => {
+              if (isMountedRef.current) setSaveStatus("idle");
+            }, 2000);
+          }
+        } catch (saveError) {
+          console.error(
+            "[PDF Auto-Save] Failed to save to storage:",
+            saveError,
+          );
+          pendingSaveRef.current = true;
+          if (isMountedRef.current) {
+            setHasUnsavedChanges(true);
+            setSaveStatus("error");
+            // Reset to idle after 3 seconds
+            setTimeout(() => {
+              if (isMountedRef.current) setSaveStatus("idle");
+            }, 3000);
+          }
+        }
+      } catch (error) {
+        console.error("[PDF Auto-Save] Failed to export PDF:", error);
+        pendingSaveRef.current = true;
+        if (isMountedRef.current) {
+          setSaveStatus("error");
+          setTimeout(() => {
+            if (isMountedRef.current) setSaveStatus("idle");
+          }, 3000);
+        }
+      }
+    },
+    [
+      registry,
+      loaderApi,
+      source,
+      saveWithAnnotationsMutation,
+      setSaveStatus,
+      setHasUnsavedChanges,
+      setLastSave,
+    ],
+  );
 
   // Track rotation for Scroller key
   const [scrollerKey, setScrollerKey] = useState(0);
@@ -702,104 +838,13 @@ const PdfViewerContent = memo(function PdfViewerContent({
           clearTimeout(saveTimeoutRef.current);
         }
 
+        // Mark unsaved immediately to keep UI accurate on fast tab switches
+        pendingSaveRef.current = true;
+        setHasUnsavedChanges(true);
+
         // Debounce save for 2 seconds
         saveTimeoutRef.current = setTimeout(async () => {
-          try {
-            const doc = loaderApi.getDocument();
-            if (!doc) {
-              console.warn("[PDF Auto-Save] No document available");
-              return;
-            }
-
-            const engine = registry.getEngine() as any;
-            if (!engine || !engine.saveAsCopy) {
-              console.warn(
-                "[PDF Auto-Save] Engine does not support saveAsCopy",
-              );
-              return;
-            }
-
-            // External PDFs can't be saved
-            if (source.type === "external") {
-              console.warn("[PDF Auto-Save] External PDFs cannot be saved");
-              return;
-            }
-
-            // Local session-only PDFs (uploaded via browser) can't be saved to backend
-            // These have chatId: "local-knowledge" and are identified by blob URLs
-            if (
-              source.type === "chat_file" &&
-              source.chatId === "local-knowledge"
-            ) {
-              console.warn(
-                "[PDF Auto-Save] Local session-only PDFs cannot be saved to backend storage",
-              );
-              return;
-            }
-
-            console.log("[PDF Auto-Save] Exporting PDF with annotations...");
-
-            // Export PDF with embedded annotations
-            const task = engine.saveAsCopy(doc);
-            const pdfArrayBuffer = await new Promise<ArrayBuffer>(
-              (resolve, reject) => {
-                task.wait(resolve, reject);
-              },
-            );
-
-            console.log(
-              `[PDF Auto-Save] PDF exported successfully (${pdfArrayBuffer.byteLength} bytes)`,
-            );
-
-            setSaveStatus("saving");
-            setHasUnsavedChanges(false);
-
-            try {
-              // Convert ArrayBuffer to base64 in chunks to avoid stack overflow
-              const uint8Array = new Uint8Array(pdfArrayBuffer);
-              const chunkSize = 0x8000; // 32KB chunks
-              let base64 = "";
-
-              for (let i = 0; i < uint8Array.length; i += chunkSize) {
-                const chunk = uint8Array.subarray(
-                  i,
-                  Math.min(i + chunkSize, uint8Array.length),
-                );
-                base64 += String.fromCharCode.apply(null, Array.from(chunk));
-              }
-
-              const base64Data = btoa(base64);
-
-              // Call tRPC mutation to save the PDF
-              await saveWithAnnotationsMutation.mutateAsync({
-                id: source.id,
-                type: source.type,
-                pdfData: base64Data,
-                localPath: source.metadata?.localPath,
-              });
-
-              setSaveStatus("saved");
-              setLastSave(new Date());
-              console.log("[PDF Auto-Save] Successfully saved to storage");
-
-              // Reset to idle after 2 seconds
-              setTimeout(() => setSaveStatus("idle"), 2000);
-            } catch (saveError) {
-              console.error(
-                "[PDF Auto-Save] Failed to save to storage:",
-                saveError,
-              );
-              setSaveStatus("error");
-              setHasUnsavedChanges(true);
-
-              // Reset to idle after 3 seconds
-              setTimeout(() => setSaveStatus("idle"), 3000);
-            }
-          } catch (error) {
-            console.error("[PDF Auto-Save] Failed to export PDF:", error);
-            setSaveStatus("error");
-            setTimeout(() => setSaveStatus("idle"), 3000);
-          }
+          await performSave();
         }, 2000);
       }
     };
@@ -812,6 +857,12 @@ const PdfViewerContent = memo(function PdfViewerContent({
       if (saveTimeoutRef.current) {
         clearTimeout(saveTimeoutRef.current);
       }
+      if (pendingSaveRef.current) {
+        // Best-effort save before unmounting
+        performSave({ updateStatus: false }).catch((err) => {
+          console.warn("[PDF Auto-Save] Failed to save on unmount:", err);
+        });
+      }
     };
   }, [
     annotationApi,
@@ -820,6 +871,8 @@ const PdfViewerContent = memo(function PdfViewerContent({
     source?.id,
     source?.type,
     source?.metadata?.localPath,
+    performSave,
+    setHasUnsavedChanges,
   ]);
 
   return (

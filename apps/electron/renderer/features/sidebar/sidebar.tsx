@@ -436,7 +436,7 @@ function ChatItem({
         {/* Action buttons - aligned to right */}
         <div
           className={cn(
-            "flex items-center gap-0.5 shrink-0 transition-opacity ml-auto",
+            "flex items-center gap-0.5 shrink-0 transition-opacity duration-150 ml-auto",
             "opacity-0 group-hover:opacity-100",
             // Always visible if pinned
             chat.pinned && "opacity-100",
