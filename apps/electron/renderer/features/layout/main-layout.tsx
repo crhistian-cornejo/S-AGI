@@ -1073,12 +1073,12 @@ export function MainLayout() {
                   className={cn(
                     "h-full border-l border-border/50 bg-background transition-all duration-300 ease-in-out overflow-hidden shrink-0",
                     agentPanelOpen
-                      ? "w-[300px] min-w-[280px]"
+                      ? "w-[320px] min-w-[300px]"
                       : "w-0 border-l-0",
                   )}
                   inert={!agentPanelOpen ? "" : undefined}
                 >
-                  <div className="w-[300px] min-w-[280px] h-full">
+                  <div className="w-[320px] min-w-[300px] h-full">
                     <Suspense fallback={<PanelLoadingFallback />}>
                       <AgentPanel />
                     </Suspense>
@@ -1201,12 +1201,12 @@ export function MainLayout() {
                   className={cn(
                     "h-full border-l border-border/50 bg-background transition-all duration-300 ease-in-out overflow-hidden shrink-0",
                     agentPanelOpen
-                      ? "w-[300px] min-w-[280px]"
+                      ? "w-[320px] min-w-[300px]"
                       : "w-0 border-l-0",
                   )}
                   inert={!agentPanelOpen ? "" : undefined}
                 >
-                  <div className="w-[300px] min-w-[280px] h-full">
+                  <div className="w-[320px] min-w-[300px] h-full">
                     <Suspense fallback={<PanelLoadingFallback />}>
                       <AgentPanel />
                     </Suspense>
@@ -1230,15 +1230,15 @@ export function MainLayout() {
                 <PdfTabView />
               </Suspense>
             </div>
-            {/* Agent Panel - slides from right */}
+            {/* Agent Panel - slides from right, pt-10 for titlebar safe area */}
             <div
               className={cn(
-                "h-full border-l border-border/50 bg-background transition-all duration-300 ease-in-out overflow-hidden shrink-0",
-                agentPanelOpen ? "w-[300px] min-w-[280px]" : "w-0 border-l-0",
+                "h-full border-l border-border/50 bg-background transition-all duration-300 ease-in-out overflow-hidden shrink-0 pt-10",
+                agentPanelOpen ? "w-[320px] min-w-[300px]" : "w-0 border-l-0",
               )}
               inert={!agentPanelOpen ? "" : undefined}
             >
-              <div className="w-[300px] min-w-[280px] h-full">
+              <div className="w-[320px] min-w-[300px] h-full">
                 <Suspense fallback={<PanelLoadingFallback />}>
                   <AgentPanel />
                 </Suspense>

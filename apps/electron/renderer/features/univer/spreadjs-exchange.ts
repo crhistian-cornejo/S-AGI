@@ -18,13 +18,11 @@
 
 import * as GC from "@mescius/spread-sheets";
 import "@mescius/spread-sheets/styles/gc.spread.sheets.excel2013white.css";
+import * as ExcelIO from "@mescius/spread-excelio";
 import { saveAs } from "file-saver";
 
 // Import shapes plugin
 import "@grapecity/spread-sheets-shapes";
-
-// Excel IO is included in the main package, but we need to ensure it's available
-// The Excel.IO class is part of GC.Spread.Excel.IO namespace
 
 // ============================================
 // UNIVER DATA TYPES
@@ -72,20 +70,24 @@ interface UniverCell {
 interface UniverCellStyle {
   ff?: string; // font family
   fs?: number; // font size
-  bl?: number; // bold
-  it?: number; // italic
-  ul?: number; // underline
-  cl?: { r: number; g: number; b: number }; // color
-  bg?: { r: number; g: number; b: number }; // background color
+  bl?: number; // bold (1 = bold)
+  it?: number; // italic (1 = italic)
+  ul?: { s: number } | number; // underline
+  st?: { s: number } | number; // strikethrough
+  cl?: { r: number; g: number; b: number; rgb?: string }; // color
+  bg?: { r: number; g: number; b: number; rgb?: string }; // background color
   bd?: {
-    t?: { s: number; cl: { r: number; g: number; b: number } };
-    b?: { s: number; cl: { r: number; g: number; b: number } };
-    l?: { s: number; cl: { r: number; g: number; b: number } };
-    r?: { s: number; cl: { r: number; g: number; b: number } };
+    t?: { s: number; cl: { r: number; g: number; b: number; rgb?: string } };
+    b?: { s: number; cl: { r: number; g: number; b: number; rgb?: string } };
+    l?: { s: number; cl: { r: number; g: number; b: number; rgb?: string } };
+    r?: { s: number; cl: { r: number; g: number; b: number; rgb?: string } };
   }; // borders
-  ht?: number; // horizontal alignment
-  vt?: number; // vertical alignment
-  tb?: number; // text wrap
+  ht?: number; // horizontal alignment (1=left, 2=center, 3=right)
+  vt?: number; // vertical alignment (1=top, 2=middle, 3=bottom)
+  tb?: number; // text wrap (1=overflow, 2=wrap, 3=clip)
+  tr?: number; // text rotation
+  pd?: { t?: number; b?: number; l?: number; r?: number }; // padding
+  n?: { pattern?: string }; // number format
   [key: string]: unknown;
 }
 
@@ -255,6 +257,26 @@ function replaceMissingFonts(
 // ============================================
 
 /**
+ * Helper to extract color from Univer color object
+ */
+function extractColor(
+  color: { r: number; g: number; b: number; rgb?: string } | undefined,
+): string | null {
+  if (!color) return null;
+  // Prefer rgb string if available (e.g., "#FF5500")
+  if (color.rgb) return color.rgb;
+  // Otherwise convert from r,g,b values
+  if (
+    typeof color.r === "number" &&
+    typeof color.g === "number" &&
+    typeof color.b === "number"
+  ) {
+    return rgbToHex(color.r, color.g, color.b);
+  }
+  return null;
+}
+
+/**
  * Convert Univer cell style to SpreadJS style
  */
 function convertUniverStyleToSpreadJS(
@@ -264,94 +286,113 @@ function convertUniverStyleToSpreadJS(
 
   if (!style) return spreadStyle;
 
-  // Font
-  if (style.ff || style.fs || style.bl || style.cl) {
-    const font = style.ff?.split(",")[0].trim() || "Arial";
-    const size = style.fs || 11;
-    const bold = style.bl === 1;
-    const italic = style.it === 1;
-    const underline = style.ul === 1;
+  // Font properties
+  const font = style.ff?.split(",")[0].trim() || "Arial";
+  const size = style.fs || 11;
+  const bold = style.bl === 1;
+  const italic = style.it === 1;
+  const underline =
+    typeof style.ul === "number" ? style.ul === 1 : !!style.ul?.s;
+  const strikethrough =
+    typeof style.st === "number" ? style.st === 1 : !!style.st?.s;
 
-    let color = "black";
-    if (style.cl) {
-      color = rgbToHex(style.cl.r, style.cl.g, style.cl.b);
-    }
+  // Build font string
+  let fontParts: string[] = [];
+  if (bold) fontParts.push("bold");
+  if (italic) fontParts.push("italic");
+  fontParts.push(`${size}pt`);
+  fontParts.push(font);
 
-    spreadStyle.font = `${bold ? "bold " : ""}${italic ? "italic " : ""}${underline ? "underline " : ""}${size}pt ${font}`;
-    spreadStyle.foreColor = color;
+  spreadStyle.font = fontParts.join(" ");
+
+  // Text color
+  const textColor = extractColor(style.cl);
+  if (textColor) {
+    spreadStyle.foreColor = textColor;
   }
 
-  // Background
-  if (style.bg) {
-    const bgColor = rgbToHex(style.bg.r, style.bg.g, style.bg.b);
-    spreadStyle.backColor = bgColor as any; // SpreadJS accepts string color
+  // Text decorations
+  if (underline) {
+    spreadStyle.textDecoration =
+      GC.Spread.Sheets.TextDecorationType.underline as any;
+  }
+  if (strikethrough) {
+    spreadStyle.textDecoration =
+      GC.Spread.Sheets.TextDecorationType.lineThrough as any;
   }
 
-  // Alignment
-  if (style.ht !== undefined || style.vt !== undefined || style.tb) {
-    const alignMap: Record<number, GC.Spread.Sheets.HorizontalAlign> = {
-      0: GC.Spread.Sheets.HorizontalAlign.left,
-      1: GC.Spread.Sheets.HorizontalAlign.center,
-      2: GC.Spread.Sheets.HorizontalAlign.right,
-    };
-    const vertMap: Record<number, GC.Spread.Sheets.VerticalAlign> = {
-      0: GC.Spread.Sheets.VerticalAlign.top,
-      1: GC.Spread.Sheets.VerticalAlign.center,
-      2: GC.Spread.Sheets.VerticalAlign.bottom,
-    };
+  // Background color
+  const bgColor = extractColor(style.bg);
+  if (bgColor) {
+    spreadStyle.backColor = bgColor as any;
+  }
 
-    if (style.ht !== undefined) {
-      spreadStyle.hAlign =
-        alignMap[style.ht] ?? GC.Spread.Sheets.HorizontalAlign.left;
-    }
-    if (style.vt !== undefined) {
-      spreadStyle.vAlign =
-        vertMap[style.vt] ?? GC.Spread.Sheets.VerticalAlign.top;
-    }
-    if (style.tb) {
-      spreadStyle.wordWrap = true;
-    }
+  // Alignment - Univer uses 1=left, 2=center, 3=right
+  const alignMap: Record<number, GC.Spread.Sheets.HorizontalAlign> = {
+    1: GC.Spread.Sheets.HorizontalAlign.left,
+    2: GC.Spread.Sheets.HorizontalAlign.center,
+    3: GC.Spread.Sheets.HorizontalAlign.right,
+  };
+  const vertMap: Record<number, GC.Spread.Sheets.VerticalAlign> = {
+    1: GC.Spread.Sheets.VerticalAlign.top,
+    2: GC.Spread.Sheets.VerticalAlign.center,
+    3: GC.Spread.Sheets.VerticalAlign.bottom,
+  };
+
+  if (style.ht !== undefined && alignMap[style.ht]) {
+    spreadStyle.hAlign = alignMap[style.ht];
+  }
+  if (style.vt !== undefined && vertMap[style.vt]) {
+    spreadStyle.vAlign = vertMap[style.vt];
+  }
+  // Text wrap: 2 = wrap in Univer
+  if (style.tb === 2) {
+    spreadStyle.wordWrap = true;
+  }
+
+  // Number format (currency, percentage, etc.)
+  if (style.n?.pattern) {
+    spreadStyle.formatter = style.n.pattern;
   }
 
   // Borders
   if (style.bd) {
     const borderStyleMap: Record<number, GC.Spread.Sheets.LineStyle> = {
-      0: GC.Spread.Sheets.LineStyle.thin,
-      1: GC.Spread.Sheets.LineStyle.medium,
-      2: GC.Spread.Sheets.LineStyle.thick,
+      1: GC.Spread.Sheets.LineStyle.thin,
+      2: GC.Spread.Sheets.LineStyle.hair,
+      3: GC.Spread.Sheets.LineStyle.dotted,
+      4: GC.Spread.Sheets.LineStyle.dashed,
+      5: GC.Spread.Sheets.LineStyle.dashDot,
+      6: GC.Spread.Sheets.LineStyle.dashDotDot,
+      7: GC.Spread.Sheets.LineStyle.double,
+      8: GC.Spread.Sheets.LineStyle.medium,
+      9: GC.Spread.Sheets.LineStyle.mediumDashed,
+      10: GC.Spread.Sheets.LineStyle.mediumDashDot,
+      11: GC.Spread.Sheets.LineStyle.mediumDashDotDot,
+      12: GC.Spread.Sheets.LineStyle.slantedDashDot,
+      13: GC.Spread.Sheets.LineStyle.thick,
     };
 
-    // Top border
-    if (style.bd.t) {
-      const topBorder = new GC.Spread.Sheets.LineBorder(
-        rgbToHex(style.bd.t.cl.r, style.bd.t.cl.g, style.bd.t.cl.b),
-        borderStyleMap[style.bd.t.s] ?? GC.Spread.Sheets.LineStyle.thin,
-      );
-      spreadStyle.borderTop = topBorder;
+    const createBorder = (
+      bd: { s: number; cl: { r: number; g: number; b: number; rgb?: string } },
+    ) => {
+      const color = extractColor(bd.cl) || "#000000";
+      const lineStyle =
+        borderStyleMap[bd.s] ?? GC.Spread.Sheets.LineStyle.thin;
+      return new GC.Spread.Sheets.LineBorder(color, lineStyle);
+    };
+
+    if (style.bd.t?.cl) {
+      spreadStyle.borderTop = createBorder(style.bd.t);
     }
-    // Bottom border
-    if (style.bd.b) {
-      const bottomBorder = new GC.Spread.Sheets.LineBorder(
-        rgbToHex(style.bd.b.cl.r, style.bd.b.cl.g, style.bd.b.cl.b),
-        borderStyleMap[style.bd.b.s] ?? GC.Spread.Sheets.LineStyle.thin,
-      );
-      spreadStyle.borderBottom = bottomBorder;
+    if (style.bd.b?.cl) {
+      spreadStyle.borderBottom = createBorder(style.bd.b);
     }
-    // Left border
-    if (style.bd.l) {
-      const leftBorder = new GC.Spread.Sheets.LineBorder(
-        rgbToHex(style.bd.l.cl.r, style.bd.l.cl.g, style.bd.l.cl.b),
-        borderStyleMap[style.bd.l.s] ?? GC.Spread.Sheets.LineStyle.thin,
-      );
-      spreadStyle.borderLeft = leftBorder;
+    if (style.bd.l?.cl) {
+      spreadStyle.borderLeft = createBorder(style.bd.l);
     }
-    // Right border
-    if (style.bd.r) {
-      const rightBorder = new GC.Spread.Sheets.LineBorder(
-        rgbToHex(style.bd.r.cl.r, style.bd.r.cl.g, style.bd.r.cl.b),
-        borderStyleMap[style.bd.r.s] ?? GC.Spread.Sheets.LineStyle.thin,
-      );
-      spreadStyle.borderRight = rightBorder;
+    if (style.bd.r?.cl) {
+      spreadStyle.borderRight = createBorder(style.bd.r);
     }
   }
 
@@ -371,12 +412,70 @@ function rgbToHex(r: number, g: number, b: number): string {
 }
 
 /**
+ * Extract number formats from Univer resources
+ */
+function extractNumFmtFromResources(
+  univerData: UniverWorkbookData,
+): Map<string, Map<string, string>> {
+  const formats = new Map<string, Map<string, string>>();
+
+  if (!univerData.resources) return formats;
+
+  // Look for numfmt resource
+  const numfmtResource = univerData.resources.find(
+    (r) =>
+      r.name === "SHEET_NUMFMT_PLUGIN" ||
+      r.name?.toLowerCase().includes("numfmt"),
+  );
+
+  if (numfmtResource?.data) {
+    try {
+      const numfmtData = JSON.parse(numfmtResource.data);
+      // numfmtData is typically { sheetId: { "row,col": { pattern: "..." } } }
+      for (const [sheetId, sheetFormats] of Object.entries(numfmtData)) {
+        if (typeof sheetFormats !== "object" || !sheetFormats) continue;
+        const sheetMap = new Map<string, string>();
+        for (const [cellKey, format] of Object.entries(
+          sheetFormats as Record<string, any>,
+        )) {
+          if (format?.pattern) {
+            sheetMap.set(cellKey, format.pattern);
+          }
+        }
+        if (sheetMap.size > 0) {
+          formats.set(sheetId, sheetMap);
+        }
+      }
+    } catch (e) {
+      console.warn("[SpreadJSExchange] Failed to parse numfmt resource:", e);
+    }
+  }
+
+  return formats;
+}
+
+/**
  * Convert Univer workbook to SpreadJS workbook
  * Returns a promise to handle async image loading
  */
 async function convertUniverToSpreadJS(
   univerData: UniverWorkbookData,
 ): Promise<GC.Spread.Sheets.Workbook> {
+  // Debug: log the full univerData structure to see what we're working with
+  console.log("[SpreadJSExchange] Converting Univer data:", {
+    hasStyles: !!univerData.styles,
+    stylesCount: univerData.styles ? Object.keys(univerData.styles).length : 0,
+    resources: univerData.resources?.map((r) => r.name),
+    sheetCount: univerData.sheetOrder?.length || 0,
+  });
+
+  // Extract number formats from resources
+  const numFmtMap = extractNumFmtFromResources(univerData);
+  console.log(
+    "[SpreadJSExchange] Extracted number formats for sheets:",
+    Array.from(numFmtMap.keys()),
+  );
+
   const spread = new GC.Spread.Sheets.Workbook();
 
   const sheetOrder =
@@ -390,7 +489,10 @@ async function convertUniverToSpreadJS(
       spread.removeSheet(0);
     } catch (e) {
       // If removeSheet fails, we'll just overwrite the default sheet
-      console.warn("[SpreadJSExchange] Could not remove default sheet, will overwrite:", e);
+      console.warn(
+        "[SpreadJSExchange] Could not remove default sheet, will overwrite:",
+        e,
+      );
     }
   }
 
@@ -402,12 +504,18 @@ async function convertUniverToSpreadJS(
     if (!univerSheet) continue;
 
     const sheetName = univerSheet.name || sheetId;
-    
+
+    // Get number formats for this sheet
+    const sheetNumFmts = numFmtMap.get(sheetId);
+
     // Add new sheet - SpreadJS addSheet(index, worksheet) method
     // Create a new worksheet and add it to the workbook
     const newSheet = new GC.Spread.Sheets.Worksheet(sheetName);
     spread.addSheet(spread.sheets.length, newSheet);
     const sheet = spread.getSheet(spread.sheets.length - 1);
+
+    // Debug first cell style
+    let debuggedFirstStyle = false;
 
     // Convert cells
     if (univerSheet.cellData) {
@@ -429,16 +537,33 @@ async function convertUniverToSpreadJS(
           }
 
           // Set style
-          if (cell.s) {
-            const style =
-              typeof cell.s === "string"
-                ? univerData.styles?.[cell.s]
-                : (cell.s as UniverCellStyle);
+          const style =
+            typeof cell.s === "string"
+              ? univerData.styles?.[cell.s]
+              : (cell.s as UniverCellStyle | undefined);
 
-            if (style) {
-              const spreadStyle = convertUniverStyleToSpreadJS(style);
-              sheet.setStyle(rowNum, colNum, spreadStyle);
+          // Debug: log first cell with style
+          if (style && !debuggedFirstStyle) {
+            console.log(
+              "[SpreadJSExchange] First cell style sample:",
+              JSON.stringify(style, null, 2),
+            );
+            debuggedFirstStyle = true;
+          }
+
+          // Get number format from resources if available
+          const cellKey = `${rowNum},${colNum}`;
+          const numFmt = sheetNumFmts?.get(cellKey);
+
+          if (style || numFmt) {
+            const spreadStyle = convertUniverStyleToSpreadJS(style);
+
+            // Apply number format from resources if not in style
+            if (numFmt && !spreadStyle.formatter) {
+              spreadStyle.formatter = numFmt;
             }
+
+            sheet.setStyle(rowNum, colNum, spreadStyle);
           }
         }
       }
@@ -1021,7 +1146,7 @@ export async function exportToExcelBuffer(
 ): Promise<ArrayBuffer> {
   // Wait for all images to load before converting
   const spread = await convertUniverToSpreadJS(univerData);
-  const excelIO = new (GC as any).Spread.Excel.IO();
+  const excelIO = new ExcelIO.IO();
 
   // Convert workbook to JSON
   const json = JSON.stringify(spread.toJSON());
@@ -1057,7 +1182,7 @@ export async function exportToExcel(
 
   // Wait for all images to load before converting
   const spread = await convertUniverToSpreadJS(univerData);
-  const excelIO = new (GC as any).Spread.Excel.IO();
+  const excelIO = new ExcelIO.IO();
 
   // Convert workbook to JSON
   const json = JSON.stringify(spread.toJSON());
@@ -1092,7 +1217,7 @@ export async function importFromExcel(
     try {
       // Create SpreadJS workbook and Excel IO
       const spread = new GC.Spread.Sheets.Workbook();
-      const excelIO = new (GC as any).Spread.Excel.IO();
+      const excelIO = new ExcelIO.IO();
 
       // Import Excel file
       excelIO.open(

@@ -19,8 +19,8 @@
 
 // Re-export from SpreadJS implementation
 export {
-    exportToExcelBuffer,
-    exportToExcel,
-    importFromExcel,
-    type UniverWorkbookData
-} from './spreadjs-exchange'
+  exportToExcelBuffer,
+  exportToExcel,
+  importFromExcel,
+  type UniverWorkbookData,
+} from "./spreadjs-exchange";

@@ -9,8 +9,16 @@
  * - Minimalist Ramp-style UI with floating action icons
  */
 
-import { useState, useRef, useEffect, useCallback, memo, useMemo } from "react";
-import { useAtom, useAtomValue } from "jotai";
+import {
+  useState,
+  useRef,
+  useEffect,
+  useLayoutEffect,
+  useCallback,
+  memo,
+  useMemo,
+} from "react";
+import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import { nanoid } from "nanoid";
 import {
   IconSend,
@@ -50,6 +58,7 @@ import {
 } from "@/components/ui/tooltip";
 import { ModelIcon } from "@/components/icons/model-icons";
 import { TextShimmer } from "@/components/ui/text-shimmer";
+import { LogoOutline } from "@/components/ui/logo";
 import { AgentToolCallsGroup } from "./agent-tool-calls-group";
 import {
   agentPanelOpenAtom,
@@ -72,8 +81,18 @@ import {
 import { AI_MODELS, getModelsByProvider } from "@s-agi/core/types/ai";
 import type { AIProvider } from "@s-agi/core/types/ai";
 import { trpc } from "@/lib/trpc";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from "@/components/ui/dialog";
+import { importFromExcel } from "@/features/univer/excel-exchange";
+import { useUserFile } from "@/hooks/use-user-file";
+import { toast } from "sonner";
 
+/*
 // Suggested prompts for each agent type
 const SUGGESTED_PROMPTS = {
   excel: [
@@ -119,7 +138,55 @@ const SUGGESTED_PROMPTS = {
     },
   ],
 } as const;
+*/
 
+// Suggested prompts for each agent type
+const SUGGESTED_PROMPTS = {
+  excel: [
+    {
+      icon: IconTable,
+      text: "Create a financial analysis table with totals",
+    },
+    {
+      icon: IconMathFunction,
+      text: "Generate formulas to calculate averages and sums",
+    },
+    {
+      icon: IconChartBar,
+      text: "Format these data as an executive dashboard",
+    },
+  ],
+  doc: [
+    {
+      icon: IconFileText,
+      text: "Write an executive summary of this document",
+    },
+    {
+      icon: IconHighlight,
+      text: "Improve the writing and fix errors",
+    },
+    {
+      icon: IconFileDescription,
+      text: "Create a structured table of contents",
+    },
+  ],
+  pdf: [
+    {
+      icon: IconSearch,
+      text: "Find specific information in the document",
+    },
+    {
+      icon: IconBookmark,
+      text: "Summarize the key points of the PDF",
+    },
+    {
+      icon: IconHighlight,
+      text: "Extract important data in table format",
+    },
+  ],
+} as const;
+
+/*
 // Agent context configurations
 const AGENT_CONTEXTS = {
   excel: {
@@ -141,6 +208,32 @@ const AGENT_CONTEXTS = {
     title: "PDF Agent",
     subtitle: "Document Analyst",
     placeholder: "Busca, resume, pregunta sobre el PDF...",
+    color: "amber",
+  },
+} as const;
+*/
+
+// Agent context configurations
+const AGENT_CONTEXTS = {
+  excel: {
+    icon: IconFileSpreadsheet,
+    title: "Excel Agent",
+    subtitle: "Spreadsheet Assistant",
+    placeholder: "Analyze data, build formulas, format cells...",
+    color: "emerald",
+  },
+  doc: {
+    icon: IconFileText,
+    title: "Docs Agent",
+    subtitle: "Document Assistant",
+    placeholder: "Write content, edit text, format documents...",
+    color: "blue",
+  },
+  pdf: {
+    icon: IconFileDescription,
+    title: "PDF Agent",
+    subtitle: "Document Analyst",
+    placeholder: "Search, summarize, ask about the PDF...",
     color: "amber",
   },
 } as const;
@@ -204,9 +297,16 @@ const AgentMessage = memo(function AgentMessage({
                 name: tc.toolName,
                 args: tc.args ? JSON.stringify(tc.args) : undefined,
                 result: tc.result,
-                status: tc.status === "executing" ? "streaming" : tc.status === "done" ? "complete" : tc.status,
+                status:
+                  tc.status === "executing"
+                    ? "streaming"
+                    : tc.status === "done"
+                      ? "complete"
+                      : tc.status,
               }))}
-              isStreaming={message.toolCalls.some((tc) => tc.status === "executing")}
+              isStreaming={message.toolCalls.some(
+                (tc) => tc.status === "executing",
+              )}
             />
           </div>
         )}
@@ -426,13 +526,16 @@ const SuggestedPromptCard = memo(function SuggestedPromptCard({
       onClick={onClick}
       className={cn(
         "group flex items-start gap-3 w-full p-3 rounded-xl",
-        "bg-background/60 border border-border/40",
-        "hover:border-primary/30 hover:bg-primary/5",
+        "bg-background border border-border/50 shadow-[0_1px_0_rgba(0,0,0,0.03)]",
+        "hover:border-foreground/20 hover:bg-muted/40",
         "transition-all duration-200 text-left",
       )}
     >
-      <div className="shrink-0 w-8 h-8 rounded-lg bg-muted/50 flex items-center justify-center group-hover:bg-primary/10 transition-colors">
-        <Icon size={16} className="text-muted-foreground group-hover:text-primary transition-colors" />
+      <div className="shrink-0 w-8 h-8 rounded-lg bg-muted/60 flex items-center justify-center group-hover:bg-muted transition-colors">
+        <Icon
+          size={16}
+          className="text-muted-foreground group-hover:text-foreground transition-colors"
+        />
       </div>
       <span className="text-sm text-muted-foreground group-hover:text-foreground leading-relaxed transition-colors">
         {text}
@@ -466,17 +569,25 @@ export function AgentPanel() {
 
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const excelFileInputRef = useRef<HTMLInputElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   // Track streaming text in ref for finish handler (avoids stale closure)
   const streamingTextRef = useRef<string>("");
 
+  // Excel file operations
+  const { createFile, openFile } = useUserFile("excel");
+  const setActiveTab = useSetAtom(activeTabAtom);
+
   // Get agent context
   const agentContext = isAgentTab(activeTab) ? AGENT_CONTEXTS[activeTab] : null;
-  const suggestedPrompts = isAgentTab(activeTab) ? SUGGESTED_PROMPTS[activeTab] : [];
+  const suggestedPrompts = isAgentTab(activeTab)
+    ? SUGGESTED_PROMPTS[activeTab]
+    : [];
 
   // Check if PDF is local (not cloud-synced with extracted pages)
   const isLocalPdf = activeTab === "pdf" && selectedPdf?.type === "local";
-  const isPdfWithoutPages = activeTab === "pdf" && !!selectedPdf && !selectedPdf.pages?.length;
+  const isPdfWithoutPages =
+    activeTab === "pdf" && !!selectedPdf && !selectedPdf.pages?.length;
 
   // Get messages for current tab
   const messages = allMessages[activeTab] ?? [];
@@ -514,7 +625,13 @@ export function AgentPanel() {
       return `${activeTab}-${selectedArtifact.id}`;
     }
     return `${activeTab}-default`;
-  }, [activeTab, selectedPdf, currentExcelFileId, currentDocFileId, selectedArtifact]);
+  }, [
+    activeTab,
+    selectedPdf,
+    currentExcelFileId,
+    currentDocFileId,
+    selectedArtifact,
+  ]);
 
   // tRPC mutations
   const chatMutation = trpc.agentPanel.chat.useMutation();
@@ -524,16 +641,20 @@ export function AgentPanel() {
   const utils = trpc.useUtils();
 
   // Load messages from Supabase when session changes
-  const { data: savedMessages, refetch: refetchMessages, isLoading: isLoadingHistory } = trpc.panelMessages.list.useQuery(
+  const {
+    data: savedMessages,
+    refetch: refetchMessages,
+    isLoading: isLoadingHistory,
+  } = trpc.panelMessages.list.useQuery(
     {
-      panelType: 'agent_panel',
+      panelType: "agent_panel",
       sourceId: sessionId,
-      tabType: isAgentTab(activeTab) ? activeTab : undefined
+      tabType: isAgentTab(activeTab) ? activeTab : undefined,
     },
     {
       enabled: isAgentTab(activeTab),
-      refetchOnWindowFocus: false
-    }
+      refetchOnWindowFocus: false,
+    },
   );
 
   const hasSavedHistory = savedMessages && savedMessages.length > 0;
@@ -544,14 +665,22 @@ export function AgentPanel() {
   // The effect only needs to run when savedMessages or activeTab changes
   useEffect(() => {
     if (savedMessages && savedMessages.length > 0 && isAgentTab(activeTab)) {
-      const syncedMessages: AgentPanelMessage[] = savedMessages.map((msg: { id: string; role: string; content: string; created_at: string; metadata?: { images?: unknown; toolCalls?: unknown } }) => ({
-        id: msg.id,
-        role: msg.role as 'user' | 'assistant',
-        content: msg.content,
-        timestamp: new Date(msg.created_at).getTime(),
-        images: msg.metadata?.images as AgentPanelMessage['images'],
-        toolCalls: msg.metadata?.toolCalls as AgentPanelMessage['toolCalls']
-      }));
+      const syncedMessages: AgentPanelMessage[] = savedMessages.map(
+        (msg: {
+          id: string;
+          role: string;
+          content: string;
+          created_at: string;
+          metadata?: { images?: unknown; toolCalls?: unknown };
+        }) => ({
+          id: msg.id,
+          role: msg.role as "user" | "assistant",
+          content: msg.content,
+          timestamp: new Date(msg.created_at).getTime(),
+          images: msg.metadata?.images as AgentPanelMessage["images"],
+          toolCalls: msg.metadata?.toolCalls as AgentPanelMessage["toolCalls"],
+        }),
+      );
       setMessages(syncedMessages);
     } else if (savedMessages && savedMessages.length === 0) {
       // Clear local state when switching to a session with no saved messages
@@ -612,7 +741,12 @@ export function AgentPanel() {
               hasToolCallId: !!event.toolCallId,
               messageCount: prev.length,
             });
-            if (last && last.role === "assistant" && event.toolName && event.toolCallId) {
+            if (
+              last &&
+              last.role === "assistant" &&
+              event.toolName &&
+              event.toolCallId
+            ) {
               console.log("[AgentPanel] Adding tool call to message");
               return [
                 ...prev.slice(0, -1),
@@ -688,10 +822,11 @@ export function AgentPanel() {
             setMessages((prev: AgentPanelMessage[]) => {
               // Update the last assistant message or add new one
               // Use reverse + findIndex for ES2015 compatibility
-              const reversedIdx = [...prev].reverse().findIndex(
-                (m: AgentPanelMessage) => m.role === "assistant",
-              );
-              const lastIdx = reversedIdx >= 0 ? prev.length - 1 - reversedIdx : -1;
+              const reversedIdx = [...prev]
+                .reverse()
+                .findIndex((m: AgentPanelMessage) => m.role === "assistant");
+              const lastIdx =
+                reversedIdx >= 0 ? prev.length - 1 - reversedIdx : -1;
               let updatedMessages: AgentPanelMessage[];
               if (lastIdx >= 0) {
                 updatedMessages = [
@@ -710,30 +845,35 @@ export function AgentPanel() {
                   },
                 ];
               }
-              
+
               // Save assistant message to Supabase
               if (isAgentTab(activeTab)) {
                 const lastMessage = updatedMessages[updatedMessages.length - 1];
-                if (lastMessage && lastMessage.role === 'assistant') {
-                  addPanelMessage.mutateAsync({
-                    panelType: 'agent_panel',
-                    sourceId: sessionId,
-                    tabType: activeTab,
-                    role: 'assistant',
-                    content: finalContent,
-                    metadata: lastMessage.toolCalls ? { toolCalls: lastMessage.toolCalls } : undefined
-                  }).then(() => {
-                    utils.panelMessages.list.invalidate({
-                      panelType: 'agent_panel',
+                if (lastMessage && lastMessage.role === "assistant") {
+                  addPanelMessage
+                    .mutateAsync({
+                      panelType: "agent_panel",
                       sourceId: sessionId,
-                      tabType: activeTab
+                      tabType: activeTab,
+                      role: "assistant",
+                      content: finalContent,
+                      metadata: lastMessage.toolCalls
+                        ? { toolCalls: lastMessage.toolCalls }
+                        : undefined,
+                    })
+                    .then(() => {
+                      utils.panelMessages.list.invalidate({
+                        panelType: "agent_panel",
+                        sourceId: sessionId,
+                        tabType: activeTab,
+                      });
+                    })
+                    .catch((err: unknown) => {
+                      console.error("Failed to save assistant message:", err);
                     });
-                  }).catch((err: unknown) => {
-                    console.error('Failed to save assistant message:', err);
-                  });
                 }
               }
-              
+
               return updatedMessages;
             });
           }
@@ -753,9 +893,14 @@ export function AgentPanel() {
     });
     const cleanup = window.desktopApi?.onAgentPanelStream?.(handleStream);
     if (!cleanup) {
-      console.warn("[AgentPanel] Failed to register listener - onAgentPanelStream returned undefined");
+      console.warn(
+        "[AgentPanel] Failed to register listener - onAgentPanelStream returned undefined",
+      );
     } else {
-      console.log("[AgentPanel] Stream listener successfully registered for session:", sessionId);
+      console.log(
+        "[AgentPanel] Stream listener successfully registered for session:",
+        sessionId,
+      );
     }
     return () => {
       console.log(
@@ -771,17 +916,95 @@ export function AgentPanel() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId, setStreamingText, setIsStreaming, setMessages, activeTab]);
 
-  // Auto-scroll
+  // Auto-scroll to bottom when new messages arrive
   useEffect(() => {
     if (messages.length || streamingText) {
       messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
     }
   }, [messages, streamingText]);
 
-  // Focus input when panel opens
+  // Auto-resize textarea to grow upwards dynamically
+  useLayoutEffect(() => {
+    const textarea = inputRef.current;
+    if (!textarea) return;
+
+    // Reset height to auto to measure correctly
+    textarea.style.height = "auto";
+
+    const scrollHeight = textarea.scrollHeight;
+    const maxHeight = 200; // Maximum height before scrolling starts
+    const minHeight = 44; // Minimum height
+
+    // Calculate new height (grow up to maxHeight, then scroll)
+    const newHeight = Math.min(Math.max(scrollHeight, minHeight), maxHeight);
+    textarea.style.height = `${newHeight}px`;
+
+    // Enable scrolling when content exceeds maxHeight
+    if (scrollHeight > maxHeight) {
+      textarea.style.overflowY = "auto";
+      // Add scrollbar styling
+      textarea.classList.add(
+        "scrollbar-thin",
+        "scrollbar-thumb-border/50",
+        "scrollbar-track-transparent",
+      );
+    } else {
+      textarea.style.overflowY = "hidden";
+      textarea.classList.remove(
+        "scrollbar-thin",
+        "scrollbar-thumb-border/50",
+        "scrollbar-track-transparent",
+      );
+    }
+  }, [input]);
+
+  // Adjust scroll when input height changes (to prevent content from being covered)
+  useEffect(() => {
+    const textarea = inputRef.current;
+    if (!textarea) return;
+
+    let timeoutId: ReturnType<typeof setTimeout>;
+
+    const adjustScroll = () => {
+      // Debounce scroll adjustment for smoother experience
+      clearTimeout(timeoutId);
+      timeoutId = setTimeout(() => {
+        // Scroll to bottom to ensure content is visible when input grows
+        messagesEndRef.current?.scrollIntoView({
+          behavior: "smooth",
+          block: "nearest",
+          inline: "nearest",
+        });
+      }, 50);
+    };
+
+    // Use ResizeObserver to detect height changes
+    const resizeObserver = new ResizeObserver(() => {
+      adjustScroll();
+    });
+
+    resizeObserver.observe(textarea);
+
+    return () => {
+      clearTimeout(timeoutId);
+      resizeObserver.disconnect();
+    };
+  }, []);
+
+  // Focus input when panel opens and initialize height
   useEffect(() => {
     if (isOpen) {
-      setTimeout(() => inputRef.current?.focus(), 100);
+      setTimeout(() => {
+        inputRef.current?.focus();
+        // Initialize textarea height
+        const textarea = inputRef.current;
+        if (textarea) {
+          textarea.style.height = "auto";
+          const scrollHeight = textarea.scrollHeight;
+          const newHeight = Math.min(Math.max(scrollHeight, 44), 200);
+          textarea.style.height = `${newHeight}px`;
+        }
+      }, 100);
     }
   }, [isOpen]);
 
@@ -821,42 +1044,54 @@ export function AgentPanel() {
     if (isAgentTab(activeTab)) {
       try {
         await addPanelMessage.mutateAsync({
-          panelType: 'agent_panel',
+          panelType: "agent_panel",
           sourceId: sessionId,
           tabType: activeTab,
-          role: 'user',
+          role: "user",
           content: userMessage.content,
-          metadata: userMessage.images ? { images: userMessage.images } : undefined
+          metadata: userMessage.images
+            ? { images: userMessage.images }
+            : undefined,
         });
         await utils.panelMessages.list.invalidate({
-          panelType: 'agent_panel',
+          panelType: "agent_panel",
           sourceId: sessionId,
-          tabType: activeTab
+          tabType: activeTab,
         });
       } catch (err) {
-        console.error('Failed to save user message:', err);
+        console.error("Failed to save user message:", err);
       }
     }
 
     setInput("");
     setImages([]);
+    // Reset textarea height
+    if (inputRef.current) {
+      inputRef.current.style.height = "44px";
+    }
     setIsStreaming(true);
     setStreamingText("");
 
     try {
       // Build context: Excel/Doc use current file (new) or artifact (legacy) so tools operate on the open spreadsheet/doc
-      let context: {
-        workbookId?: string;
-        sheetId?: string;
-        selectedRange?: string;
-        documentId?: string;
-        documentTitle?: string;
-        pdfPath?: string;
-        pdfName?: string;
-        pdfPages?: { pageNumber: number; content: string; wordCount: number }[];
-        fileId?: string;
-        fileName?: string;
-      } | undefined;
+      let context:
+        | {
+            workbookId?: string;
+            sheetId?: string;
+            selectedRange?: string;
+            documentId?: string;
+            documentTitle?: string;
+            pdfPath?: string;
+            pdfName?: string;
+            pdfPages?: {
+              pageNumber: number;
+              content: string;
+              wordCount: number;
+            }[];
+            fileId?: string;
+            fileName?: string;
+          }
+        | undefined;
 
       if (activeTab === "excel") {
         // Prefer new file system, fall back to legacy artifact
@@ -1038,20 +1273,27 @@ export function AgentPanel() {
     if (isAgentTab(activeTab)) {
       try {
         await clearPanelMessages.mutateAsync({
-          panelType: 'agent_panel',
+          panelType: "agent_panel",
           sourceId: sessionId,
-          tabType: activeTab
+          tabType: activeTab,
         });
         await utils.panelMessages.list.invalidate({
-          panelType: 'agent_panel',
+          panelType: "agent_panel",
           sourceId: sessionId,
-          tabType: activeTab
+          tabType: activeTab,
         });
       } catch (err) {
-        console.error('Failed to clear messages:', err);
+        console.error("Failed to clear messages:", err);
       }
     }
-  }, [setMessages, setStreamingText, activeTab, sessionId, clearPanelMessages, utils]);
+  }, [
+    setMessages,
+    setStreamingText,
+    activeTab,
+    sessionId,
+    clearPanelMessages,
+    utils,
+  ]);
 
   // Provider/model change handlers
   const handleProviderChange = useCallback(
@@ -1073,10 +1315,9 @@ export function AgentPanel() {
   // Disable sending for local PDFs without extracted content
   const isAgentDisabled = isLocalPdf || isPdfWithoutPages;
   const canSend =
-    (input.trim().length > 0 || images.length > 0) && !isStreaming && !isAgentDisabled;
-
-  // Get the icon component
-  const AgentIcon = agentContext.icon;
+    (input.trim().length > 0 || images.length > 0) &&
+    !isStreaming &&
+    !isAgentDisabled;
 
   // Handle suggested prompt click
   const handlePromptClick = (promptText: string) => {
@@ -1084,18 +1325,94 @@ export function AgentPanel() {
     inputRef.current?.focus();
   };
 
+  // Handle Excel file import
+  const handleImportExcel = useCallback(
+    async (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+
+      try {
+        const univerData = await importFromExcel(file, (fonts) => {
+          // Handle missing fonts if needed
+          console.warn("[AgentPanel] Missing fonts:", fonts);
+        });
+        const name = univerData.name || file.name.replace(/\.xlsx?$/i, "");
+
+        const newFile = await createFile(
+          name,
+          univerData as unknown as Record<string, unknown>,
+        );
+
+        // Switch to Excel tab and open the new file
+        setActiveTab("excel");
+        await openFile(newFile.id);
+
+        toast.success("Excel imported successfully");
+      } catch (error) {
+        console.error("[AgentPanel] Failed to import Excel:", error);
+        toast.error("Failed to import the Excel file");
+      } finally {
+        // Reset file input
+        if (excelFileInputRef.current) {
+          excelFileInputRef.current.value = "";
+        }
+      }
+    },
+    [createFile, openFile, setActiveTab],
+  );
+
+  // Handle create new Excel file
+  const handleNewExcelFile = useCallback(async () => {
+    try {
+      const newFile = await createFile("New file");
+
+      // Switch to Excel tab and open the new file
+      setActiveTab("excel");
+      await openFile(newFile.id);
+
+      toast.success("New Excel file created from scratch", {
+        description: "You can start working on your spreadsheet now",
+      });
+    } catch (error) {
+      console.error("[AgentPanel] Failed to create Excel file:", error);
+      toast.error("Failed to create the Excel file");
+    }
+  }, [createFile, openFile, setActiveTab]);
+
+  // Handle open Excel file (file picker)
+  const handleOpenExcelFile = useCallback(() => {
+    excelFileInputRef.current?.click();
+  }, []);
+
   // Check if we should show the welcome state
-  const showWelcomeState = messages.length === 0 && !streamingText && !isLocalPdf && !isPdfWithoutPages;
+  const showWelcomeState =
+    messages.length === 0 &&
+    !streamingText &&
+    !isLocalPdf &&
+    !isPdfWithoutPages;
+
+  // Check if there's an Excel file open (only for Excel tab)
+  const hasExcelFileOpen =
+    activeTab === "excel" &&
+    (currentExcelFileId !== null || currentExcelFile !== null);
 
   return (
     <div className="relative flex flex-col h-full bg-background">
-      {/* Hidden file input */}
+      {/* Hidden file inputs */}
       <input
         ref={fileInputRef}
         type="file"
         accept="image/*"
         multiple
         onChange={handleFileSelect}
+        className="hidden"
+      />
+      {/* Hidden Excel file input */}
+      <input
+        ref={excelFileInputRef}
+        type="file"
+        accept=".xlsx,.xls"
+        onChange={handleImportExcel}
         className="hidden"
       />
 
@@ -1113,12 +1430,14 @@ export function AgentPanel() {
                 <IconHistory size={15} />
                 {historyCount > 0 && (
                   <span className="absolute -top-1 -right-1 h-3.5 w-3.5 rounded-full bg-primary text-[8px] text-primary-foreground flex items-center justify-center font-bold">
-                    {historyCount > 9 ? '9+' : historyCount}
+                    {historyCount > 9 ? "9+" : historyCount}
                   </span>
                 )}
               </button>
             </TooltipTrigger>
-            <TooltipContent side="bottom">Historial ({historyCount})</TooltipContent>
+            <TooltipContent side="bottom">
+              History ({historyCount})
+            </TooltipContent>
           </Tooltip>
         )}
 
@@ -1131,18 +1450,21 @@ export function AgentPanel() {
                 onClick={() => {
                   refetchMessages();
                   utils.panelMessages.list.invalidate({
-                    panelType: 'agent_panel',
+                    panelType: "agent_panel",
                     sourceId: sessionId,
-                    tabType: activeTab
+                    tabType: activeTab,
                   });
                 }}
                 disabled={isLoadingHistory}
                 className="h-7 w-7 rounded-md flex items-center justify-center text-muted-foreground/60 hover:text-foreground hover:bg-muted/50 transition-all disabled:opacity-50"
               >
-                <IconRefresh size={15} className={cn(isLoadingHistory && "animate-spin")} />
+                <IconRefresh
+                  size={15}
+                  className={cn(isLoadingHistory && "animate-spin")}
+                />
               </button>
             </TooltipTrigger>
-            <TooltipContent side="bottom">Recargar</TooltipContent>
+            <TooltipContent side="bottom">Reload</TooltipContent>
           </Tooltip>
         )}
 
@@ -1158,7 +1480,7 @@ export function AgentPanel() {
                 <IconTrash size={15} />
               </button>
             </TooltipTrigger>
-            <TooltipContent side="bottom">Limpiar</TooltipContent>
+            <TooltipContent side="bottom">Clear</TooltipContent>
           </Tooltip>
         )}
 
@@ -1173,37 +1495,62 @@ export function AgentPanel() {
               <IconX size={15} />
             </button>
           </TooltipTrigger>
-          <TooltipContent side="bottom">Cerrar</TooltipContent>
+          <TooltipContent side="bottom">Close</TooltipContent>
         </Tooltip>
       </div>
 
       {/* Main Content Area */}
-      <div className="flex-1 relative overflow-hidden">
+      <div className="flex-1 relative overflow-hidden min-h-0">
         <ScrollArea className="h-full">
-          <div className="min-h-full flex flex-col">
+          <div className="min-h-full flex flex-col pb-4">
             {/* Welcome State - Centered */}
             {showWelcomeState ? (
-              <div className="flex-1 flex flex-col items-center justify-center px-6 py-12">
+              <div className="flex-1 flex flex-col pl-6 pr-14 py-10">
                 {/* Welcome Header */}
-                <div className="flex items-center gap-3 mb-2">
-                  <h1 className="text-2xl font-semibold text-foreground tracking-tight">
-                    {agentContext.title}
+                <div className="flex items-center gap-3">
+                  <h1 className="text-[22px] font-semibold text-foreground tracking-tight whitespace-nowrap">
+                    Welcome to {agentContext.title}
                   </h1>
-                  <div className="w-10 h-10 rounded-xl border border-border/60 flex items-center justify-center bg-background">
-                    <AgentIcon size={20} className="text-foreground" />
-                  </div>
+                  <LogoOutline
+                    size={22}
+                    className="text-foreground/70 hover:text-primary transition-all duration-200 hover:rotate-180"
+                  />
                 </div>
 
-                {/* Subtitle */}
-                <p className="text-sm text-muted-foreground mb-16">
-                  {agentContext.subtitle}
-                </p>
+                {/* Subtitle / hint line - Only show for Excel tab when no file is open */}
+                {activeTab === "excel" && !hasExcelFileOpen && (
+                  <div className="mt-2 inline-flex items-center gap-3 text-sm text-muted-foreground">
+                    <button
+                      type="button"
+                      onClick={handleOpenExcelFile}
+                      className="inline-flex items-center gap-2 hover:text-foreground transition-colors"
+                    >
+                      <IconFileText
+                        size={14}
+                        className="text-muted-foreground"
+                      />
+                      <span className="underline underline-offset-4">
+                        Open a file
+                      </span>
+                    </button>
+                    <span className="text-muted-foreground/50">or</span>
+                    <button
+                      type="button"
+                      onClick={handleNewExcelFile}
+                      className="inline-flex items-center gap-2 hover:text-foreground transition-colors"
+                    >
+                      <span className="underline underline-offset-4">
+                        start from scratch
+                      </span>
+                    </button>
+                  </div>
+                )}
 
                 {/* Spacer to push prompts down */}
-                <div className="flex-1 min-h-[100px]" />
+                <div className="flex-1 min-h-[120px]" />
 
                 {/* Suggested Prompts */}
-                <div className="w-full max-w-md space-y-2">
+                <div className="w-full max-w-md space-y-2 pb-4">
                   {suggestedPrompts.map((prompt, idx) => (
                     <SuggestedPromptCard
                       key={idx}
@@ -1226,10 +1573,11 @@ export function AgentPanel() {
                   <IconCloudUpload size={28} className="text-amber-500" />
                 </div>
                 <h2 className="text-lg font-semibold text-foreground mb-2">
-                  PDF Local Detectado
+                  Local PDF Detected
                 </h2>
                 <p className="text-sm text-muted-foreground text-center max-w-[280px] leading-relaxed">
-                  Para usar el asistente AI, sube este PDF a la nube desde el chat para extraer su contenido.
+                  To use the AI assistant, upload this PDF to the cloud from
+                  chat so its content can be extracted.
                 </p>
               </div>
             ) : (
@@ -1267,7 +1615,7 @@ export function AgentPanel() {
                           className="text-xs font-medium"
                           duration={1.5}
                         >
-                          Pensando...
+                          Thinking...
                         </TextShimmer>
                       </div>
                     </div>
@@ -1280,8 +1628,8 @@ export function AgentPanel() {
         </ScrollArea>
       </div>
 
-      {/* Input - Original Style */}
-      <div className="shrink-0 p-3">
+      {/* Input - Dynamic Growth Upwards */}
+      <div className="shrink-0 p-3 bg-background">
         {/* Image previews */}
         {images.length > 0 && (
           <div className="flex flex-wrap gap-1.5 mb-2">
@@ -1307,21 +1655,47 @@ export function AgentPanel() {
           <textarea
             ref={inputRef}
             value={input}
-            onChange={(e) => setInput(e.target.value)}
+            onChange={(e) => {
+              setInput(e.target.value);
+              // Auto-resize textarea - grows upward due to flex layout
+              const textarea = e.target;
+              textarea.style.height = "auto";
+              const scrollHeight = textarea.scrollHeight;
+              const maxHeight = 200;
+              const minHeight = 44;
+              const newHeight = Math.min(Math.max(scrollHeight, minHeight), maxHeight);
+              textarea.style.height = `${newHeight}px`;
+              // Enable scroll only when content exceeds max height
+              textarea.style.overflowY = scrollHeight > maxHeight ? "auto" : "hidden";
+            }}
             onKeyDown={handleKeyDown}
             onPaste={handlePaste}
-            placeholder={isAgentDisabled ? "Sube el PDF a la nube para usar el agente..." : agentContext.placeholder}
+            placeholder={
+              isAgentDisabled
+                ? "Upload the PDF to the cloud to use the agent..."
+                : "what do you need help with?"
+            }
             disabled={isStreaming || isAgentDisabled}
             rows={1}
             className={cn(
-              "flex-1 bg-transparent text-sm text-foreground resize-none outline-none",
-              "placeholder:text-muted-foreground/50 min-h-[44px] max-h-[100px] py-3 px-4",
+              "w-full bg-transparent text-sm text-foreground resize-none outline-none",
+              "placeholder:text-muted-foreground/50 py-3 px-4",
+              "leading-relaxed",
+              // Proper word wrapping
+              "break-words whitespace-pre-wrap",
+              // Custom scrollbar when scrolling is enabled
+              "[&::-webkit-scrollbar]:w-1.5",
+              "[&::-webkit-scrollbar-track]:bg-transparent",
+              "[&::-webkit-scrollbar-thumb]:bg-border/50",
+              "[&::-webkit-scrollbar-thumb]:rounded-full",
             )}
-            style={{ height: "auto", overflow: "hidden" }}
-            onInput={(e) => {
-              const target = e.target as HTMLTextAreaElement;
-              target.style.height = "auto";
-              target.style.height = `${Math.min(target.scrollHeight, 100)}px`;
+            style={{
+              minHeight: "44px",
+              maxHeight: "200px",
+              overflowY: "hidden",
+              overflowX: "hidden",
+              wordBreak: "break-word",
+              overflowWrap: "break-word",
             }}
           />
 
@@ -1392,47 +1766,70 @@ export function AgentPanel() {
       <Dialog open={historyDialogOpen} onOpenChange={setHistoryDialogOpen}>
         <DialogContent className="max-w-xl max-h-[80vh] p-0 gap-0 overflow-hidden">
           <DialogHeader className="px-6 py-4 border-b border-border/50">
-            <DialogTitle className="text-lg font-semibold">Historial</DialogTitle>
+            <DialogTitle className="text-lg font-semibold">History</DialogTitle>
             <DialogDescription className="text-sm text-muted-foreground">
-              {historyCount} mensaje{historyCount !== 1 ? 's' : ''} en {agentContext?.title || 'este panel'}
+              {historyCount} message{historyCount !== 1 ? "s" : ""} in{" "}
+              {agentContext?.title || "this panel"}
             </DialogDescription>
           </DialogHeader>
           <ScrollArea className="max-h-[60vh]">
             <div className="p-4 space-y-4">
               {savedMessages && savedMessages.length > 0 ? (
-                savedMessages.map((msg: { id: string; role: string; content: string; created_at: string; metadata?: { images?: unknown; toolCalls?: unknown } }) => (
-                  <div key={msg.id} className={cn("flex gap-3", msg.role === 'user' ? "justify-end" : "justify-start")}>
-                    {msg.role === 'assistant' && (
-                      <div className="shrink-0 w-7 h-7 rounded-lg bg-primary/10 flex items-center justify-center mt-0.5">
-                        <IconSparkles size={14} className="text-primary" />
-                      </div>
-                    )}
+                savedMessages.map(
+                  (msg: {
+                    id: string;
+                    role: string;
+                    content: string;
+                    created_at: string;
+                    metadata?: { images?: unknown; toolCalls?: unknown };
+                  }) => (
                     <div
+                      key={msg.id}
                       className={cn(
-                        "max-w-[85%]",
-                        msg.role === 'user'
-                          ? "bg-foreground text-background rounded-2xl rounded-br-sm px-4 py-2.5"
-                          : "bg-transparent"
+                        "flex gap-3",
+                        msg.role === "user" ? "justify-end" : "justify-start",
                       )}
                     >
-                      {msg.role === 'user' ? (
-                        <p className="text-sm leading-relaxed whitespace-pre-wrap">{msg.content}</p>
-                      ) : (
-                        <div className="text-sm text-foreground">
-                          <ChatMarkdownRenderer content={msg.content} size="sm" />
+                      {msg.role === "assistant" && (
+                        <div className="shrink-0 w-7 h-7 rounded-lg bg-primary/10 flex items-center justify-center mt-0.5">
+                          <IconSparkles size={14} className="text-primary" />
+                        </div>
+                      )}
+                      <div
+                        className={cn(
+                          "max-w-[85%]",
+                          msg.role === "user"
+                            ? "bg-foreground text-background rounded-2xl rounded-br-sm px-4 py-2.5"
+                            : "bg-transparent",
+                        )}
+                      >
+                        {msg.role === "user" ? (
+                          <p className="text-sm leading-relaxed whitespace-pre-wrap">
+                            {msg.content}
+                          </p>
+                        ) : (
+                          <div className="text-sm text-foreground">
+                            <ChatMarkdownRenderer
+                              content={msg.content}
+                              size="sm"
+                            />
+                          </div>
+                        )}
+                      </div>
+                      {msg.role === "user" && (
+                        <div className="shrink-0 w-7 h-7 rounded-lg bg-muted flex items-center justify-center mt-0.5">
+                          <IconUser
+                            size={14}
+                            className="text-muted-foreground"
+                          />
                         </div>
                       )}
                     </div>
-                    {msg.role === 'user' && (
-                      <div className="shrink-0 w-7 h-7 rounded-lg bg-muted flex items-center justify-center mt-0.5">
-                        <IconUser size={14} className="text-muted-foreground" />
-                      </div>
-                    )}
-                  </div>
-                ))
+                  ),
+                )
               ) : (
                 <div className="text-center py-12 text-muted-foreground text-sm">
-                  No hay mensajes guardados
+                  No saved messages
                 </div>
               )}
             </div>

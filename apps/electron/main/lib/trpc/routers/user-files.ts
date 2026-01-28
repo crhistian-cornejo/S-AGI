@@ -319,12 +319,12 @@ export const userFilesRouter = router({
           previousVersionNumber: newVersionNumber - 1,
         };
 
-        const { error: versionError } = await supabase
+        const { error: insertVersionError } = await supabase
           .from("file_versions")
           .insert(versionData);
 
-        if (versionError) {
-          log.error("[UserFilesRouter] Error creating version:", versionError);
+        if (insertVersionError) {
+          log.error("[UserFilesRouter] Error creating version:", insertVersionError);
         } else {
           // Update version count
           await supabase
@@ -597,12 +597,12 @@ export const userFilesRouter = router({
       // 3. This creates a new branch in the version history
 
       // Use SQL function to get next version number atomically (prevents race conditions)
-      const { data: nextVersionData, error: versionError } = await supabase
+      const { data: nextVersionData, error: nextVersionError } = await supabase
         .rpc("get_next_file_version", { p_file_id: input.fileId });
 
-      if (versionError) {
-        log.error("[UserFilesRouter] Error getting next version for restore:", versionError);
-        throw new Error(`Failed to get next version number: ${versionError.message}`);
+      if (nextVersionError) {
+        log.error("[UserFilesRouter] Error getting next version for restore:", nextVersionError);
+        throw new Error(`Failed to get next version number: ${nextVersionError.message}`);
       }
 
       // Ensure the new version is higher than the restored version

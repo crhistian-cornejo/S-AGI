@@ -101,6 +101,11 @@ interface DesktopApi {
     clipboard: {
         writeText: (text: string) => Promise<boolean>
         readText: () => Promise<string>
+        writeHtml: (html: string, text?: string) => Promise<boolean>
+        readHtml: () => Promise<string>
+        readFormats: () => Promise<string[]>
+        write: (data: { text?: string; html?: string; rtf?: string }) => Promise<boolean>
+        read: () => Promise<{ text: string; html: string; rtf: string; formats: string[] }>
     }
     quickPrompt: {
         sendMessage: (message: string) => Promise<{ success: boolean }>
