@@ -407,7 +407,7 @@ async function convertUniverToSpreadJS(
     // Create a new worksheet and add it to the workbook
     const newSheet = new GC.Spread.Sheets.Worksheet(sheetName);
     spread.addSheet(spread.sheets.length, newSheet);
-    const sheet = spread.sheets.get(spread.sheets.length - 1);
+    const sheet = spread.getSheet(spread.sheets.length - 1);
 
     // Convert cells
     if (univerSheet.cellData) {
@@ -532,20 +532,23 @@ async function convertUniverToSpreadJS(
                           (transform.from?.rowOffset ?? 0) / 9525;
 
                         // Add image with proper positioning
-                        sheet.pictures.add(
+                        // SpreadJS pictures.add() expects: name, src (string URL), startRow, startCol, endRow, endCol
+                        const imageSrc = image.src;
+                        (sheet.pictures as any).add(
                           drawingId,
-                          image,
+                          imageSrc,
                           fromRow,
                           fromCol,
-                          toRow - fromRow,
-                          toCol - fromCol,
+                          toRow,
+                          toCol,
                         );
 
                         // Set position offsets if available
-                        const picture = sheet.pictures.get(drawingId);
+                        const picture = (sheet.pictures as any).get(drawingId);
                         if (picture && (colOffset !== 0 || rowOffset !== 0)) {
                           // SpreadJS uses different positioning, adjust if needed
                           // Note: SpreadJS positioning might need adjustment based on actual API
+                          // Offsets can be set using picture.startRowOffset() and picture.startColumnOffset() if available
                         }
 
                         resolve();
@@ -775,7 +778,7 @@ function convertSpreadJSToUniver(
   const styleMap = new Map<string, string>();
 
   for (let i = 0; i < workbook.sheets.length; i++) {
-    const spreadSheet = (workbook.sheets as any).get(i);
+    const spreadSheet = workbook.getSheet(i);
     const sheetId = `sheet_${i}`;
     const sheetName = spreadSheet.name();
 
