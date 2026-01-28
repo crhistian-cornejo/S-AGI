@@ -256,7 +256,16 @@ export const userFilesRouter = router({
         !skipVersion &&
         (updates.univerData !== undefined || updates.content !== undefined)
       ) {
-        const newVersionNumber = (currentFile.version_count || 0) + 1;
+        // Use SQL function to get next version number atomically (prevents race conditions)
+        const { data: nextVersionData, error: versionError } = await supabase
+          .rpc("get_next_file_version", { p_file_id: id });
+
+        if (versionError) {
+          log.error("[UserFilesRouter] Error getting next version:", versionError);
+          throw new Error(`Failed to get next version number: ${versionError.message}`);
+        }
+
+        const newVersionNumber = nextVersionData || (currentFile.version_count || 0) + 1;
 
         // Get previous version for diff calculation (if available)
         const { data: previousVersion } = await supabase
@@ -587,9 +596,18 @@ export const userFilesRouter = router({
       // 2. Create a new version with the restored content
       // 3. This creates a new branch in the version history
 
-      // Soft delete: Mark all versions after the restored one as obsolete
-      // This preserves history and allows recovery if needed
-      const newVersionNumber = input.versionNumber + 1;
+      // Use SQL function to get next version number atomically (prevents race conditions)
+      const { data: nextVersionData, error: versionError } = await supabase
+        .rpc("get_next_file_version", { p_file_id: input.fileId });
+
+      if (versionError) {
+        log.error("[UserFilesRouter] Error getting next version for restore:", versionError);
+        throw new Error(`Failed to get next version number: ${versionError.message}`);
+      }
+
+      // Ensure the new version is higher than the restored version
+      const calculatedVersion = nextVersionData || currentVersionNumber + 1;
+      const newVersionNumber = Math.max(calculatedVersion, input.versionNumber + 1);
 
       if (input.versionNumber < currentVersionNumber) {
         const { error: obsoleteError } = await supabase
