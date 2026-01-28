@@ -320,17 +320,17 @@ function convertUniverStyleToSpreadJS(
       2: GC.Spread.Sheets.LineStyle.thick,
     };
 
-    const borders = new GC.Spread.Sheets.Border();
-
+    // Top border
     if (style.bd.t) {
-      borders.style =
+      const topBorder = new GC.Spread.Sheets.BorderLine();
+      topBorder.style =
         borderStyleMap[style.bd.t.s] ?? GC.Spread.Sheets.LineStyle.thin;
-      borders.color = rgbToHex(
+      topBorder.color = rgbToHex(
         style.bd.t.cl.r,
         style.bd.t.cl.g,
         style.bd.t.cl.b,
       );
-      spreadStyle.borderTop = borders;
+      spreadStyle.borderTop = topBorder;
     }
     if (style.bd.b) {
       const bBorder = new GC.Spread.Sheets.BorderLine();
