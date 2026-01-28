@@ -325,7 +325,7 @@ function convertUniverStyleToSpreadJS(
     if (style.bd.t) {
       const topBorder = new GC.Spread.Sheets.LineBorder(
         rgbToHex(style.bd.t.cl.r, style.bd.t.cl.g, style.bd.t.cl.b),
-        borderStyleMap[style.bd.t.s] ?? GC.Spread.Sheets.LineStyle.thin
+        borderStyleMap[style.bd.t.s] ?? GC.Spread.Sheets.LineStyle.thin,
       );
       spreadStyle.borderTop = topBorder;
     }
@@ -333,7 +333,7 @@ function convertUniverStyleToSpreadJS(
     if (style.bd.b) {
       const bottomBorder = new GC.Spread.Sheets.LineBorder(
         rgbToHex(style.bd.b.cl.r, style.bd.b.cl.g, style.bd.b.cl.b),
-        borderStyleMap[style.bd.b.s] ?? GC.Spread.Sheets.LineStyle.thin
+        borderStyleMap[style.bd.b.s] ?? GC.Spread.Sheets.LineStyle.thin,
       );
       spreadStyle.borderBottom = bottomBorder;
     }
@@ -341,7 +341,7 @@ function convertUniverStyleToSpreadJS(
     if (style.bd.l) {
       const leftBorder = new GC.Spread.Sheets.LineBorder(
         rgbToHex(style.bd.l.cl.r, style.bd.l.cl.g, style.bd.l.cl.b),
-        borderStyleMap[style.bd.l.s] ?? GC.Spread.Sheets.LineStyle.thin
+        borderStyleMap[style.bd.l.s] ?? GC.Spread.Sheets.LineStyle.thin,
       );
       spreadStyle.borderLeft = leftBorder;
     }
@@ -349,7 +349,7 @@ function convertUniverStyleToSpreadJS(
     if (style.bd.r) {
       const rightBorder = new GC.Spread.Sheets.LineBorder(
         rgbToHex(style.bd.r.cl.r, style.bd.r.cl.g, style.bd.r.cl.b),
-        borderStyleMap[style.bd.r.s] ?? GC.Spread.Sheets.LineStyle.thin
+        borderStyleMap[style.bd.r.s] ?? GC.Spread.Sheets.LineStyle.thin,
       );
       spreadStyle.borderRight = rightBorder;
     }
@@ -383,8 +383,15 @@ async function convertUniverToSpreadJS(
     univerData.sheetOrder || Object.keys(univerData.sheets || {});
 
   // Remove default sheet if we have custom sheets
+  // SpreadJS creates a default sheet, we need to remove it if we have custom sheets
   if (sheetOrder.length > 0 && spread.sheets.length > 0) {
-    (spread.sheets as any).remove(0);
+    try {
+      // Remove the default sheet at index 0
+      spread.removeSheet(0);
+    } catch (e) {
+      // If removeSheet fails, we'll just overwrite the default sheet
+      console.warn("[SpreadJSExchange] Could not remove default sheet, will overwrite:", e);
+    }
   }
 
   // Collect all image loading promises
@@ -395,7 +402,12 @@ async function convertUniverToSpreadJS(
     if (!univerSheet) continue;
 
     const sheetName = univerSheet.name || sheetId;
-    const sheet = (spread.sheets as any).add(0, sheetName);
+    
+    // Add new sheet - SpreadJS addSheet(index, worksheet) method
+    // Create a new worksheet and add it to the workbook
+    const newSheet = new GC.Spread.Sheets.Worksheet(sheetName);
+    spread.addSheet(spread.sheets.length, newSheet);
+    const sheet = spread.sheets.get(spread.sheets.length - 1);
 
     // Convert cells
     if (univerSheet.cellData) {
@@ -654,9 +666,10 @@ function convertSpreadJSStyleToUniver(
 
   if (style.backColor) {
     // SpreadJS backColor can be string or complex object, handle both
-    const backColorStr = typeof style.backColor === 'string' 
-      ? style.backColor 
-      : (style.backColor as any).color || '';
+    const backColorStr =
+      typeof style.backColor === "string"
+        ? style.backColor
+        : (style.backColor as any).color || "";
     const rgb = hexToRgb(backColorStr);
     if (rgb) univerStyle.bg = rgb;
   }
