@@ -1,0 +1,45 @@
+/**
+ * Univer Tooltip Position Fix
+ * 
+ * Forces tooltips to appear ABOVE (top) instead of below (bottom).
+ * This CSS overrides rc-tooltip's default bottom placement behavior.
+ */
+
+/* Target all rc-tooltip elements with bottom placement */
+.rc-tooltip {
+  /* Increase z-index to ensure tooltips are above all popovers */
+  z-index: 1101 !important;
+}
+
+/* Tooltip wrapper for bottom placements - reposition to top */
+.rc-tooltip-placement-bottom,
+.rc-tooltip-placement-bottomLeft,
+.rc-tooltip-placement-bottomRight {
+  /* Flip vertically: move tooltip above the trigger element */
+  transform: translateY(calc(-100% - 8px)) !important;
+  margin-top: 0 !important;
+  margin-bottom: 8px !important;
+}
+
+/* Inner tooltip box */
+.rc-tooltip-placement-bottom .rc-tooltip-inner,
+.rc-tooltip-placement-bottomLeft .rc-tooltip-inner,
+.rc-tooltip-placement-bottomRight .rc-tooltip-inner {
+  /* Ensure text remains readable after transform */
+  box-sizing: border-box;
+}
+
+/* Arrow adjustment for bottom-to-top flip */
+.rc-tooltip-placement-bottom .rc-tooltip-arrow,
+.rc-tooltip-placement-bottomLeft .rc-tooltip-arrow,
+.rc-tooltip-placement-bottomRight .rc-tooltip-arrow {
+  /* Flip arrow position from bottom to top */
+  top: auto !important;
+  bottom: -5px !important;
+  transform: rotate(180deg);
+}
+
+/* Prevent tooltips from being hidden by parent overflow */
+.rc-tooltip {
+  overflow: visible !important;
+}

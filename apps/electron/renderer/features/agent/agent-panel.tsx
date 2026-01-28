@@ -59,7 +59,9 @@ import {
 import { ModelIcon } from "@/components/icons/model-icons";
 import { TextShimmer } from "@/components/ui/text-shimmer";
 import { LogoOutline } from "@/components/ui/logo";
-import { AgentToolCallsGroup } from "./agent-tool-calls-group";
+import { AgentToolCallFlat } from "./agent-tool-call-flat";
+import { AgentTaskTracker, type AgentTask } from "./agent-task-tracker";
+import { getTodosAtom } from "@/lib/atoms";
 import {
   agentPanelOpenAtom,
   agentPanelMessagesAtom,
@@ -72,6 +74,9 @@ import {
   selectedPdfAtom,
   type AgentPanelMessage,
   type AgentPanelImageAttachment,
+  // Cell context for "Add Context" feature
+  type CellContextAttachment,
+  agentPanelCellContextAtom,
   // New file system atoms
   currentExcelFileIdAtom,
   currentExcelFileAtom,
@@ -244,13 +249,94 @@ function isAgentTab(tab: string): tab is AgentTab {
   return tab in AGENT_CONTEXTS;
 }
 
-// Message component with tool calls support - Minimalist style
+// Parse content with tool markers into segments for interleaved rendering
+// Markers format: {{TOOL:toolCallId}}
+type ContentSegment =
+  | { type: 'text'; content: string }
+  | { type: 'tool'; toolCallId: string };
+
+function parseContentWithToolMarkers(content: string): ContentSegment[] {
+  if (!content) return [];
+
+  const segments: ContentSegment[] = [];
+  const toolMarkerRegex = /\{\{TOOL:([^}]+)\}\}/g;
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+
+  while ((match = toolMarkerRegex.exec(content)) !== null) {
+    // Add text before this marker
+    const textBefore = content.slice(lastIndex, match.index).trim();
+    if (textBefore) {
+      segments.push({ type: 'text', content: textBefore });
+    }
+    // Add the tool marker
+    segments.push({ type: 'tool', toolCallId: match[1] });
+    lastIndex = match.index + match[0].length;
+  }
+
+  // Add remaining text after last marker
+  const remaining = content.slice(lastIndex).trim();
+  if (remaining) {
+    segments.push({ type: 'text', content: remaining });
+  }
+
+  return segments;
+}
+
+// Message component with tool calls support - Google Sheets AI style (interleaved)
 const AgentMessage = memo(function AgentMessage({
   message,
 }: {
   message: AgentPanelMessage;
 }) {
   const isUser = message.role === "user";
+  // Check if any tool call is currently executing (for spinner animation)
+  const isExecuting = message.toolCalls?.some(
+    (tc) => tc.status === "executing"
+  );
+
+  // Create a map of tool calls by ID for quick lookup
+  const toolCallsMap = useMemo(() => {
+    const map = new Map<string, typeof message.toolCalls extends (infer T)[] | undefined ? T : never>();
+    message.toolCalls?.forEach(tc => {
+      map.set(tc.toolCallId, tc);
+    });
+    return map;
+  }, [message.toolCalls]);
+
+  // Parse content into segments (interleaved text and tool markers)
+  const segments = useMemo(() => {
+    return parseContentWithToolMarkers(message.content);
+  }, [message.content]);
+
+  // Check if content has tool markers (Google Sheets AI style)
+  const hasToolMarkers = segments.some(s => s.type === 'tool');
+
+  // Render a single tool call
+  const renderToolCall = (toolCallId: string) => {
+    const tc = toolCallsMap.get(toolCallId);
+    if (!tc) return null;
+
+    return (
+      <div key={toolCallId} className="my-2">
+        <AgentToolCallFlat
+          toolCalls={[{
+            id: tc.toolCallId,
+            name: tc.toolName,
+            args: tc.args,
+            result: tc.result,
+            status:
+              tc.status === "executing"
+                ? "streaming"
+                : tc.status === "done"
+                  ? "complete"
+                  : tc.status,
+          }]}
+          isStreaming={tc.status === "executing"}
+        />
+      </div>
+    );
+  };
 
   return (
     <div
@@ -259,10 +345,16 @@ const AgentMessage = memo(function AgentMessage({
         isUser ? "justify-end" : "justify-start",
       )}
     >
-      {/* Assistant avatar */}
+      {/* Assistant avatar - LogoOutline with spinner when executing */}
       {!isUser && (
         <div className="shrink-0 w-7 h-7 rounded-lg bg-primary/10 flex items-center justify-center mt-0.5">
-          <IconSparkles size={14} className="text-primary" />
+          <LogoOutline
+            size={16}
+            className={cn(
+              "text-primary transition-transform",
+              isExecuting && "animate-spin"
+            )}
+          />
         </div>
       )}
 
@@ -288,38 +380,63 @@ const AgentMessage = memo(function AgentMessage({
           </div>
         )}
 
-        {/* Tool calls - Rich visualization with grouping */}
-        {message.toolCalls && message.toolCalls.length > 0 && (
-          <div className="mb-2">
-            <AgentToolCallsGroup
-              toolCalls={message.toolCalls.map((tc) => ({
-                id: tc.toolCallId,
-                name: tc.toolName,
-                args: tc.args ? JSON.stringify(tc.args) : undefined,
-                result: tc.result,
-                status:
-                  tc.status === "executing"
-                    ? "streaming"
-                    : tc.status === "done"
-                      ? "complete"
-                      : tc.status,
-              }))}
-              isStreaming={message.toolCalls.some(
-                (tc) => tc.status === "executing",
-              )}
-            />
+        {/* Interleaved content rendering (Google Sheets AI style) */}
+        {!isUser && hasToolMarkers ? (
+          <div className="space-y-1">
+            {segments.map((segment, idx) => {
+              if (segment.type === 'text') {
+                return (
+                  <div key={`text-${idx}`} className="text-sm text-foreground">
+                    <ChatMarkdownRenderer content={segment.content} size="sm" />
+                  </div>
+                );
+              } else {
+                return renderToolCall(segment.toolCallId);
+              }
+            })}
+            {/* Render any tool calls that weren't in the content (fallback) */}
+            {message.toolCalls?.filter(tc =>
+              !segments.some(s => s.type === 'tool' && s.toolCallId === tc.toolCallId)
+            ).map(tc => renderToolCall(tc.toolCallId))}
           </div>
-        )}
-
-        {/* Content */}
-        {isUser ? (
-          <p className="text-sm leading-relaxed whitespace-pre-wrap">
-            {message.content}
-          </p>
         ) : (
-          <div className="text-sm text-foreground">
-            <ChatMarkdownRenderer content={message.content} size="sm" />
-          </div>
+          <>
+            {/* Legacy rendering: Tool calls first, then content */}
+            {message.toolCalls && message.toolCalls.length > 0 && (
+              <div className="mb-2">
+                <AgentToolCallFlat
+                  toolCalls={message.toolCalls.map((tc) => ({
+                    id: tc.toolCallId,
+                    name: tc.toolName,
+                    args: tc.args,
+                    result: tc.result,
+                    status:
+                      tc.status === "executing"
+                        ? "streaming"
+                        : tc.status === "done"
+                          ? "complete"
+                          : tc.status,
+                  }))}
+                  isStreaming={message.toolCalls.some(
+                    (tc) => tc.status === "executing",
+                  )}
+                />
+              </div>
+            )}
+
+            {/* Content */}
+            {isUser ? (
+              <p className="text-sm leading-relaxed whitespace-pre-wrap">
+                {message.content}
+              </p>
+            ) : (
+              message.content && (
+                <div className="text-sm text-foreground">
+                  <ChatMarkdownRenderer content={message.content} size="sm" />
+                </div>
+              )
+            )}
+          </>
         )}
       </div>
 
@@ -364,6 +481,31 @@ const ImagePreview = memo(function ImagePreview({
           <IconX size={12} />
         </button>
       )}
+    </div>
+  );
+});
+
+// Cell context chip component (for "Add Context" feature)
+const CellContextChip = memo(function CellContextChip({
+  context,
+  onRemove,
+}: {
+  context: CellContextAttachment;
+  onRemove: () => void;
+}) {
+  return (
+    <div className="relative group inline-flex items-center gap-1.5 px-2.5 py-1.5 bg-primary/10 text-primary rounded-lg border border-primary/20">
+      <IconTable size={14} className="shrink-0" />
+      <span className="text-xs font-medium truncate max-w-[150px]">
+        {context.range}
+      </span>
+      <button
+        type="button"
+        onClick={onRemove}
+        className="shrink-0 h-4 w-4 rounded-full bg-primary/20 text-primary flex items-center justify-center hover:bg-primary/30 transition-colors"
+      >
+        <IconX size={10} />
+      </button>
     </div>
   );
 });
@@ -554,6 +696,7 @@ export function AgentPanel() {
     agentPanelStreamingTextAtom,
   );
   const [images, setImages] = useAtom(agentPanelImagesAtom);
+  const [cellContexts, setCellContexts] = useAtom(agentPanelCellContextAtom);
   const activeTab = useAtomValue(activeTabAtom);
   const selectedArtifact = useAtomValue(selectedArtifactAtom);
   const selectedPdf = useAtomValue(selectedPdfAtom);
@@ -632,6 +775,19 @@ export function AgentPanel() {
     currentDocFileId,
     selectedArtifact,
   ]);
+
+  // Get todos for task tracker - scoped to session
+  const todosAtom = useMemo(() => getTodosAtom(sessionId), [sessionId]);
+  const [todosState] = useAtom(todosAtom);
+  const agentTasks: AgentTask[] = useMemo(() => {
+    return todosState.todos
+      .filter((todo) => todo.status !== "cancelled") // Filter out cancelled
+      .map((todo, idx) => ({
+        id: todo.id || `todo-${idx}`,
+        content: todo.content,
+        status: todo.status as "pending" | "in_progress" | "completed",
+      }));
+  }, [todosState.todos]);
 
   // tRPC mutations
   const chatMutation = trpc.agentPanel.chat.useMutation();
@@ -731,7 +887,16 @@ export function AgentPanel() {
             toolName: event.toolName,
             toolCallId: event.toolCallId,
           });
-          // Update last message with tool call
+
+          // Insert a marker in the streaming text to indicate where this tool call appears
+          // This enables Google Sheets AI-style interleaved rendering of text and tool calls
+          if (event.toolCallId) {
+            const marker = `\n{{TOOL:${event.toolCallId}}}\n`;
+            streamingTextRef.current += marker;
+            setStreamingText((prev) => prev + marker);
+          }
+
+          // Update or create assistant message with tool call
           setMessages((prev: AgentPanelMessage[]) => {
             const last = prev[prev.length - 1];
             console.log("[AgentPanel] tool-call-start state check:", {
@@ -741,31 +906,43 @@ export function AgentPanel() {
               hasToolCallId: !!event.toolCallId,
               messageCount: prev.length,
             });
-            if (
-              last &&
-              last.role === "assistant" &&
-              event.toolName &&
-              event.toolCallId
-            ) {
-              console.log("[AgentPanel] Adding tool call to message");
+
+            if (!event.toolName || !event.toolCallId) {
+              console.log("[AgentPanel] Missing tool info, skipping");
+              return prev;
+            }
+
+            const newToolCall = {
+              toolName: event.toolName,
+              toolCallId: event.toolCallId,
+              status: "executing" as const,
+              args: (event as { args?: Record<string, unknown> }).args,
+            };
+
+            // If last message is assistant, add tool call to it
+            if (last && last.role === "assistant") {
+              console.log("[AgentPanel] Adding tool call to existing assistant message");
               return [
                 ...prev.slice(0, -1),
                 {
                   ...last,
-                  toolCalls: [
-                    ...(last.toolCalls || []),
-                    {
-                      toolName: event.toolName,
-                      toolCallId: event.toolCallId,
-                      status: "executing" as const,
-                      args: (event as { args?: Record<string, unknown> }).args,
-                    },
-                  ],
+                  toolCalls: [...(last.toolCalls || []), newToolCall],
                 },
               ];
             }
-            console.log("[AgentPanel] Tool call condition not met, skipping");
-            return prev;
+
+            // Otherwise, create a new assistant message with the tool call
+            console.log("[AgentPanel] Creating new assistant message for tool call");
+            return [
+              ...prev,
+              {
+                id: `assistant-${Date.now()}`,
+                role: "assistant" as const,
+                content: "",
+                toolCalls: [newToolCall],
+                timestamp: new Date().toISOString(),
+              },
+            ];
           });
           break;
 
@@ -1010,13 +1187,26 @@ export function AgentPanel() {
 
   // Handle send message
   const handleSend = useCallback(async () => {
-    if (!input.trim() && images.length === 0) return;
+    if (!input.trim() && images.length === 0 && cellContexts.length === 0) return;
     if (isStreaming || !agentContext) return;
+
+    // Build prompt with cell context if present
+    let promptContent = input.trim();
+    if (cellContexts.length > 0) {
+      const contextParts = cellContexts.map((ctx) => {
+        // Format cell data as a table for AI readability
+        const dataStr = ctx.data
+          .map((row) => row.map((cell) => cell ?? "").join("\t"))
+          .join("\n");
+        return `[Context from ${ctx.range}]:\n${dataStr}`;
+      });
+      promptContent = `${contextParts.join("\n\n")}\n\n${promptContent}`;
+    }
 
     const userMessage: AgentPanelMessage = {
       id: nanoid(),
       role: "user",
-      content: input.trim(),
+      content: input.trim(), // Show original input in UI
       timestamp: Date.now(),
       images:
         images.length > 0
@@ -1142,7 +1332,7 @@ export function AgentPanel() {
       await chatMutation.mutateAsync({
         sessionId,
         tabType: activeTab as "excel" | "doc" | "pdf",
-        prompt: userMessage.content,
+        prompt: promptContent, // Include cell context in prompt
         provider: config.provider,
         modelId: config.modelId,
         messages: messages.map((m) => ({
@@ -1155,6 +1345,11 @@ export function AgentPanel() {
         })),
         context,
       });
+
+      // Clear cell contexts after sending
+      if (cellContexts.length > 0) {
+        setCellContexts([]);
+      }
     } catch (error) {
       console.error("Agent chat error:", error);
       setIsStreaming(false);
@@ -1162,6 +1357,8 @@ export function AgentPanel() {
   }, [
     input,
     images,
+    cellContexts,
+    setCellContexts,
     isStreaming,
     agentContext,
     messages,
@@ -1384,6 +1581,11 @@ export function AgentPanel() {
     excelFileInputRef.current?.click();
   }, []);
 
+  // Handle import data into current Excel file (shows same picker)
+  const handleImportDataToCurrentFile = useCallback(() => {
+    excelFileInputRef.current?.click();
+  }, []);
+
   // Check if we should show the welcome state
   const showWelcomeState =
     messages.length === 0 &&
@@ -1416,8 +1618,8 @@ export function AgentPanel() {
         className="hidden"
       />
 
-      {/* Floating Action Icons - Top Right of Panel */}
-      <div className="absolute top-3 right-3 z-20 flex items-center gap-0.5">
+      {/* Floating Action Icons - Top Right of Panel with safe area padding */}
+      <div className="absolute top-2 right-2 z-20 flex items-center gap-1 bg-background/80 backdrop-blur-sm rounded-lg p-1">
         {/* History button */}
         {isAgentTab(activeTab) && hasSavedHistory && (
           <Tooltip>
@@ -1546,6 +1748,25 @@ export function AgentPanel() {
                   </div>
                 )}
 
+                {/* Subtitle / hint line - Only show for Excel tab when file IS open */}
+                {activeTab === "excel" && hasExcelFileOpen && (
+                  <div className="mt-2 inline-flex items-center gap-3 text-sm text-muted-foreground">
+                    <button
+                      type="button"
+                      onClick={handleImportDataToCurrentFile}
+                      className="inline-flex items-center gap-2 hover:text-foreground transition-colors"
+                    >
+                      <IconCloudUpload
+                        size={14}
+                        className="text-muted-foreground"
+                      />
+                      <span className="underline underline-offset-4">
+                        Import data from Excel
+                      </span>
+                    </button>
+                  </div>
+                )}
+
                 {/* Spacer to push prompts down */}
                 <div className="flex-1 min-h-[120px]" />
 
@@ -1589,7 +1810,7 @@ export function AgentPanel() {
                     <AgentMessage key={msg.id} message={msg} />
                   ))}
 
-                {/* Streaming message */}
+                {/* Streaming message - include tool calls from the last assistant message */}
                 {streamingText && (
                   <AgentMessage
                     message={{
@@ -1597,6 +1818,10 @@ export function AgentPanel() {
                       role: "assistant",
                       content: streamingText,
                       timestamp: Date.now(),
+                      // Pass tool calls from the last assistant message during streaming
+                      toolCalls: messages
+                        .filter(m => m.role === "assistant")
+                        .pop()?.toolCalls,
                     }}
                   />
                 )}
@@ -1628,17 +1853,36 @@ export function AgentPanel() {
         </ScrollArea>
       </div>
 
+      {/* Task Tracker - Sticky above input */}
+      {agentTasks.length > 0 && (
+        <AgentTaskTracker
+          tasks={agentTasks}
+          defaultExpanded={isStreaming}
+        />
+      )}
+
       {/* Input - Dynamic Growth Upwards */}
       <div className="shrink-0 p-3 bg-background">
-        {/* Image previews */}
-        {images.length > 0 && (
+        {/* Attachments: Images and Cell Contexts */}
+        {(images.length > 0 || cellContexts.length > 0) && (
           <div className="flex flex-wrap gap-1.5 mb-2">
+            {/* Image previews */}
             {images.map((img) => (
               <ImagePreview
                 key={img.id}
                 image={img}
                 onRemove={() =>
                   setImages((prev) => prev.filter((i) => i.id !== img.id))
+                }
+              />
+            ))}
+            {/* Cell context chips */}
+            {cellContexts.map((ctx) => (
+              <CellContextChip
+                key={ctx.id}
+                context={ctx}
+                onRemove={() =>
+                  setCellContexts((prev) => prev.filter((c) => c.id !== ctx.id))
                 }
               />
             ))}

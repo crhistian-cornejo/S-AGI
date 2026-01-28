@@ -21,8 +21,8 @@ import {
   IconTrash,
   IconPencil,
   IconDots,
-  IconTable,
   IconFileText,
+  IconTable,
   IconLayoutSidebarLeftCollapse,
   IconArchive,
   IconDeviceFloppy,
@@ -68,6 +68,7 @@ import { toast } from "sonner";
 import { importFromExcel } from "@/features/univer/excel-exchange";
 import { formatTimeAgo, formatDateWithTime } from "@/utils/time-format";
 import { FontWarningDialog } from "@/components/font-warning-dialog";
+import { ExcelIcon, DocIcon, PdfIcon } from "@/features/agent/icons";
 
 // ============================================================================
 // FadeScrollArea
@@ -174,7 +175,7 @@ function FileItem({
     }
   }, [isEditing]);
 
-  const FileIcon = file.type === "excel" ? IconTable : IconFileText;
+  const isExcel = file.type === "excel";
 
   return (
     <div
@@ -196,16 +197,19 @@ function FileItem({
       tabIndex={0}
     >
       {/* Icon */}
-      <div
-        className={cn(
-          "shrink-0 transition-colors",
-          isSelected ? "text-primary" : "text-muted-foreground/60",
-        )}
-      >
+      <div className="shrink-0">
         {file.icon ? (
           <span className="text-base">{file.icon}</span>
+        ) : isExcel ? (
+          <ExcelIcon size={16} />
         ) : (
-          <FileIcon size={16} />
+          <IconFileText
+            size={16}
+            className={cn(
+              "transition-colors",
+              isSelected ? "text-primary" : "text-muted-foreground/60",
+            )}
+          />
         )}
       </div>
 
@@ -336,53 +340,27 @@ function ScratchItem({
   onSelect,
   onSaveAsNew,
 }: ScratchItemProps) {
-  const FileIcon = type === "excel" ? IconTable : IconFileText;
-  const label = type === "excel" ? "Hoja nueva" : "Documento nuevo";
+  const label = type === "excel" ? "Crear hoja nueva" : "Crear documento";
 
   return (
     <div
       className={cn(
         "group relative flex items-center gap-2 px-2 py-1.5 rounded-md text-sm transition-all duration-200 cursor-pointer select-none w-full text-left outline-none border border-dashed",
-        isSelected
-          ? "bg-accent/80 text-accent-foreground border-primary/50"
-          : "text-foreground/70 hover:bg-accent/50 hover:text-foreground border-border/50",
+        "text-foreground/70 hover:bg-accent/50 hover:text-foreground border-border/50 hover:border-primary/30",
       )}
       onClick={onSelect}
       role="button"
       tabIndex={0}
     >
-      <div
-        className={cn(
-          "shrink-0 transition-colors",
-          isSelected ? "text-primary" : "text-muted-foreground/60",
-        )}
-      >
-        <FileIcon size={16} />
+      <div className="shrink-0 transition-colors text-muted-foreground/60 group-hover:text-primary">
+        <IconPlus size={16} />
       </div>
       <div className="flex-1 min-w-0">
         <span className="block truncate text-sm">{label}</span>
         <span className="block text-[10px] text-muted-foreground/60">
-          {hasDirtyContent ? "Sin guardar" : "Vacío"}
+          Clic para crear
         </span>
       </div>
-      {hasDirtyContent && (
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <div
-              className="p-1 hover:bg-accent rounded transition-colors cursor-pointer"
-              onClick={(e) => {
-                e.stopPropagation();
-                onSaveAsNew();
-              }}
-              role="button"
-              tabIndex={0}
-            >
-              <IconDeviceFloppy size={14} className="text-primary" />
-            </div>
-          </TooltipTrigger>
-          <TooltipContent>Guardar como archivo</TooltipContent>
-        </Tooltip>
-      )}
     </div>
   );
 }
@@ -545,7 +523,10 @@ export function FilesSidebar({ type, onToggle }: FilesSidebarProps) {
       // CRITICAL: Clear the current file data FIRST to prevent showing stale data
       // from a different file while the new file data is being fetched
       if (fileId !== currentFileId) {
-        console.log("[FilesSidebar] Clearing stale file data before selecting:", fileId);
+        console.log(
+          "[FilesSidebar] Clearing stale file data before selecting:",
+          fileId,
+        );
         setCurrentFile(null);
       }
       setCurrentFileId(fileId);
@@ -554,10 +535,14 @@ export function FilesSidebar({ type, onToggle }: FilesSidebarProps) {
     [setCurrentFileId, setCurrentFile, currentFileId, markOpenedMutation],
   );
 
+  // Create a new file when clicking "Hoja nueva"
   const handleSelectScratch = useCallback(() => {
-    setCurrentFileId(null);
-    setCurrentFile(null);
-  }, [setCurrentFileId, setCurrentFile]);
+    // Instead of just selecting scratch mode, create a new file
+    createFileMutation.mutate({
+      type,
+      name: type === "excel" ? "Nuevo archivo" : "Nuevo documento",
+    });
+  }, [createFileMutation, type]);
 
   const handleCreateFile = useCallback(() => {
     createFileMutation.mutate({
@@ -680,7 +665,6 @@ export function FilesSidebar({ type, onToggle }: FilesSidebarProps) {
   // Check if scratch is selected (no file selected)
   const isScratchSelected = !currentFileId;
 
-  const TypeIcon = type === "excel" ? IconTable : IconFileText;
   const typeLabel = type === "excel" ? "Hojas de cálculo" : "Documentos";
 
   // Sidebar content is now rendered inside a container controlled by main-layout
@@ -705,7 +689,13 @@ export function FilesSidebar({ type, onToggle }: FilesSidebarProps) {
           )}
         >
           <div className="flex items-center gap-2">
-            <TypeIcon size={18} className="text-primary" />
+            {type === "excel" ? (
+              <ExcelIcon size={18} />
+            ) : type === "doc" ? (
+              <DocIcon size={18} />
+            ) : (
+              <PdfIcon size={18} />
+            )}
             <span className="text-sm font-semibold">{typeLabel}</span>
           </div>
           <div className="flex items-center gap-1">

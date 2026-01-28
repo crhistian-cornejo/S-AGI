@@ -1076,7 +1076,7 @@ export function MainLayout() {
                       ? "w-[320px] min-w-[300px]"
                       : "w-0 border-l-0",
                   )}
-                  inert={!agentPanelOpen ? "" : undefined}
+                  inert={!agentPanelOpen || undefined}
                 >
                   <div className="w-[320px] min-w-[300px] h-full">
                     <Suspense fallback={<PanelLoadingFallback />}>
@@ -1204,7 +1204,7 @@ export function MainLayout() {
                       ? "w-[320px] min-w-[300px]"
                       : "w-0 border-l-0",
                   )}
-                  inert={!agentPanelOpen ? "" : undefined}
+                  inert={!agentPanelOpen || undefined}
                 >
                   <div className="w-[320px] min-w-[300px] h-full">
                     <Suspense fallback={<PanelLoadingFallback />}>
@@ -1236,7 +1236,7 @@ export function MainLayout() {
                 "h-full border-l border-border/50 bg-background transition-all duration-300 ease-in-out overflow-hidden shrink-0 pt-10",
                 agentPanelOpen ? "w-[320px] min-w-[300px]" : "w-0 border-l-0",
               )}
-              inert={!agentPanelOpen ? "" : undefined}
+              inert={!agentPanelOpen || undefined}
             >
               <div className="w-[320px] min-w-[300px] h-full">
                 <Suspense fallback={<PanelLoadingFallback />}>

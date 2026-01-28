@@ -12,6 +12,7 @@ import {
     Univer,
     UniverInstanceType,
     ThemeService,
+    IConfigService,
 } from '@univerjs/core'
 import { FUniver } from '@univerjs/core/facade'
 import { UniverDocsPlugin } from '@univerjs/docs'
@@ -31,7 +32,7 @@ import { UniverSheetsFormulaPlugin } from '@univerjs/sheets-formula'
 import { UniverSheetsFormulaUIPlugin } from '@univerjs/sheets-formula-ui'
 import { UniverSheetsNumfmtPlugin } from '@univerjs/sheets-numfmt'
 import { UniverSheetsNumfmtUIPlugin } from '@univerjs/sheets-numfmt-ui'
-import { UniverUIPlugin } from '@univerjs/ui'
+import { BuiltInUIPart, UI_PLUGIN_CONFIG_KEY, UniverUIPlugin } from '@univerjs/ui'
 
 // Drawing plugins for image support
 import { UniverDrawingPlugin } from '@univerjs/drawing'
@@ -60,17 +61,14 @@ import { UniverSheetsConditionalFormattingUIPlugin } from '@univerjs/sheets-cond
 import { UniverSheetsDataValidationPlugin } from '@univerjs/sheets-data-validation'
 import { UniverSheetsDataValidationUIPlugin } from '@univerjs/sheets-data-validation-ui'
 
-// Notes plugin - DISABLED because it depends on Thread Comment infrastructure
-// which requires Univer Server. Without IThreadCommentDataSourceService, DI fails with:
-// "DependencyNotFoundForModuleError: Cannot find 'z' registered by any injector"
-// import { UniverSheetsNotePlugin } from '@univerjs/sheets-note'
-// import { UniverSheetsNoteUIPlugin } from '@univerjs/sheets-note-ui'
+// Note plugins - Excel native-style notes (cell comments)
+import { UniverSheetsNotePlugin } from '@univerjs/sheets-note'
+import { UniverSheetsNoteUIPlugin } from '@univerjs/sheets-note-ui'
 
-// NOTE: Thread comments plugins (UniverThreadCommentPlugin, UniverSheetsThreadCommentPlugin, etc.)
-// are NOT included because they require Univer Server to function properly.
-// They depend on a data source service (IThreadCommentDataSourceService) that is only
-// provided by the collaboration server. Without it, DI fails with:
-// "QuantityCheckError: Expect 1 dependency item(s) for id 'F4' but get 0"
+// Thread Comment plugins - DISABLED
+// These plugins require Univer Server infrastructure (IThreadCommentDataSourceService)
+// Without the server, DI fails with: "Cannot find 'w15'/'z' registered by any injector"
+// import { UniverSheetsThreadCommentUIPlugin } from '@univerjs/sheets-thread-comment-ui'
 
 // Import facade extensions - ORDER MATTERS!
 // These extend the FUniver API with methods for each plugin
@@ -88,8 +86,10 @@ import '@univerjs/sheets-sort/facade'
 import '@univerjs/sheets-filter/facade'
 import '@univerjs/sheets-conditional-formatting/facade'
 import '@univerjs/sheets-data-validation/facade'
-// Note: @univerjs/sheets-note/facade and @univerjs/sheets-thread-comment/facade
-// are not imported - they require Univer Server infrastructure
+import '@univerjs/sheets-note/facade'
+import '@univerjs/sheets-drawing-ui/facade'
+// Note: thread-comment facade imports not available in this version
+// Comments work via the plugin UI without facade API
 
 // Import styles
 import '@univerjs/design/lib/index.css'
@@ -103,7 +103,11 @@ import '@univerjs/find-replace/lib/index.css'
 import '@univerjs/sheets-filter-ui/lib/index.css'
 import '@univerjs/sheets-conditional-formatting-ui/lib/index.css'
 import '@univerjs/sheets-data-validation-ui/lib/index.css'
-// Note: @univerjs/sheets-note-ui and @univerjs/thread-comment-ui CSS not imported - requires Univer Server
+// Note UI CSS - Excel native-style notes
+import '@univerjs/sheets-note-ui/lib/index.css'
+// Thread comment CSS - DISABLED (requires Univer Server)
+// import '@univerjs/thread-comment-ui/lib/index.css'
+// import '@univerjs/sheets-thread-comment-ui/lib/index.css'
 // Custom theme overrides - must be imported AFTER Univer styles
 import './univer-theme-overrides.css'
 
@@ -123,12 +127,13 @@ import SheetsConditionalFormattingUIEnUS from '@univerjs/sheets-conditional-form
 import SheetsDataValidationUIEnUS from '@univerjs/sheets-data-validation-ui/locale/en-US'
 import SheetsFormulaUIEnUS from '@univerjs/sheets-formula-ui/locale/en-US'
 import SheetsNumfmtUIEnUS from '@univerjs/sheets-numfmt-ui/locale/en-US'
-// Note: SheetsNoteUIEnUS and Thread comment locales not imported - requires Univer Server
+import SheetsNoteUIEnUS from '@univerjs/sheets-note-ui/locale/en-US'
+// Thread comment locales - DISABLED (requires Univer Server)
+// import ThreadCommentUIEnUS from '@univerjs/thread-comment-ui/locale/en-US'
+// import SheetsThreadCommentUIEnUS from '@univerjs/sheets-thread-comment-ui/locale/en-US'
 
-// NOTE: Custom context menus for notes are NOT registered because:
-// 1. UniverSheetsNoteUIPlugin already registers "Add Note" in the context menu
-// 2. The Facade API method (FRange.createOrUpdateNote) requires version 0.7.0+ 
-//    and may not work correctly with the current plugin registration approach
+// Thread comments are registered and provide "Add Comment" in context menu
+// Comments work locally without server - stored in memory during session
 
 export interface UniverSheetsInstance {
     univer: Univer
@@ -195,7 +200,8 @@ export async function initSheetsUniver(container: HTMLElement): Promise<UniverSh
         SheetsDataValidationUIEnUS,
         SheetsFormulaUIEnUS,
         SheetsNumfmtUIEnUS,
-        // Note: SheetsNoteUIEnUS and Thread comment locales not included - requires Univer Server
+        SheetsNoteUIEnUS,
+        // Thread comment locales disabled - requires Univer Server
     )
     
     // Create theme based on current CSS variables and dark mode
@@ -226,6 +232,7 @@ export async function initSheetsUniver(container: HTMLElement): Promise<UniverSh
     // 3. UI plugin with container
     univer.registerPlugin(UniverUIPlugin, {
         container,
+        ribbonType: container.clientWidth >= 1200 ? 'classic' : 'default',
     })
 
     // 4. Docs UI
@@ -276,15 +283,41 @@ export async function initSheetsUniver(container: HTMLElement): Promise<UniverSh
     univer.registerPlugin(UniverSheetsDataValidationPlugin)
     univer.registerPlugin(UniverSheetsDataValidationUIPlugin)
 
-    // Note: Notes and Thread comments plugins are NOT registered because they
-    // require Univer Server for the data source service. Without it, DI fails with:
-    // "DependencyNotFoundForModuleError: Cannot find 'z' registered by any injector"
+    // Note plugins - Excel native-style notes (cell comments)
+    univer.registerPlugin(UniverSheetsNotePlugin)
+    univer.registerPlugin(UniverSheetsNoteUIPlugin)
+
+    // Thread Comment plugins - DISABLED
+    // These require Univer Server infrastructure (IThreadCommentDataSourceService)
+    // Without server, DI fails with: "Cannot find 'w15'/'z' registered by any injector"
+    // univer.registerPlugin(UniverSheetsThreadCommentUIPlugin)
     
     const api = FUniver.newAPI(univer)
 
-    // Note: No custom context menus are registered because:
-    // - UniverSheetsNoteUIPlugin already provides "Add Note" in context menu
-    // - Thread comments require Univer Server
+    // Ensure header/toolbar UI parts are visible (required for drawing/image buttons)
+    try {
+        api.setUIVisible(BuiltInUIPart.HEADER, true)
+        api.setUIVisible(BuiltInUIPart.TOOLBAR, true)
+    } catch (e) {
+        console.warn('[UniverSheets] Failed to force toolbar visibility:', e)
+    }
+
+    // Responsive ribbon: classic >= 1200px, compact below
+    try {
+        const configService = univer.__getInjector().get(IConfigService)
+        const updateRibbonType = () => {
+            const ribbonType = container.clientWidth >= 1200 ? 'classic' : 'default'
+            configService.setConfig(UI_PLUGIN_CONFIG_KEY, { ribbonType }, { merge: true })
+        }
+        updateRibbonType()
+        const resizeObserver = new ResizeObserver(() => updateRibbonType())
+        resizeObserver.observe(container)
+        univer.onDispose(() => resizeObserver.disconnect())
+    } catch (e) {
+        console.warn('[UniverSheets] Failed to enable responsive ribbon:', e)
+    }
+
+    // Thread comments UI plugin adds "Add Comment" to context menu automatically
     
     // Dark mode is already set via darkMode option in constructor
     // But we also toggle via API for UI components

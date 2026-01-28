@@ -10,6 +10,7 @@ import { AuthDialog, AuthGuard, OAuthCallbackHandler } from "./features/auth";
 import { OnboardingGuard } from "./features/onboarding";
 import { VSCodeThemeProvider } from "./lib/themes";
 import { appStore } from "./lib/stores/jotai-store";
+import "@/features/univer/univer-tooltip-fix.css";
 import {
   hasChatGPTPlusAtom,
   chatGPTPlusStatusAtom,

@@ -39,6 +39,11 @@ import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { useSetAtom } from "jotai";
 import {
   currentExcelFileIdAtom,
@@ -226,16 +231,28 @@ export function FileVersionHistoryPanel({
               </Badge>
             </div>
             <div className="flex items-center gap-1">
-              <Button
-                variant={showObsolete ? "secondary" : "ghost"}
-                size="sm"
-                className="h-7 px-2 text-xs"
-                onClick={() => setShowObsolete(!showObsolete)}
-                title={showObsolete ? "Ocultar versiones obsoletas" : "Mostrar versiones obsoletas"}
-              >
-                {showObsolete ? <IconEyeOff size={14} className="mr-1" /> : <IconArchive size={14} className="mr-1" />}
-                {showObsolete ? "Ocultar obsoletas" : "Ver obsoletas"}
-              </Button>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant={showObsolete ? "secondary" : "ghost"}
+                    size="sm"
+                    className="h-7 px-2 text-xs"
+                    onClick={() => setShowObsolete(!showObsolete)}
+                  >
+                    {showObsolete ? (
+                      <IconEyeOff size={14} className="mr-1" />
+                    ) : (
+                      <IconArchive size={14} className="mr-1" />
+                    )}
+                    {showObsolete ? "Ocultar obsoletas" : "Ver obsoletas"}
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">
+                  {showObsolete
+                    ? "Ocultar versiones obsoletas"
+                    : "Mostrar versiones obsoletas"}
+                </TooltipContent>
+              </Tooltip>
               <FileExportButton
                 fileId={fileId}
                 fileType={fileType}
@@ -457,12 +474,17 @@ function CompactVersionCard({
         isSelected
           ? "bg-accent/80 text-accent-foreground"
           : "text-foreground/70 hover:bg-accent/50 hover:text-foreground",
-        isObsolete && "opacity-60 border border-dashed border-amber-500/30 bg-amber-500/5",
+        isObsolete &&
+          "opacity-60 border border-dashed border-amber-500/30 bg-amber-500/5",
       )}
       onClick={onPreview}
       role="button"
       tabIndex={0}
-      title={isObsolete ? `Versión obsoleta (reemplazada por v${version.obsoleted_by_version})` : undefined}
+      title={
+        isObsolete
+          ? `Versión obsoleta (reemplazada por v${version.obsoleted_by_version})`
+          : undefined
+      }
     >
       {/* Avatar */}
       <Avatar className="h-7 w-7 shrink-0">
@@ -614,26 +636,36 @@ function CompactVersionCard({
         onClick={(e) => e.stopPropagation()}
       >
         {onShowDiff && diffStats && diffStats.totalChanges > 0 && (
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-6 w-6"
-            onClick={onShowDiff}
-            title="Ver cambios detallados"
-          >
-            <IconGitCompare size={14} />
-          </Button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-6 w-6"
+                onClick={onShowDiff}
+              >
+                <IconGitCompare size={14} />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">
+              Ver cambios detallados
+            </TooltipContent>
+          </Tooltip>
         )}
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-6 w-6"
-          onClick={onRestore}
-          disabled={isRestoring}
-          title="Restaurar esta versión"
-        >
-          <IconRestore size={14} />
-        </Button>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-6 w-6"
+              onClick={onRestore}
+              disabled={isRestoring}
+            >
+              <IconRestore size={14} />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent side="bottom">Restaurar esta versión</TooltipContent>
+        </Tooltip>
       </div>
     </div>
   );
