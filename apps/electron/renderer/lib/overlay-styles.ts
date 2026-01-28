@@ -12,7 +12,7 @@
 
 /** Base container styles for all overlay content */
 export const overlayContentBase =
-    "z-50 overflow-auto rounded-[10px] border border-border bg-popover text-popover-foreground shadow-lg"
+    "z-50 overflow-auto rounded-[10px] border border-border bg-popover text-popover-foreground shadow-lg dark:border-border/40"
 
 /** Max height to stay within viewport */
 export const overlayMaxHeight = "max-h-[calc(100vh-32px)]"
@@ -91,7 +91,7 @@ export const overlayItemIndicator =
 // =============================================================================
 
 /** Separator styles - full width with vertical margin */
-export const overlaySeparator = "my-1 h-px bg-border mx-1"
+export const overlaySeparator = "my-1 h-px bg-border mx-1 dark:bg-border/40"
 
 /** Label styles */
 export const overlayLabel = "px-2.5 py-1.5 mx-1 text-xs font-medium text-muted-foreground"

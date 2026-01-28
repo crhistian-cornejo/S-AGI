@@ -66,36 +66,87 @@ function asChatIdOrNull(v: string | undefined): string | null {
 
 /**
  * Helper: Notify renderer of artifact updates for live UI sync
+ * Supports both artifact system (legacy) and file system (new)
  */
-function notifyArtifactUpdate(artifactId: string, univerData: Record<string, unknown>, type: 'spreadsheet' | 'document') {
-    sendToRenderer('artifact:update', { artifactId, univerData, type })
-    log.info(`[MCP Tools] Sent live update for ${type}: ${artifactId}`)
+function notifyArtifactUpdate(
+    artifactId: string,
+    univerData: Record<string, unknown>,
+    type: 'spreadsheet' | 'document',
+    fileId?: string
+) {
+    // Send both artifactId and fileId so either system can pick it up
+    sendToRenderer('artifact:update', { artifactId, univerData, type, fileId })
+    log.info(`[MCP Tools] Sent live update for ${type}: artifactId=${artifactId}, fileId=${fileId || 'none'}`)
+}
+
+// Types for univer data structure
+interface UniverSheetData {
+    cellData: Record<number, Record<number, { v?: unknown; s?: Record<string, unknown> }>>;
+    [key: string]: unknown;
+}
+
+interface UniverData {
+    sheets: Record<string, UniverSheetData>;
+    sheetOrder?: string[];
+    [key: string]: unknown;
+}
+
+interface ArtifactResult {
+    id: string;
+    univer_data: UniverData;
+    user_id?: string;
+    isUserFile?: boolean;
 }
 
 /**
  * Helper: Get artifact with ownership check (supports both direct and chat-based ownership)
+ * Also checks user_files table as fallback for new file system
  */
-async function getArtifactWithOwnership(artifactId: string, userId: string) {
+async function getArtifactWithOwnership(artifactId: string, userId: string): Promise<ArtifactResult> {
+    // First try artifacts table (legacy system)
     const { data: artifact, error } = await supabase
         .from('artifacts')
         .select('*, chats(user_id)')
         .eq('id', artifactId)
         .single()
 
-    if (error || !artifact) {
-        throw new Error('Artifact not found')
+    if (artifact && !error) {
+        // Check ownership: direct user_id OR via chat
+        const hasDirectOwnership = artifact.user_id === userId
+        const chatData = Array.isArray(artifact.chats) ? artifact.chats[0] : artifact.chats
+        const hasChatOwnership = chatData?.user_id === userId
+
+        if (!hasDirectOwnership && !hasChatOwnership) {
+            throw new Error('Access denied')
+        }
+
+        return {
+            id: artifact.id,
+            univer_data: artifact.univer_data as UniverData,
+            user_id: artifact.user_id,
+            isUserFile: false
+        }
     }
 
-    // Check ownership: direct user_id OR via chat
-    const hasDirectOwnership = artifact.user_id === userId
-    const chatData = Array.isArray(artifact.chats) ? artifact.chats[0] : artifact.chats
-    const hasChatOwnership = chatData?.user_id === userId
+    // Fallback: Try user_files table (new file system)
+    const { data: userFile, error: fileError } = await supabase
+        .from('user_files')
+        .select('*')
+        .eq('id', artifactId)
+        .eq('user_id', userId)
+        .single()
 
-    if (!hasDirectOwnership && !hasChatOwnership) {
-        throw new Error('Access denied')
+    if (userFile && !fileError) {
+        log.info(`[MCP Tools] Found file in user_files table: ${artifactId}`)
+        return {
+            id: userFile.id,
+            univer_data: userFile.univer_data as UniverData,
+            user_id: userFile.user_id,
+            isUserFile: true
+        }
     }
 
-    return artifact
+    throw new Error('Artifact not found')
 }
 
 /**
@@ -450,9 +501,10 @@ export function createExcelMcpTools(context: ExcelContext): McpToolDefinition[] 
                         }
                     }
 
-                    // Update database
+                    // Update database (support both artifacts and user_files tables)
+                    const tableName = artifact.isUserFile ? 'user_files' : 'artifacts'
                     const { error: updateError } = await supabase
-                        .from('artifacts')
+                        .from(tableName)
                         .update({ univer_data: univerData, updated_at: new Date().toISOString() })
                         .eq('id', targetId)
 
@@ -460,8 +512,8 @@ export function createExcelMcpTools(context: ExcelContext): McpToolDefinition[] 
                         throw new Error(`Failed to update cells: ${updateError.message}`)
                     }
 
-                    // Notify renderer for live UI update
-                    notifyArtifactUpdate(targetId, univerData, 'spreadsheet')
+                    // Notify renderer for live UI update (include fileId for new file system)
+                    notifyArtifactUpdate(targetId, univerData, 'spreadsheet', artifact.isUserFile ? targetId : undefined)
 
                     return {
                         content: [{
@@ -662,9 +714,10 @@ export function createExcelMcpTools(context: ExcelContext): McpToolDefinition[] 
                         }
                     }
 
-                    // Update database
+                    // Update database (support both artifacts and user_files tables)
+                    const tableName = artifact.isUserFile ? 'user_files' : 'artifacts'
                     const { error: updateError } = await supabase
-                        .from('artifacts')
+                        .from(tableName)
                         .update({ univer_data: univerData, updated_at: new Date().toISOString() })
                         .eq('id', targetId)
 
@@ -672,8 +725,8 @@ export function createExcelMcpTools(context: ExcelContext): McpToolDefinition[] 
                         throw new Error(`Failed to format cells: ${updateError.message}`)
                     }
 
-                    // Notify renderer for live UI update
-                    notifyArtifactUpdate(targetId, univerData, 'spreadsheet')
+                    // Notify renderer for live UI update (include fileId for new file system)
+                    notifyArtifactUpdate(targetId, univerData, 'spreadsheet', artifact.isUserFile ? targetId : undefined)
 
                     const cellCount = (end.row - start.row + 1) * (end.col - start.col + 1)
                     return {
@@ -767,9 +820,10 @@ export function createExcelMcpTools(context: ExcelContext): McpToolDefinition[] 
                     if (!sheet.cellData[row]) sheet.cellData[row] = {}
                     sheet.cellData[row][col] = { v: formula }
 
-                    // Update database
+                    // Update database (support both artifacts and user_files tables)
+                    const tableName = artifact.isUserFile ? 'user_files' : 'artifacts'
                     const { error: updateError } = await supabase
-                        .from('artifacts')
+                        .from(tableName)
                         .update({ univer_data: univerData, updated_at: new Date().toISOString() })
                         .eq('id', targetId)
 
@@ -777,8 +831,8 @@ export function createExcelMcpTools(context: ExcelContext): McpToolDefinition[] 
                         throw new Error(`Failed to insert formula: ${updateError.message}`)
                     }
 
-                    // Notify renderer for live UI update
-                    notifyArtifactUpdate(targetId, univerData, 'spreadsheet')
+                    // Notify renderer for live UI update (include fileId for new file system)
+                    notifyArtifactUpdate(targetId, univerData, 'spreadsheet', artifact.isUserFile ? targetId : undefined)
 
                     return {
                         content: [{

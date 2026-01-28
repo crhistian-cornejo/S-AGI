@@ -1,4 +1,4 @@
-import { useRef, lazy, Suspense, useMemo, useCallback } from 'react'
+import { useRef, lazy, Suspense, useMemo, useCallback, useState, type ChangeEvent } from 'react'
 import { useAtom, useSetAtom } from 'jotai'
 import { IconX, IconDownload, IconMaximize, IconFileText, IconUpload, IconFileSpreadsheet, IconChartBar, IconPhoto, IconFileTypePdf, IconCopy, IconExternalLink } from '@tabler/icons-react'
 import { toast } from 'sonner'
@@ -19,6 +19,7 @@ import { PdfViewer } from '@/components/pdf-viewer/PdfViewer'
 import { trpc } from '@/lib/trpc'
 import { cn } from '@/lib/utils'
 import type { ChartViewerRef } from '@/features/charts/chart-viewer'
+import { FontWarningDialog } from '@/components/font-warning-dialog'
 
 // Lazy load ChartViewer to avoid loading Recharts until needed
 const ChartViewer = lazy(() => import('@/features/charts/chart-viewer').then(m => ({ default: m.ChartViewer })))
@@ -134,13 +135,19 @@ export function ArtifactPanel() {
         fileInputRef.current?.click()
     }
 
-    const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const [missingFonts, setMissingFonts] = useState<string[]>([])
+    const [showFontDialog, setShowFontDialog] = useState(false)
+
+    const handleFileChange = async (e: ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0]
         if (!file || !artifact) return
 
         try {
             // Import Excel file to Univer format
-            const univerData = await importFromExcel(file)
+            const univerData = await importFromExcel(file, (fonts) => {
+                setMissingFonts(fonts)
+                setShowFontDialog(true)
+            })
 
             // Create new artifact with imported data (using same chat as current artifact)
             const newArtifact = await createArtifact.mutateAsync({
@@ -460,6 +467,12 @@ export function ArtifactPanel() {
                     </div>
                 )}
             </div>
+
+            <FontWarningDialog
+                open={showFontDialog}
+                onOpenChange={setShowFontDialog}
+                missingFonts={missingFonts}
+            />
         </div>
     )
 }

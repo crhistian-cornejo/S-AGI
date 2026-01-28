@@ -2,6 +2,7 @@
  * File Export Button Component
  *
  * Botón para exportar archivo con o sin historial
+ * Incluye opciones para compartir y abrir en Google Sheets
  */
 
 import * as React from "react";
@@ -10,6 +11,9 @@ import {
   IconDownload,
   IconFileZip,
   IconFileSpreadsheet,
+  IconBrandGoogle,
+  IconMail,
+  IconCopy,
 } from "@tabler/icons-react";
 import {
   DropdownMenu,
@@ -17,10 +21,13 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
   DropdownMenuSeparator,
+  DropdownMenuLabel,
 } from "@/components/ui/dropdown-menu";
 import {
   exportFileWithHistory,
   exportCurrentVersion,
+  openInGoogleSheets,
+  shareViaEmail,
 } from "@/utils/file-export";
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
@@ -41,6 +48,7 @@ export function FileExportButton({
   size = "default",
 }: FileExportButtonProps) {
   const [isExporting, setIsExporting] = React.useState(false);
+  const utils = trpc.useUtils();
 
   // Fetch file name if not provided
   const { data: file } = trpc.userFiles.get.useQuery(
@@ -53,7 +61,7 @@ export function FileExportButton({
   const handleExportCurrent = async () => {
     try {
       setIsExporting(true);
-      await exportCurrentVersion(fileId, fileName);
+      await exportCurrentVersion(fileId, fileName, utils);
       toast.success("Archivo exportado");
     } catch (error) {
       console.error("[FileExportButton] Export error:", error);
@@ -69,12 +77,17 @@ export function FileExportButton({
   const handleExportWithHistory = async () => {
     try {
       setIsExporting(true);
-      await exportFileWithHistory(fileId, fileName, {
-        includeVersions: true,
-        includeMetadata: true,
-        includeDiff: true,
-        compressSnapshots: true,
-      });
+      await exportFileWithHistory(
+        fileId,
+        fileName,
+        {
+          includeVersions: true,
+          includeMetadata: true,
+          includeDiff: true,
+          compressSnapshots: true,
+        },
+        utils,
+      );
       toast.success("Archivo exportado con historial completo");
     } catch (error) {
       console.error("[FileExportButton] Export with history error:", error);
@@ -90,12 +103,17 @@ export function FileExportButton({
   const handleExportWithHistoryNoDiff = async () => {
     try {
       setIsExporting(true);
-      await exportFileWithHistory(fileId, fileName, {
-        includeVersions: true,
-        includeMetadata: true,
-        includeDiff: false,
-        compressSnapshots: true,
-      });
+      await exportFileWithHistory(
+        fileId,
+        fileName,
+        {
+          includeVersions: true,
+          includeMetadata: true,
+          includeDiff: false,
+          compressSnapshots: true,
+        },
+        utils,
+      );
       toast.success("Archivo exportado con historial (sin diffs)");
     } catch (error) {
       console.error("[FileExportButton] Export error:", error);
@@ -103,6 +121,42 @@ export function FileExportButton({
     } finally {
       setIsExporting(false);
     }
+  };
+
+  const handleOpenInGoogleSheets = async () => {
+    try {
+      setIsExporting(true);
+      await openInGoogleSheets(fileId, fileName, utils);
+      toast.success(
+        "Archivo descargado. Importa el archivo en Google Sheets.",
+        { duration: 5000 },
+      );
+    } catch (error) {
+      console.error("[FileExportButton] Google Sheets error:", error);
+      toast.error(
+        error instanceof Error ? error.message : "Error al abrir en Google Sheets",
+      );
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+  const handleShareViaEmail = async () => {
+    try {
+      setIsExporting(true);
+      await shareViaEmail(fileId, fileName, utils);
+      toast.success("Archivo descargado. Adjúntalo al email.");
+    } catch (error) {
+      console.error("[FileExportButton] Email share error:", error);
+      toast.error("Error al compartir por email");
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+  const handleCopyFileName = () => {
+    navigator.clipboard.writeText(`${fileName}.xlsx`);
+    toast.success("Nombre de archivo copiado");
   };
 
   return (
@@ -113,12 +167,14 @@ export function FileExportButton({
           {isExporting ? "Exportando..." : "Exportar"}
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end">
+      <DropdownMenuContent align="end" className="w-56">
+        <DropdownMenuLabel className="text-xs text-muted-foreground">
+          Descargar
+        </DropdownMenuLabel>
         <DropdownMenuItem onClick={handleExportCurrent}>
           <IconFileSpreadsheet size={16} className="mr-2" />
           Versión actual (.xlsx)
         </DropdownMenuItem>
-        <DropdownMenuSeparator />
         <DropdownMenuItem onClick={handleExportWithHistory}>
           <IconFileZip size={16} className="mr-2" />
           Con historial completo (ZIP)
@@ -126,6 +182,26 @@ export function FileExportButton({
         <DropdownMenuItem onClick={handleExportWithHistoryNoDiff}>
           <IconFileZip size={16} className="mr-2" />
           Con historial (sin diffs)
+        </DropdownMenuItem>
+
+        <DropdownMenuSeparator />
+        <DropdownMenuLabel className="text-xs text-muted-foreground">
+          Compartir
+        </DropdownMenuLabel>
+
+        {fileType === "excel" && (
+          <DropdownMenuItem onClick={handleOpenInGoogleSheets}>
+            <IconBrandGoogle size={16} className="mr-2" />
+            Abrir en Google Sheets
+          </DropdownMenuItem>
+        )}
+        <DropdownMenuItem onClick={handleShareViaEmail}>
+          <IconMail size={16} className="mr-2" />
+          Enviar por email
+        </DropdownMenuItem>
+        <DropdownMenuItem onClick={handleCopyFileName}>
+          <IconCopy size={16} className="mr-2" />
+          Copiar nombre de archivo
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>

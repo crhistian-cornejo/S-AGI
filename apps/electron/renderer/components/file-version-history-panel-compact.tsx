@@ -16,13 +16,13 @@ import {
   IconX,
   IconHistory,
   IconRestore,
-  IconEye,
-  IconClock,
-  IconCheck,
-  IconDeviceFloppy,
   IconRobot,
   IconUser,
+  IconArchive,
+  IconEyeOff,
+  IconGitCompare,
 } from "@tabler/icons-react";
+import { VersionDiffViewer } from "./version-diff-viewer";
 import { cn } from "@/lib/utils";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
@@ -60,6 +60,13 @@ export function FileVersionHistoryPanel({
   onOpenChange,
   onPreviewVersion,
 }: FileVersionHistoryPanelProps) {
+  const [showObsolete, setShowObsolete] = React.useState(false);
+  const [diffViewerOpen, setDiffViewerOpen] = React.useState(false);
+  const [diffVersions, setDiffVersions] = React.useState<{
+    old: { versionNumber: number; data: any; createdAt: string } | null;
+    new: { versionNumber: number; data: any; createdAt: string } | null;
+  }>({ old: null, new: null });
+
   const {
     versions,
     isLoadingVersions,
@@ -69,7 +76,7 @@ export function FileVersionHistoryPanel({
     restoreVersion,
     getChangeTypeLabel,
     formatSize,
-  } = useFileVersions(fileId);
+  } = useFileVersions(fileId, { includeObsolete: showObsolete });
 
   const setCurrentExcelFileId = useSetAtom(currentExcelFileIdAtom);
   const setCurrentDocFileId = useSetAtom(currentDocFileIdAtom);
@@ -174,6 +181,24 @@ export function FileVersionHistoryPanel({
     }
   };
 
+  // Open diff viewer comparing current version with previous
+  const handleShowDiff = (version: any, prevVersion: any) => {
+    if (!prevVersion) return;
+    setDiffVersions({
+      old: {
+        versionNumber: prevVersion.version_number,
+        data: prevVersion.univer_data,
+        createdAt: prevVersion.created_at,
+      },
+      new: {
+        versionNumber: version.version_number,
+        data: version.univer_data,
+        createdAt: version.created_at,
+      },
+    });
+    setDiffViewerOpen(true);
+  };
+
   if (!fileId) {
     return null;
   }
@@ -201,6 +226,16 @@ export function FileVersionHistoryPanel({
               </Badge>
             </div>
             <div className="flex items-center gap-1">
+              <Button
+                variant={showObsolete ? "secondary" : "ghost"}
+                size="sm"
+                className="h-7 px-2 text-xs"
+                onClick={() => setShowObsolete(!showObsolete)}
+                title={showObsolete ? "Ocultar versiones obsoletas" : "Mostrar versiones obsoletas"}
+              >
+                {showObsolete ? <IconEyeOff size={14} className="mr-1" /> : <IconArchive size={14} className="mr-1" />}
+                {showObsolete ? "Ocultar obsoletas" : "Ver obsoletas"}
+              </Button>
               <FileExportButton
                 fileId={fileId}
                 fileType={fileType}
@@ -302,6 +337,7 @@ export function FileVersionHistoryPanel({
                           <CompactVersionCard
                             key={version.id}
                             version={version}
+                            prevVersion={prevVersion}
                             diffStats={diffStats}
                             isSelected={isSelected}
                             isRestoring={isRestoring}
@@ -312,6 +348,11 @@ export function FileVersionHistoryPanel({
                             }
                             onRestore={() =>
                               handleRestore(version.version_number)
+                            }
+                            onShowDiff={
+                              prevVersion
+                                ? () => handleShowDiff(version, prevVersion)
+                                : undefined
                             }
                             getChangeTypeLabel={getChangeTypeLabel}
                             formatSize={formatSize}
@@ -337,6 +378,14 @@ export function FileVersionHistoryPanel({
           </ScrollArea>
         </div>
       </SheetContent>
+
+      {/* Version Diff Viewer Modal */}
+      <VersionDiffViewer
+        open={diffViewerOpen}
+        onOpenChange={setDiffViewerOpen}
+        oldVersion={diffVersions.old}
+        newVersion={diffVersions.new}
+      />
     </Sheet>
   );
 }
@@ -344,6 +393,7 @@ export function FileVersionHistoryPanel({
 // Compact Version Card - Similar to FileItem
 interface CompactVersionCardProps {
   version: any;
+  prevVersion: any;
   diffStats: any;
   isSelected: boolean;
   isRestoring: boolean;
@@ -351,12 +401,14 @@ interface CompactVersionCardProps {
   userName: string;
   onPreview: () => void;
   onRestore: () => void;
+  onShowDiff?: () => void;
   getChangeTypeLabel: (type: string) => string;
   formatSize: (bytes?: number) => string;
 }
 
 function CompactVersionCard({
   version,
+  prevVersion: _prevVersion, // Used by parent for onShowDiff callback
   diffStats,
   isSelected,
   isRestoring,
@@ -364,10 +416,12 @@ function CompactVersionCard({
   userName,
   onPreview,
   onRestore,
+  onShowDiff,
   getChangeTypeLabel,
   formatSize,
 }: CompactVersionCardProps) {
   const isAIGenerated = version.ai_model || version.tool_name;
+  const isObsolete = version.is_obsolete === true;
 
   // Get user initials for fallback
   const userInitials =
@@ -378,7 +432,8 @@ function CompactVersionCard({
       .toUpperCase()
       .slice(0, 2) || "U";
 
-  const getChangeTypeColor = (changeType: string) => {
+  // Helper for potential future use - color based on change type
+  const _getChangeTypeColor = (changeType: string) => {
     switch (changeType) {
       case "auto_save":
         return "text-blue-600 dark:text-blue-400";
@@ -392,6 +447,7 @@ function CompactVersionCard({
         return "text-muted-foreground";
     }
   };
+  void _getChangeTypeColor; // Suppress unused warning
 
   return (
     <div
@@ -401,10 +457,12 @@ function CompactVersionCard({
         isSelected
           ? "bg-accent/80 text-accent-foreground"
           : "text-foreground/70 hover:bg-accent/50 hover:text-foreground",
+        isObsolete && "opacity-60 border border-dashed border-amber-500/30 bg-amber-500/5",
       )}
       onClick={onPreview}
       role="button"
       tabIndex={0}
+      title={isObsolete ? `Versión obsoleta (reemplazada por v${version.obsoleted_by_version})` : undefined}
     >
       {/* Avatar */}
       <Avatar className="h-7 w-7 shrink-0">
@@ -466,6 +524,15 @@ function CompactVersionCard({
             >
               <IconRobot size={10} className="mr-0.5" />
               {version.tool_name || "IA"}
+            </Badge>
+          )}
+          {isObsolete && (
+            <Badge
+              variant="outline"
+              className="text-[10px] px-1.5 py-0 h-4 bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20"
+            >
+              <IconArchive size={10} className="mr-0.5" />
+              Obsoleta
             </Badge>
           )}
           {version.commit_message && (
@@ -546,6 +613,17 @@ function CompactVersionCard({
         )}
         onClick={(e) => e.stopPropagation()}
       >
+        {onShowDiff && diffStats && diffStats.totalChanges > 0 && (
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-6 w-6"
+            onClick={onShowDiff}
+            title="Ver cambios detallados"
+          >
+            <IconGitCompare size={14} />
+          </Button>
+        )}
         <Button
           variant="ghost"
           size="icon"

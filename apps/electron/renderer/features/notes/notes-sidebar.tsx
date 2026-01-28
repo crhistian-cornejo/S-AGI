@@ -71,7 +71,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { cn } from "@/lib/utils";
+import { cn, isMac } from "@/lib/utils";
 import { toast } from "sonner";
 import { ModelIcon } from "@/components/icons/model-icons";
 import type { AIProvider } from "@s-agi/core/types/ai";
@@ -886,6 +886,8 @@ export function NotesSidebar() {
     });
   }, []);
 
+  const isMacOS = isMac();
+
   return (
     <div
       className={cn(
@@ -898,12 +900,14 @@ export function NotesSidebar() {
           {/* Sidebar Header with Logo, Toggle and Controls */}
           <div className="flex items-center gap-2 px-3 py-2 border-b border-border/50">
             {/* App Logo - shown when expanded */}
-            <div className="flex items-center gap-2">
-              <Logo size={24} />
-              <span className="text-sm font-semibold text-foreground">
-                S-AGI
-              </span>
-            </div>
+            {!isMacOS && (
+              <div className="flex items-center gap-2">
+                <Logo size={24} />
+                <span className="text-sm font-semibold text-foreground">
+                  S-AGI
+                </span>
+              </div>
+            )}
             <div className="flex-1" />
 
             {/* Model selector and PDF export - only when sidebar is expanded */}

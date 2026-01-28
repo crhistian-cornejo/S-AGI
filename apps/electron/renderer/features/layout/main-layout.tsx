@@ -43,6 +43,9 @@ import {
   currentDocFileIdAtom,
   currentDocFileAtom,
   fileSnapshotCacheAtom,
+  versionHistoryPreviewVersionAtom,
+  versionPreviewDataAtom,
+  versionPreviewLoadingAtom,
 } from "@/lib/atoms/user-files";
 import { excelSidebarOpenAtom, docSidebarOpenAtom } from "@/lib/atoms";
 import { Sidebar } from "@/features/sidebar/sidebar";
@@ -69,6 +72,8 @@ import {
 } from "@/features/univer/excel-exchange";
 import { toast } from "sonner";
 import { FileVersionHistoryPanel } from "@/components/file-version-history-panel-compact";
+import { useCacheMaintenance } from "@/hooks/use-cache-maintenance";
+import { VersionPreviewBanner } from "@/components/version-preview-banner";
 
 // Lazy load heavy Univer components to improve initial load time
 const ArtifactPanel = lazy(() =>
@@ -163,10 +168,28 @@ export function MainLayout() {
   const [versionHistoryFileType, setVersionHistoryFileType] = useState<
     "excel" | "doc" | "note"
   >("excel");
-  const [previewVersionNumber, setPreviewVersionNumber] = useState<
-    number | null
-  >(null);
-  const [previewVersionData, setPreviewVersionData] = useState<any>(null);
+  // Version preview from atoms (managed by useFileVersions hook)
+  const [previewVersionNumber, setPreviewVersionNumber] = useAtom(versionHistoryPreviewVersionAtom);
+  const [previewVersionData, setPreviewVersionData] = useAtom(versionPreviewDataAtom);
+  const isPreviewLoading = useAtomValue(versionPreviewLoadingAtom);
+
+  // IMPORTANT: Only use preview data if it matches the current file
+  // This prevents showing data from another file due to cached/stale queries
+  const validExcelPreviewData = previewVersionData?.fileId === currentExcelFileId
+    ? previewVersionData
+    : null;
+  const validDocPreviewData = previewVersionData?.fileId === currentDocFileId
+    ? previewVersionData
+    : null;
+
+  // CRITICAL: Only use file data if it matches the current file ID
+  // This prevents showing stale data from a previously selected file
+  const validExcelFileData = currentExcelFile?.id === currentExcelFileId
+    ? currentExcelFile?.univer_data
+    : null;
+  const validDocFileData = currentDocFile?.id === currentDocFileId
+    ? currentDocFile?.univer_data
+    : null;
 
   // Refs to Univer components for saving
   const univerSpreadsheetRef = useRef<any>(null);
@@ -186,6 +209,9 @@ export function MainLayout() {
 
   // Sync Univer theme with app dark/light mode
   useUniverTheme();
+
+  // Run cache maintenance on app start and periodically
+  useCacheMaintenance();
 
   // Save Excel state when switching tabs
   useEffect(() => {
@@ -269,29 +295,19 @@ export function MainLayout() {
     [currentDocFileId, renameFileMutation],
   );
 
-  // Handle version preview - load version data into Univer
+  // Handle version preview - clears atoms when panel closes
+  // The actual fetching is done by the useFileVersions hook when selectVersionForPreview is called
   const handlePreviewVersion = useCallback(
-    async (versionNumber: number | null) => {
-      setPreviewVersionNumber(versionNumber);
-
-      if (!versionNumber || !versionHistoryFileId) {
-        setPreviewVersionData(null);
-        return;
-      }
-
-      try {
-        const versionData = await utils.userFiles.getVersion.fetch({
-          fileId: versionHistoryFileId,
-          versionNumber,
-        });
-        setPreviewVersionData(versionData);
-      } catch (error) {
-        console.error("[MainLayout] Failed to load version:", error);
-        toast.error("Error al cargar versión");
+    (versionNumber: number | null) => {
+      if (versionNumber === null) {
+        // Clear preview atoms when closing or going back to current
+        setPreviewVersionNumber(null);
         setPreviewVersionData(null);
       }
+      // When selecting a version, the hook's selectVersionForPreview updates the atom,
+      // which triggers useQuery in the hook that fetches and syncs to versionPreviewDataAtom
     },
-    [versionHistoryFileId, utils.userFiles.getVersion],
+    [setPreviewVersionNumber, setPreviewVersionData],
   );
 
   const arrayBufferToBase64 = useCallback((buffer: ArrayBuffer) => {
@@ -972,8 +988,8 @@ export function MainLayout() {
 
             {/* Main content area */}
             <div className="flex-1 flex flex-col min-w-0 overflow-hidden pt-10 animate-in fade-in zoom-in-95 duration-300">
-              {/* File Header - shows when file is selected */}
-              {currentExcelFile && (
+              {/* File Header - shows when valid file is loaded (ID matches) */}
+              {currentExcelFile && currentExcelFile.id === currentExcelFileId && (
                 <Suspense fallback={null}>
                   <FileHeader
                     file={currentExcelFile}
@@ -996,8 +1012,15 @@ export function MainLayout() {
                   />
                 </Suspense>
               )}
+              {/* Loading header when file ID is set but data not yet loaded */}
+              {currentExcelFileId && (!currentExcelFile || currentExcelFile.id !== currentExcelFileId) && (
+                <div className="h-10 border-b border-border/50 bg-background/50 flex items-center px-4">
+                  <div className="w-4 h-4 border-2 border-primary border-t-transparent rounded-full animate-spin mr-2" />
+                  <span className="text-sm text-muted-foreground">Cargando archivo...</span>
+                </div>
+              )}
               {/* Scratch header when no file selected */}
-              {!currentExcelFile && !currentExcelFileId && (
+              {!currentExcelFileId && (
                 <div className="h-10 border-b border-border/50 bg-background/50 flex items-center px-4">
                   <IconTable size={16} className="text-muted-foreground mr-2" />
                   <div className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -1008,21 +1031,24 @@ export function MainLayout() {
                   </div>
                 </div>
               )}
+              {/* Version Preview Banner for Excel */}
+              <VersionPreviewBanner fileId={currentExcelFileId} />
+
               {/* Spreadsheet */}
               <div className="flex-1 flex overflow-hidden">
                 <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
                   <Suspense fallback={<PanelLoadingFallback />}>
                     <UniverSpreadsheet
                       ref={univerSpreadsheetRef}
-                      key={`spreadsheet-${currentExcelFileId || excelScratchId}-${previewVersionNumber || "current"}`}
+                      key={`spreadsheet-${currentExcelFileId || excelScratchId}-v${validExcelPreviewData?.versionNumber || "current"}-${validExcelPreviewData?.fileId || "none"}-vc${currentExcelFile?.version_count || 0}`}
                       fileId={
-                        previewVersionNumber
-                          ? undefined
+                        validExcelPreviewData
+                          ? undefined // Don't save when previewing
                           : currentExcelFileId || undefined
                       }
                       fileData={
-                        previewVersionData?.univer_data ||
-                        currentExcelFile?.univer_data
+                        validExcelPreviewData?.univerData ||
+                        validExcelFileData
                       }
                       artifactId={
                         !currentExcelFileId
@@ -1038,6 +1064,7 @@ export function MainLayout() {
                             : undefined
                           : undefined
                       }
+                      isPreviewMode={!!validExcelPreviewData}
                     />
                   </Suspense>
                 </div>
@@ -1087,8 +1114,8 @@ export function MainLayout() {
 
             {/* Main content area */}
             <div className="flex-1 flex flex-col min-w-0 overflow-hidden pt-10 animate-in fade-in zoom-in-95 duration-300">
-              {/* File Header - shows when file is selected */}
-              {currentDocFile && (
+              {/* File Header - shows when valid file is loaded (ID matches) */}
+              {currentDocFile && currentDocFile.id === currentDocFileId && (
                 <Suspense fallback={null}>
                   <FileHeader
                     file={currentDocFile}
@@ -1110,8 +1137,15 @@ export function MainLayout() {
                   />
                 </Suspense>
               )}
+              {/* Loading header when file ID is set but data not yet loaded */}
+              {currentDocFileId && (!currentDocFile || currentDocFile.id !== currentDocFileId) && (
+                <div className="h-10 border-b border-border/50 bg-background/50 flex items-center px-4">
+                  <div className="w-4 h-4 border-2 border-primary border-t-transparent rounded-full animate-spin mr-2" />
+                  <span className="text-sm text-muted-foreground">Cargando documento...</span>
+                </div>
+              )}
               {/* Scratch header when no file selected */}
-              {!currentDocFile && !currentDocFileId && (
+              {!currentDocFileId && (
                 <div className="h-10 border-b border-border/50 bg-background/50 flex items-center px-4">
                   <IconFileText
                     size={16}
@@ -1125,21 +1159,24 @@ export function MainLayout() {
                   </div>
                 </div>
               )}
+              {/* Version Preview Banner for Docs */}
+              <VersionPreviewBanner fileId={currentDocFileId} />
+
               {/* Document */}
               <div className="flex-1 flex overflow-hidden">
                 <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
                   <Suspense fallback={<PanelLoadingFallback />}>
                     <UniverDocument
                       ref={univerDocumentRef}
-                      key={`document-${currentDocFileId || docScratchId}-${previewVersionNumber || "current"}`}
+                      key={`document-${currentDocFileId || docScratchId}-v${validDocPreviewData?.versionNumber || "current"}-${validDocPreviewData?.fileId || "none"}-vc${currentDocFile?.version_count || 0}`}
                       fileId={
-                        previewVersionNumber
+                        validDocPreviewData
                           ? undefined
                           : currentDocFileId || undefined
                       }
                       fileData={
-                        previewVersionData?.univer_data ||
-                        currentDocFile?.univer_data
+                        validDocPreviewData?.univerData ||
+                        validDocFileData
                       }
                       artifactId={
                         !currentDocFileId
@@ -1155,6 +1192,7 @@ export function MainLayout() {
                             : undefined
                           : undefined
                       }
+                      isPreviewMode={!!validDocPreviewData}
                     />
                   </Suspense>
                 </div>

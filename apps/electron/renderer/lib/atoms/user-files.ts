@@ -46,6 +46,10 @@ export interface FileVersion {
   tool_name?: string
   size_bytes?: number
   created_at: string
+  // Soft delete fields for version restoration
+  is_obsolete?: boolean
+  obsoleted_at?: string
+  obsoleted_by_version?: number
 }
 
 // =====================================================
@@ -100,6 +104,11 @@ export const getFileAtom = (type: UserFileType) => {
 // Persisted to localStorage to survive tab switches and page reloads
 // =====================================================
 
+// Cache configuration
+const CACHE_MAX_ENTRIES = 50 // Maximum number of entries to keep
+const CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000 // 7 days max age for non-dirty entries
+// Note: CACHE_CLEANUP_INTERVAL is defined in use-cache-maintenance.ts hook
+
 export interface FileSnapshot {
   univerData?: unknown
   content?: string
@@ -112,6 +121,67 @@ export const fileSnapshotCacheAtom = atomWithStorage<Record<string, FileSnapshot
   'file-snapshot-cache',
   {}
 )
+
+// Cleanup old cache entries - removes non-dirty entries older than CACHE_MAX_AGE_MS
+// and keeps only the most recent CACHE_MAX_ENTRIES entries
+export const cleanupSnapshotCacheAtom = atom(
+  null,
+  (get, set) => {
+    const cache = get(fileSnapshotCacheAtom)
+    const now = Date.now()
+    const entries = Object.entries(cache)
+
+    if (entries.length === 0) return 0
+
+    // First pass: remove old non-dirty entries
+    const filtered = entries.filter(([_, snapshot]) => {
+      // Always keep dirty entries
+      if (snapshot.isDirty) return true
+      // Remove if older than max age
+      return (now - snapshot.timestamp) < CACHE_MAX_AGE_MS
+    })
+
+    // Second pass: if still too many, keep only the most recent
+    const sorted = filtered.sort((a, b) => b[1].timestamp - a[1].timestamp)
+    const kept = sorted.slice(0, CACHE_MAX_ENTRIES)
+
+    // Only update if something changed
+    const removedCount = entries.length - kept.length
+    if (removedCount > 0) {
+      const newCache = Object.fromEntries(kept)
+      set(fileSnapshotCacheAtom, newCache)
+      console.log(`[SnapshotCache] Cleaned up ${removedCount} old entries, kept ${kept.length}`)
+    }
+
+    return removedCount
+  }
+)
+
+// Clear all non-dirty entries from cache (for manual cleanup)
+export const clearNonDirtyCacheAtom = atom(
+  null,
+  (get, set) => {
+    const cache = get(fileSnapshotCacheAtom)
+    const dirtyEntries = Object.entries(cache).filter(([_, s]) => s.isDirty)
+    const newCache = Object.fromEntries(dirtyEntries)
+    set(fileSnapshotCacheAtom, newCache)
+    return Object.keys(cache).length - dirtyEntries.length
+  }
+)
+
+// Get cache statistics
+export const cacheStatsAtom = atom((get) => {
+  const cache = get(fileSnapshotCacheAtom)
+  const entries = Object.values(cache)
+  const now = Date.now()
+
+  return {
+    totalEntries: entries.length,
+    dirtyEntries: entries.filter(s => s.isDirty).length,
+    oldEntries: entries.filter(s => !s.isDirty && (now - s.timestamp) > CACHE_MAX_AGE_MS).length,
+    estimatedSizeKB: Math.round(JSON.stringify(cache).length / 1024),
+  }
+})
 
 // =====================================================
 // SCRATCH SESSION IDs (for tabs without a file selected)
@@ -168,6 +238,23 @@ export const versionHistoryFileIdAtom = atom<string | null>(null)
 
 // Selected version for preview (null = current version)
 export const versionHistoryPreviewVersionAtom = atom<number | null>(null)
+
+// Data of the version being previewed (for rendering in editor)
+// IMPORTANT: Includes fileId to ensure we're showing data for the correct file
+export const versionPreviewDataAtom = atom<{
+  fileId: string // Required to verify data matches current file
+  versionNumber: number
+  univerData?: unknown
+  content?: string
+  changeType: string
+  changeDescription?: string
+} | null>(null)
+
+// Loading state for version preview fetch
+export const versionPreviewLoadingAtom = atom<boolean>(false)
+
+// Whether the editor is in preview mode (read-only, showing a historical version)
+export const isPreviewingVersionAtom = atom((get) => get(versionPreviewDataAtom) !== null)
 
 // =====================================================
 // FILE LIST STATE

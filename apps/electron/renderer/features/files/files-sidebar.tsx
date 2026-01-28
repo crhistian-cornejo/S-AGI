@@ -67,6 +67,7 @@ import { cn, isMacOS } from "@/lib/utils";
 import { toast } from "sonner";
 import { importFromExcel } from "@/features/univer/excel-exchange";
 import { formatTimeAgo, formatDateWithTime } from "@/utils/time-format";
+import { FontWarningDialog } from "@/components/font-warning-dialog";
 
 // ============================================================================
 // FadeScrollArea
@@ -541,10 +542,16 @@ export function FilesSidebar({ type, onToggle }: FilesSidebarProps) {
   // Handlers
   const handleSelectFile = useCallback(
     (fileId: string) => {
+      // CRITICAL: Clear the current file data FIRST to prevent showing stale data
+      // from a different file while the new file data is being fetched
+      if (fileId !== currentFileId) {
+        console.log("[FilesSidebar] Clearing stale file data before selecting:", fileId);
+        setCurrentFile(null);
+      }
       setCurrentFileId(fileId);
       markOpenedMutation.mutate({ id: fileId });
     },
-    [setCurrentFileId, markOpenedMutation],
+    [setCurrentFileId, setCurrentFile, currentFileId, markOpenedMutation],
   );
 
   const handleSelectScratch = useCallback(() => {
@@ -586,13 +593,19 @@ export function FilesSidebar({ type, onToggle }: FilesSidebarProps) {
     fileInputRef.current?.click();
   }, [type]);
 
+  const [missingFonts, setMissingFonts] = useState<string[]>([]);
+  const [showFontDialog, setShowFontDialog] = useState(false);
+
   const handleImportFile = useCallback(
     async (event: React.ChangeEvent<HTMLInputElement>) => {
       const file = event.target.files?.[0];
       if (!file) return;
 
       try {
-        const univerData = await importFromExcel(file);
+        const univerData = await importFromExcel(file, (fonts) => {
+          setMissingFonts(fonts);
+          setShowFontDialog(true);
+        });
         const name = univerData.name || file.name.replace(/\.xlsx?$/i, "");
         createFileMutation.mutate({
           type: "excel",
@@ -911,6 +924,12 @@ export function FilesSidebar({ type, onToggle }: FilesSidebarProps) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <FontWarningDialog
+        open={showFontDialog}
+        onOpenChange={setShowFontDialog}
+        missingFonts={missingFonts}
+      />
     </>
   );
 }

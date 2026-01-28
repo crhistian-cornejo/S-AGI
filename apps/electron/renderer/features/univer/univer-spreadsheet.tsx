@@ -27,6 +27,9 @@ interface UniverSpreadsheetProps {
   fileData?: any;
   // Optional: callback when version is created
   onVersionCreated?: (versionNumber: number) => void;
+  // Preview mode: when true, skip cache and use fileData directly
+  // This prevents stale cached data from overriding version preview data
+  isPreviewMode?: boolean;
 }
 
 export interface UniverSpreadsheetRef {
@@ -47,7 +50,7 @@ const UUID_REGEX =
 export const UniverSpreadsheet = React.forwardRef<
   UniverSpreadsheetRef,
   UniverSpreadsheetProps
->(({ artifactId, data, fileId, fileData, onVersionCreated }, ref) => {
+>(({ artifactId, data, fileId, fileData, onVersionCreated, isPreviewMode }, ref) => {
   const containerRef = React.useRef<HTMLDivElement>(null);
   const [isLoading, setIsLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
@@ -66,23 +69,23 @@ export const UniverSpreadsheet = React.forwardRef<
   >(() => {});
   const isInitializingRef = React.useRef(false); // Flag to ignore events during initialization
 
-  // Auto-save delay from preferences (default 15 seconds)
-  const [autoSaveDelay, setAutoSaveDelay] = React.useState(15000);
+  // Auto-save delay from preferences (default 5 minutes = 300000ms)
+  const [autoSaveDelay, setAutoSaveDelay] = React.useState(300000);
 
   React.useEffect(() => {
-    // Load auto-save delay from preferences
+    // Load auto-save delay from preferences (default 5 minutes = 300000ms)
     if (window.desktopApi?.preferences?.get) {
       window.desktopApi.preferences
         .get()
         .then((prefs) => {
-          setAutoSaveDelay(prefs.autoSaveDelay || 15000);
+          setAutoSaveDelay(prefs.autoSaveDelay || 300000);
         })
         .catch(() => {});
 
       // Listen for preference changes
       const cleanup = window.desktopApi.preferences.onPreferencesUpdated?.(
         (prefs) => {
-          setAutoSaveDelay(prefs.autoSaveDelay || 15000);
+          setAutoSaveDelay(prefs.autoSaveDelay || 300000);
         },
       );
       return cleanup;
@@ -167,7 +170,15 @@ export const UniverSpreadsheet = React.forwardRef<
 
   // Check if we have a cached snapshot that's newer than the DB data
   // FIXED: Always prefer cache if it exists and is recent, not just when dirty
+  // CRITICAL: Skip cache entirely when in preview mode to show version data accurately
   const getCachedOrDbData = React.useCallback(() => {
+    // CRITICAL: In preview mode, always use the provided data (version preview data)
+    // This prevents stale cache from overriding the version we're trying to display
+    if (isPreviewMode) {
+      console.log("[UniverSpreadsheet] Preview mode - skipping cache, using provided data");
+      return effectiveData;
+    }
+
     if (!effectiveId) return effectiveData;
     const cached = getSnapshotCache();
 
@@ -190,7 +201,7 @@ export const UniverSpreadsheet = React.forwardRef<
     }
 
     return effectiveData;
-  }, [effectiveId, effectiveData, getSnapshotCache]);
+  }, [effectiveId, effectiveData, getSnapshotCache, isPreviewMode]);
 
   // Debug: log received data
   React.useEffect(() => {
@@ -269,6 +280,13 @@ export const UniverSpreadsheet = React.forwardRef<
           }
           return prev;
         });
+      }
+
+      // CRITICAL: Update lastSavedSnapshotRef after successful save
+      // This ensures we can detect if there are real changes in the next auto-save
+      if (workbookRef.current && variables.univerData) {
+        lastSavedSnapshotRef.current = variables.univerData;
+        console.log("[UniverSpreadsheet] Updated lastSavedSnapshotRef after successful save");
       }
 
       // Update current file atom if this is the current file
@@ -555,12 +573,26 @@ export const UniverSpreadsheet = React.forwardRef<
 
         // Disable initializing flag after a delay to allow Univer to finish setup
         // This prevents false saves from initialization events
+        // CRITICAL: Update lastSavedSnapshotRef AFTER Univer has finished all initial operations
         setTimeout(() => {
           isInitializingRef.current = false;
+          // Re-capture the snapshot after initialization is complete
+          // This ensures we have the most up-to-date snapshot for comparison
+          if (workbookRef.current) {
+            try {
+              const currentSnapshot = workbookRef.current.save();
+              if (currentSnapshot) {
+                lastSavedSnapshotRef.current = currentSnapshot;
+                console.log("[UniverSpreadsheet] Updated lastSavedSnapshot after initialization");
+              }
+            } catch (err) {
+              console.warn("[UniverSpreadsheet] Failed to update snapshot after init:", err);
+            }
+          }
           console.log(
             "[UniverSpreadsheet] Initialization complete, events enabled",
           );
-        }, 1000); // 1 second should be enough for Univer to finish initialization
+        }, 1500); // Increased to 1.5 seconds for more reliable initialization
 
         // Focus the container
         requestAnimationFrame(() => {
@@ -786,12 +818,25 @@ export const UniverSpreadsheet = React.forwardRef<
     workbookRef.current = instance.api.getActiveWorkbook();
 
     // Disable initializing flag after a delay to allow Univer to finish setup
+    // CRITICAL: Update lastSavedSnapshotRef AFTER Univer has finished ID switch operations
     setTimeout(() => {
       isInitializingRef.current = false;
+      // Re-capture the snapshot after ID switch is complete
+      if (workbookRef.current) {
+        try {
+          const currentSnapshot = workbookRef.current.save();
+          if (currentSnapshot) {
+            lastSavedSnapshotRef.current = currentSnapshot;
+            console.log("[UniverSpreadsheet] Updated lastSavedSnapshot after ID switch");
+          }
+        } catch (err) {
+          console.warn("[UniverSpreadsheet] Failed to update snapshot after ID switch:", err);
+        }
+      }
       console.log(
         "[UniverSpreadsheet] ID switch initialization complete, events enabled",
       );
-    }, 1000);
+    }, 1500); // Increased to 1.5 seconds for more reliable initialization
 
     console.log("[UniverSpreadsheet] ID switch completed:", effectiveId);
   }, [
@@ -805,8 +850,10 @@ export const UniverSpreadsheet = React.forwardRef<
     saveArtifactSnapshot,
   ]);
 
-  // Auto-save with debounce (3 seconds after last edit)
+  // Auto-save with debounce (after last edit)
   const autoSaveTimeoutRef = React.useRef<NodeJS.Timeout | null>(null);
+  // Periodic auto-save interval (checks every 5 minutes)
+  const periodicAutoSaveIntervalRef = React.useRef<NodeJS.Timeout | null>(null);
 
   const triggerAutoSave = React.useCallback(() => {
     const targetId = currentIdRef.current || effectiveId;
@@ -847,7 +894,7 @@ export const UniverSpreadsheet = React.forwardRef<
             changeType: "auto_save",
             changeDescription: "Auto-guardado",
           });
-          lastSavedSnapshotRef.current = snapshot; // Store last saved snapshot
+          // lastSavedSnapshotRef is updated in mutation onSuccess
           setSnapshotInCache(targetId, snapshot, false);
         } else if (hasArtifactId && artifactId) {
           await saveArtifactSnapshot.mutateAsync({
@@ -864,6 +911,95 @@ export const UniverSpreadsheet = React.forwardRef<
         console.error("[UniverSpreadsheet] Auto-save failed:", err);
       }
     }, autoSaveDelay);
+  }, [
+    effectiveId,
+    hasFileId,
+    hasArtifactId,
+    fileId,
+    artifactId,
+    isSaving,
+    updateFileMutation,
+    saveArtifactSnapshot,
+    setSavingState,
+    setSnapshotInCache,
+    autoSaveDelay,
+  ]);
+
+  // Periodic auto-save check (every 5 minutes) - only saves if there are real changes
+  React.useEffect(() => {
+    if (!effectiveId || !workbookRef.current) return;
+
+    // Clear existing interval
+    if (periodicAutoSaveIntervalRef.current) {
+      clearInterval(periodicAutoSaveIntervalRef.current);
+    }
+
+    // Set up periodic check (every 5 minutes = 300000ms)
+    periodicAutoSaveIntervalRef.current = setInterval(async () => {
+      const targetId = currentIdRef.current || effectiveId;
+      if (!targetId || !workbookRef.current || isSaving) return;
+
+      try {
+        const snapshot = workbookRef.current?.save();
+        if (!snapshot || !targetId) return;
+
+        // CRITICAL: Only save if there are REAL changes (compare with last saved snapshot)
+        const lastSaved = lastSavedSnapshotRef.current;
+        if (!lastSaved) {
+          // If we don't have a last saved snapshot, initialize it but don't save
+          lastSavedSnapshotRef.current = snapshot;
+          console.log("[UniverSpreadsheet] Initialized lastSavedSnapshotRef from periodic check");
+          return;
+        }
+
+        if (!hasRealChanges(lastSaved, snapshot)) {
+          console.log(
+            "[UniverSpreadsheet] Periodic check: No real changes detected, skipping save",
+          );
+          // Update cache but don't save to DB
+          setSnapshotInCache(targetId, snapshot, false);
+          return;
+        }
+
+        console.log(
+          "[UniverSpreadsheet] Periodic check: Real changes detected, auto-saving...",
+        );
+
+        // Always keep cache in sync before saving
+        setSnapshotInCache(targetId, snapshot, true);
+
+        if (hasFileId && fileId) {
+          setSavingState((prev) => ({ ...prev, [fileId]: true }));
+          await updateFileMutation.mutateAsync({
+            id: fileId,
+            univerData: snapshot,
+            changeType: "auto_save",
+            changeDescription: "Auto-guardado periódico",
+          });
+          // lastSavedSnapshotRef is updated in mutation onSuccess
+          setSnapshotInCache(targetId, snapshot, false);
+        } else if (hasArtifactId && artifactId) {
+          await saveArtifactSnapshot.mutateAsync({
+            id: artifactId,
+            univerData: snapshot,
+          });
+          lastSavedSnapshotRef.current = snapshot;
+          setSnapshotInCache(targetId, snapshot, false);
+        }
+
+        isDirtyRef.current = false;
+        console.log("[UniverSpreadsheet] Periodic auto-save completed");
+      } catch (err) {
+        console.error("[UniverSpreadsheet] Periodic auto-save failed:", err);
+      }
+    }, 300000); // 5 minutes = 300000ms
+
+    return () => {
+      if (periodicAutoSaveIntervalRef.current) {
+        clearInterval(periodicAutoSaveIntervalRef.current);
+        periodicAutoSaveIntervalRef.current = null;
+      }
+    };
   }, [
     effectiveId,
     hasFileId,

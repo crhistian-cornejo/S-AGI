@@ -2,11 +2,11 @@
  * File Export Utilities
  *
  * Funciones para exportar archivos con historial completo
+ * NOTE: These functions work with pre-fetched data from React components
  */
 
 import JSZip from "jszip";
 import { exportToExcelBuffer } from "../features/univer/excel-exchange";
-import { trpc } from "@/lib/trpc";
 import { saveAs } from "file-saver";
 
 // Helper to get file name from file data
@@ -21,11 +21,40 @@ export interface ExportHistoryOptions {
   compressSnapshots?: boolean; // Comprimir snapshots grandes
 }
 
+// Types for file data
+export interface FileData {
+  id: string;
+  name: string;
+  type: string;
+  description?: string;
+  univer_data?: unknown;
+  content?: string;
+  version_count: number;
+  total_edits: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface VersionData {
+  version_number: number;
+  change_type: string;
+  change_description?: string;
+  univer_data?: unknown;
+  content?: string;
+  ai_model?: string;
+  tool_name?: string;
+  commit_id?: string;
+  commit_message?: string;
+  created_at: string;
+}
+
 /**
  * Exporta un archivo con su historial completo a un ZIP
+ * Requires pre-fetched file and versions data
  */
-export async function exportFileWithHistory(
-  fileId: string,
+export async function exportFileWithHistoryData(
+  file: FileData,
+  versions: VersionData[],
   fileName: string,
   options: ExportHistoryOptions = {},
 ): Promise<void> {
@@ -33,29 +62,25 @@ export async function exportFileWithHistory(
     includeVersions = true,
     includeMetadata = true,
     includeDiff = false,
-    compressSnapshots = false,
+    // compressSnapshots is handled by JSZip compression settings
   } = options;
 
   const zip = new JSZip();
+  const safeFileName = fileName || getFileName(file);
 
   try {
-    // 1. Obtener archivo actual
-    const file = await trpc.userFiles.get.query({ id: fileId });
-    const safeFileName = fileName || getFileName(file);
-
-    // 2. Exportar versión actual a Excel
+    // 1. Exportar versión actual a Excel
     if (file.type === "excel" && file.univer_data) {
       const currentBuffer = await exportToExcelBuffer(file.univer_data as any);
       zip.file(`${safeFileName}.xlsx`, currentBuffer);
     } else if (file.type === "doc" && file.univer_data) {
-      // Para docs, guardar como JSON (o convertir a DOCX si hay utilidad)
       const docData = JSON.stringify(file.univer_data, null, 2);
       zip.file(`${safeFileName}.json`, docData);
     } else if (file.content) {
       zip.file(`${safeFileName}.md`, file.content);
     }
 
-    // 3. Agregar metadatos del archivo
+    // 2. Agregar metadatos del archivo
     if (includeMetadata) {
       const metadata = {
         file: {
@@ -74,13 +99,8 @@ export async function exportFileWithHistory(
       zip.file("metadata.json", JSON.stringify(metadata, null, 2));
     }
 
-    // 4. Agregar versiones si se solicita
-    if (includeVersions) {
-      const versions = await trpc.userFiles.listVersions.query({
-        fileId,
-        limit: 1000, // Obtener todas las versiones
-      });
-
+    // 3. Agregar versiones si se solicita
+    if (includeVersions && versions.length > 0) {
       const versionsDir = zip.folder("versions");
       if (!versionsDir) {
         throw new Error("Failed to create versions directory in ZIP");
@@ -98,13 +118,7 @@ export async function exportFileWithHistory(
           versionData = "{}";
         }
 
-        // Comprimir si se solicita y el tamaño es grande
-        if (compressSnapshots && versionData.length > 100000) {
-          // Usar compresión (JSZip ya comprime automáticamente)
-          versionsDir.file(versionFileName, versionData);
-        } else {
-          versionsDir.file(versionFileName, versionData);
-        }
+        versionsDir.file(versionFileName, versionData);
 
         // Agregar metadatos de versión
         if (includeMetadata) {
@@ -125,18 +139,15 @@ export async function exportFileWithHistory(
         }
       }
 
-      // 5. Agregar diffs si se solicita
+      // 4. Agregar diffs si se solicita
       if (includeDiff && versions.length > 1) {
         const diffsDir = zip.folder("diffs");
         if (diffsDir) {
-          // Calcular diffs entre versiones consecutivas
           for (let i = 0; i < versions.length - 1; i++) {
-            const versionA = versions[i + 1]; // Más antigua
-            const versionB = versions[i]; // Más reciente
+            const versionA = versions[i + 1];
+            const versionB = versions[i];
 
             if (versionA.univer_data && versionB.univer_data) {
-              // El diff se calcula en el cliente usando univer-diff.ts
-              // Aquí solo guardamos referencias
               const diffInfo = {
                 from_version: versionA.version_number,
                 to_version: versionB.version_number,
@@ -153,26 +164,9 @@ export async function exportFileWithHistory(
           }
         }
       }
-
-      // 6. Agregar historial de commits
-      if (includeMetadata) {
-        try {
-          const commits = await trpc.userFiles.getCommits.query({
-            fileId,
-            limit: 1000,
-          });
-
-          if (commits.length > 0) {
-            zip.file("commits.json", JSON.stringify(commits, null, 2));
-          }
-        } catch (err) {
-          console.warn("[FileExport] Error fetching commits:", err);
-          // No fallar si no hay commits
-        }
-      }
     }
 
-    // 7. Generar y descargar ZIP
+    // 5. Generar y descargar ZIP
     const zipBlob = await zip.generateAsync({
       type: "blob",
       compression: "DEFLATE",
@@ -188,14 +182,12 @@ export async function exportFileWithHistory(
 }
 
 /**
- * Exporta solo la versión actual (sin historial)
+ * Exporta solo la versión actual de un archivo
  */
-export async function exportCurrentVersion(
-  fileId: string,
+export async function exportCurrentVersionData(
+  file: FileData,
   fileName: string,
 ): Promise<void> {
-  const file = await trpc.userFiles.get.query({ id: fileId });
-
   if (file.type === "excel" && file.univer_data) {
     const buffer = await exportToExcelBuffer(file.univer_data as any);
     const blob = new Blob([buffer], {
@@ -206,4 +198,132 @@ export async function exportCurrentVersion(
     const blob = new Blob([file.content], { type: "text/markdown" });
     saveAs(blob, `${fileName}.md`);
   }
+}
+
+/**
+ * Abre archivo en Google Sheets
+ * Descarga el archivo y abre Google Sheets para importar
+ */
+export async function openInGoogleSheetsData(
+  file: FileData,
+  fileName: string,
+): Promise<void> {
+  if (file.type !== "excel") {
+    throw new Error("Solo archivos Excel se pueden abrir en Google Sheets");
+  }
+
+  if (!file.univer_data) {
+    throw new Error("El archivo no tiene datos para exportar");
+  }
+
+  // Exportar a Excel primero
+  const buffer = await exportToExcelBuffer(file.univer_data as any);
+  const blob = new Blob([buffer], {
+    type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  });
+
+  // Descargar el archivo
+  saveAs(blob, `${fileName}.xlsx`);
+
+  // Abrir Google Sheets en nueva pestaña
+  window.open(
+    "https://docs.google.com/spreadsheets/create",
+    "_blank",
+    "noopener,noreferrer",
+  );
+}
+
+/**
+ * Compartir archivo via email
+ * Descarga el archivo y abre el cliente de email
+ */
+export async function shareViaEmailData(
+  file: FileData,
+  fileName: string,
+): Promise<void> {
+  // Construir el cuerpo del email
+  const subject = encodeURIComponent(`Archivo compartido: ${fileName}`);
+  const body = encodeURIComponent(
+    `Te comparto el archivo "${fileName}".\n\n` +
+      `Por favor, encuentra el archivo adjunto o descárgalo desde la ubicación compartida.\n\n` +
+      `Tipo: ${file.type === "excel" ? "Hoja de cálculo Excel" : file.type === "doc" ? "Documento" : "Nota"}\n` +
+      `Última actualización: ${new Date(file.updated_at).toLocaleString("es-ES")}\n` +
+      `Versiones: ${file.version_count}\n\n` +
+      `---\n` +
+      `Enviado desde S-AGI`,
+  );
+
+  // Descargar el archivo para que el usuario pueda adjuntarlo
+  await exportCurrentVersionData(file, fileName);
+
+  // Abrir cliente de email
+  window.open(`mailto:?subject=${subject}&body=${body}`, "_self");
+}
+
+// ====================================================================
+// LEGACY WRAPPERS - These fetch data using the tRPC utils from caller
+// ====================================================================
+
+import { trpc } from "@/lib/trpc";
+
+/**
+ * Legacy wrapper that fetches file data before exporting
+ * Must be called from within a React component that has trpc context
+ */
+export async function exportFileWithHistory(
+  fileId: string,
+  fileName: string,
+  options: ExportHistoryOptions = {},
+  utils?: ReturnType<typeof trpc.useUtils>,
+): Promise<void> {
+  if (!utils) {
+    throw new Error("utils parameter is required for exportFileWithHistory");
+  }
+
+  const file = await utils.userFiles.get.fetch({ id: fileId });
+  const versions = await utils.userFiles.listVersions.fetch({
+    fileId,
+    limit: 1000,
+  });
+
+  return exportFileWithHistoryData(file, versions, fileName, options);
+}
+
+export async function exportCurrentVersion(
+  fileId: string,
+  fileName: string,
+  utils?: ReturnType<typeof trpc.useUtils>,
+): Promise<void> {
+  if (!utils) {
+    throw new Error("utils parameter is required for exportCurrentVersion");
+  }
+
+  const file = await utils.userFiles.get.fetch({ id: fileId });
+  return exportCurrentVersionData(file, fileName);
+}
+
+export async function openInGoogleSheets(
+  fileId: string,
+  fileName: string,
+  utils?: ReturnType<typeof trpc.useUtils>,
+): Promise<void> {
+  if (!utils) {
+    throw new Error("utils parameter is required for openInGoogleSheets");
+  }
+
+  const file = await utils.userFiles.get.fetch({ id: fileId });
+  return openInGoogleSheetsData(file, fileName);
+}
+
+export async function shareViaEmail(
+  fileId: string,
+  fileName: string,
+  utils?: ReturnType<typeof trpc.useUtils>,
+): Promise<void> {
+  if (!utils) {
+    throw new Error("utils parameter is required for shareViaEmail");
+  }
+
+  const file = await utils.userFiles.get.fetch({ id: fileId });
+  return shareViaEmailData(file, fileName);
 }

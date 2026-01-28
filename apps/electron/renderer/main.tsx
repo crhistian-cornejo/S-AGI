@@ -1,3 +1,7 @@
+// Polyfill Buffer for browser (required by LuckyExcel / @mertdeveci55/univer-import-export)
+// This MUST be the first import to ensure Buffer is available before any other module
+import './buffer-shim'
+
 import ReactDOM from 'react-dom/client'
 import { App } from './App'
 import './styles/globals.css'

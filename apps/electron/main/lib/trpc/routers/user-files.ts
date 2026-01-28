@@ -2,6 +2,10 @@ import { z } from "zod";
 import { router, protectedProcedure } from "../trpc";
 import { supabase } from "../../supabase/client";
 import log from "electron-log";
+import { cleanupFile } from "./user-files-cleanup";
+
+// Cleanup threshold - when version count exceeds this, trigger cleanup
+const CLEANUP_THRESHOLD = 100;
 
 // Schemas
 const fileTypeSchema = z.enum(["excel", "doc", "note"]);
@@ -321,6 +325,17 @@ export const userFilesRouter = router({
 
           // Update returned file with new version count
           file.version_count = newVersionNumber;
+
+          // Trigger automatic cleanup if version count exceeds threshold
+          if (newVersionNumber > CLEANUP_THRESHOLD) {
+            log.debug(
+              `[UserFilesRouter] Version count (${newVersionNumber}) exceeds threshold, triggering cleanup`,
+            );
+            // Run cleanup asynchronously - don't block the response
+            cleanupFile(id, CLEANUP_THRESHOLD).catch((err) => {
+              log.error("[UserFilesRouter] Cleanup error:", err);
+            });
+          }
         }
       }
 
@@ -451,6 +466,7 @@ export const userFilesRouter = router({
         fileId: z.string().uuid(),
         limit: z.number().min(1).max(100).default(50),
         offset: z.number().min(0).default(0),
+        includeObsolete: z.boolean().default(false), // Include obsolete versions (from restore operations)
       }),
     )
     .query(async ({ ctx, input }) => {
@@ -466,14 +482,23 @@ export const userFilesRouter = router({
         throw new Error("File not found");
       }
 
-      const { data, error } = await supabase
+      let query = supabase
         .from("file_versions")
         .select(
-          "id, version_number, change_type, change_description, ai_model, ai_prompt, tool_name, size_bytes, created_at, univer_data, content, commit_id, commit_message",
+          "id, version_number, change_type, change_description, ai_model, ai_prompt, tool_name, size_bytes, created_at, univer_data, content, commit_id, commit_message, is_obsolete, obsoleted_at, obsoleted_by_version",
         )
-        .eq("file_id", input.fileId)
+        .eq("file_id", input.fileId);
+
+      // By default, hide obsolete versions (they were superseded by a restore)
+      if (!input.includeObsolete) {
+        query = query.or("is_obsolete.is.null,is_obsolete.eq.false");
+      }
+
+      query = query
         .order("version_number", { ascending: false })
         .range(input.offset, input.offset + input.limit - 1);
+
+      const { data, error } = await query;
 
       if (error) {
         log.error("[UserFilesRouter] Error listing versions:", error);
@@ -562,34 +587,36 @@ export const userFilesRouter = router({
       // 2. Create a new version with the restored content
       // 3. This creates a new branch in the version history
 
-      // First, mark all versions after the restored one as obsolete
-      // We'll add an 'is_obsolete' flag to track this
-      // For now, we'll delete them (hard delete) as per user's request
+      // Soft delete: Mark all versions after the restored one as obsolete
+      // This preserves history and allows recovery if needed
+      const newVersionNumber = input.versionNumber + 1;
+
       if (input.versionNumber < currentVersionNumber) {
-        const { error: deleteError } = await supabase
+        const { error: obsoleteError } = await supabase
           .from("file_versions")
-          .delete()
+          .update({
+            is_obsolete: true,
+            obsoleted_at: new Date().toISOString(),
+            obsoleted_by_version: newVersionNumber,
+          })
           .eq("file_id", input.fileId)
           .gt("version_number", input.versionNumber);
 
-        if (deleteError) {
+        if (obsoleteError) {
           log.error(
-            "[UserFilesRouter] Error deleting future versions:",
-            deleteError,
+            "[UserFilesRouter] Error marking versions as obsolete:",
+            obsoleteError,
           );
           // Don't throw - continue with restore
         } else {
           log.info(
-            `[UserFilesRouter] Deleted ${currentVersionNumber - input.versionNumber} future versions`,
+            `[UserFilesRouter] Marked ${currentVersionNumber - input.versionNumber} versions as obsolete`,
           );
         }
       }
 
-      // The new version number will be the restored version + 1
-      // This creates a new branch from the restored point
-      const newVersionNumber = input.versionNumber + 1;
-
       // Update file with restored data
+      // The new version number (already calculated above) creates a new branch from the restored point
       const { data: updatedFile, error: updateError } = await supabase
         .from("user_files")
         .update({

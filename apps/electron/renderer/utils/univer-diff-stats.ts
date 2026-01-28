@@ -104,8 +104,55 @@ export function calculateDiffStats(
 
 /**
  * Compara dos snapshots para determinar si hay cambios reales
+ * Ignora metadatos superficiales que no afectan el contenido
  */
 export function hasRealChanges(oldSnapshot: any, newSnapshot: any): boolean {
+  if (!oldSnapshot || !newSnapshot) return false;
+
+  // Quick check: if they're the same object reference, no changes
+  if (oldSnapshot === newSnapshot) return false;
+
+  // Quick check: compare sheets structure
+  const oldSheets = oldSnapshot.sheets || {};
+  const newSheets = newSnapshot.sheets || {};
+  const oldSheetIds = Object.keys(oldSheets).sort();
+  const newSheetIds = Object.keys(newSheets).sort();
+
+  // If sheet IDs are different, there are changes
+  if (oldSheetIds.join(',') !== newSheetIds.join(',')) {
+    return true;
+  }
+
+  // Compare cell data for each sheet (the most important data)
+  for (const sheetId of oldSheetIds) {
+    const oldSheet = oldSheets[sheetId];
+    const newSheet = newSheets[sheetId];
+
+    if (!oldSheet || !newSheet) continue;
+
+    // Quick comparison of cell data by JSON serialization
+    // This is more reliable than deep object comparison for detecting actual changes
+    const oldCellData = JSON.stringify(oldSheet.cellData || {});
+    const newCellData = JSON.stringify(newSheet.cellData || {});
+
+    if (oldCellData !== newCellData) {
+      return true;
+    }
+
+    // Also check sheet name changes
+    if (oldSheet.name !== newSheet.name) {
+      return true;
+    }
+  }
+
+  // If we get here, no real changes were detected
+  return false;
+}
+
+/**
+ * Compara dos snapshots usando estadísticas detalladas (más costoso pero más preciso)
+ */
+export function hasRealChangesDetailed(oldSnapshot: any, newSnapshot: any): boolean {
   if (!oldSnapshot || !newSnapshot) return false;
 
   const stats = calculateDiffStats(oldSnapshot, newSnapshot);

@@ -33,7 +33,7 @@ export function AdvancedTab() {
   const [, setOnboardingCompleted] = useAtom(onboardingCompletedAtom);
   const [trayEnabled, setTrayEnabled] = useState(true);
   const [quickPromptEnabled, setQuickPromptEnabled] = useState(true);
-  const [autoSaveDelay, setAutoSaveDelay] = useState(15000);
+  const [autoSaveDelay, setAutoSaveDelay] = useState(300000);
   const preferencesAvailable =
     typeof window !== "undefined" && !!window.desktopApi?.preferences;
 
@@ -53,7 +53,7 @@ export function AdvancedTab() {
       .then((prefs) => {
         setTrayEnabled(prefs.trayEnabled);
         setQuickPromptEnabled(prefs.quickPromptEnabled);
-        setAutoSaveDelay(prefs.autoSaveDelay || 15000);
+        setAutoSaveDelay(prefs.autoSaveDelay || 300000);
       })
       .catch(() => {});
 
@@ -62,7 +62,7 @@ export function AdvancedTab() {
       (prefs) => {
         setTrayEnabled(prefs.trayEnabled);
         setQuickPromptEnabled(prefs.quickPromptEnabled);
-        setAutoSaveDelay(prefs.autoSaveDelay || 15000);
+        setAutoSaveDelay(prefs.autoSaveDelay || 300000);
       },
     );
 
@@ -82,7 +82,7 @@ export function AdvancedTab() {
       if (next) {
         setTrayEnabled(next.trayEnabled);
         setQuickPromptEnabled(next.quickPromptEnabled);
-        setAutoSaveDelay(next.autoSaveDelay || 15000);
+        setAutoSaveDelay(next.autoSaveDelay || 300000);
       }
     } catch {}
   };
@@ -262,9 +262,9 @@ export function AdvancedTab() {
               <div className="flex items-center gap-2">
                 <input
                   type="range"
-                  min="5000"
-                  max="60000"
-                  step="1000"
+                  min="30000"
+                  max="600000"
+                  step="30000"
                   value={autoSaveDelay}
                   onChange={(e) => {
                     const value = parseInt(e.target.value, 10);
@@ -274,7 +274,7 @@ export function AdvancedTab() {
                   className="w-32 h-2 bg-muted rounded-lg appearance-none cursor-pointer"
                 />
                 <span className="text-xs font-mono text-muted-foreground w-16 text-right">
-                  {Math.round(autoSaveDelay / 1000)}s
+                  {autoSaveDelay >= 60000 ? `${Math.round(autoSaveDelay / 60000)}m` : `${Math.round(autoSaveDelay / 1000)}s`}
                 </span>
               </div>
             </div>

@@ -6,7 +6,7 @@
  * - Multimodal input (text + images)
  * - Streaming responses with tool calls
  * - Context-aware based on active document
- * - Premium UI matching chat-input design language
+ * - Minimalist Ramp-style UI with floating action icons
  */
 
 import { useState, useRef, useEffect, useCallback, memo, useMemo } from "react";
@@ -17,16 +17,23 @@ import {
   IconSparkles,
   IconLoader2,
   IconTrash,
-  IconChevronRight,
   IconX,
   IconPhoto,
   IconCloudUpload,
   IconHistory,
   IconRefresh,
   IconUser,
+  IconTable,
+  IconChartBar,
+  IconMathFunction,
+  IconFileSpreadsheet,
+  IconFileText,
+  IconFileDescription,
+  IconSearch,
+  IconBookmark,
+  IconHighlight,
 } from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
-import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { ChatMarkdownRenderer } from "@/components/chat-markdown-renderer";
 import {
@@ -67,27 +74,73 @@ import type { AIProvider } from "@s-agi/core/types/ai";
 import { trpc } from "@/lib/trpc";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 
+// Suggested prompts for each agent type
+const SUGGESTED_PROMPTS = {
+  excel: [
+    {
+      icon: IconTable,
+      text: "Crear una tabla de análisis financiero con totales",
+    },
+    {
+      icon: IconMathFunction,
+      text: "Generar fórmulas para calcular promedios y sumas",
+    },
+    {
+      icon: IconChartBar,
+      text: "Formatear estos datos como un dashboard ejecutivo",
+    },
+  ],
+  doc: [
+    {
+      icon: IconFileText,
+      text: "Redactar un resumen ejecutivo de este documento",
+    },
+    {
+      icon: IconHighlight,
+      text: "Mejorar la redacción y corregir errores",
+    },
+    {
+      icon: IconFileDescription,
+      text: "Crear una tabla de contenidos estructurada",
+    },
+  ],
+  pdf: [
+    {
+      icon: IconSearch,
+      text: "Buscar información específica en el documento",
+    },
+    {
+      icon: IconBookmark,
+      text: "Resumir los puntos clave del PDF",
+    },
+    {
+      icon: IconHighlight,
+      text: "Extraer datos importantes en formato tabla",
+    },
+  ],
+} as const;
+
 // Agent context configurations
 const AGENT_CONTEXTS = {
   excel: {
-    icon: "📊",
+    icon: IconFileSpreadsheet,
     title: "Excel Agent",
     subtitle: "Spreadsheet Assistant",
-    placeholder: "Analyze data, create formulas, format cells...",
+    placeholder: "Analiza datos, crea fórmulas, formatea celdas...",
     color: "emerald",
   },
   doc: {
-    icon: "📝",
+    icon: IconFileText,
     title: "Docs Agent",
     subtitle: "Document Assistant",
-    placeholder: "Write content, edit text, format document...",
+    placeholder: "Escribe contenido, edita texto, formatea documento...",
     color: "blue",
   },
   pdf: {
-    icon: "📄",
+    icon: IconFileDescription,
     title: "PDF Agent",
     subtitle: "Document Analyst",
-    placeholder: "Search, summarize, ask questions about the PDF...",
+    placeholder: "Busca, resume, pregunta sobre el PDF...",
     color: "amber",
   },
 } as const;
@@ -98,7 +151,7 @@ function isAgentTab(tab: string): tab is AgentTab {
   return tab in AGENT_CONTEXTS;
 }
 
-// Message component with tool calls support
+// Message component with tool calls support - Minimalist style
 const AgentMessage = memo(function AgentMessage({
   message,
 }: {
@@ -109,16 +162,23 @@ const AgentMessage = memo(function AgentMessage({
   return (
     <div
       className={cn(
-        "flex w-full gap-2",
+        "flex w-full gap-3",
         isUser ? "justify-end" : "justify-start",
       )}
     >
+      {/* Assistant avatar */}
+      {!isUser && (
+        <div className="shrink-0 w-7 h-7 rounded-lg bg-primary/10 flex items-center justify-center mt-0.5">
+          <IconSparkles size={14} className="text-primary" />
+        </div>
+      )}
+
       <div
         className={cn(
-          "max-w-[90%] rounded-2xl",
+          "max-w-[85%]",
           isUser
-            ? "bg-primary text-primary-foreground rounded-br-md px-4 py-2.5"
-            : "bg-muted/60 rounded-bl-md px-4 py-3",
+            ? "bg-foreground text-background rounded-2xl rounded-br-sm px-4 py-2.5"
+            : "bg-transparent",
         )}
       >
         {/* Images if any */}
@@ -129,7 +189,7 @@ const AgentMessage = memo(function AgentMessage({
                 key={i}
                 src={`data:${img.mediaType};base64,${img.data}`}
                 alt={img.filename || "Attached image"}
-                className="h-16 w-16 object-cover rounded-lg border border-border/50"
+                className="h-16 w-16 object-cover rounded-lg border border-border/30"
               />
             ))}
           </div>
@@ -157,9 +217,18 @@ const AgentMessage = memo(function AgentMessage({
             {message.content}
           </p>
         ) : (
-          <ChatMarkdownRenderer content={message.content} size="sm" />
+          <div className="text-sm text-foreground">
+            <ChatMarkdownRenderer content={message.content} size="sm" />
+          </div>
         )}
       </div>
+
+      {/* User avatar */}
+      {isUser && (
+        <div className="shrink-0 w-7 h-7 rounded-lg bg-muted flex items-center justify-center mt-0.5">
+          <IconUser size={14} className="text-muted-foreground" />
+        </div>
+      )}
     </div>
   );
 });
@@ -341,6 +410,37 @@ const ModelSelector = memo(function ModelSelector({
   );
 });
 
+// Suggested Prompt Card Component
+const SuggestedPromptCard = memo(function SuggestedPromptCard({
+  icon: Icon,
+  text,
+  onClick,
+}: {
+  icon: React.ComponentType<{ size?: number; className?: string }>;
+  text: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        "group flex items-start gap-3 w-full p-3 rounded-xl",
+        "bg-background/60 border border-border/40",
+        "hover:border-primary/30 hover:bg-primary/5",
+        "transition-all duration-200 text-left",
+      )}
+    >
+      <div className="shrink-0 w-8 h-8 rounded-lg bg-muted/50 flex items-center justify-center group-hover:bg-primary/10 transition-colors">
+        <Icon size={16} className="text-muted-foreground group-hover:text-primary transition-colors" />
+      </div>
+      <span className="text-sm text-muted-foreground group-hover:text-foreground leading-relaxed transition-colors">
+        {text}
+      </span>
+    </button>
+  );
+});
+
 // Main Agent Panel
 export function AgentPanel() {
   const [isOpen, setIsOpen] = useAtom(agentPanelOpenAtom);
@@ -372,6 +472,7 @@ export function AgentPanel() {
 
   // Get agent context
   const agentContext = isAgentTab(activeTab) ? AGENT_CONTEXTS[activeTab] : null;
+  const suggestedPrompts = isAgentTab(activeTab) ? SUGGESTED_PROMPTS[activeTab] : [];
 
   // Check if PDF is local (not cloud-synced with extracted pages)
   const isLocalPdf = activeTab === "pdf" && selectedPdf?.type === "local";
@@ -497,10 +598,22 @@ export function AgentPanel() {
           break;
 
         case "tool-call-start":
+          console.log("[AgentPanel] Processing tool-call-start:", {
+            toolName: event.toolName,
+            toolCallId: event.toolCallId,
+          });
           // Update last message with tool call
           setMessages((prev: AgentPanelMessage[]) => {
             const last = prev[prev.length - 1];
+            console.log("[AgentPanel] tool-call-start state check:", {
+              hasLast: !!last,
+              lastRole: last?.role,
+              hasToolName: !!event.toolName,
+              hasToolCallId: !!event.toolCallId,
+              messageCount: prev.length,
+            });
             if (last && last.role === "assistant" && event.toolName && event.toolCallId) {
+              console.log("[AgentPanel] Adding tool call to message");
               return [
                 ...prev.slice(0, -1),
                 {
@@ -517,6 +630,7 @@ export function AgentPanel() {
                 },
               ];
             }
+            console.log("[AgentPanel] Tool call condition not met, skipping");
             return prev;
           });
           break;
@@ -631,11 +745,18 @@ export function AgentPanel() {
     };
 
     // @ts-expect-error - desktopApi type extended in preload
-    const cleanup = window.desktopApi?.onAgentPanelStream?.(handleStream);
-    console.log(
-      "[AgentPanel] Stream listener registered for session:",
+    const hasApi = !!window.desktopApi?.onAgentPanelStream;
+    console.log("[AgentPanel] Registering stream listener:", {
       sessionId,
-    );
+      hasDesktopApi: !!window.desktopApi,
+      hasOnAgentPanelStream: hasApi,
+    });
+    const cleanup = window.desktopApi?.onAgentPanelStream?.(handleStream);
+    if (!cleanup) {
+      console.warn("[AgentPanel] Failed to register listener - onAgentPanelStream returned undefined");
+    } else {
+      console.log("[AgentPanel] Stream listener successfully registered for session:", sessionId);
+    }
     return () => {
       console.log(
         "[AgentPanel] Stream listener cleanup for session:",
@@ -954,8 +1075,20 @@ export function AgentPanel() {
   const canSend =
     (input.trim().length > 0 || images.length > 0) && !isStreaming && !isAgentDisabled;
 
+  // Get the icon component
+  const AgentIcon = agentContext.icon;
+
+  // Handle suggested prompt click
+  const handlePromptClick = (promptText: string) => {
+    setInput(promptText);
+    inputRef.current?.focus();
+  };
+
+  // Check if we should show the welcome state
+  const showWelcomeState = messages.length === 0 && !streamingText && !isLocalPdf && !isPdfWithoutPages;
+
   return (
-    <div className="flex flex-col h-full bg-background/95 backdrop-blur-sm border-t border-border/50">
+    <div className="relative flex flex-col h-full bg-background">
       {/* Hidden file input */}
       <input
         ref={fileInputRef}
@@ -966,174 +1099,142 @@ export function AgentPanel() {
         className="hidden"
       />
 
-      {/* Header */}
-      <div
-        className={cn(
-          "flex flex-col border-b border-border/50 bg-background/80 shrink-0",
-          activeTab === "pdf" ? "h-[88px]" : "h-12",
-        )}
-      >
-        {/* PDF context bar */}
-        {activeTab === "pdf" && (
-          <div className="h-10 border-b border-border/30 flex items-center px-4 bg-amber-500/5">
-            <span className="text-[9px] text-amber-600 dark:text-amber-400 uppercase tracking-[0.2em] font-bold">
-              Document Context Active
-            </span>
-          </div>
+      {/* Floating Action Icons - Top Right of Panel */}
+      <div className="absolute top-3 right-3 z-20 flex items-center gap-0.5">
+        {/* History button */}
+        {isAgentTab(activeTab) && hasSavedHistory && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                onClick={() => setHistoryDialogOpen(true)}
+                className="relative h-7 w-7 rounded-md flex items-center justify-center text-muted-foreground/60 hover:text-foreground hover:bg-muted/50 transition-all"
+              >
+                <IconHistory size={15} />
+                {historyCount > 0 && (
+                  <span className="absolute -top-1 -right-1 h-3.5 w-3.5 rounded-full bg-primary text-[8px] text-primary-foreground flex items-center justify-center font-bold">
+                    {historyCount > 9 ? '9+' : historyCount}
+                  </span>
+                )}
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">Historial ({historyCount})</TooltipContent>
+          </Tooltip>
         )}
 
-        <div className="flex-1 flex items-center justify-between px-4">
-          <div className="flex items-center gap-2.5">
-            <div
-              className={cn(
-                "w-8 h-8 rounded-xl flex items-center justify-center text-base",
-                "bg-gradient-to-br from-primary/20 to-primary/5 border border-primary/20",
-              )}
+        {/* Refresh button */}
+        {isAgentTab(activeTab) && !hasSavedHistory && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                onClick={() => {
+                  refetchMessages();
+                  utils.panelMessages.list.invalidate({
+                    panelType: 'agent_panel',
+                    sourceId: sessionId,
+                    tabType: activeTab
+                  });
+                }}
+                disabled={isLoadingHistory}
+                className="h-7 w-7 rounded-md flex items-center justify-center text-muted-foreground/60 hover:text-foreground hover:bg-muted/50 transition-all disabled:opacity-50"
+              >
+                <IconRefresh size={15} className={cn(isLoadingHistory && "animate-spin")} />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">Recargar</TooltipContent>
+          </Tooltip>
+        )}
+
+        {/* Clear button */}
+        {messages.length > 0 && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                onClick={handleClear}
+                className="h-7 w-7 rounded-md flex items-center justify-center text-muted-foreground/60 hover:text-destructive hover:bg-destructive/10 transition-all"
+              >
+                <IconTrash size={15} />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">Limpiar</TooltipContent>
+          </Tooltip>
+        )}
+
+        {/* Close button */}
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              onClick={() => setIsOpen(false)}
+              className="h-7 w-7 rounded-md flex items-center justify-center text-muted-foreground/60 hover:text-foreground hover:bg-muted/50 transition-all"
             >
-              {agentContext.icon}
-            </div>
-            <div>
-              <h3 className="text-xs font-bold text-foreground leading-tight tracking-tight">
-                {agentContext.title}
-              </h3>
-              <p className="text-[9px] text-muted-foreground uppercase tracking-widest">
-                {agentContext.subtitle}
-              </p>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-1.5">
-            {/* History button - more visible */}
-            {isAgentTab(activeTab) && hasSavedHistory && (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="h-7 px-2.5 text-xs gap-1.5"
-                    onClick={() => setHistoryDialogOpen(true)}
-                  >
-                    <IconHistory size={13} className="text-primary" />
-                    <span className="font-medium">Historial</span>
-                    {historyCount > 0 && (
-                      <span className="h-4 w-4 rounded-full bg-primary text-[9px] text-primary-foreground flex items-center justify-center font-bold">
-                        {historyCount > 9 ? '9+' : historyCount}
-                      </span>
-                    )}
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent side="bottom">
-                  Ver {historyCount} mensaje{historyCount !== 1 ? 's' : ''} guardado{historyCount !== 1 ? 's' : ''}
-                </TooltipContent>
-              </Tooltip>
-            )}
-            {/* Refresh button (only when no history) */}
-            {isAgentTab(activeTab) && !hasSavedHistory && (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-7 w-7 text-muted-foreground hover:text-primary"
-                    onClick={() => {
-                      refetchMessages();
-                      utils.panelMessages.list.invalidate({
-                        panelType: 'agent_panel',
-                        sourceId: sessionId,
-                        tabType: activeTab
-                      });
-                    }}
-                    disabled={isLoadingHistory}
-                  >
-                    <IconRefresh size={14} className={cn("text-muted-foreground", isLoadingHistory && "animate-spin")} />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent side="bottom">Recargar historial</TooltipContent>
-              </Tooltip>
-            )}
-            {messages.length > 0 && (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-7 w-7 text-muted-foreground hover:text-destructive"
-                    onClick={handleClear}
-                  >
-                    <IconTrash size={14} />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent side="bottom">Limpiar conversación actual</TooltipContent>
-              </Tooltip>
-            )}
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-7 w-7 text-muted-foreground"
-                  onClick={() => setIsOpen(false)}
-                >
-                  <IconChevronRight size={16} />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent side="bottom">Cerrar panel</TooltipContent>
-            </Tooltip>
-          </div>
-        </div>
+              <IconX size={15} />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side="bottom">Cerrar</TooltipContent>
+        </Tooltip>
       </div>
 
-      {/* Messages with fade scroll effect */}
+      {/* Main Content Area */}
       <div className="flex-1 relative overflow-hidden">
-        {/* Top fade gradient */}
-        <div className="absolute top-0 left-0 right-0 h-6 bg-gradient-to-b from-background/95 to-transparent z-10 pointer-events-none" />
-        {/* Bottom fade gradient */}
-        <div className="absolute bottom-0 left-0 right-0 h-6 bg-gradient-to-t from-background/95 to-transparent z-10 pointer-events-none" />
+        <ScrollArea className="h-full">
+          <div className="min-h-full flex flex-col">
+            {/* Welcome State - Centered */}
+            {showWelcomeState ? (
+              <div className="flex-1 flex flex-col items-center justify-center px-6 py-12">
+                {/* Welcome Header */}
+                <div className="flex items-center gap-3 mb-2">
+                  <h1 className="text-2xl font-semibold text-foreground tracking-tight">
+                    {agentContext.title}
+                  </h1>
+                  <div className="w-10 h-10 rounded-xl border border-border/60 flex items-center justify-center bg-background">
+                    <AgentIcon size={20} className="text-foreground" />
+                  </div>
+                </div>
 
-        <ScrollArea className="h-full px-3">
-          <div className="py-4 space-y-3">
-            {/* Show message for local PDFs without extracted content */}
-            {(isLocalPdf || isPdfWithoutPages) && messages.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-12 text-center">
-                <div
-                  className={cn(
-                    "w-14 h-14 rounded-2xl flex items-center justify-center mb-4",
-                    "bg-gradient-to-br from-amber-500/20 via-amber-500/10 to-transparent",
-                    "border border-amber-500/20 shadow-lg shadow-amber-500/5",
-                  )}
-                >
-                  <IconCloudUpload size={26} className="text-amber-500" />
+                {/* Subtitle */}
+                <p className="text-sm text-muted-foreground mb-16">
+                  {agentContext.subtitle}
+                </p>
+
+                {/* Spacer to push prompts down */}
+                <div className="flex-1 min-h-[100px]" />
+
+                {/* Suggested Prompts */}
+                <div className="w-full max-w-md space-y-2">
+                  {suggestedPrompts.map((prompt, idx) => (
+                    <SuggestedPromptCard
+                      key={idx}
+                      icon={prompt.icon}
+                      text={prompt.text}
+                      onClick={() => handlePromptClick(prompt.text)}
+                    />
+                  ))}
                 </div>
-                <h4 className="text-sm font-bold text-foreground mb-1">
-                  PDF Local Detectado
-                </h4>
-                <p className="text-xs text-muted-foreground max-w-[220px] leading-relaxed mb-3">
-                  Para usar el asistente AI, sube este PDF a la nube desde el chat para extraer su contenido.
-                </p>
-                <p className="text-[10px] text-muted-foreground/60 max-w-[200px]">
-                  Los PDFs en la nube tienen texto extraído y búsqueda semántica.
-                </p>
               </div>
-            ) : messages.length === 0 && !streamingText ? (
-              <div className="flex flex-col items-center justify-center py-12 text-center">
+            ) : (isLocalPdf || isPdfWithoutPages) && messages.length === 0 ? (
+              /* PDF Upload Required State */
+              <div className="flex-1 flex flex-col items-center justify-center px-6 py-12">
                 <div
                   className={cn(
-                    "w-14 h-14 rounded-2xl flex items-center justify-center mb-4",
-                    "bg-gradient-to-br from-primary/20 via-primary/10 to-transparent",
-                    "border border-primary/20 shadow-lg shadow-primary/5",
+                    "w-16 h-16 rounded-2xl flex items-center justify-center mb-6",
+                    "bg-amber-500/10 border border-amber-500/20",
                   )}
                 >
-                  <IconSparkles size={26} className="text-primary" />
+                  <IconCloudUpload size={28} className="text-amber-500" />
                 </div>
-                <h4 className="text-sm font-bold text-foreground mb-1">
-                  {agentContext.title}
-                </h4>
-                <p className="text-xs text-muted-foreground max-w-[200px] leading-relaxed">
-                  {agentContext.placeholder}
+                <h2 className="text-lg font-semibold text-foreground mb-2">
+                  PDF Local Detectado
+                </h2>
+                <p className="text-sm text-muted-foreground text-center max-w-[280px] leading-relaxed">
+                  Para usar el asistente AI, sube este PDF a la nube desde el chat para extraer su contenido.
                 </p>
               </div>
             ) : (
-              <>
+              /* Messages State */
+              <div className="px-4 py-6 space-y-4">
                 {messages
                   .filter((m) => m.content || m.toolCalls?.length)
                   .map((msg) => (
@@ -1155,7 +1256,7 @@ export function AgentPanel() {
                 {/* Loading indicator */}
                 {isStreaming && !streamingText && (
                   <div className="flex justify-start">
-                    <div className="bg-muted/60 rounded-2xl rounded-bl-md px-4 py-3">
+                    <div className="bg-muted/40 rounded-2xl rounded-bl-md px-4 py-3">
                       <div className="flex items-center gap-2">
                         <IconLoader2
                           size={14}
@@ -1166,21 +1267,21 @@ export function AgentPanel() {
                           className="text-xs font-medium"
                           duration={1.5}
                         >
-                          Thinking...
+                          Pensando...
                         </TextShimmer>
                       </div>
                     </div>
                   </div>
                 )}
-              </>
+                <div ref={messagesEndRef} />
+              </div>
             )}
-            <div ref={messagesEndRef} />
           </div>
         </ScrollArea>
       </div>
 
-      {/* Input - no border divider */}
-      <div className="p-3">
+      {/* Input - Original Style */}
+      <div className="shrink-0 p-3">
         {/* Image previews */}
         {images.length > 0 && (
           <div className="flex flex-wrap gap-1.5 mb-2">
@@ -1239,18 +1340,18 @@ export function AgentPanel() {
               {/* Image attach */}
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon"
+                  <button
+                    type="button"
                     className={cn(
-                      "h-7 w-7 text-muted-foreground/50 hover:text-foreground rounded-lg",
+                      "h-7 w-7 rounded-lg flex items-center justify-center",
+                      "text-muted-foreground/50 hover:text-foreground hover:bg-accent/50 transition-colors",
                       images.length > 0 && "text-primary",
                     )}
                     onClick={() => fileInputRef.current?.click()}
                     disabled={isStreaming}
                   >
                     <IconPhoto size={15} />
-                  </Button>
+                  </button>
                 </TooltipTrigger>
                 <TooltipContent>Attach image</TooltipContent>
               </Tooltip>
@@ -1259,10 +1360,10 @@ export function AgentPanel() {
             {/* Send/Stop button */}
             <Tooltip>
               <TooltipTrigger asChild>
-                <Button
-                  size="icon"
+                <button
+                  type="button"
                   className={cn(
-                    "h-7 w-7 rounded-lg transition-all",
+                    "h-7 w-7 rounded-lg flex items-center justify-center transition-all",
                     isStreaming
                       ? "bg-destructive text-destructive-foreground hover:bg-destructive/90"
                       : canSend
@@ -1277,7 +1378,7 @@ export function AgentPanel() {
                   ) : (
                     <IconSend size={14} />
                   )}
-                </Button>
+                </button>
               </TooltipTrigger>
               <TooltipContent>
                 {isStreaming ? "Stop" : "Send message"}
@@ -1287,48 +1388,50 @@ export function AgentPanel() {
         </div>
       </div>
 
-      {/* History Dialog */}
+      {/* History Dialog - Minimalist Style */}
       <Dialog open={historyDialogOpen} onOpenChange={setHistoryDialogOpen}>
-        <DialogContent className="max-w-2xl max-h-[80vh]">
-          <DialogHeader>
-            <DialogTitle>Historial de Conversación</DialogTitle>
-            <DialogDescription>
-              {historyCount} mensaje{historyCount !== 1 ? 's' : ''} guardado{historyCount !== 1 ? 's' : ''} para {agentContext?.title || 'este documento'}
+        <DialogContent className="max-w-xl max-h-[80vh] p-0 gap-0 overflow-hidden">
+          <DialogHeader className="px-6 py-4 border-b border-border/50">
+            <DialogTitle className="text-lg font-semibold">Historial</DialogTitle>
+            <DialogDescription className="text-sm text-muted-foreground">
+              {historyCount} mensaje{historyCount !== 1 ? 's' : ''} en {agentContext?.title || 'este panel'}
             </DialogDescription>
           </DialogHeader>
-          <ScrollArea className="max-h-[60vh] pr-4">
-            <div className="space-y-3">
+          <ScrollArea className="max-h-[60vh]">
+            <div className="p-4 space-y-4">
               {savedMessages && savedMessages.length > 0 ? (
                 savedMessages.map((msg: { id: string; role: string; content: string; created_at: string; metadata?: { images?: unknown; toolCalls?: unknown } }) => (
-                  <div key={msg.id} className={cn("flex gap-2", msg.role === 'user' ? "justify-end" : "justify-start")}>
+                  <div key={msg.id} className={cn("flex gap-3", msg.role === 'user' ? "justify-end" : "justify-start")}>
                     {msg.role === 'assistant' && (
-                      <div className="w-7 h-7 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
+                      <div className="shrink-0 w-7 h-7 rounded-lg bg-primary/10 flex items-center justify-center mt-0.5">
                         <IconSparkles size={14} className="text-primary" />
                       </div>
                     )}
                     <div
                       className={cn(
-                        "max-w-[90%] rounded-2xl",
+                        "max-w-[85%]",
                         msg.role === 'user'
-                          ? "bg-primary text-primary-foreground rounded-br-md px-4 py-2.5"
-                          : "bg-muted/60 rounded-bl-md px-4 py-3"
+                          ? "bg-foreground text-background rounded-2xl rounded-br-sm px-4 py-2.5"
+                          : "bg-transparent"
                       )}
                     >
                       {msg.role === 'user' ? (
                         <p className="text-sm leading-relaxed whitespace-pre-wrap">{msg.content}</p>
                       ) : (
-                        <ChatMarkdownRenderer content={msg.content} size="sm" />
+                        <div className="text-sm text-foreground">
+                          <ChatMarkdownRenderer content={msg.content} size="sm" />
+                        </div>
                       )}
                     </div>
                     {msg.role === 'user' && (
-                      <div className="w-7 h-7 rounded-lg bg-muted flex items-center justify-center shrink-0">
+                      <div className="shrink-0 w-7 h-7 rounded-lg bg-muted flex items-center justify-center mt-0.5">
                         <IconUser size={14} className="text-muted-foreground" />
                       </div>
                     )}
                   </div>
                 ))
               ) : (
-                <div className="text-center py-8 text-muted-foreground text-sm">
+                <div className="text-center py-12 text-muted-foreground text-sm">
                   No hay mensajes guardados
                 </div>
               )}

@@ -5,6 +5,53 @@
  * entre versiones de Excel/Docs
  */
 
+/**
+ * Tipos de cambios detectados en una celda
+ */
+export interface ChangeFlags {
+  valueChanged: boolean;
+  formulaChanged: boolean;
+  styleChanged: boolean;
+}
+
+/**
+ * Propiedades de estilo de celda (Univer format)
+ */
+export interface CellStyle {
+  bg?: { rgb?: string }; // Background color
+  cl?: { rgb?: string }; // Text color
+  bl?: number; // Bold (1 = bold)
+  it?: number; // Italic (1 = italic)
+  ul?: { s?: number }; // Underline
+  st?: { s?: number }; // Strikethrough
+  fs?: number; // Font size
+  ff?: string; // Font family
+  ht?: number; // Horizontal alignment (0=left, 1=center, 2=right)
+  vt?: number; // Vertical alignment (0=top, 1=middle, 2=bottom)
+  tb?: number; // Text wrap (1=wrap, 2=overflow, 3=clip)
+  tr?: { a?: number }; // Text rotation
+  pd?: { t?: number; r?: number; b?: number; l?: number }; // Padding
+  bd?: Record<string, any>; // Borders
+}
+
+/**
+ * Cambios específicos de estilo detectados
+ */
+export interface StyleChanges {
+  background?: { old?: string; new?: string };
+  textColor?: { old?: string; new?: string };
+  bold?: { old: boolean; new: boolean };
+  italic?: { old: boolean; new: boolean };
+  underline?: { old: boolean; new: boolean };
+  strikethrough?: { old: boolean; new: boolean };
+  fontSize?: { old?: number; new?: number };
+  fontFamily?: { old?: string; new?: string };
+  horizontalAlign?: { old?: string; new?: string };
+  verticalAlign?: { old?: string; new?: string };
+  textWrap?: { old?: string; new?: string };
+  borders?: { changed: boolean };
+}
+
 export interface CellChange {
   row: number;
   col: number;
@@ -14,8 +61,11 @@ export interface CellChange {
   newValue?: unknown;
   oldFormula?: string;
   newFormula?: string;
-  oldStyle?: unknown;
-  newStyle?: unknown;
+  oldStyle?: CellStyle;
+  newStyle?: CellStyle;
+  // Detailed change info
+  changeFlags: ChangeFlags;
+  styleChanges?: StyleChanges;
 }
 
 export interface SheetChange {
@@ -120,8 +170,12 @@ function diffSheet(oldSheet: any, newSheet: any, sheetId: string): SheetChange {
   const allRows = new Set<number>();
 
   // Agregar filas de ambas versiones
-  Object.keys(oldCellData).forEach((row) => allRows.add(Number(row)));
-  Object.keys(newCellData).forEach((row) => allRows.add(Number(row)));
+  for (const row of Object.keys(oldCellData)) {
+    allRows.add(Number(row));
+  }
+  for (const row of Object.keys(newCellData)) {
+    allRows.add(Number(row));
+  }
 
   // Comparar celdas
   for (const rowStr of Array.from(allRows).map(String)) {
@@ -130,8 +184,12 @@ function diffSheet(oldSheet: any, newSheet: any, sheetId: string): SheetChange {
     const newRow = newCellData[row] || {};
 
     const allCols = new Set<number>();
-    Object.keys(oldRow).forEach((col) => allCols.add(Number(col)));
-    Object.keys(newRow).forEach((col) => allCols.add(Number(col)));
+    for (const col of Object.keys(oldRow)) {
+      allCols.add(Number(col));
+    }
+    for (const col of Object.keys(newRow)) {
+      allCols.add(Number(col));
+    }
 
     for (const colStr of Array.from(allCols).map(String)) {
       const col = Number(colStr);
@@ -187,6 +245,130 @@ function diffSheet(oldSheet: any, newSheet: any, sheetId: string): SheetChange {
 }
 
 /**
+ * Compara estilos y genera cambios detallados
+ */
+function computeStyleChanges(
+  oldStyle: CellStyle | undefined,
+  newStyle: CellStyle | undefined,
+): StyleChanges | undefined {
+  if (!oldStyle && !newStyle) return undefined;
+
+  const changes: StyleChanges = {};
+  let hasChanges = false;
+
+  // Background color
+  const oldBg = oldStyle?.bg?.rgb;
+  const newBg = newStyle?.bg?.rgb;
+  if (oldBg !== newBg) {
+    changes.background = { old: oldBg, new: newBg };
+    hasChanges = true;
+  }
+
+  // Text color
+  const oldCl = oldStyle?.cl?.rgb;
+  const newCl = newStyle?.cl?.rgb;
+  if (oldCl !== newCl) {
+    changes.textColor = { old: oldCl, new: newCl };
+    hasChanges = true;
+  }
+
+  // Bold
+  const oldBold = oldStyle?.bl === 1;
+  const newBold = newStyle?.bl === 1;
+  if (oldBold !== newBold) {
+    changes.bold = { old: oldBold, new: newBold };
+    hasChanges = true;
+  }
+
+  // Italic
+  const oldItalic = oldStyle?.it === 1;
+  const newItalic = newStyle?.it === 1;
+  if (oldItalic !== newItalic) {
+    changes.italic = { old: oldItalic, new: newItalic };
+    hasChanges = true;
+  }
+
+  // Underline
+  const oldUl = (oldStyle?.ul?.s ?? 0) > 0;
+  const newUl = (newStyle?.ul?.s ?? 0) > 0;
+  if (oldUl !== newUl) {
+    changes.underline = { old: oldUl, new: newUl };
+    hasChanges = true;
+  }
+
+  // Strikethrough
+  const oldSt = (oldStyle?.st?.s ?? 0) > 0;
+  const newSt = (newStyle?.st?.s ?? 0) > 0;
+  if (oldSt !== newSt) {
+    changes.strikethrough = { old: oldSt, new: newSt };
+    hasChanges = true;
+  }
+
+  // Font size
+  if (oldStyle?.fs !== newStyle?.fs) {
+    changes.fontSize = { old: oldStyle?.fs, new: newStyle?.fs };
+    hasChanges = true;
+  }
+
+  // Font family
+  if (oldStyle?.ff !== newStyle?.ff) {
+    changes.fontFamily = { old: oldStyle?.ff, new: newStyle?.ff };
+    hasChanges = true;
+  }
+
+  // Horizontal alignment
+  const alignMap: Record<number, string> = {
+    0: "izquierda",
+    1: "centro",
+    2: "derecha",
+    3: "justificado",
+  };
+  if (oldStyle?.ht !== newStyle?.ht) {
+    changes.horizontalAlign = {
+      old: oldStyle?.ht !== undefined ? alignMap[oldStyle.ht] || `${oldStyle.ht}` : undefined,
+      new: newStyle?.ht !== undefined ? alignMap[newStyle.ht] || `${newStyle.ht}` : undefined,
+    };
+    hasChanges = true;
+  }
+
+  // Vertical alignment
+  const vAlignMap: Record<number, string> = {
+    0: "arriba",
+    1: "centro",
+    2: "abajo",
+  };
+  if (oldStyle?.vt !== newStyle?.vt) {
+    changes.verticalAlign = {
+      old: oldStyle?.vt !== undefined ? vAlignMap[oldStyle.vt] || `${oldStyle.vt}` : undefined,
+      new: newStyle?.vt !== undefined ? vAlignMap[newStyle.vt] || `${newStyle.vt}` : undefined,
+    };
+    hasChanges = true;
+  }
+
+  // Text wrap
+  const wrapMap: Record<number, string> = {
+    1: "ajustar",
+    2: "desborde",
+    3: "recortar",
+  };
+  if (oldStyle?.tb !== newStyle?.tb) {
+    changes.textWrap = {
+      old: oldStyle?.tb !== undefined ? wrapMap[oldStyle.tb] || `${oldStyle.tb}` : undefined,
+      new: newStyle?.tb !== undefined ? wrapMap[newStyle.tb] || `${newStyle.tb}` : undefined,
+    };
+    hasChanges = true;
+  }
+
+  // Borders (simplified - just detect if changed)
+  if (!deepEqual(oldStyle?.bd, newStyle?.bd)) {
+    changes.borders = { changed: true };
+    hasChanges = true;
+  }
+
+  return hasChanges ? changes : undefined;
+}
+
+/**
  * Compara dos celdas individuales
  */
 function diffCell(
@@ -198,6 +380,7 @@ function diffCell(
 ): CellChange | null {
   // Celda eliminada
   if (oldCell && !newCell) {
+    const styleChanges = computeStyleChanges(oldCell.s, undefined);
     return {
       row,
       col,
@@ -206,11 +389,18 @@ function diffCell(
       oldValue: oldCell.v,
       oldFormula: oldCell.f,
       oldStyle: oldCell.s,
+      changeFlags: {
+        valueChanged: oldCell.v !== undefined,
+        formulaChanged: oldCell.f !== undefined,
+        styleChanged: styleChanges !== undefined,
+      },
+      styleChanges,
     };
   }
 
   // Celda agregada
   if (!oldCell && newCell) {
+    const styleChanges = computeStyleChanges(undefined, newCell.s);
     return {
       row,
       col,
@@ -219,6 +409,12 @@ function diffCell(
       newValue: newCell.v,
       newFormula: newCell.f,
       newStyle: newCell.s,
+      changeFlags: {
+        valueChanged: newCell.v !== undefined,
+        formulaChanged: newCell.f !== undefined,
+        styleChanged: styleChanges !== undefined,
+      },
+      styleChanges,
     };
   }
 
@@ -229,6 +425,10 @@ function diffCell(
     const styleChanged = !deepEqual(oldCell.s, newCell.s);
 
     if (valueChanged || formulaChanged || styleChanged) {
+      const styleChanges = styleChanged
+        ? computeStyleChanges(oldCell.s, newCell.s)
+        : undefined;
+
       return {
         row,
         col,
@@ -240,6 +440,12 @@ function diffCell(
         newFormula: newCell.f,
         oldStyle: oldCell.s,
         newStyle: newCell.s,
+        changeFlags: {
+          valueChanged,
+          formulaChanged,
+          styleChanged,
+        },
+        styleChanges,
       };
     }
   }

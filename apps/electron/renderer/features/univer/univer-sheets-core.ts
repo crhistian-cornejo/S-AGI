@@ -5,7 +5,14 @@
  * and unmount disposes it completely. No need for complex workbook switching logic.
  */
 
-import { Univer, LocaleType, LogLevel, merge, UniverInstanceType, ThemeService } from '@univerjs/core'
+import {
+    LocaleType,
+    LogLevel,
+    merge,
+    Univer,
+    UniverInstanceType,
+    ThemeService,
+} from '@univerjs/core'
 import { FUniver } from '@univerjs/core/facade'
 import { UniverDocsPlugin } from '@univerjs/docs'
 import {
@@ -53,6 +60,18 @@ import { UniverSheetsConditionalFormattingUIPlugin } from '@univerjs/sheets-cond
 import { UniverSheetsDataValidationPlugin } from '@univerjs/sheets-data-validation'
 import { UniverSheetsDataValidationUIPlugin } from '@univerjs/sheets-data-validation-ui'
 
+// Notes plugin - DISABLED because it depends on Thread Comment infrastructure
+// which requires Univer Server. Without IThreadCommentDataSourceService, DI fails with:
+// "DependencyNotFoundForModuleError: Cannot find 'z' registered by any injector"
+// import { UniverSheetsNotePlugin } from '@univerjs/sheets-note'
+// import { UniverSheetsNoteUIPlugin } from '@univerjs/sheets-note-ui'
+
+// NOTE: Thread comments plugins (UniverThreadCommentPlugin, UniverSheetsThreadCommentPlugin, etc.)
+// are NOT included because they require Univer Server to function properly.
+// They depend on a data source service (IThreadCommentDataSourceService) that is only
+// provided by the collaboration server. Without it, DI fails with:
+// "QuantityCheckError: Expect 1 dependency item(s) for id 'F4' but get 0"
+
 // Import facade extensions - ORDER MATTERS!
 // These extend the FUniver API with methods for each plugin
 import '@univerjs/ui/facade'
@@ -69,6 +88,8 @@ import '@univerjs/sheets-sort/facade'
 import '@univerjs/sheets-filter/facade'
 import '@univerjs/sheets-conditional-formatting/facade'
 import '@univerjs/sheets-data-validation/facade'
+// Note: @univerjs/sheets-note/facade and @univerjs/sheets-thread-comment/facade
+// are not imported - they require Univer Server infrastructure
 
 // Import styles
 import '@univerjs/design/lib/index.css'
@@ -82,6 +103,7 @@ import '@univerjs/find-replace/lib/index.css'
 import '@univerjs/sheets-filter-ui/lib/index.css'
 import '@univerjs/sheets-conditional-formatting-ui/lib/index.css'
 import '@univerjs/sheets-data-validation-ui/lib/index.css'
+// Note: @univerjs/sheets-note-ui and @univerjs/thread-comment-ui CSS not imported - requires Univer Server
 // Custom theme overrides - must be imported AFTER Univer styles
 import './univer-theme-overrides.css'
 
@@ -99,7 +121,14 @@ import SheetsSortEnUS from '@univerjs/sheets-sort/locale/en-US'
 import SheetsFilterUIEnUS from '@univerjs/sheets-filter-ui/locale/en-US'
 import SheetsConditionalFormattingUIEnUS from '@univerjs/sheets-conditional-formatting-ui/locale/en-US'
 import SheetsDataValidationUIEnUS from '@univerjs/sheets-data-validation-ui/locale/en-US'
+import SheetsFormulaUIEnUS from '@univerjs/sheets-formula-ui/locale/en-US'
 import SheetsNumfmtUIEnUS from '@univerjs/sheets-numfmt-ui/locale/en-US'
+// Note: SheetsNoteUIEnUS and Thread comment locales not imported - requires Univer Server
+
+// NOTE: Custom context menus for notes are NOT registered because:
+// 1. UniverSheetsNoteUIPlugin already registers "Add Note" in the context menu
+// 2. The Facade API method (FRange.createOrUpdateNote) requires version 0.7.0+ 
+//    and may not work correctly with the current plugin registration approach
 
 export interface UniverSheetsInstance {
     univer: Univer
@@ -164,7 +193,9 @@ export async function initSheetsUniver(container: HTMLElement): Promise<UniverSh
         SheetsFilterUIEnUS,
         SheetsConditionalFormattingUIEnUS,
         SheetsDataValidationUIEnUS,
+        SheetsFormulaUIEnUS,
         SheetsNumfmtUIEnUS,
+        // Note: SheetsNoteUIEnUS and Thread comment locales not included - requires Univer Server
     )
     
     // Create theme based on current CSS variables and dark mode
@@ -244,8 +275,16 @@ export async function initSheetsUniver(container: HTMLElement): Promise<UniverSh
     // Data Validation plugins (dropdowns, input validation rules)
     univer.registerPlugin(UniverSheetsDataValidationPlugin)
     univer.registerPlugin(UniverSheetsDataValidationUIPlugin)
+
+    // Note: Notes and Thread comments plugins are NOT registered because they
+    // require Univer Server for the data source service. Without it, DI fails with:
+    // "DependencyNotFoundForModuleError: Cannot find 'z' registered by any injector"
     
     const api = FUniver.newAPI(univer)
+
+    // Note: No custom context menus are registered because:
+    // - UniverSheetsNoteUIPlugin already provides "Add Note" in context menu
+    // - Thread comments require Univer Server
     
     // Dark mode is already set via darkMode option in constructor
     // But we also toggle via API for UI components
@@ -294,6 +333,69 @@ export function getSheetsInstanceVersion(): number {
 }
 
 /**
+ * Normalize workbook data to ensure it has required structures for all plugins
+ * This prevents errors when plugins try to access data that might be undefined
+ */
+function normalizeWorkbookData(data: any, workbookId: string): any {
+    const workbookData = data || {
+        id: workbookId,
+        name: 'Workbook',
+        sheetOrder: ['sheet1'],
+        sheets: {
+            sheet1: {
+                id: 'sheet1',
+                name: 'Sheet1',
+                rowCount: 100,
+                columnCount: 26,
+                cellData: {},
+                defaultColumnWidth: 100,
+                defaultRowHeight: 24,
+            },
+        },
+    }
+    
+    // Ensure resources array exists
+    if (!workbookData.resources) {
+        workbookData.resources = []
+    }
+    
+    // Ensure SHEET_DRAWING_PLUGIN resource exists with valid structure
+    // This prevents "Cannot convert undefined or null to object" error in drawing UI
+    const drawingResourceIndex = workbookData.resources.findIndex(
+        (r: any) => r.name === 'SHEET_DRAWING_PLUGIN' || r.name?.includes('drawing')
+    )
+    
+    if (drawingResourceIndex === -1) {
+        // Add empty drawing resource
+        workbookData.resources.push({
+            name: 'SHEET_DRAWING_PLUGIN',
+            data: JSON.stringify({}) // Empty object, not undefined
+        })
+    } else {
+        // Ensure existing drawing resource has valid data
+        const drawingResource = workbookData.resources[drawingResourceIndex]
+        try {
+            // Validate that data is a valid JSON object
+            if (!drawingResource.data) {
+                drawingResource.data = JSON.stringify({})
+            } else {
+                const parsed = JSON.parse(drawingResource.data)
+                // Ensure it's an object (not null, not array)
+                if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+                    drawingResource.data = JSON.stringify({})
+                }
+            }
+        } catch (e) {
+            // If parsing fails, set to empty object
+            console.warn('[UniverSheets] Invalid drawing resource data, resetting to empty object:', e)
+            drawingResource.data = JSON.stringify({})
+        }
+    }
+    
+    return workbookData
+}
+
+/**
  * Create a new workbook with optional data
  * Uses univer.createUnit() as per official examples
  * Returns existing workbook if it matches the requested ID (avoids duplicates)
@@ -318,23 +420,8 @@ export function createWorkbook(univer: Univer, api: FUniver, data?: any, id?: st
         sheetsKeys: data?.sheets ? Object.keys(data.sheets) : [],
     })
     
-    // Build workbook data
-    const workbookData = data || {
-        id: workbookId,
-        name: 'Workbook',
-        sheetOrder: ['sheet1'],
-        sheets: {
-            sheet1: {
-                id: 'sheet1',
-                name: 'Sheet1',
-                rowCount: 100,
-                columnCount: 26,
-                cellData: {},
-                defaultColumnWidth: 100,
-                defaultRowHeight: 24,
-            },
-        },
-    }
+    // Normalize workbook data to ensure all required structures exist
+    const workbookData = normalizeWorkbookData(data, workbookId)
     
     // Use createUnit instead of api.createWorkbook - this is the official way
     univer.createUnit(UniverInstanceType.UNIVER_SHEET, workbookData)

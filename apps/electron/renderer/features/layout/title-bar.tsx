@@ -207,19 +207,23 @@ export function TitleBar({ className, noTrafficLightSpace }: TitleBarProps) {
         <div
           className={cn(
             "flex items-center gap-2 no-drag shrink-0 z-[100] relative pointer-events-auto",
-            showTrafficLights ? "ml-4" : "ml-2",
+            showTrafficLights ? "ml-1" : "ml-2",
           )}
         >
           {isWindows() && <HamburgerMenu />}
-          {/* App Logo - shown when sidebar is collapsed */}
-          <div className="flex items-center gap-2">
-            <Logo size={20} className="text-primary" />
-            <span className="text-sm font-semibold text-foreground tracking-tight">
-              S-AGI
-            </span>
-          </div>
+          {/* App Logo - shown when sidebar is collapsed (only on Windows, macOS uses right-side logo) */}
+          {isWindows() && (
+            <>
+              <div className="flex items-center gap-2">
+                <Logo size={20} className="text-primary" />
+                <span className="text-sm font-semibold text-foreground tracking-tight">
+                  S-AGI
+                </span>
+              </div>
 
-          <div className="w-px h-4 bg-border" />
+              <div className="w-px h-4 bg-border" />
+            </>
+          )}
 
           <Tooltip>
             <TooltipTrigger asChild>
@@ -338,43 +342,48 @@ export function TitleBar({ className, noTrafficLightSpace }: TitleBarProps) {
           )}
         </div>
       )}
-      {activeTab === "pdf" && !pdfSidebarOpen && isWindows() && (
+      {/* PDF tab - show sidebar toggle when collapsed */}
+      {activeTab === "pdf" && !pdfSidebarOpen && (
         <div
           className={cn(
             "flex items-center gap-2 no-drag shrink-0 z-[100] relative pointer-events-auto",
-            showTrafficLights ? "ml-4" : "ml-2",
+            showTrafficLights ? "ml-1" : "ml-2",
           )}
         >
-          <HamburgerMenu />
-          {/* Logo - opens agent panel */}
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                type="button"
-                onClick={() => setAgentPanelOpen(!agentPanelOpen)}
-                className={cn(
-                  "flex items-center gap-2 transition-all duration-200",
-                  "hover:opacity-80 active:scale-95 cursor-pointer",
-                  agentPanelOpen && "text-primary",
-                )}
-              >
-                <div className="relative">
-                  <Logo size={20} />
-                  {agentPanelOpen && (
-                    <span className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-primary" />
-                  )}
-                </div>
-                <span className="text-sm font-semibold text-foreground tracking-tight">
-                  S-AGI
-                </span>
-              </button>
-            </TooltipTrigger>
-            <TooltipContent side="bottom">
-              {agentPanelOpen ? "Close chat panel" : "Open chat panel"}
-            </TooltipContent>
-          </Tooltip>
+          {isWindows() && <HamburgerMenu />}
+          {/* Logo - opens agent panel (only on Windows, macOS uses right-side logo) */}
+          {isWindows() && (
+            <>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    onClick={() => setAgentPanelOpen(!agentPanelOpen)}
+                    className={cn(
+                      "flex items-center gap-2 transition-all duration-200",
+                      "hover:opacity-80 active:scale-95 cursor-pointer",
+                      agentPanelOpen && "text-primary",
+                    )}
+                  >
+                    <div className="relative">
+                      <Logo size={20} />
+                      {agentPanelOpen && (
+                        <span className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-primary" />
+                      )}
+                    </div>
+                    <span className="text-sm font-semibold text-foreground tracking-tight">
+                      S-AGI
+                    </span>
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">
+                  {agentPanelOpen ? "Close chat panel" : "Open chat panel"}
+                </TooltipContent>
+              </Tooltip>
 
-          <div className="w-px h-4 bg-border" />
+              <div className="w-px h-4 bg-border" />
+            </>
+          )}
 
           {/* Sidebar toggle */}
           <Tooltip>
@@ -399,39 +408,43 @@ export function TitleBar({ className, noTrafficLightSpace }: TitleBarProps) {
         <div
           className={cn(
             "flex items-center gap-2 no-drag shrink-0 z-[100] relative pointer-events-auto",
-            showTrafficLights ? "ml-4" : "ml-2",
+            showTrafficLights ? "ml-1" : "ml-2",
           )}
         >
           {isWindows() && <HamburgerMenu />}
-          {/* Logo - opens agent panel */}
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                type="button"
-                onClick={() => setAgentPanelOpen(!agentPanelOpen)}
-                className={cn(
-                  "flex items-center gap-2 transition-all duration-200",
-                  "hover:opacity-80 active:scale-95 cursor-pointer",
-                  agentPanelOpen && "text-primary",
-                )}
-              >
-                <div className="relative">
-                  <Logo size={20} />
-                  {agentPanelOpen && (
-                    <span className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-primary" />
-                  )}
-                </div>
-                <span className="text-sm font-semibold text-foreground tracking-tight">
-                  S-AGI
-                </span>
-              </button>
-            </TooltipTrigger>
-            <TooltipContent side="bottom">
-              {agentPanelOpen ? "Cerrar panel" : "Abrir panel AI"}
-            </TooltipContent>
-          </Tooltip>
+          {/* Logo - opens agent panel (only on Windows, macOS uses right-side logo) */}
+          {isWindows() && (
+            <>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    onClick={() => setAgentPanelOpen(!agentPanelOpen)}
+                    className={cn(
+                      "flex items-center gap-2 transition-all duration-200",
+                      "hover:opacity-80 active:scale-95 cursor-pointer",
+                      agentPanelOpen && "text-primary",
+                    )}
+                  >
+                    <div className="relative">
+                      <Logo size={20} />
+                      {agentPanelOpen && (
+                        <span className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-primary" />
+                      )}
+                    </div>
+                    <span className="text-sm font-semibold text-foreground tracking-tight">
+                      S-AGI
+                    </span>
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">
+                  {agentPanelOpen ? "Cerrar panel" : "Abrir panel AI"}
+                </TooltipContent>
+              </Tooltip>
 
-          <div className="w-px h-4 bg-border" />
+              <div className="w-px h-4 bg-border" />
+            </>
+          )}
 
           {/* Sidebar toggle */}
           <Tooltip>
@@ -456,39 +469,43 @@ export function TitleBar({ className, noTrafficLightSpace }: TitleBarProps) {
         <div
           className={cn(
             "flex items-center gap-2 no-drag shrink-0 z-[100] relative pointer-events-auto",
-            showTrafficLights ? "ml-4" : "ml-2",
+            showTrafficLights ? "ml-1" : "ml-2",
           )}
         >
           {isWindows() && <HamburgerMenu />}
-          {/* Logo - opens agent panel */}
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                type="button"
-                onClick={() => setAgentPanelOpen(!agentPanelOpen)}
-                className={cn(
-                  "flex items-center gap-2 transition-all duration-200",
-                  "hover:opacity-80 active:scale-95 cursor-pointer",
-                  agentPanelOpen && "text-primary",
-                )}
-              >
-                <div className="relative">
-                  <Logo size={20} />
-                  {agentPanelOpen && (
-                    <span className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-primary" />
-                  )}
-                </div>
-                <span className="text-sm font-semibold text-foreground tracking-tight">
-                  S-AGI
-                </span>
-              </button>
-            </TooltipTrigger>
-            <TooltipContent side="bottom">
-              {agentPanelOpen ? "Cerrar panel" : "Abrir panel AI"}
-            </TooltipContent>
-          </Tooltip>
+          {/* Logo - opens agent panel (only on Windows, macOS uses right-side logo) */}
+          {isWindows() && (
+            <>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    onClick={() => setAgentPanelOpen(!agentPanelOpen)}
+                    className={cn(
+                      "flex items-center gap-2 transition-all duration-200",
+                      "hover:opacity-80 active:scale-95 cursor-pointer",
+                      agentPanelOpen && "text-primary",
+                    )}
+                  >
+                    <div className="relative">
+                      <Logo size={20} />
+                      {agentPanelOpen && (
+                        <span className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-primary" />
+                      )}
+                    </div>
+                    <span className="text-sm font-semibold text-foreground tracking-tight">
+                      S-AGI
+                    </span>
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">
+                  {agentPanelOpen ? "Cerrar panel" : "Abrir panel AI"}
+                </TooltipContent>
+              </Tooltip>
 
-          <div className="w-px h-4 bg-border" />
+              <div className="w-px h-4 bg-border" />
+            </>
+          )}
 
           {/* Sidebar toggle */}
           <Tooltip>
@@ -513,7 +530,7 @@ export function TitleBar({ className, noTrafficLightSpace }: TitleBarProps) {
         <div
           className={cn(
             "flex items-center gap-2 no-drag shrink-0 z-[100] relative pointer-events-auto",
-            showTrafficLights ? "ml-4" : "ml-2",
+            showTrafficLights ? "ml-1" : "ml-2",
           )}
         >
           <HamburgerMenu />
@@ -679,7 +696,7 @@ export function TitleBar({ className, noTrafficLightSpace }: TitleBarProps) {
       <div className="flex-1" />
 
       <div className="flex items-center no-drag pr-0">
-        {showTrafficLights && activeTab !== "pdf" && (
+        {showTrafficLights && (
           <Tooltip>
             <TooltipTrigger asChild>
               <button

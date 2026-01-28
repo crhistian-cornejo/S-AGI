@@ -2,14 +2,20 @@
  * Hook for managing file version history
  * Provides version listing, preview, restore, and comparison
  */
-import { useAtom } from "jotai";
-import { useCallback, useState } from "react";
+import { useAtom, useSetAtom } from "jotai";
+import { useCallback, useState, useEffect, useRef } from "react";
 import { trpc } from "@/lib/trpc";
 import {
   versionHistoryOpenAtom,
   versionHistoryFileIdAtom,
   versionHistoryPreviewVersionAtom,
+  versionPreviewDataAtom,
+  versionPreviewLoadingAtom,
+  fileSnapshotCacheAtom,
+  currentExcelFileAtom,
+  currentDocFileAtom,
   type FileVersion,
+  type UserFile,
 } from "@/lib/atoms/user-files";
 
 export interface VersionStats {
@@ -18,12 +24,25 @@ export interface VersionStats {
   byType: Record<string, number>;
 }
 
-export function useFileVersions(fileId: string | null) {
+interface UseFileVersionsOptions {
+  includeObsolete?: boolean;
+}
+
+export function useFileVersions(fileId: string | null, options: UseFileVersionsOptions = {}) {
+  const { includeObsolete = false } = options;
+
   const [isOpen, setIsOpen] = useAtom(versionHistoryOpenAtom);
   const [historyFileId, setHistoryFileId] = useAtom(versionHistoryFileIdAtom);
   const [previewVersion, setPreviewVersion] = useAtom(
     versionHistoryPreviewVersionAtom,
   );
+  const [, setVersionPreviewData] = useAtom(versionPreviewDataAtom);
+  const [, setVersionPreviewLoading] = useAtom(versionPreviewLoadingAtom);
+
+  // CRITICAL: Cache and file atoms for proper restore handling
+  const [, setSnapshotCache] = useAtom(fileSnapshotCacheAtom);
+  const setCurrentExcelFile = useSetAtom(currentExcelFileAtom);
+  const setCurrentDocFile = useSetAtom(currentDocFileAtom);
 
   const [selectedVersions, setSelectedVersions] = useState<
     [number, number] | null
@@ -39,7 +58,7 @@ export function useFileVersions(fileId: string | null) {
     isLoading: isLoadingVersions,
     refetch: refetchVersions,
   } = trpc.userFiles.listVersions.useQuery(
-    { fileId: fileId! },
+    { fileId: fileId!, includeObsolete },
     { enabled: !!fileId },
   );
 
@@ -73,24 +92,136 @@ export function useFileVersions(fileId: string | null) {
       },
     );
 
+  // ==================== SYNC PREVIEW DATA TO ATOM ====================
+  // CRITICAL FIX: Use refs to track expected query parameters
+  // This prevents race conditions where stale responses are synced with new fileId
+  const expectedFileIdRef = useRef<string | null>(fileId);
+  const expectedVersionRef = useRef<number | null>(previewVersion);
+
+  // Update expected refs when params change
+  useEffect(() => {
+    expectedFileIdRef.current = fileId;
+  }, [fileId]);
+
+  useEffect(() => {
+    expectedVersionRef.current = previewVersion;
+  }, [previewVersion]);
+
+  // Update loading state
+  useEffect(() => {
+    setVersionPreviewLoading(isLoadingPreview);
+  }, [isLoadingPreview, setVersionPreviewLoading]);
+
+  // CRITICAL: Clear preview data FIRST when fileId changes (switching files)
+  // This must run before the sync effect to prevent race conditions
+  useEffect(() => {
+    console.log("[useFileVersions] FileId changed to:", fileId, "- clearing preview state");
+    // Clear both atoms immediately
+    setPreviewVersion(null);
+    setVersionPreviewData(null);
+  }, [fileId, setPreviewVersion, setVersionPreviewData]);
+
+  // Sync preview data to atom with STRICT validation
+  useEffect(() => {
+    // Case 1: No preview version selected - clear data
+    if (previewVersion === null) {
+      console.log("[useFileVersions] No preview version selected - clearing data");
+      setVersionPreviewData(null);
+      return;
+    }
+
+    // Case 2: No data yet - wait for query
+    if (!previewVersionData) {
+      return;
+    }
+
+    // Case 3: CRITICAL VALIDATION - Verify query response matches expected parameters
+    // This prevents stale responses from being synced when file/version changed
+    const isResponseForCurrentFile = previewVersionData.file_id === fileId;
+    const isResponseForCurrentVersion = previewVersionData.version_number === previewVersion;
+    const isExpectedQuery =
+      fileId === expectedFileIdRef.current &&
+      previewVersion === expectedVersionRef.current;
+
+    if (!isResponseForCurrentFile) {
+      console.warn(
+        "[useFileVersions] DISCARDING stale response - fileId mismatch:",
+        "response file_id:", previewVersionData.file_id,
+        "current fileId:", fileId
+      );
+      return;
+    }
+
+    if (!isResponseForCurrentVersion) {
+      console.warn(
+        "[useFileVersions] DISCARDING stale response - version mismatch:",
+        "response version:", previewVersionData.version_number,
+        "current previewVersion:", previewVersion
+      );
+      return;
+    }
+
+    if (!isExpectedQuery) {
+      console.warn(
+        "[useFileVersions] DISCARDING response - query params changed since request"
+      );
+      return;
+    }
+
+    // All validations passed - safe to sync
+    console.log(
+      "[useFileVersions] Syncing validated preview data:",
+      "file:", fileId,
+      "version:", previewVersionData.version_number
+    );
+
+    setVersionPreviewData({
+      fileId: fileId,
+      versionNumber: previewVersionData.version_number,
+      univerData: previewVersionData.univer_data,
+      content: previewVersionData.content,
+      changeType: previewVersionData.change_type,
+      changeDescription: previewVersionData.change_description,
+    });
+  }, [previewVersionData, previewVersion, fileId, setVersionPreviewData]);
+
   // ==================== MUTATIONS ====================
 
   const restoreMutation = trpc.userFiles.restoreVersion.useMutation({
     onSuccess: (updatedFile) => {
-      // Invalidate file and versions
-      if (fileId) {
-        // Invalidate all file-related queries to ensure consistency
+      if (fileId && updatedFile) {
+        // CRITICAL FIX: Clear the snapshot cache for this file FIRST
+        // This prevents the old cached data from overriding the restored data
+        console.log("[useFileVersions] Restore success - clearing cache for:", fileId);
+        setSnapshotCache((prev) => {
+          const { [fileId]: _removed, ...rest } = prev;
+          return rest;
+        });
+
+        // CRITICAL FIX: Immediately update the file atom with restored data
+        // This ensures the spreadsheet shows the correct data without waiting for refetch
+        const restoredFile = updatedFile as UserFile;
+        if (restoredFile.type === "excel") {
+          console.log("[useFileVersions] Updating Excel file atom with restored data");
+          setCurrentExcelFile(restoredFile);
+        } else if (restoredFile.type === "doc") {
+          console.log("[useFileVersions] Updating Doc file atom with restored data");
+          setCurrentDocFile(restoredFile);
+        }
+
+        // Invalidate queries to ensure consistency (refetch will confirm our optimistic update)
         utils.userFiles.get.invalidate({ id: fileId });
         utils.userFiles.listVersions.invalidate({ fileId });
         utils.userFiles.getVersionStats.invalidate({ fileId });
 
         // Also invalidate list queries for the file type to update version counts in sidebar
-        if (updatedFile?.type) {
-          utils.userFiles.list.invalidate({ type: updatedFile.type });
+        if (restoredFile.type) {
+          utils.userFiles.list.invalidate({ type: restoredFile.type });
         }
       }
-      // Clear preview
+      // Clear preview and preview data
       setPreviewVersion(null);
+      setVersionPreviewData(null);
     },
   });
 

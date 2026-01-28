@@ -22,7 +22,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { cn, isWindows } from "@/lib/utils";
+import { cn, isMacOS, isWindows } from "@/lib/utils";
 import { PdfDocumentList } from "./pdf-document-list";
 import { PdfViewerEnhanced } from "./pdf-viewer-enhanced";
 import { PdfQueueProcessor } from "./components/queue-processor";
@@ -74,6 +74,7 @@ const PdfSidebarContent = memo(function PdfSidebarContent() {
   const [, setAgentPanelOpen] = useAtom(agentPanelOpenAtom);
   const [, setSidebarOpen] = useAtom(pdfSidebarOpenAtom);
   const isWindowsPlatform = isWindows();
+  const isMacPlatform = isMacOS();
 
   const handleRefresh = useCallback(() => {
     utils.pdf.listAll.invalidate();
@@ -88,7 +89,12 @@ const PdfSidebarContent = memo(function PdfSidebarContent() {
   return (
     <div className="h-full flex flex-col">
       {/* Header */}
-      <div className="border-b border-sidebar-border h-10 flex items-center justify-between px-2">
+      <div
+        className={cn(
+          "border-b border-sidebar-border flex items-center justify-between px-2",
+          isMacPlatform ? "pt-8 pb-2" : "h-10",
+        )}
+      >
         <div className="flex items-center gap-2 min-w-0">
           {isWindowsPlatform ? (
             <Tooltip>

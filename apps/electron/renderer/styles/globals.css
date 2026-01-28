@@ -578,6 +578,36 @@
     box-shadow: 0 4px 12px hsl(var(--foreground) / 0.1) !important;
 }
 
+/* Normalize all icons in Univer context menus to ensure consistent size and style */
+.univer-context-menu svg,
+[class*="univer-context-menu"] svg,
+.univer-menu svg,
+[class*="univer-menu"] svg,
+.univer-menu-icon {
+    width: 16px !important;
+    height: 16px !important;
+    min-width: 16px !important;
+    min-height: 16px !important;
+    max-width: 16px !important;
+    max-height: 16px !important;
+    flex-shrink: 0 !important;
+    stroke-width: 1.5 !important;
+}
+
+/* Ensure icon containers in menu items have consistent sizing */
+.univer-context-menu [role="menuitem"] svg,
+[class*="univer-context-menu"] [role="menuitem"] svg,
+.univer-menu [role="menuitem"] svg,
+[class*="univer-menu"] [role="menuitem"] svg {
+    width: 16px !important;
+    height: 16px !important;
+    min-width: 16px !important;
+    min-height: 16px !important;
+    max-width: 16px !important;
+    max-height: 16px !important;
+    flex-shrink: 0 !important;
+}
+
 /* Scrollbars within Univer */
 .univer-app ::-webkit-scrollbar-thumb,
 .univer-container ::-webkit-scrollbar-thumb {
