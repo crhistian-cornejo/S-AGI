@@ -283,7 +283,8 @@ function convertUniverStyleToSpreadJS(
 
   // Background
   if (style.bg) {
-    spreadStyle.backColor = rgbToHex(style.bg.r, style.bg.g, style.bg.b);
+    const bgColor = rgbToHex(style.bg.r, style.bg.g, style.bg.b);
+    spreadStyle.backColor = bgColor as any; // SpreadJS accepts string color
   }
 
   // Alignment
@@ -322,48 +323,35 @@ function convertUniverStyleToSpreadJS(
 
     // Top border
     if (style.bd.t) {
-      const topBorder = new GC.Spread.Sheets.BorderLine();
-      topBorder.style =
-        borderStyleMap[style.bd.t.s] ?? GC.Spread.Sheets.LineStyle.thin;
-      topBorder.color = rgbToHex(
-        style.bd.t.cl.r,
-        style.bd.t.cl.g,
-        style.bd.t.cl.b,
+      const topBorder = new GC.Spread.Sheets.LineBorder(
+        rgbToHex(style.bd.t.cl.r, style.bd.t.cl.g, style.bd.t.cl.b),
+        borderStyleMap[style.bd.t.s] ?? GC.Spread.Sheets.LineStyle.thin
       );
       spreadStyle.borderTop = topBorder;
     }
+    // Bottom border
     if (style.bd.b) {
-      const bBorder = new GC.Spread.Sheets.BorderLine();
-      bBorder.style =
-        borderStyleMap[style.bd.b.s] ?? GC.Spread.Sheets.LineStyle.thin;
-      bBorder.color = rgbToHex(
-        style.bd.b.cl.r,
-        style.bd.b.cl.g,
-        style.bd.b.cl.b,
+      const bottomBorder = new GC.Spread.Sheets.LineBorder(
+        rgbToHex(style.bd.b.cl.r, style.bd.b.cl.g, style.bd.b.cl.b),
+        borderStyleMap[style.bd.b.s] ?? GC.Spread.Sheets.LineStyle.thin
       );
-      spreadStyle.borderBottom = bBorder;
+      spreadStyle.borderBottom = bottomBorder;
     }
+    // Left border
     if (style.bd.l) {
-      const lBorder = new GC.Spread.Sheets.BorderLine();
-      lBorder.style =
-        borderStyleMap[style.bd.l.s] ?? GC.Spread.Sheets.LineStyle.thin;
-      lBorder.color = rgbToHex(
-        style.bd.l.cl.r,
-        style.bd.l.cl.g,
-        style.bd.l.cl.b,
+      const leftBorder = new GC.Spread.Sheets.LineBorder(
+        rgbToHex(style.bd.l.cl.r, style.bd.l.cl.g, style.bd.l.cl.b),
+        borderStyleMap[style.bd.l.s] ?? GC.Spread.Sheets.LineStyle.thin
       );
-      spreadStyle.borderLeft = lBorder;
+      spreadStyle.borderLeft = leftBorder;
     }
+    // Right border
     if (style.bd.r) {
-      const rBorder = new GC.Spread.Sheets.BorderLine();
-      rBorder.style =
-        borderStyleMap[style.bd.r.s] ?? GC.Spread.Sheets.LineStyle.thin;
-      rBorder.color = rgbToHex(
-        style.bd.r.cl.r,
-        style.bd.r.cl.g,
-        style.bd.r.cl.b,
+      const rightBorder = new GC.Spread.Sheets.LineBorder(
+        rgbToHex(style.bd.r.cl.r, style.bd.r.cl.g, style.bd.r.cl.b),
+        borderStyleMap[style.bd.r.s] ?? GC.Spread.Sheets.LineStyle.thin
       );
-      spreadStyle.borderRight = rBorder;
+      spreadStyle.borderRight = rightBorder;
     }
   }
 
@@ -396,7 +384,7 @@ async function convertUniverToSpreadJS(
 
   // Remove default sheet if we have custom sheets
   if (sheetOrder.length > 0 && spread.sheets.length > 0) {
-    spread.sheets.remove(0);
+    (spread.sheets as any).remove(0);
   }
 
   // Collect all image loading promises
@@ -407,7 +395,7 @@ async function convertUniverToSpreadJS(
     if (!univerSheet) continue;
 
     const sheetName = univerSheet.name || sheetId;
-    const sheet = spread.sheets.add(0, sheetName);
+    const sheet = (spread.sheets as any).add(0, sheetName);
 
     // Convert cells
     if (univerSheet.cellData) {
@@ -493,13 +481,23 @@ async function convertUniverToSpreadJS(
 
           if (sheetDrawings && typeof sheetDrawings === "object") {
             const imagePromises: Promise<void>[] = [];
-            
+
             for (const [drawingId, drawing] of Object.entries(sheetDrawings)) {
               const draw = drawing as Record<string, unknown>;
               if (draw.source && draw.sheetTransform) {
                 const transform = draw.sheetTransform as {
-                  from?: { column?: number; row?: number; columnOffset?: number; rowOffset?: number };
-                  to?: { column?: number; row?: number; columnOffset?: number; rowOffset?: number };
+                  from?: {
+                    column?: number;
+                    row?: number;
+                    columnOffset?: number;
+                    rowOffset?: number;
+                  };
+                  to?: {
+                    column?: number;
+                    row?: number;
+                    columnOffset?: number;
+                    rowOffset?: number;
+                  };
                 };
 
                 if (transform.from && transform.to) {
@@ -509,16 +507,18 @@ async function convertUniverToSpreadJS(
                   const toRow = transform.to.row ?? fromRow + 1;
 
                   // Create promise to wait for image load
-                  const imagePromise = new Promise<void>((resolve, reject) => {
+                  const imagePromise = new Promise<void>((resolve) => {
                     const image = new Image();
                     image.crossOrigin = "anonymous"; // Handle CORS if needed
-                    
+
                     image.onload = () => {
                       try {
                         // Calculate actual position including offsets
-                        const colOffset = (transform.from?.columnOffset ?? 0) / 9525; // Convert EMUs to pixels
-                        const rowOffset = (transform.from?.rowOffset ?? 0) / 9525;
-                        
+                        const colOffset =
+                          (transform.from?.columnOffset ?? 0) / 9525; // Convert EMUs to pixels
+                        const rowOffset =
+                          (transform.from?.rowOffset ?? 0) / 9525;
+
                         // Add image with proper positioning
                         sheet.pictures.add(
                           drawingId,
@@ -528,36 +528,44 @@ async function convertUniverToSpreadJS(
                           toRow - fromRow,
                           toCol - fromCol,
                         );
-                        
+
                         // Set position offsets if available
                         const picture = sheet.pictures.get(drawingId);
                         if (picture && (colOffset !== 0 || rowOffset !== 0)) {
                           // SpreadJS uses different positioning, adjust if needed
                           // Note: SpreadJS positioning might need adjustment based on actual API
                         }
-                        
+
                         resolve();
                       } catch (error) {
-                        console.warn(`[SpreadJSExchange] Failed to add image ${drawingId}:`, error);
+                        console.warn(
+                          `[SpreadJSExchange] Failed to add image ${drawingId}:`,
+                          error,
+                        );
                         resolve(); // Continue even if one image fails
                       }
                     };
-                    
+
                     image.onerror = () => {
-                      console.warn(`[SpreadJSExchange] Failed to load image ${drawingId}`);
+                      console.warn(
+                        `[SpreadJSExchange] Failed to load image ${drawingId}`,
+                      );
                       resolve(); // Continue even if image fails to load
                     };
-                    
+
                     // Handle base64 data URLs
                     const source = draw.source as string;
-                    if (source.startsWith('data:') || source.startsWith('http')) {
+                    if (
+                      source.startsWith("data:") ||
+                      source.startsWith("http")
+                    ) {
                       image.src = source;
                     } else {
                       // Assume base64 without prefix
                       image.src = `data:image/png;base64,${source}`;
                     }
                   });
-                  
+
                   imagePromises.push(imagePromise);
                 }
               }
@@ -568,7 +576,7 @@ async function convertUniverToSpreadJS(
         }
       }
     }
-    
+
     // Handle charts from Univer data (if present)
     // SpreadJS automatically preserves charts during Excel import/export
     // Charts in Excel files imported via SpreadJS will be preserved
@@ -576,16 +584,18 @@ async function convertUniverToSpreadJS(
       const chartResource = univerData.resources.find(
         (r) => r.name?.includes("chart") || r.name?.includes("CHART"),
       );
-      
+
       if (chartResource?.data) {
         try {
           const chartsData = JSON.parse(chartResource.data);
           const sheetCharts = chartsData[sheetId];
-          
+
           if (sheetCharts && Array.isArray(sheetCharts)) {
             // Charts will be preserved by SpreadJS Excel.IO during export
             // Manual chart creation would require SpreadJS Chart API
-            console.log(`[SpreadJSExchange] Found ${sheetCharts.length} charts for sheet ${sheetId} - will be preserved by SpreadJS`);
+            console.log(
+              `[SpreadJSExchange] Found ${sheetCharts.length} charts for sheet ${sheetId} - will be preserved by SpreadJS`,
+            );
           }
         } catch (e) {
           console.warn("[SpreadJSExchange] Failed to parse charts:", e);
@@ -595,7 +605,7 @@ async function convertUniverToSpreadJS(
   }
 
   // Wait for all images to load before returning
-  await Promise.all(imagePromises).catch(err => {
+  await Promise.all(imagePromises).catch((err) => {
     console.warn("[SpreadJSExchange] Some images failed to load:", err);
   });
 
@@ -611,7 +621,7 @@ async function convertUniverToSpreadJS(
  */
 function convertSpreadJSStyleToUniver(
   style: GC.Spread.Sheets.Style,
-  styleIndex: number,
+  _styleIndex: number,
 ): UniverCellStyle {
   const univerStyle: UniverCellStyle = {};
 
@@ -623,14 +633,14 @@ function convertSpreadJSStyleToUniver(
     );
     if (fontMatch) {
       univerStyle.fs = parseFloat(fontMatch[1]);
-      univerStyle.ff = fontMatch[2].trim().replace(/['"]/g, ''); // Remove quotes
+      univerStyle.ff = fontMatch[2].trim().replace(/['"]/g, ""); // Remove quotes
     }
 
     if (style.font.includes("bold")) univerStyle.bl = 1;
     if (style.font.includes("italic")) univerStyle.it = 1;
     if (style.font.includes("underline")) univerStyle.ul = 1;
   }
-  
+
   // Number format
   if (style.formatter) {
     (univerStyle as any).nf = style.formatter;
@@ -643,7 +653,11 @@ function convertSpreadJSStyleToUniver(
   }
 
   if (style.backColor) {
-    const rgb = hexToRgb(style.backColor);
+    // SpreadJS backColor can be string or complex object, handle both
+    const backColorStr = typeof style.backColor === 'string' 
+      ? style.backColor 
+      : (style.backColor as any).color || '';
+    const rgb = hexToRgb(backColorStr);
     if (rgb) univerStyle.bg = rgb;
   }
 
@@ -748,7 +762,7 @@ function convertSpreadJSToUniver(
   const styleMap = new Map<string, string>();
 
   for (let i = 0; i < workbook.sheets.length; i++) {
-    const spreadSheet = workbook.sheets.get(i);
+    const spreadSheet = (workbook.sheets as any).get(i);
     const sheetId = `sheet_${i}`;
     const sheetName = spreadSheet.name();
 
@@ -841,7 +855,7 @@ function convertSpreadJSToUniver(
     // Merged cells
     const spans = spreadSheet.getSpans();
     if (spans && spans.length > 0) {
-      sheetData.mergeData = spans.map((span) => ({
+      sheetData.mergeData = spans.map((span: any) => ({
         startRow: span.row,
         endRow: span.row + span.rowCount - 1,
         startColumn: span.col,
@@ -859,21 +873,24 @@ function convertSpreadJSToUniver(
       const drawings: Record<string, Record<string, unknown>> = {};
       drawings[sheetId] = {};
 
-      pictures.forEach((picture, index) => {
+      pictures.forEach((picture: any, index: number) => {
         const drawingId = `drawing_${index}`;
         const image = picture.image();
 
         if (image) {
           // Convert image to base64 if possible for better preservation
           let imageSource = image.src;
-          
+
           // Try to get base64 if it's a canvas or image element
-          if (image instanceof HTMLImageElement && image.src.startsWith('data:')) {
+          if (
+            image instanceof HTMLImageElement &&
+            image.src.startsWith("data:")
+          ) {
             imageSource = image.src;
           } else if (image instanceof HTMLCanvasElement) {
-            imageSource = image.toDataURL('image/png');
+            imageSource = image.toDataURL("image/png");
           }
-          
+
           drawings[sheetId][drawingId] = {
             drawingId,
             drawingType: 1,
@@ -913,7 +930,7 @@ function convertSpreadJSToUniver(
         }
       }
     }
-    
+
     // Charts - SpreadJS preserves charts automatically during Excel import/export
     // Charts imported from Excel will be preserved when exporting back
     try {
@@ -922,7 +939,7 @@ function convertSpreadJSToUniver(
         if (!univerData.resources) {
           univerData.resources = [];
         }
-        
+
         // Store chart metadata for reference (charts are preserved by SpreadJS)
         const chartsData: Record<string, unknown[]> = {};
         chartsData[sheetId] = charts.map((chart: any, index: number) => ({
@@ -930,11 +947,11 @@ function convertSpreadJSToUniver(
           name: chart.name?.() || `Chart ${index + 1}`,
           // Charts will be preserved automatically by SpreadJS Excel.IO
         }));
-        
+
         const chartResource = univerData.resources.find(
           (r) => r.name === "SHEET_CHART_PLUGIN",
         );
-        
+
         if (chartResource) {
           const existingCharts = JSON.parse(chartResource.data || "{}");
           Object.assign(existingCharts, chartsData);
@@ -945,19 +962,23 @@ function convertSpreadJSToUniver(
             data: JSON.stringify(chartsData),
           });
         }
-        
-        console.log(`[SpreadJSExchange] Found ${charts.length} charts in sheet ${sheetId} - preserved by SpreadJS`);
+
+        console.log(
+          `[SpreadJSExchange] Found ${charts.length} charts in sheet ${sheetId} - preserved by SpreadJS`,
+        );
       }
     } catch (e) {
       // Charts API might not be available, that's OK
       console.debug("[SpreadJSExchange] Charts API check:", e);
     }
-    
+
     // Pivot Tables - SpreadJS preserves pivot tables automatically
     try {
       const pivotTables = (spreadSheet as any).pivotTables?.all?.() || [];
       if (pivotTables && pivotTables.length > 0) {
-        console.log(`[SpreadJSExchange] Found ${pivotTables.length} pivot tables in sheet ${sheetId} - preserved by SpreadJS`);
+        console.log(
+          `[SpreadJSExchange] Found ${pivotTables.length} pivot tables in sheet ${sheetId} - preserved by SpreadJS`,
+        );
         // Pivot tables are automatically preserved by SpreadJS Excel.IO
       }
     } catch (e) {
@@ -1017,7 +1038,7 @@ export async function exportToExcel(
   const finalFilename = filename.endsWith(".xlsx")
     ? filename
     : `${filename}.xlsx`;
-  
+
   // Wait for all images to load before converting
   const spread = await convertUniverToSpreadJS(univerData);
   const excelIO = new (GC as any).Spread.Excel.IO();
