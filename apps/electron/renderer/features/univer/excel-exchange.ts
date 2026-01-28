@@ -1,19 +1,29 @@
 /**
- * Excel Import/Export utilities using SheetJS (xlsx)
+ * Excel Import/Export utilities using SpreadJS for maximum fidelity
  *
- * Alternative to LuckyExcel with support for:
- * - Cell styles (font, fill, borders, alignment) - via cellStyles option
- * - Number formats
- * - Formulas
+ * Re-export SpreadJS exchange functions for backward compatibility.
+ * SpreadJS provides complete Excel compatibility including:
+ * - Full cell styles (font, fill, borders, alignment) with 100% fidelity
+ * - Images and drawings (native support)
+ * - Charts (30+ types)
+ * - Shapes and objects
+ * - Pivot tables
+ * - Conditional formatting
+ * - Data validation
+ * - Formulas (500+ Excel functions)
  * - Merged cells
  * - Column widths and row heights
- * - Basic cell styling
- * 
- * Note: Images/drawings support is limited in SheetJS Community Edition
+ * - Hyperlinks
+ * - Comments and notes
  */
 
-import * as XLSX from 'xlsx'
-import { saveAs } from 'file-saver'
+// Re-export from SpreadJS implementation
+export {
+    exportToExcelBuffer,
+    exportToExcel,
+    importFromExcel,
+    type UniverWorkbookData
+} from './spreadjs-exchange'
 
 // ============================================
 // UNIVER DATA TYPES
@@ -93,7 +103,7 @@ function extractFontsFromUniverData(univerData: UniverWorkbookData): Set<string>
     for (const sheet of Object.values(univerData.sheets)) {
         if (sheet.cellData) {
             for (const row of Object.values(sheet.cellData)) {
-                for (const cell of Object.values(row)) {
+                    for (const cell of Object.values(row)) {
                     if (cell.s) {
                         const style = typeof cell.s === 'string' 
                             ? univerData.styles?.[cell.s] 
