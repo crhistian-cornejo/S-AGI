@@ -1,5 +1,5 @@
-// Polyfill Buffer for browser (required by LuckyExcel / @mertdeveci55/univer-import-export)
-// This MUST be the first import to ensure Buffer is available before any other module
+// Buffer polyfill for browser (if needed by other modules)
+// Note: SheetJS (xlsx) doesn't require Buffer polyfill, but keeping for compatibility
 import './buffer-shim'
 
 import ReactDOM from 'react-dom/client'

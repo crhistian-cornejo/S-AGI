@@ -1,26 +1,82 @@
 /**
- * Excel Import/Export utilities using LuckyExcel (@mertdeveci55/univer-import-export)
+ * Excel Import/Export utilities using SheetJS (xlsx)
  *
- * Native Univer import/export solution with full support for:
- * - Cell styles (font, fill, borders, alignment)
+ * Alternative to LuckyExcel with support for:
+ * - Cell styles (font, fill, borders, alignment) - via cellStyles option
  * - Number formats
- * - Images and drawings (native support)
+ * - Formulas
  * - Merged cells
  * - Column widths and row heights
- * - Formulas
- * - Conditional formatting
- * - Data validation
- * - Hyperlinks
- * - Charts
+ * - Basic cell styling
+ * 
+ * Note: Images/drawings support is limited in SheetJS Community Edition
  */
 
-// Polyfill Buffer for browser (required by LuckyExcel when getBuffer: true)
-import { Buffer } from 'buffer'
-if (typeof window !== 'undefined' && !window.Buffer) {
-    (window as typeof window & { Buffer: typeof Buffer }).Buffer = Buffer
+import * as XLSX from 'xlsx'
+import { saveAs } from 'file-saver'
+
+// ============================================
+// UNIVER DATA TYPES
+// ============================================
+
+export interface UniverWorkbookData {
+    id: string
+    name: string
+    sheetOrder: string[]
+    sheets: Record<string, UniverSheetData>
+    styles?: Record<string, UniverCellStyle>
+    resources?: Array<{
+        name: string
+        data: string
+    }>
+    [key: string]: unknown
 }
 
-import LuckyExcel from '@mertdeveci55/univer-import-export'
+interface UniverSheetData {
+    id: string
+    name: string
+    cellData: Record<string, Record<string, UniverCell>>
+    rowCount?: number
+    columnCount?: number
+    defaultColumnWidth?: number
+    defaultRowHeight?: number
+    columnData?: Record<string, { w: number }>
+    rowData?: Record<string, { h: number }>
+    mergeData?: Array<{
+        startRow: number
+        endRow: number
+        startColumn: number
+        endColumn: number
+    }>
+    [key: string]: unknown
+}
+
+interface UniverCell {
+    v: string | number | boolean
+    s?: string | UniverCellStyle
+    f?: string // formula
+    [key: string]: unknown
+}
+
+interface UniverCellStyle {
+    ff?: string // font family
+    fs?: number // font size
+    bl?: number // bold
+    it?: number // italic
+    ul?: number // underline
+    cl?: { r: number; g: number; b: number } // color
+    bg?: { r: number; g: number; b: number } // background color
+    bd?: {
+        t?: { s: number; cl: { r: number; g: number; b: number } }
+        b?: { s: number; cl: { r: number; g: number; b: number } }
+        l?: { s: number; cl: { r: number; g: number; b: number } }
+        r?: { s: number; cl: { r: number; g: number; b: number } }
+    } // borders
+    ht?: number // horizontal alignment
+    vt?: number // vertical alignment
+    tb?: number // text wrap
+    [key: string]: unknown
+}
 
 // ============================================
 // FONT DETECTION AND VALIDATION
@@ -28,8 +84,6 @@ import LuckyExcel from '@mertdeveci55/univer-import-export'
 
 /**
  * Extract all unique fonts used in Univer workbook data
- * @param univerData - Univer workbook snapshot data
- * @returns Set of unique font family names
  */
 function extractFontsFromUniverData(univerData: UniverWorkbookData): Set<string> {
     const fonts = new Set<string>()
@@ -37,25 +91,15 @@ function extractFontsFromUniverData(univerData: UniverWorkbookData): Set<string>
     if (!univerData.sheets) return fonts
     
     for (const sheet of Object.values(univerData.sheets)) {
-        const sheetData = sheet as Record<string, unknown>
-        
-        if (sheetData.cellData && typeof sheetData.cellData === 'object') {
-            const cellData = sheetData.cellData as Record<string, Record<string, unknown>>
-            
-            for (const row of Object.values(cellData)) {
-                if (typeof row === 'object' && row !== null) {
-                    for (const cell of Object.values(row)) {
-                        if (cell && typeof cell === 'object') {
-                            const cellObj = cell as Record<string, unknown>
-                            if (cellObj.s && typeof cellObj.s === 'object') {
-                                const style = cellObj.s as Record<string, unknown>
-                                if (style.ff && typeof style.ff === 'string') {
-                                    const fontFamily = style.ff.trim()
-                                    if (fontFamily) {
-                                        fonts.add(fontFamily)
-                                    }
-                                }
-                            }
+        if (sheet.cellData) {
+            for (const row of Object.values(sheet.cellData)) {
+                for (const cell of Object.values(row)) {
+                    if (cell.s) {
+                        const style = typeof cell.s === 'string' 
+                            ? univerData.styles?.[cell.s] 
+                            : cell.s as UniverCellStyle
+                        if (style?.ff) {
+                            fonts.add(style.ff.trim())
                         }
                     }
                 }
@@ -68,12 +112,8 @@ function extractFontsFromUniverData(univerData: UniverWorkbookData): Set<string>
 
 /**
  * Check if a font is available on the system
- * Uses a combination of techniques to detect font availability
- * @param fontFamily - Font family name to check
- * @returns Promise resolving to true if font is available
  */
 async function isFontAvailable(fontFamily: string): Promise<boolean> {
-    // Normalize font family name (remove quotes, handle fallbacks)
     const normalized = fontFamily
         .replace(/['"]/g, '')
         .split(',')[0]
@@ -81,7 +121,6 @@ async function isFontAvailable(fontFamily: string): Promise<boolean> {
     
     if (!normalized) return false
     
-    // List of common system fonts that are almost always available
     const commonSystemFonts = [
         'arial', 'helvetica', 'times new roman', 'times', 'courier new', 'courier',
         'verdana', 'georgia', 'palatino', 'garamond', 'bookman', 'comic sans ms',
@@ -91,8 +130,6 @@ async function isFontAvailable(fontFamily: string): Promise<boolean> {
     ]
     
     const normalizedLower = normalized.toLowerCase()
-    
-    // Check if it's a common system font
     if (commonSystemFonts.some(font => 
         normalizedLower === font || 
         normalizedLower.includes(font) ||
@@ -101,44 +138,33 @@ async function isFontAvailable(fontFamily: string): Promise<boolean> {
         return true
     }
     
-    // For other fonts, use canvas measurement technique
-    // This is more reliable than document.fonts.check() which requires fonts to be loaded
     if (typeof document !== 'undefined') {
         try {
             const canvas = document.createElement('canvas')
             const context = canvas.getContext('2d')
             if (!context) return false
             
-            // Baseline measurement with a common font
             context.font = '12px monospace'
             const baselineWidth = context.measureText('mmmmmmmmmmlli').width
             
-            // Measure with the target font
             context.font = `12px "${normalized}", monospace`
             const testWidth = context.measureText('mmmmmmmmmmlli').width
             
-            // If widths are different, the font is likely available
-            // (though this isn't 100% accurate, it's a good heuristic)
             return Math.abs(baselineWidth - testWidth) > 0.1
         } catch {
-            // If measurement fails, assume font might not be available
             return false
         }
     }
     
-    // Fallback: assume font is not available if we can't check
     return false
 }
 
 /**
  * Check which fonts from a set are not available
- * @param fonts - Set of font family names to check
- * @returns Promise resolving to array of missing font names
  */
 async function findMissingFonts(fonts: Set<string>): Promise<string[]> {
     const missing: string[] = []
     
-    // Check fonts in parallel
     const checks = Array.from(fonts).map(async (font) => {
         const available = await isFontAvailable(font)
         if (!available) {
@@ -153,8 +179,6 @@ async function findMissingFonts(fonts: Set<string>): Promise<string[]> {
 
 /**
  * Replace missing fonts with Arial in Univer workbook data
- * @param univerData - Univer workbook snapshot data
- * @param missingFonts - Array of font names to replace
  */
 function replaceMissingFonts(univerData: UniverWorkbookData, missingFonts: string[]): void {
     if (missingFonts.length === 0 || !univerData.sheets) return
@@ -162,24 +186,23 @@ function replaceMissingFonts(univerData: UniverWorkbookData, missingFonts: strin
     const missingSet = new Set(missingFonts.map(f => f.toLowerCase()))
     
     for (const sheet of Object.values(univerData.sheets)) {
-        const sheetData = sheet as Record<string, unknown>
-        
-        if (sheetData.cellData && typeof sheetData.cellData === 'object') {
-            const cellData = sheetData.cellData as Record<string, Record<string, unknown>>
-            
-            for (const row of Object.values(cellData)) {
-                if (typeof row === 'object' && row !== null) {
-                    for (const cell of Object.values(row)) {
-                        if (cell && typeof cell === 'object') {
-                            const cellObj = cell as Record<string, unknown>
-                            if (cellObj.s && typeof cellObj.s === 'object') {
-                                const style = cellObj.s as Record<string, unknown>
-                                if (style.ff && typeof style.ff === 'string') {
-                                    const fontFamily = style.ff.trim()
-                                    if (fontFamily && missingSet.has(fontFamily.toLowerCase())) {
-                                        style.ff = 'Arial'
-                                    }
+        if (sheet.cellData) {
+            for (const row of Object.values(sheet.cellData)) {
+                for (const cell of Object.values(row)) {
+                    if (cell.s) {
+                        const style = typeof cell.s === 'string' 
+                            ? univerData.styles?.[cell.s] 
+                            : cell.s as UniverCellStyle
+                        
+                        if (style?.ff && missingSet.has(style.ff.toLowerCase())) {
+                            if (typeof cell.s === 'string') {
+                                // Update style in styles object
+                                if (univerData.styles?.[cell.s]) {
+                                    univerData.styles[cell.s].ff = 'Arial'
                                 }
+                            } else {
+                                // Update inline style
+                                (cell.s as UniverCellStyle).ff = 'Arial'
                             }
                         }
                     }
@@ -190,324 +213,414 @@ function replaceMissingFonts(univerData: UniverWorkbookData, missingFonts: strin
 }
 
 // ============================================
-// UNIVER DATA TYPES
-// ============================================
-
-export interface UniverWorkbookData {
-    id: string
-    name: string
-    sheetOrder: string[]
-    sheets: Record<string, unknown>
-    resources?: Array<{
-        name: string
-        data: string
-    }>
-    [key: string]: unknown  // Allow additional properties for full Univer snapshot compatibility
-}
-
-// ============================================
-// NORMALIZATION FUNCTIONS
+// CONVERSION: UNIVER -> SHEETJS
 // ============================================
 
 /**
- * Normalize Univer workbook data to ensure images/drawings are properly formatted for LuckyExcel
- * @param univerData - Univer workbook snapshot data
- * @returns Normalized Univer workbook data
+ * Convert Univer cell style to SheetJS cell style
  */
-/**
- * Normalize a single drawing for LuckyExcel export
- * LuckyExcel expects:
- * - source: base64 string (can include data:image/... prefix)
- * - sheetTransform.from/to with column, columnOffset, row, rowOffset
- * - drawingType: number (1 = image)
- */
-function normalizeDrawingForExport(drawing: Record<string, unknown>, drawingId: string): Record<string, unknown> | null {
-    // Ensure we have a valid drawing with source
-    if (!drawing.source) {
-        console.warn(`[ExcelExchange] Drawing ${drawingId} has no source, skipping`)
-        return null
-    }
+function convertUniverStyleToSheetJS(style: UniverCellStyle | undefined): Partial<XLSX.CellStyle> {
+    if (!style) return {}
     
-    const normalized: Record<string, unknown> = { ...drawing }
+    const sheetJSStyle: Partial<XLSX.CellStyle> = {}
     
-    // Set drawingId
-    if (!normalized.drawingId) {
-        normalized.drawingId = drawingId
-    }
-    
-    // Set drawingType to 1 (image) - LuckyExcel expects number
-    // Univer uses DrawingTypeEnum.DRAWING_IMAGE which might be 0 or 1
-    normalized.drawingType = 1
-    
-    // Ensure source is a string (base64 or URL)
-    const source = normalized.source as string
-    
-    // LuckyExcel checks for base64 with:
-    // this.workbook.addImage({ base64: n.source, extension: "png" })
-    // So the source should be the base64 data (can include data:image/png;base64, prefix)
-    console.log(`[ExcelExchange] Drawing ${drawingId} source type:`, 
-        source.startsWith('data:') ? 'base64' : 
-        source.startsWith('http') ? 'URL' : 'unknown',
-        'length:', source.length
-    )
-    
-    // Handle sheetTransform - LuckyExcel needs from/to with column, columnOffset, row, rowOffset
-    if (!normalized.sheetTransform && normalized.transform) {
-        const transform = normalized.transform as Record<string, unknown>
-        
-        // Check if transform already has from/to structure
-        if (transform.from && transform.to) {
-            normalized.sheetTransform = {
-                from: transform.from,
-                to: transform.to
-            }
-        } else if (typeof transform.left === 'number' || typeof transform.top === 'number') {
-            // Convert pixel-based transform to cell-based sheetTransform
-            // Default cell dimensions: column width ~72px, row height ~20px
-            const COL_WIDTH = 72
-            const ROW_HEIGHT = 20
-            
-            const left = (transform.left as number) || 0
-            const top = (transform.top as number) || 0
-            const width = (transform.width as number) || 100
-            const height = (transform.height as number) || 100
-            
-            const fromCol = Math.floor(left / COL_WIDTH)
-            const fromRow = Math.floor(top / ROW_HEIGHT)
-            const toCol = Math.floor((left + width) / COL_WIDTH)
-            const toRow = Math.floor((top + height) / ROW_HEIGHT)
-            
-            // Calculate offsets in EMUs (English Metric Units) - LuckyExcel uses this
-            // 1 column = 914400 EMUs approximately, 1 row = 182880 EMUs approximately
-            const colOffsetPx = left - (fromCol * COL_WIDTH)
-            const rowOffsetPx = top - (fromRow * ROW_HEIGHT)
-            const toColOffsetPx = (left + width) - (toCol * COL_WIDTH)
-            const toRowOffsetPx = (top + height) - (toRow * ROW_HEIGHT)
-            
-            normalized.sheetTransform = {
-                from: {
-                    column: fromCol,
-                    columnOffset: Math.round(colOffsetPx * 9525), // EMUs per pixel
-                    row: fromRow,
-                    rowOffset: Math.round(rowOffsetPx * 9525)
-                },
-                to: {
-                    column: toCol,
-                    columnOffset: Math.round(toColOffsetPx * 9525),
-                    row: toRow,
-                    rowOffset: Math.round(toRowOffsetPx * 9525)
-                }
+    // Font
+    if (style.ff || style.fs || style.bl || style.cl) {
+        sheetJSStyle.font = {}
+        if (style.ff) sheetJSStyle.font.name = style.ff.split(',')[0].trim()
+        if (style.fs) sheetJSStyle.font.sz = style.fs
+        if (style.bl) sheetJSStyle.font.bold = style.bl === 1
+        if (style.it) sheetJSStyle.font.italic = style.it === 1
+        if (style.ul) sheetJSStyle.font.underline = style.ul === 1
+        if (style.cl) {
+            sheetJSStyle.font.color = {
+                rgb: rgbToHex(style.cl.r, style.cl.g, style.cl.b)
             }
         }
     }
     
-    // Validate sheetTransform structure
-    if (normalized.sheetTransform) {
-        const st = normalized.sheetTransform as Record<string, unknown>
-        const from = st.from as Record<string, unknown> | undefined
-        const to = st.to as Record<string, unknown> | undefined
-        
-        if (from && to) {
-            console.log(`[ExcelExchange] Drawing ${drawingId} sheetTransform:`, {
-                from: { col: from.column, row: from.row },
-                to: { col: to.column, row: to.row }
-            })
-        } else {
-            console.warn(`[ExcelExchange] Drawing ${drawingId} has invalid sheetTransform:`, st)
+    // Fill (background)
+    if (style.bg) {
+        sheetJSStyle.fill = {
+            fgColor: {
+                rgb: rgbToHex(style.bg.r, style.bg.g, style.bg.b)
+            }
         }
-    } else {
-        console.warn(`[ExcelExchange] Drawing ${drawingId} has no sheetTransform`)
     }
     
-    return normalized
+    // Alignment
+    if (style.ht !== undefined || style.vt !== undefined) {
+        sheetJSStyle.alignment = {}
+        if (style.ht !== undefined) {
+            const alignMap: Record<number, string> = {
+                0: 'left',
+                1: 'center',
+                2: 'right'
+            }
+            sheetJSStyle.alignment.horizontal = alignMap[style.ht] || 'left'
+        }
+        if (style.vt !== undefined) {
+            const vertMap: Record<number, string> = {
+                0: 'top',
+                1: 'middle',
+                2: 'bottom'
+            }
+            sheetJSStyle.alignment.vertical = vertMap[style.vt] || 'top'
+        }
+        if (style.tb) {
+            sheetJSStyle.alignment.wrapText = true
+        }
+    }
+    
+    // Borders
+    if (style.bd) {
+        sheetJSStyle.border = {}
+        const borderStyleMap: Record<number, string> = {
+            0: 'thin',
+            1: 'medium',
+            2: 'thick'
+        }
+        
+        if (style.bd.t) {
+            sheetJSStyle.border.top = {
+                style: borderStyleMap[style.bd.t.s] || 'thin',
+                color: { rgb: rgbToHex(style.bd.t.cl.r, style.bd.t.cl.g, style.bd.t.cl.b) }
+            }
+        }
+        if (style.bd.b) {
+            sheetJSStyle.border.bottom = {
+                style: borderStyleMap[style.bd.b.s] || 'thin',
+                color: { rgb: rgbToHex(style.bd.b.cl.r, style.bd.b.cl.g, style.bd.b.cl.b) }
+            }
+        }
+        if (style.bd.l) {
+            sheetJSStyle.border.left = {
+                style: borderStyleMap[style.bd.l.s] || 'thin',
+                color: { rgb: rgbToHex(style.bd.l.cl.r, style.bd.l.cl.g, style.bd.l.cl.b) }
+            }
+        }
+        if (style.bd.r) {
+            sheetJSStyle.border.right = {
+                style: borderStyleMap[style.bd.r.s] || 'thin',
+                color: { rgb: rgbToHex(style.bd.r.cl.r, style.bd.r.cl.g, style.bd.r.cl.b) }
+            }
+        }
+    }
+    
+    return sheetJSStyle
 }
 
-function normalizeUniverDataForExport(univerData: UniverWorkbookData): UniverWorkbookData {
-    // Deep clone to avoid mutating original
-    const normalized = JSON.parse(JSON.stringify(univerData))
-    
-    // Ensure resources array exists
-    if (!normalized.resources) {
-        normalized.resources = []
-    }
-    
-    // Collect all drawings from multiple sources
-    const allDrawings: Record<string, Record<string, unknown>> = {}
-    
-    console.log('[ExcelExchange] Starting export normalization...')
-    console.log('[ExcelExchange] Resources available:', normalized.resources?.map((r: { name: string }) => r.name))
-    
-    // Source 1: Check drawings in resources (SHEET_DRAWING_PLUGIN)
-    const drawingResourceNames = ['SHEET_DRAWING_PLUGIN', 'sheet.drawing', 'drawing']
-    for (const resourceName of drawingResourceNames) {
-        const resource = normalized.resources?.find(
-            (r: { name?: string }) => r.name === resourceName || r.name?.toLowerCase().includes('drawing')
-        )
-        
-        if (resource?.data) {
-            try {
-                const drawingsData = typeof resource.data === 'string' 
-                    ? JSON.parse(resource.data) 
-                    : resource.data
-                
-                console.log(`[ExcelExchange] Found drawings in resource "${resource.name}":`, 
-                    Object.keys(drawingsData).length, 'sheets')
-                
-                for (const [sheetId, drawings] of Object.entries(drawingsData)) {
-                    if (drawings && typeof drawings === 'object') {
-                        const drawingsObj = drawings as Record<string, unknown>
-                        
-                        for (const [drawingId, drawing] of Object.entries(drawingsObj)) {
-                            if (drawing && typeof drawing === 'object') {
-                                const normalizedDrawing = normalizeDrawingForExport(
-                                    drawing as Record<string, unknown>, 
-                                    drawingId
-                                )
-                                
-                                if (normalizedDrawing) {
-                                    if (!allDrawings[sheetId]) {
-                                        allDrawings[sheetId] = {}
-                                    }
-                                    allDrawings[sheetId][drawingId] = normalizedDrawing
-                                }
-                            }
-                        }
-                    }
-                }
-            } catch (e) {
-                console.warn(`[ExcelExchange] Failed to parse resource "${resource.name}":`, e)
-            }
-            break // Found drawings resource, no need to check others
-        }
-    }
-    
-    // Source 2: Check drawings directly in sheets (sheet.drawings)
-    if (normalized.sheets) {
-        for (const [sheetId, sheet] of Object.entries(normalized.sheets)) {
-            const sheetData = sheet as Record<string, unknown>
-            
-            if (sheetData.drawings && typeof sheetData.drawings === 'object') {
-                const drawings = sheetData.drawings as Record<string, unknown>
-                console.log(`[ExcelExchange] Found drawings in sheet "${sheetId}":`, 
-                    Object.keys(drawings).length)
-                
-                for (const [drawingId, drawing] of Object.entries(drawings)) {
-                    if (drawing && typeof drawing === 'object') {
-                        const normalizedDrawing = normalizeDrawingForExport(
-                            drawing as Record<string, unknown>, 
-                            drawingId
-                        )
-                        
-                        if (normalizedDrawing) {
-                            if (!allDrawings[sheetId]) {
-                                allDrawings[sheetId] = {}
-                            }
-                            // Sheet drawings take priority over resource drawings
-                            allDrawings[sheetId][drawingId] = normalizedDrawing
-                        }
-                    }
-                }
-            }
-        }
-    }
-    
-    // Update or create SHEET_DRAWING_PLUGIN resource
-    const drawingResourceIndex = normalized.resources.findIndex(
-        (r: { name?: string }) => r.name === 'SHEET_DRAWING_PLUGIN'
-    )
-    
-    const totalDrawings = Object.values(allDrawings).reduce(
-        (sum, sheet) => sum + Object.keys(sheet).length, 0
-    )
-    
-    console.log('[ExcelExchange] Export summary:', {
-        sheetsWithDrawings: Object.keys(allDrawings).length,
-        totalDrawings,
-        sheetIds: Object.keys(allDrawings)
-    })
-    
-    if (totalDrawings > 0) {
-        const drawingsData = JSON.stringify(allDrawings)
-        
-        if (drawingResourceIndex >= 0) {
-            normalized.resources[drawingResourceIndex].data = drawingsData
-        } else {
-            normalized.resources.push({
-                name: 'SHEET_DRAWING_PLUGIN',
-                data: drawingsData
-            })
-        }
-        
-        // Log a sample for debugging
-        const firstSheetDrawings = Object.values(allDrawings)[0] as Record<string, unknown>
-        if (firstSheetDrawings) {
-            const sampleDrawing = Object.values(firstSheetDrawings)[0] as Record<string, unknown>
-            console.log('[ExcelExchange] Sample drawing for export:', {
-                drawingId: sampleDrawing?.drawingId,
-                drawingType: sampleDrawing?.drawingType,
-                hasSource: !!sampleDrawing?.source,
-                sourceLength: (sampleDrawing?.source as string)?.length,
-                hasSheetTransform: !!sampleDrawing?.sheetTransform
-            })
-        }
-    } else {
-        console.warn('[ExcelExchange] No drawings found to export!')
-    }
-    
-    return normalized
+function rgbToHex(r: number, g: number, b: number): string {
+    return [r, g, b].map(x => {
+        const hex = Math.round(x).toString(16)
+        return hex.length === 1 ? '0' + hex : hex
+    }).join('').toUpperCase()
 }
 
 /**
- * Normalize imported Univer workbook data to ensure proper structure
- * @param univerData - Univer workbook data from LuckyExcel
- * @returns Normalized Univer workbook data
+ * Convert Univer workbook to SheetJS workbook
  */
-function normalizeUniverDataForImport(univerData: UniverWorkbookData): UniverWorkbookData {
-    // Deep clone to avoid mutating original
-    const normalized = JSON.parse(JSON.stringify(univerData))
-    
-    // Ensure resources array exists
-    if (!normalized.resources) {
-        normalized.resources = []
+function convertUniverToSheetJS(univerData: UniverWorkbookData): XLSX.WorkBook {
+    const workbook: XLSX.WorkBook = {
+        SheetNames: [],
+        Sheets: {}
     }
     
-    // Parse drawings from resources and add to sheets if needed
-    const drawingResourceIndex = normalized.resources.findIndex(
-        (r: { name?: string }) => r.name === 'SHEET_DRAWING_PLUGIN' || r.name?.includes('drawing')
-    )
+    const sheetOrder = univerData.sheetOrder || Object.keys(univerData.sheets || {})
     
-    if (drawingResourceIndex >= 0) {
-        const drawingResource = normalized.resources[drawingResourceIndex]
+    for (const sheetId of sheetOrder) {
+        const univerSheet = univerData.sheets?.[sheetId]
+        if (!univerSheet) continue
         
-        try {
-            const drawingsData = JSON.parse(drawingResource.data || '{}')
-            
-            // Add drawings to corresponding sheets
-            if (normalized.sheets && typeof drawingsData === 'object') {
-                for (const [sheetId, drawings] of Object.entries(drawingsData)) {
-                    if (normalized.sheets[sheetId] && drawings && typeof drawings === 'object') {
-                        const sheet = normalized.sheets[sheetId] as Record<string, unknown>
+        const sheetName = univerSheet.name || sheetId
+        workbook.SheetNames.push(sheetName)
+        
+        // Convert cell data
+        const sheetData: Record<string, XLSX.CellObject> = {}
+        const range: XLSX.Range = { s: { c: 0, r: 0 }, e: { c: 0, r: 0 } }
+        
+        if (univerSheet.cellData) {
+            for (const [rowKey, row] of Object.entries(univerSheet.cellData)) {
+                const rowNum = parseInt(rowKey, 10)
+                if (isNaN(rowNum)) continue
+                
+                for (const [colKey, cell] of Object.entries(row)) {
+                    const colNum = parseInt(colKey, 10)
+                    if (isNaN(colNum)) continue
+                    
+                    const cellAddress = XLSX.utils.encode_cell({ r: rowNum, c: colNum })
+                    const sheetJSCell: XLSX.CellObject = {}
+                    
+                    // Value
+                    if (cell.f) {
+                        sheetJSCell.f = cell.f
+                        sheetJSCell.t = 'n' // formula
+                    } else if (typeof cell.v === 'boolean') {
+                        sheetJSCell.v = cell.v
+                        sheetJSCell.t = 'b'
+                    } else if (typeof cell.v === 'number') {
+                        sheetJSCell.v = cell.v
+                        sheetJSCell.t = 'n'
+                    } else {
+                        sheetJSCell.v = String(cell.v || '')
+                        sheetJSCell.t = 's'
+                    }
+                    
+                    // Style
+                    if (cell.s) {
+                        const style = typeof cell.s === 'string' 
+                            ? univerData.styles?.[cell.s] 
+                            : cell.s as UniverCellStyle
                         
-                        // Convert drawings to object format if it's an array
-                        if (Array.isArray(drawings)) {
-                            sheet.drawings = drawings.reduce((acc, drawing, index) => {
-                                const drawingObj = drawing as Record<string, unknown>
-                                const id = (drawingObj.drawingId as string) || `drawing_${index}`
-                                acc[id] = drawing
-                                return acc
-                            }, {} as Record<string, unknown>)
-                        } else {
-                            sheet.drawings = drawings
+                        if (style) {
+                            const sheetJSStyle = convertUniverStyleToSheetJS(style)
+                            Object.assign(sheetJSCell, sheetJSStyle)
                         }
                     }
+                    
+                    sheetData[cellAddress] = sheetJSCell
+                    
+                    // Update range
+                    if (rowNum > range.e.r) range.e.r = rowNum
+                    if (colNum > range.e.c) range.e.c = colNum
                 }
             }
-        } catch (e) {
-            console.warn('[ExcelExchange] Failed to parse drawing resource:', e)
+        }
+        
+        // Set column widths
+        const colWidths: Array<{ wch: number }> = []
+        if (univerSheet.columnData) {
+            for (let i = 0; i <= range.e.c; i++) {
+                const colData = univerSheet.columnData[String(i)]
+                colWidths.push({ wch: colData?.w ? colData.w / 7 : univerSheet.defaultColumnWidth ? univerSheet.defaultColumnWidth / 7 : 10 })
+            }
+        } else if (univerSheet.defaultColumnWidth) {
+            const defaultWidth = univerSheet.defaultColumnWidth / 7 // Convert pixels to characters
+            for (let i = 0; i <= range.e.c; i++) {
+                colWidths.push({ wch: defaultWidth })
+            }
+        }
+        
+        // Create worksheet
+        const worksheet: XLSX.WorkSheet = {
+            '!ref': XLSX.utils.encode_range(range),
+            ...sheetData
+        }
+        
+        if (colWidths.length > 0) {
+            worksheet['!cols'] = colWidths
+        }
+        
+        // Handle merged cells
+        if (univerSheet.mergeData && univerSheet.mergeData.length > 0) {
+            worksheet['!merges'] = univerSheet.mergeData.map(merge => ({
+                s: { r: merge.startRow, c: merge.startColumn },
+                e: { r: merge.endRow, c: merge.endColumn }
+            }))
+        }
+        
+        workbook.Sheets[sheetName] = worksheet
+    }
+    
+    return workbook
+}
+
+// ============================================
+// CONVERSION: SHEETJS -> UNIVER
+// ============================================
+
+/**
+ * Convert SheetJS cell style to Univer cell style
+ */
+function convertSheetJSStyleToUniver(cell: XLSX.CellObject, styleIndex: number): UniverCellStyle {
+    const style: UniverCellStyle = {}
+    
+    if (cell.font) {
+        if (cell.font.name) style.ff = cell.font.name
+        if (cell.font.sz) style.fs = cell.font.sz
+        if (cell.font.bold) style.bl = 1
+        if (cell.font.italic) style.it = 1
+        if (cell.font.underline) style.ul = 1
+        if (cell.font.color?.rgb) {
+            const rgb = hexToRgb(cell.font.color.rgb)
+            if (rgb) style.cl = rgb
         }
     }
     
-    return normalized
+    if (cell.fill?.fgColor?.rgb) {
+        const rgb = hexToRgb(cell.fill.fgColor.rgb)
+        if (rgb) style.bg = rgb
+    }
+    
+    if (cell.alignment) {
+        const alignMap: Record<string, number> = {
+            'left': 0,
+            'center': 1,
+            'right': 2
+        }
+        if (cell.alignment.horizontal) {
+            style.ht = alignMap[cell.alignment.horizontal] ?? 0
+        }
+        
+        const vertMap: Record<string, number> = {
+            'top': 0,
+            'middle': 1,
+            'bottom': 2
+        }
+        if (cell.alignment.vertical) {
+            style.vt = vertMap[cell.alignment.vertical] ?? 0
+        }
+        
+        if (cell.alignment.wrapText) {
+            style.tb = 1
+        }
+    }
+    
+    if (cell.border) {
+        style.bd = {}
+        const styleMap: Record<string, number> = {
+            'thin': 0,
+            'medium': 1,
+            'thick': 2
+        }
+        
+        if (cell.border.top) {
+            const rgb = hexToRgb(cell.border.top.color?.rgb || '000000')
+            style.bd.t = {
+                s: styleMap[cell.border.top.style || 'thin'] ?? 0,
+                cl: rgb || { r: 0, g: 0, b: 0 }
+            }
+        }
+        if (cell.border.bottom) {
+            const rgb = hexToRgb(cell.border.bottom.color?.rgb || '000000')
+            style.bd.b = {
+                s: styleMap[cell.border.bottom.style || 'thin'] ?? 0,
+                cl: rgb || { r: 0, g: 0, b: 0 }
+            }
+        }
+        if (cell.border.left) {
+            const rgb = hexToRgb(cell.border.left.color?.rgb || '000000')
+            style.bd.l = {
+                s: styleMap[cell.border.left.style || 'thin'] ?? 0,
+                cl: rgb || { r: 0, g: 0, b: 0 }
+            }
+        }
+        if (cell.border.right) {
+            const rgb = hexToRgb(cell.border.right.color?.rgb || '000000')
+            style.bd.r = {
+                s: styleMap[cell.border.right.style || 'thin'] ?? 0,
+                cl: rgb || { r: 0, g: 0, b: 0 }
+            }
+        }
+    }
+    
+    return style
+}
+
+function hexToRgb(hex: string): { r: number; g: number; b: number } | null {
+    const result = /^([A-Fa-f0-9]{2})([A-Fa-f0-9]{2})([A-Fa-f0-9]{2})$/.exec(hex)
+    return result ? {
+        r: parseInt(result[1], 16),
+        g: parseInt(result[2], 16),
+        b: parseInt(result[3], 16)
+    } : null
+}
+
+/**
+ * Convert SheetJS workbook to Univer workbook
+ */
+function convertSheetJSToUniver(workbook: XLSX.WorkBook, fileName: string): UniverWorkbookData {
+    const univerData: UniverWorkbookData = {
+        id: `workbook-${Date.now()}`,
+        name: fileName.replace(/\.xlsx?$/i, ''),
+        sheetOrder: workbook.SheetNames,
+        sheets: {},
+        styles: {}
+    }
+    
+    let styleIndex = 0
+    const styleMap = new Map<string, string>() // Map style objects to style IDs
+    
+    for (const sheetName of workbook.SheetNames) {
+        const worksheet = workbook.Sheets[sheetName]
+        if (!worksheet) continue
+        
+        const sheetId = `sheet_${univerData.sheetOrder.indexOf(sheetName)}`
+        const sheetData: UniverSheetData = {
+            id: sheetId,
+            name: sheetName,
+            cellData: {}
+        }
+        
+        // Parse range
+        const range = XLSX.utils.decode_range(worksheet['!ref'] || 'A1')
+        sheetData.rowCount = range.e.r + 1
+        sheetData.columnCount = range.e.c + 1
+        
+        // Convert cells
+        for (let row = range.s.r; row <= range.e.r; row++) {
+            for (let col = range.s.c; col <= range.e.c; col++) {
+                const cellAddress = XLSX.utils.encode_cell({ r: row, c: col })
+                const cell = worksheet[cellAddress] as XLSX.CellObject | undefined
+                
+                if (!cell) continue
+                
+                const rowKey = String(row)
+                const colKey = String(col)
+                
+                if (!sheetData.cellData[rowKey]) {
+                    sheetData.cellData[rowKey] = {}
+                }
+                
+                const univerCell: UniverCell = {
+                    v: cell.v ?? ''
+                }
+                
+                // Formula
+                if (cell.f) {
+                    univerCell.f = cell.f
+                }
+                
+                // Style
+                const style = convertSheetJSStyleToUniver(cell, styleIndex)
+                const styleKey = JSON.stringify(style)
+                
+                if (!styleMap.has(styleKey)) {
+                    const styleId = `style_${styleIndex++}`
+                    styleMap.set(styleKey, styleId)
+                    univerData.styles![styleId] = style
+                }
+                
+                univerCell.s = styleMap.get(styleKey)!
+                
+                sheetData.cellData[rowKey][colKey] = univerCell
+            }
+        }
+        
+        // Column widths
+        if (worksheet['!cols']) {
+            sheetData.columnData = {}
+            worksheet['!cols'].forEach((col, index) => {
+                if (col.wch) {
+                    sheetData.columnData![String(index)] = { w: col.wch * 7 } // Convert characters to pixels
+                }
+            })
+        }
+        
+        // Merged cells
+        if (worksheet['!merges']) {
+            sheetData.mergeData = worksheet['!merges'].map(merge => ({
+                startRow: merge.s.r,
+                endRow: merge.e.r,
+                startColumn: merge.s.c,
+                endColumn: merge.e.c
+            }))
+        }
+        
+        univerData.sheets[sheetId] = sheetData
+    }
+    
+    return univerData
 }
 
 // ============================================
@@ -516,78 +629,33 @@ function normalizeUniverDataForImport(univerData: UniverWorkbookData): UniverWor
 
 /**
  * Export Univer workbook data to Excel buffer
- * Uses LuckyExcel with getBuffer option to get buffer without downloading
- * @param univerData - Univer workbook snapshot data
- * @returns Promise resolving to ArrayBuffer
  */
 export async function exportToExcelBuffer(univerData: UniverWorkbookData): Promise<ArrayBuffer> {
-    return new Promise((resolve, reject) => {
-        // Normalize data to ensure images/drawings are properly formatted
-        const normalizedData = normalizeUniverDataForExport(univerData)
-        
-        // LuckyExcel supports getBuffer option to return buffer instead of downloading
-        LuckyExcel.transformUniverToExcel({
-            snapshot: normalizedData,
-            fileName: 'temp.xlsx', // Not used when getBuffer is true, but required
-            getBuffer: true, // This makes it return buffer instead of downloading
-            success: (buffer?: ArrayBuffer | Blob | Buffer) => {
-                if (!buffer) {
-                    reject(new Error('LuckyExcel export returned no buffer'))
-                    return
-                }
-                
-                // Convert Blob to ArrayBuffer if needed
-                if (buffer instanceof Blob) {
-                    buffer.arrayBuffer()
-                        .then(arrayBuffer => resolve(arrayBuffer))
-                        .catch(error => {
-                            const errorMessage = error instanceof Error ? error.message : String(error)
-                            reject(new Error(`Failed to convert blob to buffer: ${errorMessage}`))
-                        })
-                } else if (Buffer.isBuffer(buffer)) {
-                    // Node.js Buffer - convert to ArrayBuffer
-                    resolve(buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength))
-                } else {
-                    resolve(buffer as ArrayBuffer)
-                }
-            },
-            error: (error: unknown) => {
-                const errorMessage = error instanceof Error ? error.message : String(error)
-                reject(new Error(`LuckyExcel export failed: ${errorMessage || 'Unknown error'}`))
-            }
-        })
+    const workbook = convertUniverToSheetJS(univerData)
+    const buffer = XLSX.write(workbook, { 
+        type: 'array',
+        bookType: 'xlsx',
+        cellStyles: true
     })
+    return buffer.buffer
 }
 
 /**
  * Export Univer workbook data to Excel file and trigger download
- * @param univerData - Univer workbook snapshot data
- * @param filename - Output filename (default: 'spreadsheet.xlsx')
  */
 export async function exportToExcel(
     univerData: UniverWorkbookData,
     filename: string = 'spreadsheet.xlsx'
 ): Promise<void> {
     const finalFilename = filename.endsWith('.xlsx') ? filename : `${filename}.xlsx`
-    
-    return new Promise((resolve, reject) => {
-        // Normalize data to ensure images/drawings are properly formatted
-        const normalizedData = normalizeUniverDataForExport(univerData)
-        
-        // LuckyExcel handles the download automatically with the fileName
-        LuckyExcel.transformUniverToExcel({
-            snapshot: normalizedData,
-            fileName: finalFilename, // Use the provided filename
-            success: () => {
-                resolve()
-            },
-            error: (error: unknown) => {
-                const errorMessage = error instanceof Error ? error.message : String(error)
-                console.error('[ExcelExchange] Export failed:', errorMessage)
-                reject(new Error(`LuckyExcel export failed: ${errorMessage || 'Unknown error'}`))
-            }
-        })
+    const workbook = convertUniverToSheetJS(univerData)
+    const buffer = XLSX.write(workbook, { 
+        type: 'array',
+        bookType: 'xlsx',
+        cellStyles: true
     })
+    const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
+    saveAs(blob, finalFilename)
 }
 
 // ============================================
@@ -596,57 +664,65 @@ export async function exportToExcel(
 
 /**
  * Import Excel file to Univer workbook data format
- * @param file - Excel file (.xlsx or .xls)
- * @param onMissingFonts - Optional callback when missing fonts are detected
- * @returns Promise resolving to UniverWorkbookData
  */
 export async function importFromExcel(
     file: File,
     onMissingFonts?: (missingFonts: string[]) => void
 ): Promise<UniverWorkbookData> {
     return new Promise((resolve, reject) => {
-        // LuckyExcel uses callbacks, wrap in Promise
-        LuckyExcel.transformExcelToUniver(
-            file,
-            async (univerData: unknown) => {
-                // Cast to our type - LuckyExcel returns IWorkbookData which is compatible
-                const data = univerData as UniverWorkbookData
-                // Ensure the data has required fields
-                if (!data.id) {
-                    data.id = `workbook-${Date.now()}`
-                }
-                if (!data.name) {
-                    data.name = file.name.replace(/\.xlsx?$/i, '')
-                }
-                if (!data.sheetOrder && data.sheets) {
-                    // Generate sheetOrder from sheets if missing
-                    data.sheetOrder = Object.keys(data.sheets)
+        const reader = new FileReader()
+        
+        reader.onload = async (e) => {
+            try {
+                const data = e.target?.result
+                if (!data) {
+                    reject(new Error('Failed to read file'))
+                    return
                 }
                 
-                // Normalize imported data to ensure images/drawings are properly structured
-                const normalizedData = normalizeUniverDataForImport(data)
+                // Read workbook with cellStyles to preserve styles
+                const workbook = XLSX.read(data, { 
+                    type: 'array',
+                    cellStyles: true 
+                })
+                
+                // Convert to Univer format
+                const univerData = convertSheetJSToUniver(workbook, file.name)
+                
+                // Ensure required fields
+                if (!univerData.id) {
+                    univerData.id = `workbook-${Date.now()}`
+                }
+                if (!univerData.name) {
+                    univerData.name = file.name.replace(/\.xlsx?$/i, '')
+                }
+                if (!univerData.sheetOrder && univerData.sheets) {
+                    univerData.sheetOrder = Object.keys(univerData.sheets)
+                }
                 
                 // Check for missing fonts
-                const fonts = extractFontsFromUniverData(normalizedData)
+                const fonts = extractFontsFromUniverData(univerData)
                 if (fonts.size > 0) {
                     const missingFonts = await findMissingFonts(fonts)
                     if (missingFonts.length > 0) {
-                        // Replace missing fonts with Arial
-                        replaceMissingFonts(normalizedData, missingFonts)
-                        
-                        // Notify caller about missing fonts
+                        replaceMissingFonts(univerData, missingFonts)
                         if (onMissingFonts) {
                             onMissingFonts(missingFonts)
                         }
                     }
                 }
                 
-                resolve(normalizedData)
-            },
-            (error: unknown) => {
+                resolve(univerData)
+            } catch (error) {
                 const errorMessage = error instanceof Error ? error.message : String(error)
-                reject(new Error(`LuckyExcel import failed: ${errorMessage || 'Unknown error'}`))
+                reject(new Error(`Excel import failed: ${errorMessage || 'Unknown error'}`))
             }
-        )
+        }
+        
+        reader.onerror = () => {
+            reject(new Error('Failed to read file'))
+        }
+        
+        reader.readAsArrayBuffer(file)
     })
 }

@@ -143,21 +143,11 @@ export default defineConfig({
             dedupe: ['@wendellhu/redi'],
         },
         define: {
-            // Make Buffer available globally for LuckyExcel and other Node.js modules
             'global': 'globalThis',
         },
         optimizeDeps: {
-            include: ['@wendellhu/redi', 'buffer'],
-            // Exclude the problematic package to prevent it from loading before Buffer is ready
-            exclude: ['@mertdeveci55/univer-import-export'],
+            include: ['@wendellhu/redi', 'xlsx'],
             force: true,
-            esbuildOptions: {
-                // Inject Buffer shim before any other code
-                inject: [resolve(__dirname, 'apps/electron/renderer/buffer-shim.js')],
-                define: {
-                    global: 'globalThis',
-                },
-            },
         },
         plugins: [react()],
         build: {

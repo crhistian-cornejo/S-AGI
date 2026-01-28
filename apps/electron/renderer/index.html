@@ -9,7 +9,7 @@
         />
         <!-- Buffer polyfill - must load before any module that uses it -->
         <script>
-            // Minimal Buffer polyfill for browser (required by @mertdeveci55/univer-import-export)
+            // Minimal Buffer polyfill for browser (if needed by other modules)
             // This runs before any ES modules are loaded
             if (typeof window !== 'undefined' && typeof window.Buffer === 'undefined') {
                 window.Buffer = {
