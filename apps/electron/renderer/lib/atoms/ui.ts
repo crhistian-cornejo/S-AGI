@@ -77,6 +77,7 @@ export const settingsActiveTabAtom = atom<SettingsTab>('account')
 // === HELP & SHORTCUTS ===
 
 export const shortcutsDialogOpenAtom = atom(false)
+export const aboutDialogOpenAtom = atom(false)
 
 // === COMMAND K / QUICK SEARCH ===
 

@@ -119,6 +119,7 @@ export {
   settingsActiveTabAtom,
   // Dialogs
   shortcutsDialogOpenAtom,
+  aboutDialogOpenAtom,
   commandKOpenAtom,
   authDialogOpenAtom,
   authDialogModeAtom,
@@ -160,6 +161,10 @@ export {
   agentPanelConfigAtom,
   agentPanelStreamingAtom,
   agentPanelStreamingTextAtom,
+  // Agent status for animated loader
+  type AgentStatusPhase,
+  type AgentStatus,
+  agentPanelStatusAtom,
   type AgentPanelImageAttachment,
   agentPanelImagesAtom,
   type CellContextAttachment,

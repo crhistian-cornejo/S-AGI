@@ -20,6 +20,11 @@ const desktopApi = {
 
   // App info
   getVersion: () => ipcRenderer.invoke("app:getVersion"),
+  showAbout: () => {
+    // Send event directly to renderer (same as menu action)
+    // The renderer listens for this via menu.onShowAbout
+    ipcRenderer.send("menu:show-about");
+  },
 
   // Auth synchronization
   setSession: (session: any) => ipcRenderer.invoke("auth:set-session", session),
@@ -203,6 +208,13 @@ const desktopApi = {
       ipcRenderer.on("menu:show-shortcuts", handler);
       return () => {
         ipcRenderer.removeListener("menu:show-shortcuts", handler);
+      };
+    },
+    onShowAbout: (callback: () => void) => {
+      const handler = () => callback();
+      ipcRenderer.on("menu:show-about", handler);
+      return () => {
+        ipcRenderer.removeListener("menu:show-about", handler);
       };
     },
     onGoToTab: (callback: (data: { tab: string }) => void) => {
@@ -683,6 +695,20 @@ const desktopApi = {
     ipcRenderer.on("auth:error", handler);
     return () => {
       ipcRenderer.removeListener("auth:error", handler);
+    };
+  },
+
+  // Cell highlighting (for clickable tool call badges)
+  highlightCells: (params: { range: string; sheetName?: string }) => {
+    ipcRenderer.send("univer:highlight-cells", params);
+  },
+  onHighlightCells: (
+    callback: (params: { range: string; sheetName?: string }) => void,
+  ) => {
+    const handler = (_: any, params: any) => callback(params);
+    ipcRenderer.on("univer:highlight-cells", handler);
+    return () => {
+      ipcRenderer.removeListener("univer:highlight-cells", handler);
     };
   },
 

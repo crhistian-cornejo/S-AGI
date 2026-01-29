@@ -767,6 +767,83 @@
   z-index: 1105 !important;
 }
 
+/* Fix context menu item borders - remove individual borders from items */
+.univer-context-menu [role="menuitem"],
+[class*="univer-context-menu"] [role="menuitem"],
+.univer-menu [role="menuitem"],
+[class*="univer-menu"] [role="menuitem"],
+.rc-dropdown-menu li,
+.rc-menu-item {
+  border: none !important;
+  outline: none !important;
+  box-shadow: none !important;
+  border-radius: 6px !important;
+  margin: 2px 4px !important;
+  padding: 6px 10px !important;
+}
+
+/* Fix context menu container styling */
+.univer-context-menu,
+[class*="univer-context-menu"],
+.rc-dropdown-menu,
+.rc-menu {
+  padding: 4px !important;
+  border-radius: 10px !important;
+  border: 1px solid hsl(var(--border)) !important;
+  background-color: hsl(var(--popover)) !important;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15) !important;
+}
+
+.dark .univer-context-menu,
+.dark [class*="univer-context-menu"],
+.dark .rc-dropdown-menu,
+.dark .rc-menu,
+.univer-dark .univer-context-menu,
+.univer-dark [class*="univer-context-menu"],
+.univer-dark .rc-dropdown-menu,
+.univer-dark .rc-menu {
+  background-color: #1f1f1f !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4) !important;
+}
+
+/* Remove separator lines from menu items */
+.univer-context-menu [role="menuitem"]::before,
+.univer-context-menu [role="menuitem"]::after,
+[class*="univer-context-menu"] [role="menuitem"]::before,
+[class*="univer-context-menu"] [role="menuitem"]::after,
+.rc-dropdown-menu li::before,
+.rc-dropdown-menu li::after,
+.rc-menu-item::before,
+.rc-menu-item::after {
+  display: none !important;
+}
+
+/* Fix menu item hover states */
+.univer-context-menu [role="menuitem"]:hover,
+[class*="univer-context-menu"] [role="menuitem"]:hover,
+.univer-menu [role="menuitem"]:hover,
+[class*="univer-menu"] [role="menuitem"]:hover,
+.rc-dropdown-menu li:hover,
+.rc-menu-item:hover {
+  background-color: hsl(var(--accent)) !important;
+  border: none !important;
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+.dark .univer-context-menu [role="menuitem"]:hover,
+.dark [class*="univer-context-menu"] [role="menuitem"]:hover,
+.dark .rc-dropdown-menu li:hover,
+.dark .rc-menu-item:hover,
+.univer-dark .univer-context-menu [role="menuitem"]:hover,
+.univer-dark [class*="univer-context-menu"] [role="menuitem"]:hover {
+  background-color: rgba(255, 255, 255, 0.1) !important;
+  border: none !important;
+  outline: none !important;
+  box-shadow: none !important;
+}
+
 /* App dialogs/modals - above Univer overlays (1100) */
 [role="dialog"],
 [data-radix-dialog-content],

@@ -73,7 +73,7 @@ function ShortcutRow({ shortcut }: { shortcut: Shortcut }) {
 
 const GENERAL_SHORTCUTS: Shortcut[] = [
     { label: 'Quick Open (show app + new chat)', keys: ['opt', 'Space'] },
-    { label: 'Show shortcuts', keys: ['?'] },
+    { label: 'Show shortcuts', keys: ['cmd', 'shift', '/'] },
     { label: 'Settings', keys: ['cmd', ','] },
     { label: 'Toggle sidebar', keys: ['cmd', '\\'] },
 ]

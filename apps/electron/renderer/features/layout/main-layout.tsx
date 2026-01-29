@@ -24,6 +24,7 @@ import {
   selectedChatIdAtom,
   activeTabAtom,
   shortcutsDialogOpenAtom,
+  aboutDialogOpenAtom,
   settingsModalOpenAtom,
   settingsActiveTabAtom,
   type SettingsTab,
@@ -198,6 +199,7 @@ export function MainLayout() {
   // Track previous tab to save on tab switch
   const previousTabRef = useRef<string>(activeTab);
   const [, setShortcutsOpen] = useAtom(shortcutsDialogOpenAtom);
+  const [, setAboutOpen] = useAtom(aboutDialogOpenAtom);
   const setSettingsOpen = useSetAtom(settingsModalOpenAtom);
   const setSettingsTab = useSetAtom(settingsActiveTabAtom);
   const setSelectedArtifact = useSetAtom(selectedArtifactAtom);
@@ -489,6 +491,9 @@ export function MainLayout() {
       api.menu.onShowShortcuts(() => {
         setShortcutsOpen((prev) => !prev);
       }),
+      api.menu.onShowAbout(() => {
+        setAboutOpen(true);
+      }),
       // Go menu
       api.menu.onGoToTab((data: { tab: string }) => {
         const validTabs: Array<
@@ -675,7 +680,7 @@ export function MainLayout() {
   // Global Shortcuts - disabled when Univer tabs are active to avoid input conflicts
   const isUniverTabActive = activeTab === "excel" || activeTab === "doc";
 
-  useHotkeys("shift+?", () => setShortcutsOpen((prev) => !prev), {
+  useHotkeys("meta+shift+/, ctrl+shift+/", () => setShortcutsOpen((prev) => !prev), {
     preventDefault: true,
     enabled: !isUniverTabActive,
   });

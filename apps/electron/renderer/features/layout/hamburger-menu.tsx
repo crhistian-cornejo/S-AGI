@@ -21,6 +21,7 @@ import {
   activeTabAtom,
   sidebarOpenAtom,
   shortcutsDialogOpenAtom,
+  aboutDialogOpenAtom,
   commandKOpenAtom,
   selectedArtifactAtom,
   artifactPanelOpenAtom,
@@ -75,6 +76,7 @@ export function HamburgerMenu() {
   const [activeTab, setActiveTab] = useAtom(activeTabAtom);
   const [sidebarOpen, setSidebarOpen] = useAtom(sidebarOpenAtom);
   const setShortcutsOpen = useSetAtom(shortcutsDialogOpenAtom);
+  const setAboutOpen = useSetAtom(aboutDialogOpenAtom);
   const setCommandKOpen = useSetAtom(commandKOpenAtom);
 
   const [selectedArtifact, setSelectedArtifact] = useAtom(selectedArtifactAtom);
@@ -460,6 +462,10 @@ export function HamburgerMenu() {
         <DropdownMenuSub>
           <DropdownMenuSubTrigger>Help</DropdownMenuSubTrigger>
           <DropdownMenuSubContent className="w-56">
+            <DropdownMenuItem onClick={() => setAboutOpen(true)}>
+              About S-AGI
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
             <DropdownMenuItem onClick={() => setShortcutsOpen(true)}>
               Keyboard Shortcuts
               {formatHotkey("Shift+?")}

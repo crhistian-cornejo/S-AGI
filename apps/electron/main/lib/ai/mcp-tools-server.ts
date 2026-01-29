@@ -76,7 +76,6 @@ function notifyArtifactUpdate(
 ) {
     // Send both artifactId and fileId so either system can pick it up
     sendToRenderer('artifact:update', { artifactId, univerData, type, fileId })
-    log.info(`[MCP Tools] Sent live update for ${type}: artifactId=${artifactId}, fileId=${fileId || 'none'}`)
 }
 
 // Types for univer data structure
@@ -137,7 +136,6 @@ async function getArtifactWithOwnership(artifactId: string, userId: string): Pro
         .single()
 
     if (userFile && !fileError) {
-        log.info(`[MCP Tools] Found file in user_files table: ${artifactId}`)
         return {
             id: userFile.id,
             univer_data: userFile.univer_data as UniverData,
@@ -228,13 +226,6 @@ function getTargetId(providedId: string | undefined, context: ExcelContext): str
  * Create MCP-compatible Excel tools
  */
 export function createExcelMcpTools(context: ExcelContext): McpToolDefinition[] {
-    // Log context for debugging
-    log.info('[MCP ExcelTools] Creating tools with context:', {
-        userId: context.userId,
-        artifactId: context.artifactId,
-        workbookId: context.workbookId,
-        chatId: context.chatId
-    })
     return [
         {
             name: 'create_spreadsheet',
@@ -251,8 +242,6 @@ export function createExcelMcpTools(context: ExcelContext): McpToolDefinition[] 
             }),
             handler: async (rawArgs) => {
                 try {
-                    // Debug: Log raw args to understand SDK format
-                    log.info('[MCP ExcelTool] Raw args received:', JSON.stringify(rawArgs, null, 2))
 
                     // Claude SDK may pass args in different formats:
                     // 1. Direct object: { title, headers, data, columnWidths }
@@ -279,8 +268,6 @@ export function createExcelMcpTools(context: ExcelContext): McpToolDefinition[] 
                     }
 
                     const { title, headers, data, columnWidths } = args
-
-                    log.info('[MCP ExcelTool] Parsed args:', { title, headersCount: headers?.length, dataRowCount: data?.length })
 
                     if (!context.userId) {
                         return {
@@ -311,8 +298,6 @@ export function createExcelMcpTools(context: ExcelContext): McpToolDefinition[] 
                             isError: true
                         }
                     }
-
-                    log.info(`[MCP ExcelTool] Creating spreadsheet: ${title}`)
 
                     // Build cell data (using number keys for rows/columns as Univer expects)
                     const cellData: Record<number, Record<number, { v: string | number; s?: unknown }>> = {}
@@ -378,8 +363,6 @@ export function createExcelMcpTools(context: ExcelContext): McpToolDefinition[] 
                     if (error) {
                         throw new Error(`Failed to create spreadsheet: ${error.message}`)
                     }
-
-                    log.info(`[MCP ExcelTool] Created spreadsheet artifact: ${artifact.id}`)
 
                     // Notify renderer
                     sendToRenderer('artifact:created', {
@@ -485,8 +468,6 @@ export function createExcelMcpTools(context: ExcelContext): McpToolDefinition[] 
                             isError: true
                         }
                     }
-
-                    log.info(`[MCP ExcelTool] Updating ${updates.length} cells in ${targetId}`)
 
                     // Get artifact with ownership check
                     const artifact = await getArtifactWithOwnership(targetId, context.userId)
@@ -658,8 +639,6 @@ export function createExcelMcpTools(context: ExcelContext): McpToolDefinition[] 
                         }
                     }
 
-                    log.info(`[MCP ExcelTool] Formatting range: ${range} in ${targetId}`)
-
                     // Get artifact with ownership check
                     const artifact = await getArtifactWithOwnership(targetId, context.userId)
 
@@ -808,8 +787,6 @@ export function createExcelMcpTools(context: ExcelContext): McpToolDefinition[] 
                             isError: true
                         }
                     }
-
-                    log.info(`[MCP ExcelTool] Inserting formula in ${cell}: ${formula}`)
 
                     // Get artifact with ownership check
                     const artifact = await getArtifactWithOwnership(targetId, context.userId)
@@ -1054,8 +1031,6 @@ export function createExcelMcpTools(context: ExcelContext): McpToolDefinition[] 
 
                     notifyArtifactUpdate(targetId, univerData, 'spreadsheet', artifact.isUserFile ? targetId : undefined)
 
-                    log.info(`[MCP ExcelTool] Applied conditional formatting to ${formattedCount} cells in range ${range}`)
-
                     return {
                         content: [{
                             type: 'text',
@@ -1226,8 +1201,6 @@ export function createExcelMcpTools(context: ExcelContext): McpToolDefinition[] 
                     }
 
                     notifyArtifactUpdate(targetId, univerData, 'spreadsheet', artifact.isUserFile ? targetId : undefined)
-
-                    log.info(`[MCP ExcelTool] Sorted ${rows.length} rows by column ${sortColumn} ${ascending ? 'ascending' : 'descending'}`)
 
                     return {
                         content: [{
@@ -2019,8 +1992,6 @@ export function createExcelMcpTools(context: ExcelContext): McpToolDefinition[] 
 
                     notifyArtifactUpdate(targetId, univerData, 'spreadsheet', artifact.isUserFile ? targetId : undefined)
 
-                    log.info(`[MCP ExcelTool] Created filter on range ${range}`)
-
                     return {
                         content: [{
                             type: 'text',
@@ -2151,6 +2122,1123 @@ export function createExcelMcpTools(context: ExcelContext): McpToolDefinition[] 
                     }
                 }
             }
+        },
+        // ============================================================================
+        // ADDITIONAL TOOLS - Extended functionality
+        // ============================================================================
+        {
+            name: 'apply_number_format',
+            description: 'Aplica formato numérico rápido a celdas: moneda, porcentaje, fecha, número.',
+            inputSchema: z.object({
+                artifactId: z.string().optional().describe('ID del artefacto (opcional si hay uno activo)'),
+                range: z.string().describe('Rango de celdas (ej: B2:B100)'),
+                format: z.enum(['currency', 'percentage', 'number', 'date', 'time', 'datetime', 'scientific', 'text']).describe('Tipo de formato'),
+                customPattern: z.string().optional().describe('Patrón personalizado (solo si format es custom)')
+            }),
+            handler: async (rawArgs) => {
+                try {
+                    let args: { range?: string; format?: string; customPattern?: string; artifactId?: string }
+                    if (typeof rawArgs === 'string') {
+                        args = JSON.parse(rawArgs)
+                    } else if (rawArgs && typeof rawArgs === 'object') {
+                        const objArgs = rawArgs as Record<string, unknown>
+                        args = ('input' in objArgs && typeof objArgs.input === 'object')
+                            ? objArgs.input as typeof args
+                            : rawArgs as typeof args
+                    } else {
+                        args = {}
+                    }
+
+                    const { range, format, artifactId: providedArtifactId } = args
+                    const targetId = getTargetId(providedArtifactId, context)
+
+                    if (!targetId || !context.userId || !range || !format) {
+                        return {
+                            content: [{
+                                type: 'text',
+                                text: JSON.stringify({ success: false, error: 'Faltan parámetros requeridos' })
+                            }],
+                            isError: true
+                        }
+                    }
+
+                    const artifact = await getArtifactWithOwnership(targetId, context.userId)
+                    if (!artifact.univer_data) {
+                        return {
+                            content: [{ type: 'text', text: JSON.stringify({ success: false, error: 'Sin datos' }) }],
+                            isError: true
+                        }
+                    }
+
+                    // Map format type to pattern
+                    const formatPatterns: Record<string, string> = {
+                        currency: '$#,##0.00',
+                        percentage: '0.00%',
+                        number: '#,##0.00',
+                        date: 'DD/MM/YYYY',
+                        time: 'HH:MM:SS',
+                        datetime: 'DD/MM/YYYY HH:MM',
+                        scientific: '0.00E+00',
+                        text: '@'
+                    }
+
+                    const pattern = formatPatterns[format] || '#,##0.00'
+
+                    const univerData = artifact.univer_data
+                    const sheetId = Object.keys(univerData.sheets)[0]
+                    const sheet = univerData.sheets[sheetId]
+                    const { start, end } = parseRange(range)
+
+                    for (let row = start.row; row <= end.row; row++) {
+                        for (let col = start.col; col <= end.col; col++) {
+                            if (!sheet.cellData[row]) sheet.cellData[row] = {}
+                            if (!sheet.cellData[row][col]) sheet.cellData[row][col] = {}
+                            if (!sheet.cellData[row][col].s) sheet.cellData[row][col].s = {}
+                            ;(sheet.cellData[row][col].s as Record<string, unknown>).n = { pattern }
+                        }
+                    }
+
+                    const tableName = artifact.isUserFile ? 'user_files' : 'artifacts'
+                    await supabase
+                        .from(tableName)
+                        .update({ univer_data: univerData, updated_at: new Date().toISOString() })
+                        .eq('id', targetId)
+
+                    notifyArtifactUpdate(targetId, univerData, 'spreadsheet', artifact.isUserFile ? targetId : undefined)
+
+                    return {
+                        content: [{
+                            type: 'text',
+                            text: JSON.stringify({
+                                success: true,
+                                range,
+                                format,
+                                pattern,
+                                message: `Formato ${format} aplicado a ${range}`
+                            })
+                        }]
+                    }
+                } catch (error) {
+                    return {
+                        content: [{ type: 'text', text: JSON.stringify({ success: false, error: error instanceof Error ? error.message : 'Error' }) }],
+                        isError: true
+                    }
+                }
+            }
+        },
+        {
+            name: 'get_spreadsheet_summary',
+            description: 'Obtiene un resumen del contenido: encabezados, cantidad de filas/columnas, y datos de muestra.',
+            inputSchema: z.object({
+                artifactId: z.string().optional().describe('ID del artefacto'),
+                maxRows: z.number().optional().describe('Máximo de filas a incluir (default: 10)')
+            }),
+            handler: async (rawArgs) => {
+                try {
+                    let args: { maxRows?: number; artifactId?: string }
+                    if (typeof rawArgs === 'string') {
+                        args = JSON.parse(rawArgs)
+                    } else if (rawArgs && typeof rawArgs === 'object') {
+                        const objArgs = rawArgs as Record<string, unknown>
+                        args = ('input' in objArgs && typeof objArgs.input === 'object')
+                            ? objArgs.input as typeof args
+                            : rawArgs as typeof args
+                    } else {
+                        args = {}
+                    }
+
+                    const targetId = getTargetId(args.artifactId, context)
+                    const maxRows = args.maxRows || 10
+
+                    if (!targetId || !context.userId) {
+                        return {
+                            content: [{ type: 'text', text: JSON.stringify({ success: false, error: 'No hay hoja activa' }) }],
+                            isError: true
+                        }
+                    }
+
+                    const artifact = await getArtifactWithOwnership(targetId, context.userId)
+                    if (!artifact.univer_data) {
+                        return {
+                            content: [{ type: 'text', text: JSON.stringify({ success: false, error: 'Sin datos' }) }],
+                            isError: true
+                        }
+                    }
+
+                    const univerData = artifact.univer_data
+                    const sheetId = Object.keys(univerData.sheets)[0]
+                    const sheet = univerData.sheets[sheetId]
+                    const cellData = sheet.cellData || {}
+
+                    // Find data bounds
+                    let maxRow = 0, maxCol = 0
+                    for (const rowStr of Object.keys(cellData)) {
+                        const row = parseInt(rowStr)
+                        if (row > maxRow) maxRow = row
+                        for (const colStr of Object.keys(cellData[row] || {})) {
+                            const col = parseInt(colStr)
+                            if (col > maxCol) maxCol = col
+                        }
+                    }
+
+                    // Extract headers (row 0)
+                    const headers: string[] = []
+                    for (let col = 0; col <= maxCol; col++) {
+                        headers.push(String(cellData[0]?.[col]?.v ?? ''))
+                    }
+
+                    // Extract sample data
+                    const sampleData: Array<Array<unknown>> = []
+                    for (let row = 1; row <= Math.min(maxRow, maxRows); row++) {
+                        const rowData: unknown[] = []
+                        for (let col = 0; col <= maxCol; col++) {
+                            rowData.push(cellData[row]?.[col]?.v ?? null)
+                        }
+                        sampleData.push(rowData)
+                    }
+
+                    return {
+                        content: [{
+                            type: 'text',
+                            text: JSON.stringify({
+                                success: true,
+                                sheetName: sheet.name || 'Sheet1',
+                                totalRows: maxRow + 1,
+                                totalColumns: maxCol + 1,
+                                headers,
+                                sampleData,
+                                message: `Hoja con ${maxRow + 1} filas y ${maxCol + 1} columnas`
+                            })
+                        }]
+                    }
+                } catch (error) {
+                    return {
+                        content: [{ type: 'text', text: JSON.stringify({ success: false, error: error instanceof Error ? error.message : 'Error' }) }],
+                        isError: true
+                    }
+                }
+            }
+        },
+        {
+            name: 'copy_range',
+            description: 'Copia celdas de un rango a otro (valores, fórmulas y formato).',
+            inputSchema: z.object({
+                artifactId: z.string().optional(),
+                sourceRange: z.string().describe('Rango origen (ej: A1:C5)'),
+                destinationCell: z.string().describe('Celda destino superior izquierda (ej: E1)')
+            }),
+            handler: async (rawArgs) => {
+                try {
+                    let args: { sourceRange?: string; destinationCell?: string; artifactId?: string }
+                    if (typeof rawArgs === 'string') {
+                        args = JSON.parse(rawArgs)
+                    } else if (rawArgs && typeof rawArgs === 'object') {
+                        const objArgs = rawArgs as Record<string, unknown>
+                        args = ('input' in objArgs && typeof objArgs.input === 'object')
+                            ? objArgs.input as typeof args
+                            : rawArgs as typeof args
+                    } else {
+                        args = {}
+                    }
+
+                    const { sourceRange, destinationCell, artifactId: providedArtifactId } = args
+                    const targetId = getTargetId(providedArtifactId, context)
+
+                    if (!targetId || !context.userId || !sourceRange || !destinationCell) {
+                        return {
+                            content: [{ type: 'text', text: JSON.stringify({ success: false, error: 'Parámetros faltantes' }) }],
+                            isError: true
+                        }
+                    }
+
+                    const artifact = await getArtifactWithOwnership(targetId, context.userId)
+                    const univerData = artifact.univer_data
+                    const sheetId = Object.keys(univerData.sheets)[0]
+                    const sheet = univerData.sheets[sheetId]
+
+                    const { start: srcStart, end: srcEnd } = parseRange(sourceRange)
+                    const dest = parseCellReference(destinationCell)
+
+                    let cellsCopied = 0
+                    for (let srcRow = srcStart.row; srcRow <= srcEnd.row; srcRow++) {
+                        for (let srcCol = srcStart.col; srcCol <= srcEnd.col; srcCol++) {
+                            const destRow = dest.row + (srcRow - srcStart.row)
+                            const destCol = dest.col + (srcCol - srcStart.col)
+
+                            if (sheet.cellData[srcRow]?.[srcCol]) {
+                                if (!sheet.cellData[destRow]) sheet.cellData[destRow] = {}
+                                sheet.cellData[destRow][destCol] = JSON.parse(JSON.stringify(sheet.cellData[srcRow][srcCol]))
+                                cellsCopied++
+                            }
+                        }
+                    }
+
+                    const tableName = artifact.isUserFile ? 'user_files' : 'artifacts'
+                    await supabase.from(tableName).update({ univer_data: univerData, updated_at: new Date().toISOString() }).eq('id', targetId)
+                    notifyArtifactUpdate(targetId, univerData, 'spreadsheet', artifact.isUserFile ? targetId : undefined)
+
+                    return {
+                        content: [{
+                            type: 'text',
+                            text: JSON.stringify({ success: true, cellsCopied, message: `${cellsCopied} celdas copiadas de ${sourceRange} a ${destinationCell}` })
+                        }]
+                    }
+                } catch (error) {
+                    return { content: [{ type: 'text', text: JSON.stringify({ success: false, error: error instanceof Error ? error.message : 'Error' }) }], isError: true }
+                }
+            }
+        },
+        {
+            name: 'clear_range',
+            description: 'Limpia contenido y/o formato de un rango de celdas.',
+            inputSchema: z.object({
+                artifactId: z.string().optional(),
+                range: z.string().describe('Rango a limpiar (ej: A1:D10)'),
+                clearType: z.enum(['all', 'contents', 'formats']).default('all').describe('Qué limpiar')
+            }),
+            handler: async (rawArgs) => {
+                try {
+                    let args: { range?: string; clearType?: string; artifactId?: string }
+                    if (typeof rawArgs === 'string') {
+                        args = JSON.parse(rawArgs)
+                    } else if (rawArgs && typeof rawArgs === 'object') {
+                        const objArgs = rawArgs as Record<string, unknown>
+                        args = ('input' in objArgs && typeof objArgs.input === 'object')
+                            ? objArgs.input as typeof args
+                            : rawArgs as typeof args
+                    } else {
+                        args = {}
+                    }
+
+                    const { range, clearType = 'all', artifactId: providedArtifactId } = args
+                    const targetId = getTargetId(providedArtifactId, context)
+
+                    if (!targetId || !context.userId || !range) {
+                        return { content: [{ type: 'text', text: JSON.stringify({ success: false, error: 'Parámetros faltantes' }) }], isError: true }
+                    }
+
+                    const artifact = await getArtifactWithOwnership(targetId, context.userId)
+                    const univerData = artifact.univer_data
+                    const sheetId = Object.keys(univerData.sheets)[0]
+                    const sheet = univerData.sheets[sheetId]
+                    const { start, end } = parseRange(range)
+
+                    let cellsCleared = 0
+                    for (let row = start.row; row <= end.row; row++) {
+                        for (let col = start.col; col <= end.col; col++) {
+                            if (sheet.cellData[row]?.[col]) {
+                                if (clearType === 'all') {
+                                    delete sheet.cellData[row][col]
+                                } else if (clearType === 'contents') {
+                                    delete sheet.cellData[row][col].v
+                                } else if (clearType === 'formats') {
+                                    delete sheet.cellData[row][col].s
+                                }
+                                cellsCleared++
+                            }
+                        }
+                    }
+
+                    const tableName = artifact.isUserFile ? 'user_files' : 'artifacts'
+                    await supabase.from(tableName).update({ univer_data: univerData, updated_at: new Date().toISOString() }).eq('id', targetId)
+                    notifyArtifactUpdate(targetId, univerData, 'spreadsheet', artifact.isUserFile ? targetId : undefined)
+
+                    return { content: [{ type: 'text', text: JSON.stringify({ success: true, cellsCleared, message: `${cellsCleared} celdas limpiadas` }) }] }
+                } catch (error) {
+                    return { content: [{ type: 'text', text: JSON.stringify({ success: false, error: error instanceof Error ? error.message : 'Error' }) }], isError: true }
+                }
+            }
+        },
+        {
+            name: 'find_replace',
+            description: 'Busca y reemplaza texto en la hoja de cálculo.',
+            inputSchema: z.object({
+                artifactId: z.string().optional(),
+                find: z.string().describe('Texto a buscar'),
+                replace: z.string().describe('Texto de reemplazo'),
+                range: z.string().optional().describe('Rango opcional (si no se especifica, busca en toda la hoja)'),
+                matchCase: z.boolean().optional().default(false)
+            }),
+            handler: async (rawArgs) => {
+                try {
+                    let args: { find?: string; replace?: string; range?: string; matchCase?: boolean; artifactId?: string }
+                    if (typeof rawArgs === 'string') {
+                        args = JSON.parse(rawArgs)
+                    } else if (rawArgs && typeof rawArgs === 'object') {
+                        const objArgs = rawArgs as Record<string, unknown>
+                        args = ('input' in objArgs && typeof objArgs.input === 'object')
+                            ? objArgs.input as typeof args
+                            : rawArgs as typeof args
+                    } else {
+                        args = {}
+                    }
+
+                    const { find, replace, range, matchCase = false, artifactId: providedArtifactId } = args
+                    const targetId = getTargetId(providedArtifactId, context)
+
+                    if (!targetId || !context.userId || !find || replace === undefined) {
+                        return { content: [{ type: 'text', text: JSON.stringify({ success: false, error: 'Parámetros faltantes' }) }], isError: true }
+                    }
+
+                    const artifact = await getArtifactWithOwnership(targetId, context.userId)
+                    const univerData = artifact.univer_data
+                    const sheetId = Object.keys(univerData.sheets)[0]
+                    const sheet = univerData.sheets[sheetId]
+                    const cellData = sheet.cellData || {}
+
+                    let replacements = 0
+                    const searchRange = range ? parseRange(range) : null
+
+                    for (const rowStr of Object.keys(cellData)) {
+                        const row = parseInt(rowStr)
+                        if (searchRange && (row < searchRange.start.row || row > searchRange.end.row)) continue
+
+                        for (const colStr of Object.keys(cellData[row] || {})) {
+                            const col = parseInt(colStr)
+                            if (searchRange && (col < searchRange.start.col || col > searchRange.end.col)) continue
+
+                            const cell = cellData[row][col]
+                            if (cell?.v !== undefined && typeof cell.v === 'string') {
+                                const searchText = matchCase ? find : find.toLowerCase()
+                                const cellText = matchCase ? cell.v : cell.v.toLowerCase()
+                                if (cellText.includes(searchText)) {
+                                    const regex = new RegExp(find, matchCase ? 'g' : 'gi')
+                                    cell.v = cell.v.replace(regex, replace)
+                                    replacements++
+                                }
+                            }
+                        }
+                    }
+
+                    const tableName = artifact.isUserFile ? 'user_files' : 'artifacts'
+                    await supabase.from(tableName).update({ univer_data: univerData, updated_at: new Date().toISOString() }).eq('id', targetId)
+                    notifyArtifactUpdate(targetId, univerData, 'spreadsheet', artifact.isUserFile ? targetId : undefined)
+
+                    return { content: [{ type: 'text', text: JSON.stringify({ success: true, replacements, message: `${replacements} reemplazos realizados` }) }] }
+                } catch (error) {
+                    return { content: [{ type: 'text', text: JSON.stringify({ success: false, error: error instanceof Error ? error.message : 'Error' }) }], isError: true }
+                }
+            }
+        },
+        {
+            name: 'freeze_panes',
+            description: 'Congela filas y/o columnas para navegación más fácil.',
+            inputSchema: z.object({
+                artifactId: z.string().optional(),
+                rows: z.number().optional().default(0).describe('Filas a congelar desde arriba (ej: 1 para congelar encabezado)'),
+                columns: z.number().optional().default(0).describe('Columnas a congelar desde la izquierda')
+            }),
+            handler: async (rawArgs) => {
+                try {
+                    let args: { rows?: number; columns?: number; artifactId?: string }
+                    if (typeof rawArgs === 'string') {
+                        args = JSON.parse(rawArgs)
+                    } else if (rawArgs && typeof rawArgs === 'object') {
+                        const objArgs = rawArgs as Record<string, unknown>
+                        args = ('input' in objArgs && typeof objArgs.input === 'object')
+                            ? objArgs.input as typeof args
+                            : rawArgs as typeof args
+                    } else {
+                        args = {}
+                    }
+
+                    const { rows = 0, columns = 0, artifactId: providedArtifactId } = args
+                    const targetId = getTargetId(providedArtifactId, context)
+
+                    if (!targetId || !context.userId) {
+                        return { content: [{ type: 'text', text: JSON.stringify({ success: false, error: 'No hay hoja activa' }) }], isError: true }
+                    }
+
+                    const artifact = await getArtifactWithOwnership(targetId, context.userId)
+                    const univerData = artifact.univer_data
+                    const sheetId = Object.keys(univerData.sheets)[0]
+                    const sheet = univerData.sheets[sheetId] as Record<string, unknown>
+
+                    sheet.freeze = { startRow: rows, startColumn: columns }
+
+                    const tableName = artifact.isUserFile ? 'user_files' : 'artifacts'
+                    await supabase.from(tableName).update({ univer_data: univerData, updated_at: new Date().toISOString() }).eq('id', targetId)
+                    notifyArtifactUpdate(targetId, univerData, 'spreadsheet', artifact.isUserFile ? targetId : undefined)
+
+                    return { content: [{ type: 'text', text: JSON.stringify({ success: true, frozenRows: rows, frozenColumns: columns, message: `Congeladas ${rows} fila(s) y ${columns} columna(s)` }) }] }
+                } catch (error) {
+                    return { content: [{ type: 'text', text: JSON.stringify({ success: false, error: error instanceof Error ? error.message : 'Error' }) }], isError: true }
+                }
+            }
+        },
+        {
+            name: 'auto_fill',
+            description: 'Auto-rellena un rango basado en un patrón (secuencias, fechas, fórmulas).',
+            inputSchema: z.object({
+                artifactId: z.string().optional(),
+                sourceRange: z.string().describe('Rango fuente con el patrón (ej: A1:A2 con valores 1,2)'),
+                fillRange: z.string().describe('Rango destino a rellenar (ej: A1:A10)')
+            }),
+            handler: async (rawArgs) => {
+                try {
+                    let args: { sourceRange?: string; fillRange?: string; artifactId?: string }
+                    if (typeof rawArgs === 'string') {
+                        args = JSON.parse(rawArgs)
+                    } else if (rawArgs && typeof rawArgs === 'object') {
+                        const objArgs = rawArgs as Record<string, unknown>
+                        args = ('input' in objArgs && typeof objArgs.input === 'object')
+                            ? objArgs.input as typeof args
+                            : rawArgs as typeof args
+                    } else {
+                        args = {}
+                    }
+
+                    const { sourceRange, fillRange, artifactId: providedArtifactId } = args
+                    const targetId = getTargetId(providedArtifactId, context)
+
+                    if (!targetId || !context.userId || !sourceRange || !fillRange) {
+                        return { content: [{ type: 'text', text: JSON.stringify({ success: false, error: 'Parámetros faltantes' }) }], isError: true }
+                    }
+
+                    const artifact = await getArtifactWithOwnership(targetId, context.userId)
+                    const univerData = artifact.univer_data
+                    const sheetId = Object.keys(univerData.sheets)[0]
+                    const sheet = univerData.sheets[sheetId]
+
+                    const src = parseRange(sourceRange)
+                    const fill = parseRange(fillRange)
+
+                    // Extract source values to detect pattern
+                    const sourceValues: unknown[] = []
+                    for (let row = src.start.row; row <= src.end.row; row++) {
+                        for (let col = src.start.col; col <= src.end.col; col++) {
+                            sourceValues.push(sheet.cellData[row]?.[col]?.v)
+                        }
+                    }
+
+                    // Detect if it's a numeric sequence
+                    const isNumericSequence = sourceValues.length >= 2 &&
+                        sourceValues.every(v => typeof v === 'number') &&
+                        sourceValues.length > 1
+
+                    let step = 1
+                    if (isNumericSequence && sourceValues.length >= 2) {
+                        step = (sourceValues[1] as number) - (sourceValues[0] as number)
+                    }
+
+                    // Fill the range
+                    let cellsFilled = 0
+                    let valueIndex = 0
+                    for (let row = fill.start.row; row <= fill.end.row; row++) {
+                        for (let col = fill.start.col; col <= fill.end.col; col++) {
+                            if (!sheet.cellData[row]) sheet.cellData[row] = {}
+
+                            if (isNumericSequence) {
+                                const baseValue = sourceValues[0] as number
+                                sheet.cellData[row][col] = { v: baseValue + (step * valueIndex) }
+                            } else {
+                                // Repeat pattern
+                                const patternIndex = valueIndex % sourceValues.length
+                                sheet.cellData[row][col] = { v: sourceValues[patternIndex] }
+                            }
+                            valueIndex++
+                            cellsFilled++
+                        }
+                    }
+
+                    const tableName = artifact.isUserFile ? 'user_files' : 'artifacts'
+                    await supabase.from(tableName).update({ univer_data: univerData, updated_at: new Date().toISOString() }).eq('id', targetId)
+                    notifyArtifactUpdate(targetId, univerData, 'spreadsheet', artifact.isUserFile ? targetId : undefined)
+
+                    return { content: [{ type: 'text', text: JSON.stringify({ success: true, cellsFilled, message: `${cellsFilled} celdas auto-rellenadas` }) }] }
+                } catch (error) {
+                    return { content: [{ type: 'text', text: JSON.stringify({ success: false, error: error instanceof Error ? error.message : 'Error' }) }], isError: true }
+                }
+            }
+        },
+        {
+            name: 'insert_column',
+            description: 'Inserta una o más columnas nuevas en una posición específica.',
+            inputSchema: z.object({
+                artifactId: z.string().optional(),
+                column: z.string().describe('Letra de columna donde insertar (ej: "B" inserta antes de B)'),
+                count: z.number().optional().default(1).describe('Número de columnas a insertar'),
+                headers: z.array(z.string()).optional().describe('Encabezados opcionales para las nuevas columnas')
+            }),
+            handler: async (rawArgs) => {
+                try {
+                    let args: { column?: string; count?: number; headers?: string[]; artifactId?: string }
+                    if (typeof rawArgs === 'string') {
+                        args = JSON.parse(rawArgs)
+                    } else if (rawArgs && typeof rawArgs === 'object') {
+                        const objArgs = rawArgs as Record<string, unknown>
+                        args = ('input' in objArgs && typeof objArgs.input === 'object')
+                            ? objArgs.input as typeof args
+                            : rawArgs as typeof args
+                    } else {
+                        args = {}
+                    }
+
+                    const { column, count = 1, headers, artifactId: providedArtifactId } = args
+                    const targetId = getTargetId(providedArtifactId, context)
+
+                    if (!targetId || !context.userId || !column) {
+                        return { content: [{ type: 'text', text: JSON.stringify({ success: false, error: 'Parámetros faltantes' }) }], isError: true }
+                    }
+
+                    const artifact = await getArtifactWithOwnership(targetId, context.userId)
+                    const univerData = artifact.univer_data
+                    const sheetId = Object.keys(univerData.sheets)[0]
+                    const sheet = univerData.sheets[sheetId]
+                    const cellData = sheet.cellData || {}
+
+                    // Convert column letter to index
+                    const insertCol = column.toUpperCase().split('').reduce((acc, char) => acc * 26 + (char.charCodeAt(0) - 64), 0) - 1
+
+                    // Shift existing columns to the right
+                    for (const rowStr of Object.keys(cellData)) {
+                        const row = parseInt(rowStr)
+                        const newRowData: Record<number, unknown> = {}
+                        for (const colStr of Object.keys(cellData[row] || {})) {
+                            const col = parseInt(colStr)
+                            if (col >= insertCol) {
+                                newRowData[col + count] = cellData[row][col]
+                            } else {
+                                newRowData[col] = cellData[row][col]
+                            }
+                        }
+                        sheet.cellData[row] = newRowData
+                    }
+
+                    // Add headers if provided
+                    if (headers && headers.length > 0) {
+                        if (!sheet.cellData[0]) sheet.cellData[0] = {}
+                        for (let i = 0; i < Math.min(count, headers.length); i++) {
+                            sheet.cellData[0][insertCol + i] = { v: headers[i], s: { bl: 1 } }
+                        }
+                    }
+
+                    const tableName = artifact.isUserFile ? 'user_files' : 'artifacts'
+                    await supabase.from(tableName).update({ univer_data: univerData, updated_at: new Date().toISOString() }).eq('id', targetId)
+                    notifyArtifactUpdate(targetId, univerData, 'spreadsheet', artifact.isUserFile ? targetId : undefined)
+
+                    return { content: [{ type: 'text', text: JSON.stringify({ success: true, columnsInserted: count, message: `${count} columna(s) insertada(s) en ${column}` }) }] }
+                } catch (error) {
+                    return { content: [{ type: 'text', text: JSON.stringify({ success: false, error: error instanceof Error ? error.message : 'Error' }) }], isError: true }
+                }
+            }
+        },
+        {
+            name: 'delete_column',
+            description: 'Elimina una o más columnas de la hoja de cálculo.',
+            inputSchema: z.object({
+                artifactId: z.string().optional(),
+                columns: z.array(z.string()).describe('Letras de columnas a eliminar (ej: ["B", "C"])')
+            }),
+            handler: async (rawArgs) => {
+                try {
+                    let args: { columns?: string[]; artifactId?: string }
+                    if (typeof rawArgs === 'string') {
+                        args = JSON.parse(rawArgs)
+                    } else if (rawArgs && typeof rawArgs === 'object') {
+                        const objArgs = rawArgs as Record<string, unknown>
+                        args = ('input' in objArgs && typeof objArgs.input === 'object')
+                            ? objArgs.input as typeof args
+                            : rawArgs as typeof args
+                    } else {
+                        args = {}
+                    }
+
+                    const { columns, artifactId: providedArtifactId } = args
+                    const targetId = getTargetId(providedArtifactId, context)
+
+                    if (!targetId || !context.userId || !columns?.length) {
+                        return { content: [{ type: 'text', text: JSON.stringify({ success: false, error: 'Parámetros faltantes' }) }], isError: true }
+                    }
+
+                    const artifact = await getArtifactWithOwnership(targetId, context.userId)
+                    const univerData = artifact.univer_data
+                    const sheetId = Object.keys(univerData.sheets)[0]
+                    const sheet = univerData.sheets[sheetId]
+                    const cellData = sheet.cellData || {}
+
+                    // Convert column letters to indices and sort descending
+                    const colIndices = columns.map(c => c.toUpperCase().split('').reduce((acc, char) => acc * 26 + (char.charCodeAt(0) - 64), 0) - 1).sort((a, b) => b - a)
+
+                    // Delete each column (from right to left to maintain indices)
+                    for (const deleteCol of colIndices) {
+                        for (const rowStr of Object.keys(cellData)) {
+                            const row = parseInt(rowStr)
+                            const newRowData: Record<number, unknown> = {}
+                            for (const colStr of Object.keys(cellData[row] || {})) {
+                                const col = parseInt(colStr)
+                                if (col < deleteCol) {
+                                    newRowData[col] = cellData[row][col]
+                                } else if (col > deleteCol) {
+                                    newRowData[col - 1] = cellData[row][col]
+                                }
+                                // Skip col === deleteCol (delete it)
+                            }
+                            sheet.cellData[row] = newRowData
+                        }
+                    }
+
+                    const tableName = artifact.isUserFile ? 'user_files' : 'artifacts'
+                    await supabase.from(tableName).update({ univer_data: univerData, updated_at: new Date().toISOString() }).eq('id', targetId)
+                    notifyArtifactUpdate(targetId, univerData, 'spreadsheet', artifact.isUserFile ? targetId : undefined)
+
+                    return { content: [{ type: 'text', text: JSON.stringify({ success: true, columnsDeleted: columns.length, message: `${columns.length} columna(s) eliminada(s)` }) }] }
+                } catch (error) {
+                    return { content: [{ type: 'text', text: JSON.stringify({ success: false, error: error instanceof Error ? error.message : 'Error' }) }], isError: true }
+                }
+            }
+        },
+        {
+            name: 'duplicate_row',
+            description: 'Duplica una fila existente, insertando la copia debajo.',
+            inputSchema: z.object({
+                artifactId: z.string().optional(),
+                row: z.number().describe('Número de fila a duplicar (1-indexed)'),
+                count: z.number().optional().default(1).describe('Número de copias')
+            }),
+            handler: async (rawArgs) => {
+                try {
+                    let args: { row?: number; count?: number; artifactId?: string }
+                    if (typeof rawArgs === 'string') {
+                        args = JSON.parse(rawArgs)
+                    } else if (rawArgs && typeof rawArgs === 'object') {
+                        const objArgs = rawArgs as Record<string, unknown>
+                        args = ('input' in objArgs && typeof objArgs.input === 'object')
+                            ? objArgs.input as typeof args
+                            : rawArgs as typeof args
+                    } else {
+                        args = {}
+                    }
+
+                    const { row, count = 1, artifactId: providedArtifactId } = args
+                    const targetId = getTargetId(providedArtifactId, context)
+
+                    if (!targetId || !context.userId || !row) {
+                        return { content: [{ type: 'text', text: JSON.stringify({ success: false, error: 'Parámetros faltantes' }) }], isError: true }
+                    }
+
+                    const artifact = await getArtifactWithOwnership(targetId, context.userId)
+                    const univerData = artifact.univer_data
+                    const sheetId = Object.keys(univerData.sheets)[0]
+                    const sheet = univerData.sheets[sheetId]
+                    const cellData = sheet.cellData || {}
+
+                    const srcRow = row - 1 // Convert to 0-indexed
+                    const sourceRowData = cellData[srcRow] ? JSON.parse(JSON.stringify(cellData[srcRow])) : {}
+
+                    // Shift rows down
+                    const maxRow = Math.max(...Object.keys(cellData).map(Number))
+                    for (let r = maxRow; r > srcRow; r--) {
+                        if (cellData[r]) {
+                            cellData[r + count] = cellData[r]
+                        }
+                    }
+
+                    // Insert duplicates
+                    for (let i = 0; i < count; i++) {
+                        cellData[srcRow + 1 + i] = JSON.parse(JSON.stringify(sourceRowData))
+                    }
+
+                    sheet.cellData = cellData
+
+                    const tableName = artifact.isUserFile ? 'user_files' : 'artifacts'
+                    await supabase.from(tableName).update({ univer_data: univerData, updated_at: new Date().toISOString() }).eq('id', targetId)
+                    notifyArtifactUpdate(targetId, univerData, 'spreadsheet', artifact.isUserFile ? targetId : undefined)
+
+                    return { content: [{ type: 'text', text: JSON.stringify({ success: true, rowsDuplicated: count, message: `Fila ${row} duplicada ${count} vez/veces` }) }] }
+                } catch (error) {
+                    return { content: [{ type: 'text', text: JSON.stringify({ success: false, error: error instanceof Error ? error.message : 'Error' }) }], isError: true }
+                }
+            }
+        },
+        {
+            name: 'calculate_range',
+            description: 'Calcula estadísticas para un rango numérico: suma, promedio, mín, máx, cuenta.',
+            inputSchema: z.object({
+                artifactId: z.string().optional(),
+                range: z.string().describe('Rango de celdas (ej: A1:A100)')
+            }),
+            handler: async (rawArgs) => {
+                try {
+                    let args: { range?: string; artifactId?: string }
+                    if (typeof rawArgs === 'string') {
+                        args = JSON.parse(rawArgs)
+                    } else if (rawArgs && typeof rawArgs === 'object') {
+                        const objArgs = rawArgs as Record<string, unknown>
+                        args = ('input' in objArgs && typeof objArgs.input === 'object')
+                            ? objArgs.input as typeof args
+                            : rawArgs as typeof args
+                    } else {
+                        args = {}
+                    }
+
+                    const { range, artifactId: providedArtifactId } = args
+                    const targetId = getTargetId(providedArtifactId, context)
+
+                    if (!targetId || !context.userId || !range) {
+                        return { content: [{ type: 'text', text: JSON.stringify({ success: false, error: 'Parámetros faltantes' }) }], isError: true }
+                    }
+
+                    const artifact = await getArtifactWithOwnership(targetId, context.userId)
+                    const univerData = artifact.univer_data
+                    const sheetId = Object.keys(univerData.sheets)[0]
+                    const sheet = univerData.sheets[sheetId]
+                    const cellData = sheet.cellData || {}
+                    const { start, end } = parseRange(range)
+
+                    const values: number[] = []
+                    for (let row = start.row; row <= end.row; row++) {
+                        for (let col = start.col; col <= end.col; col++) {
+                            const val = cellData[row]?.[col]?.v
+                            if (typeof val === 'number') {
+                                values.push(val)
+                            } else if (typeof val === 'string' && !isNaN(parseFloat(val))) {
+                                values.push(parseFloat(val))
+                            }
+                        }
+                    }
+
+                    if (values.length === 0) {
+                        return { content: [{ type: 'text', text: JSON.stringify({ success: true, message: 'No se encontraron valores numéricos', count: 0 }) }] }
+                    }
+
+                    const sum = values.reduce((a, b) => a + b, 0)
+                    const avg = sum / values.length
+                    const min = Math.min(...values)
+                    const max = Math.max(...values)
+
+                    return {
+                        content: [{
+                            type: 'text',
+                            text: JSON.stringify({
+                                success: true,
+                                range,
+                                count: values.length,
+                                sum: Math.round(sum * 100) / 100,
+                                average: Math.round(avg * 100) / 100,
+                                min,
+                                max,
+                                message: `Rango ${range}: Suma=${sum.toFixed(2)}, Promedio=${avg.toFixed(2)}, Mín=${min}, Máx=${max}`
+                            })
+                        }]
+                    }
+                } catch (error) {
+                    return { content: [{ type: 'text', text: JSON.stringify({ success: false, error: error instanceof Error ? error.message : 'Error' }) }], isError: true }
+                }
+            }
+        },
+        {
+            name: 'remove_duplicates',
+            description: 'Elimina filas duplicadas basándose en columnas específicas.',
+            inputSchema: z.object({
+                artifactId: z.string().optional(),
+                range: z.string().describe('Rango donde buscar duplicados (ej: A1:D100)'),
+                columns: z.array(z.string()).optional().describe('Columnas a comparar (ej: ["A", "B"]). Si no se especifica, compara todas.')
+            }),
+            handler: async (rawArgs) => {
+                try {
+                    let args: { range?: string; columns?: string[]; artifactId?: string }
+                    if (typeof rawArgs === 'string') {
+                        args = JSON.parse(rawArgs)
+                    } else if (rawArgs && typeof rawArgs === 'object') {
+                        const objArgs = rawArgs as Record<string, unknown>
+                        args = ('input' in objArgs && typeof objArgs.input === 'object')
+                            ? objArgs.input as typeof args
+                            : rawArgs as typeof args
+                    } else {
+                        args = {}
+                    }
+
+                    const { range, columns, artifactId: providedArtifactId } = args
+                    const targetId = getTargetId(providedArtifactId, context)
+
+                    if (!targetId || !context.userId || !range) {
+                        return { content: [{ type: 'text', text: JSON.stringify({ success: false, error: 'Parámetros faltantes' }) }], isError: true }
+                    }
+
+                    const artifact = await getArtifactWithOwnership(targetId, context.userId)
+                    const univerData = artifact.univer_data
+                    const sheetId = Object.keys(univerData.sheets)[0]
+                    const sheet = univerData.sheets[sheetId]
+                    const cellData = sheet.cellData || {}
+                    const { start, end } = parseRange(range)
+
+                    // Convert column letters to indices if provided
+                    const compareColumns = columns?.map(c => c.toUpperCase().split('').reduce((acc, char) => acc * 26 + (char.charCodeAt(0) - 64), 0) - 1)
+
+                    const seen = new Set<string>()
+                    const rowsToDelete: number[] = []
+
+                    for (let row = start.row; row <= end.row; row++) {
+                        const keyParts: string[] = []
+                        for (let col = start.col; col <= end.col; col++) {
+                            if (!compareColumns || compareColumns.includes(col)) {
+                                keyParts.push(String(cellData[row]?.[col]?.v ?? ''))
+                            }
+                        }
+                        const key = keyParts.join('|')
+
+                        if (seen.has(key)) {
+                            rowsToDelete.push(row)
+                        } else {
+                            seen.add(key)
+                        }
+                    }
+
+                    // Delete duplicate rows (from bottom to top)
+                    rowsToDelete.sort((a, b) => b - a)
+                    for (const row of rowsToDelete) {
+                        delete cellData[row]
+                        // Shift remaining rows up
+                        for (let r = row + 1; r <= end.row + rowsToDelete.length; r++) {
+                            if (cellData[r]) {
+                                cellData[r - 1] = cellData[r]
+                                delete cellData[r]
+                            }
+                        }
+                    }
+
+                    sheet.cellData = cellData
+
+                    const tableName = artifact.isUserFile ? 'user_files' : 'artifacts'
+                    await supabase.from(tableName).update({ univer_data: univerData, updated_at: new Date().toISOString() }).eq('id', targetId)
+                    notifyArtifactUpdate(targetId, univerData, 'spreadsheet', artifact.isUserFile ? targetId : undefined)
+
+                    return { content: [{ type: 'text', text: JSON.stringify({ success: true, duplicatesRemoved: rowsToDelete.length, message: `${rowsToDelete.length} fila(s) duplicada(s) eliminada(s)` }) }] }
+                } catch (error) {
+                    return { content: [{ type: 'text', text: JSON.stringify({ success: false, error: error instanceof Error ? error.message : 'Error' }) }], isError: true }
+                }
+            }
+        },
+        {
+            name: 'transpose_range',
+            description: 'Transpone un rango, intercambiando filas y columnas.',
+            inputSchema: z.object({
+                artifactId: z.string().optional(),
+                sourceRange: z.string().describe('Rango origen (ej: A1:C3)'),
+                destinationCell: z.string().describe('Celda destino superior izquierda')
+            }),
+            handler: async (rawArgs) => {
+                try {
+                    let args: { sourceRange?: string; destinationCell?: string; artifactId?: string }
+                    if (typeof rawArgs === 'string') {
+                        args = JSON.parse(rawArgs)
+                    } else if (rawArgs && typeof rawArgs === 'object') {
+                        const objArgs = rawArgs as Record<string, unknown>
+                        args = ('input' in objArgs && typeof objArgs.input === 'object')
+                            ? objArgs.input as typeof args
+                            : rawArgs as typeof args
+                    } else {
+                        args = {}
+                    }
+
+                    const { sourceRange, destinationCell, artifactId: providedArtifactId } = args
+                    const targetId = getTargetId(providedArtifactId, context)
+
+                    if (!targetId || !context.userId || !sourceRange || !destinationCell) {
+                        return { content: [{ type: 'text', text: JSON.stringify({ success: false, error: 'Parámetros faltantes' }) }], isError: true }
+                    }
+
+                    const artifact = await getArtifactWithOwnership(targetId, context.userId)
+                    const univerData = artifact.univer_data
+                    const sheetId = Object.keys(univerData.sheets)[0]
+                    const sheet = univerData.sheets[sheetId]
+
+                    const { start, end } = parseRange(sourceRange)
+                    const dest = parseCellReference(destinationCell)
+
+                    // Read source data
+                    const sourceData: unknown[][] = []
+                    for (let row = start.row; row <= end.row; row++) {
+                        const rowData: unknown[] = []
+                        for (let col = start.col; col <= end.col; col++) {
+                            rowData.push(sheet.cellData[row]?.[col] ? JSON.parse(JSON.stringify(sheet.cellData[row][col])) : null)
+                        }
+                        sourceData.push(rowData)
+                    }
+
+                    // Write transposed data
+                    for (let srcRow = 0; srcRow < sourceData.length; srcRow++) {
+                        for (let srcCol = 0; srcCol < sourceData[srcRow].length; srcCol++) {
+                            const destRow = dest.row + srcCol
+                            const destCol = dest.col + srcRow
+                            if (!sheet.cellData[destRow]) sheet.cellData[destRow] = {}
+                            if (sourceData[srcRow][srcCol]) {
+                                sheet.cellData[destRow][destCol] = sourceData[srcRow][srcCol]
+                            }
+                        }
+                    }
+
+                    const tableName = artifact.isUserFile ? 'user_files' : 'artifacts'
+                    await supabase.from(tableName).update({ univer_data: univerData, updated_at: new Date().toISOString() }).eq('id', targetId)
+                    notifyArtifactUpdate(targetId, univerData, 'spreadsheet', artifact.isUserFile ? targetId : undefined)
+
+                    const rows = end.row - start.row + 1
+                    const cols = end.col - start.col + 1
+                    return { content: [{ type: 'text', text: JSON.stringify({ success: true, message: `Rango ${rows}x${cols} transpuesto a ${cols}x${rows}` }) }] }
+                } catch (error) {
+                    return { content: [{ type: 'text', text: JSON.stringify({ success: false, error: error instanceof Error ? error.message : 'Error' }) }], isError: true }
+                }
+            }
+        },
+        {
+            name: 'add_comment',
+            description: 'Agrega un comentario/nota a una celda.',
+            inputSchema: z.object({
+                artifactId: z.string().optional(),
+                cell: z.string().describe('Referencia de celda (ej: A1)'),
+                comment: z.string().describe('Texto del comentario'),
+                author: z.string().optional().describe('Nombre del autor')
+            }),
+            handler: async (rawArgs) => {
+                try {
+                    let args: { cell?: string; comment?: string; author?: string; artifactId?: string }
+                    if (typeof rawArgs === 'string') {
+                        args = JSON.parse(rawArgs)
+                    } else if (rawArgs && typeof rawArgs === 'object') {
+                        const objArgs = rawArgs as Record<string, unknown>
+                        args = ('input' in objArgs && typeof objArgs.input === 'object')
+                            ? objArgs.input as typeof args
+                            : rawArgs as typeof args
+                    } else {
+                        args = {}
+                    }
+
+                    const { cell, comment, author = 'AI Agent', artifactId: providedArtifactId } = args
+                    const targetId = getTargetId(providedArtifactId, context)
+
+                    if (!targetId || !context.userId || !cell || !comment) {
+                        return { content: [{ type: 'text', text: JSON.stringify({ success: false, error: 'Parámetros faltantes' }) }], isError: true }
+                    }
+
+                    const artifact = await getArtifactWithOwnership(targetId, context.userId)
+                    const univerData = artifact.univer_data
+                    const sheetId = Object.keys(univerData.sheets)[0]
+                    const sheet = univerData.sheets[sheetId] as Record<string, unknown>
+                    const { row, col } = parseCellReference(cell)
+
+                    // Initialize comments structure if needed
+                    if (!sheet.comments) sheet.comments = {}
+                    const comments = sheet.comments as Record<string, unknown>
+                    const commentKey = `${row},${col}`
+
+                    comments[commentKey] = {
+                        row,
+                        col,
+                        text: comment,
+                        author,
+                        timestamp: new Date().toISOString()
+                    }
+
+                    const tableName = artifact.isUserFile ? 'user_files' : 'artifacts'
+                    await supabase.from(tableName).update({ univer_data: univerData, updated_at: new Date().toISOString() }).eq('id', targetId)
+                    notifyArtifactUpdate(targetId, univerData, 'spreadsheet', artifact.isUserFile ? targetId : undefined)
+
+                    return { content: [{ type: 'text', text: JSON.stringify({ success: true, cell, message: `Comentario agregado a ${cell}` }) }] }
+                } catch (error) {
+                    return { content: [{ type: 'text', text: JSON.stringify({ success: false, error: error instanceof Error ? error.message : 'Error' }) }], isError: true }
+                }
+            }
+        },
+        {
+            name: 'rename_sheet',
+            description: 'Renombra la pestaña de la hoja de trabajo.',
+            inputSchema: z.object({
+                artifactId: z.string().optional(),
+                newName: z.string().describe('Nuevo nombre para la hoja')
+            }),
+            handler: async (rawArgs) => {
+                try {
+                    let args: { newName?: string; artifactId?: string }
+                    if (typeof rawArgs === 'string') {
+                        args = JSON.parse(rawArgs)
+                    } else if (rawArgs && typeof rawArgs === 'object') {
+                        const objArgs = rawArgs as Record<string, unknown>
+                        args = ('input' in objArgs && typeof objArgs.input === 'object')
+                            ? objArgs.input as typeof args
+                            : rawArgs as typeof args
+                    } else {
+                        args = {}
+                    }
+
+                    const { newName, artifactId: providedArtifactId } = args
+                    const targetId = getTargetId(providedArtifactId, context)
+
+                    if (!targetId || !context.userId || !newName) {
+                        return { content: [{ type: 'text', text: JSON.stringify({ success: false, error: 'Parámetros faltantes' }) }], isError: true }
+                    }
+
+                    const artifact = await getArtifactWithOwnership(targetId, context.userId)
+                    const univerData = artifact.univer_data
+                    const sheetId = Object.keys(univerData.sheets)[0]
+                    const sheet = univerData.sheets[sheetId] as Record<string, unknown>
+
+                    const oldName = sheet.name
+                    sheet.name = newName
+
+                    const tableName = artifact.isUserFile ? 'user_files' : 'artifacts'
+                    await supabase.from(tableName).update({ univer_data: univerData, updated_at: new Date().toISOString() }).eq('id', targetId)
+                    notifyArtifactUpdate(targetId, univerData, 'spreadsheet', artifact.isUserFile ? targetId : undefined)
+
+                    return { content: [{ type: 'text', text: JSON.stringify({ success: true, oldName, newName, message: `Hoja renombrada a "${newName}"` }) }] }
+                } catch (error) {
+                    return { content: [{ type: 'text', text: JSON.stringify({ success: false, error: error instanceof Error ? error.message : 'Error' }) }], isError: true }
+                }
+            }
+        },
+        {
+            name: 'get_cell_value',
+            description: 'Obtiene el valor de una celda específica, incluyendo fórmula y formato.',
+            inputSchema: z.object({
+                artifactId: z.string().optional(),
+                cell: z.string().describe('Referencia de celda (ej: A1)')
+            }),
+            handler: async (rawArgs) => {
+                try {
+                    let args: { cell?: string; artifactId?: string }
+                    if (typeof rawArgs === 'string') {
+                        args = JSON.parse(rawArgs)
+                    } else if (rawArgs && typeof rawArgs === 'object') {
+                        const objArgs = rawArgs as Record<string, unknown>
+                        args = ('input' in objArgs && typeof objArgs.input === 'object')
+                            ? objArgs.input as typeof args
+                            : rawArgs as typeof args
+                    } else {
+                        args = {}
+                    }
+
+                    const { cell, artifactId: providedArtifactId } = args
+                    const targetId = getTargetId(providedArtifactId, context)
+
+                    if (!targetId || !context.userId || !cell) {
+                        return { content: [{ type: 'text', text: JSON.stringify({ success: false, error: 'Parámetros faltantes' }) }], isError: true }
+                    }
+
+                    const artifact = await getArtifactWithOwnership(targetId, context.userId)
+                    const univerData = artifact.univer_data
+                    const sheetId = Object.keys(univerData.sheets)[0]
+                    const sheet = univerData.sheets[sheetId]
+                    const { row, col } = parseCellReference(cell)
+
+                    const cellData = sheet.cellData[row]?.[col]
+
+                    return {
+                        content: [{
+                            type: 'text',
+                            text: JSON.stringify({
+                                success: true,
+                                cell,
+                                value: cellData?.v ?? null,
+                                formula: cellData?.f ?? null,
+                                hasStyle: !!cellData?.s,
+                                isEmpty: !cellData
+                            })
+                        }]
+                    }
+                } catch (error) {
+                    return { content: [{ type: 'text', text: JSON.stringify({ success: false, error: error instanceof Error ? error.message : 'Error' }) }], isError: true }
+                }
+            }
         }
     ]
 }
@@ -2168,8 +3256,6 @@ export function createPdfMcpTools(context: PDFContext): McpToolDefinition[] {
                 caseSensitive: z.boolean().default(false).optional()
             }),
             handler: async ({ query, caseSensitive }) => {
-                log.info(`[MCP PdfTool] Searching PDF for: ${query}`)
-
                 if (!context.pages || context.pages.length === 0) {
                     return {
                         content: [{ type: 'text', text: JSON.stringify({ error: 'No hay PDF cargado.' }) }],
@@ -2219,8 +3305,6 @@ export function createPdfMcpTools(context: PDFContext): McpToolDefinition[] {
                 pageNumber: z.number().describe('Numero de pagina (empezando en 1)')
             }),
             handler: async ({ pageNumber }) => {
-                log.info(`[MCP PdfTool] Getting page ${pageNumber}`)
-
                 if (!context.pages || context.pages.length === 0) {
                     return {
                         content: [{ type: 'text', text: JSON.stringify({ error: 'No hay PDF cargado.' }) }],
@@ -2262,8 +3346,6 @@ export function createPdfMcpTools(context: PDFContext): McpToolDefinition[] {
                 endPage: z.number().optional().describe('Pagina final')
             }),
             handler: async ({ startPage, endPage }) => {
-                log.info(`[MCP PdfTool] Summarizing pages ${startPage || 1} to ${endPage || 'end'}`)
-
                 if (!context.pages || context.pages.length === 0) {
                     return {
                         content: [{ type: 'text', text: JSON.stringify({ error: 'No hay PDF cargado.' }) }],
@@ -2315,8 +3397,6 @@ export function createDocsMcpTools(context: DocsContext): McpToolDefinition[] {
                 }).optional()
             }),
             handler: async ({ text, position, formatting }) => {
-                log.info(`[MCP DocsTool] Inserting text at ${position}`)
-
                 sendToRenderer('docs:insert-text', {
                     documentId: context.documentId,
                     text,
@@ -2352,8 +3432,6 @@ export function createDocsMcpTools(context: DocsContext): McpToolDefinition[] {
                 })).describe('Bloques de contenido')
             }),
             handler: async ({ title, content }) => {
-                log.info(`[MCP DocsTool] Creating document: ${title}`)
-
                 const artifactId = crypto.randomUUID()
 
                 sendToRenderer('artifact:created', {
@@ -2402,8 +3480,6 @@ export function createUniversalMcpTools(
             inputSchema: toolDef.inputSchema as z.ZodObject<z.ZodRawShape>,
             handler: async (args) => {
                 try {
-                    log.info(`[MCP Universal] Executing tool: ${toolName}`)
-
                     // Validate required context
                     if (!userId) {
                         return {
@@ -2468,7 +3544,6 @@ export function createUniversalMcpTools(
         })
     }
 
-    log.info(`[MCP Universal] Created ${tools.length} universal MCP tools`)
     return tools
 }
 
@@ -2519,7 +3594,6 @@ export function createAllMcpTools(
         }
     }
 
-    log.info(`[MCP] Created ${tools.length} total MCP tools (universal + context-specific)`)
     return tools
 }
 

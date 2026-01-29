@@ -8,6 +8,7 @@ import { MainLayout } from "./features/layout/main-layout";
 import { SettingsDialog } from "./features/settings/settings-dialog";
 import { AuthDialog, AuthGuard, OAuthCallbackHandler } from "./features/auth";
 import { OnboardingGuard } from "./features/onboarding";
+import { AboutDialog } from "./features/help/about-dialog";
 import { VSCodeThemeProvider } from "./lib/themes";
 import { appStore } from "./lib/stores/jotai-store";
 import "@/features/univer/univer-tooltip-fix.css";
@@ -240,6 +241,7 @@ export function App() {
               </div>
               <AuthDialog />
               <SettingsDialog />
+              <AboutDialog />
               <ThemedToaster />
             </TooltipProvider>
           </TRPCProvider>

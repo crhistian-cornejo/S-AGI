@@ -40,6 +40,7 @@ import {
   IconSearch,
   IconBookmark,
   IconHighlight,
+  IconCornerDownRight,
 } from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -57,10 +58,11 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { ModelIcon } from "@/components/icons/model-icons";
-import { TextShimmer } from "@/components/ui/text-shimmer";
 import { LogoOutline } from "@/components/ui/logo";
 import { AgentToolCallFlat } from "./agent-tool-call-flat";
-import { AgentTaskTracker, type AgentTask } from "./agent-task-tracker";
+import { TaskProgressPanel, type TaskItem } from "./task-progress-panel";
+import { MessageCheckpointRestore } from "./message-checkpoint-restore";
+import { AgentPrismLoader } from "./agent-prism-loader";
 import { getTodosAtom } from "@/lib/atoms";
 import {
   agentPanelOpenAtom,
@@ -69,6 +71,7 @@ import {
   agentPanelStreamingAtom,
   agentPanelStreamingTextAtom,
   agentPanelImagesAtom,
+  agentPanelStatusAtom,
   activeTabAtom,
   selectedArtifactAtom,
   selectedPdfAtom,
@@ -94,6 +97,7 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 import { importFromExcel } from "@/features/univer/excel-exchange";
+import { getSpreadsheetContext } from "@/features/univer/univer-sheets-core";
 import { useUserFile } from "@/hooks/use-user-file";
 import { toast } from "sonner";
 
@@ -286,8 +290,12 @@ function parseContentWithToolMarkers(content: string): ContentSegment[] {
 // Message component with tool calls support - Google Sheets AI style (interleaved)
 const AgentMessage = memo(function AgentMessage({
   message,
+  fileId,
+  onRestoreComplete,
 }: {
   message: AgentPanelMessage;
+  fileId?: string | null;
+  onRestoreComplete?: () => void;
 }) {
   const isUser = message.role === "user";
   // Check if any tool call is currently executing (for spinner animation)
@@ -341,7 +349,7 @@ const AgentMessage = memo(function AgentMessage({
   return (
     <div
       className={cn(
-        "flex w-full gap-3",
+        "flex w-full gap-3 group",
         isUser ? "justify-end" : "justify-start",
       )}
     >
@@ -440,10 +448,22 @@ const AgentMessage = memo(function AgentMessage({
         )}
       </div>
 
-      {/* User avatar */}
+      {/* User avatar with restore button */}
       {isUser && (
-        <div className="shrink-0 w-7 h-7 rounded-lg bg-muted flex items-center justify-center mt-0.5">
-          <IconUser size={14} className="text-muted-foreground" />
+        <div className="flex items-start gap-1">
+          {/* Restore checkpoint button - shows on hover */}
+          {message.checkpointVersion && fileId && (
+            <MessageCheckpointRestore
+              messageId={message.id}
+              fileId={fileId}
+              checkpointVersion={message.checkpointVersion}
+              canRestore={true}
+              onRestoreComplete={onRestoreComplete}
+            />
+          )}
+          <div className="shrink-0 w-7 h-7 rounded-lg bg-muted flex items-center justify-center mt-0.5">
+            <IconUser size={14} className="text-muted-foreground" />
+          </div>
         </div>
       )}
     </div>
@@ -494,15 +514,15 @@ const CellContextChip = memo(function CellContextChip({
   onRemove: () => void;
 }) {
   return (
-    <div className="relative group inline-flex items-center gap-1.5 px-2.5 py-1.5 bg-primary/10 text-primary rounded-lg border border-primary/20">
-      <IconTable size={14} className="shrink-0" />
-      <span className="text-xs font-medium truncate max-w-[150px]">
+    <div className="relative group inline-flex items-center gap-2 px-3 py-1.5 bg-muted/70 text-foreground rounded-full border border-border/60 shadow-sm">
+      <IconCornerDownRight size={14} className="shrink-0 text-muted-foreground" />
+      <span className="text-xs font-medium truncate max-w-[180px]">
         {context.range}
       </span>
       <button
         type="button"
         onClick={onRemove}
-        className="shrink-0 h-4 w-4 rounded-full bg-primary/20 text-primary flex items-center justify-center hover:bg-primary/30 transition-colors"
+        className="shrink-0 h-4 w-4 rounded-full bg-background/70 text-muted-foreground flex items-center justify-center hover:bg-background transition-colors"
       >
         <IconX size={10} />
       </button>
@@ -695,6 +715,7 @@ export function AgentPanel() {
   const [streamingText, setStreamingText] = useAtom(
     agentPanelStreamingTextAtom,
   );
+  const setAgentStatus = useSetAtom(agentPanelStatusAtom);
   const [images, setImages] = useAtom(agentPanelImagesAtom);
   const [cellContexts, setCellContexts] = useAtom(agentPanelCellContextAtom);
   const activeTab = useAtomValue(activeTabAtom);
@@ -779,7 +800,7 @@ export function AgentPanel() {
   // Get todos for task tracker - scoped to session
   const todosAtom = useMemo(() => getTodosAtom(sessionId), [sessionId]);
   const [todosState] = useAtom(todosAtom);
-  const agentTasks: AgentTask[] = useMemo(() => {
+  const agentTasks: TaskItem[] = useMemo(() => {
     return todosState.todos
       .filter((todo) => todo.status !== "cancelled") // Filter out cancelled
       .map((todo, idx) => ({
@@ -794,6 +815,7 @@ export function AgentPanel() {
   const stopMutation = trpc.agentPanel.stop.useMutation();
   const addPanelMessage = trpc.panelMessages.add.useMutation();
   const clearPanelMessages = trpc.panelMessages.clear.useMutation();
+  const createCheckpoint = trpc.checkpoints.create.useMutation();
   const utils = trpc.useUtils();
 
   // Load messages from Supabase when session changes
@@ -858,17 +880,17 @@ export function AgentPanel() {
       toolCallId?: string;
       result?: unknown;
     }) => {
-      console.log("[AgentPanel] Stream event received:", event);
       if (!event || event.sessionId !== sessionId) {
-        console.log("[AgentPanel] Ignoring event - session mismatch:", {
-          eventSessionId: event?.sessionId,
-          expectedSessionId: sessionId,
-        });
         return;
       }
 
       switch (event.type) {
         case "text-delta":
+          // Update status to "writing" when text starts streaming
+          setAgentStatus({
+            phase: 'writing',
+            message: 'Writing response',
+          });
           // Update both state (for UI) and ref (for finish handler)
           streamingTextRef.current += event.delta || "";
           setStreamingText((prev) => prev + (event.delta || ""));
@@ -883,9 +905,11 @@ export function AgentPanel() {
           break;
 
         case "tool-call-start":
-          console.log("[AgentPanel] Processing tool-call-start:", {
-            toolName: event.toolName,
-            toolCallId: event.toolCallId,
+          // Update agent status to show executing tool
+          setAgentStatus({
+            phase: 'executing',
+            currentTool: event.toolName,
+            message: `Running ${event.toolName}`,
           });
 
           // Insert a marker in the streaming text to indicate where this tool call appears
@@ -899,16 +923,8 @@ export function AgentPanel() {
           // Update or create assistant message with tool call
           setMessages((prev: AgentPanelMessage[]) => {
             const last = prev[prev.length - 1];
-            console.log("[AgentPanel] tool-call-start state check:", {
-              hasLast: !!last,
-              lastRole: last?.role,
-              hasToolName: !!event.toolName,
-              hasToolCallId: !!event.toolCallId,
-              messageCount: prev.length,
-            });
 
             if (!event.toolName || !event.toolCallId) {
-              console.log("[AgentPanel] Missing tool info, skipping");
               return prev;
             }
 
@@ -921,7 +937,6 @@ export function AgentPanel() {
 
             // If last message is assistant, add tool call to it
             if (last && last.role === "assistant") {
-              console.log("[AgentPanel] Adding tool call to existing assistant message");
               return [
                 ...prev.slice(0, -1),
                 {
@@ -932,7 +947,6 @@ export function AgentPanel() {
             }
 
             // Otherwise, create a new assistant message with the tool call
-            console.log("[AgentPanel] Creating new assistant message for tool call");
             return [
               ...prev,
               {
@@ -947,6 +961,12 @@ export function AgentPanel() {
           break;
 
         case "tool-call-done":
+          // Update agent status - tool completed, back to processing
+          setAgentStatus({
+            phase: 'processing',
+            message: 'Processing results',
+          });
+
           setMessages((prev: AgentPanelMessage[]) => {
             const last = prev[prev.length - 1];
             if (last && last.role === "assistant" && last.toolCalls) {
@@ -980,6 +1000,7 @@ export function AgentPanel() {
           streamingTextRef.current = "";
           setStreamingText("");
           setIsStreaming(false);
+          setAgentStatus({ phase: 'idle' });
           // Add error message
           setMessages((prev: AgentPanelMessage[]) => [
             ...prev,
@@ -1039,11 +1060,9 @@ export function AgentPanel() {
                         : undefined,
                     })
                     .then(() => {
-                      utils.panelMessages.list.invalidate({
-                        panelType: "agent_panel",
-                        sourceId: sessionId,
-                        tabType: activeTab,
-                      });
+                      // Don't invalidate immediately - the message is already in local state
+                      // Invalidating causes a refetch which can overwrite the new message with stale data
+                      // The message will be loaded from DB on next session/tab switch
                     })
                     .catch((err: unknown) => {
                       console.error("Failed to save assistant message:", err);
@@ -1057,33 +1076,14 @@ export function AgentPanel() {
           streamingTextRef.current = "";
           setStreamingText("");
           setIsStreaming(false);
+          setAgentStatus({ phase: 'idle' });
           break;
       }
     };
 
     // @ts-expect-error - desktopApi type extended in preload
-    const hasApi = !!window.desktopApi?.onAgentPanelStream;
-    console.log("[AgentPanel] Registering stream listener:", {
-      sessionId,
-      hasDesktopApi: !!window.desktopApi,
-      hasOnAgentPanelStream: hasApi,
-    });
     const cleanup = window.desktopApi?.onAgentPanelStream?.(handleStream);
-    if (!cleanup) {
-      console.warn(
-        "[AgentPanel] Failed to register listener - onAgentPanelStream returned undefined",
-      );
-    } else {
-      console.log(
-        "[AgentPanel] Stream listener successfully registered for session:",
-        sessionId,
-      );
-    }
     return () => {
-      console.log(
-        "[AgentPanel] Stream listener cleanup for session:",
-        sessionId,
-      );
       cleanup?.();
     };
     // Note: streamingText intentionally excluded from deps to prevent re-registering
@@ -1091,7 +1091,7 @@ export function AgentPanel() {
     // The 'finish' case uses streamingText from closure which may be stale, but that's
     // fine since we track full text in fullText variable inside the streaming handler.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sessionId, setStreamingText, setIsStreaming, setMessages, activeTab]);
+  }, [sessionId, setStreamingText, setIsStreaming, setMessages, setAgentStatus, activeTab]);
 
   // Auto-scroll to bottom when new messages arrive
   useEffect(() => {
@@ -1203,6 +1203,25 @@ export function AgentPanel() {
       promptContent = `${contextParts.join("\n\n")}\n\n${promptContent}`;
     }
 
+    // Create checkpoint before AI operation (for Excel/Doc files)
+    let checkpointVersion: number | undefined;
+    const fileIdForCheckpoint = activeTab === "excel" ? currentExcelFileId :
+                                activeTab === "doc" ? currentDocFileId : null;
+
+    if (fileIdForCheckpoint) {
+      try {
+        const checkpointInfo = await createCheckpoint.mutateAsync({
+          fileId: fileIdForCheckpoint,
+          messageId: nanoid(), // Will be replaced with actual message ID
+          promptPreview: input.trim().slice(0, 100),
+        });
+        checkpointVersion = checkpointInfo.versionNumber;
+      } catch (err) {
+        console.warn("[AgentPanel] Failed to create checkpoint:", err);
+        // Continue without checkpoint - don't block the user
+      }
+    }
+
     const userMessage: AgentPanelMessage = {
       id: nanoid(),
       role: "user",
@@ -1216,6 +1235,7 @@ export function AgentPanel() {
               filename: img.filename,
             }))
           : undefined,
+      checkpointVersion, // Store checkpoint for restore functionality
     };
 
     // Add user message and placeholder assistant message
@@ -1261,6 +1281,7 @@ export function AgentPanel() {
     }
     setIsStreaming(true);
     setStreamingText("");
+    setAgentStatus({ phase: 'thinking', message: 'Thinking...' });
 
     try {
       // Build context: Excel/Doc use current file (new) or artifact (legacy) so tools operate on the open spreadsheet/doc
@@ -1280,17 +1301,44 @@ export function AgentPanel() {
             }[];
             fileId?: string;
             fileName?: string;
+            // Spreadsheet live data for AI
+            spreadsheetSummary?: string;
+            activeSheetName?: string;
+            sheetNames?: string[];
+            selection?: string;
           }
         | undefined;
 
       if (activeTab === "excel") {
+        // Get live spreadsheet data from Univer for AI context
+        const spreadsheetData = getSpreadsheetContext(30, 15); // More rows/cols for better AI understanding
+
         // Prefer new file system, fall back to legacy artifact
         if (currentExcelFileId && currentExcelFile) {
           context = {
             workbookId: currentExcelFileId, // For backward compatibility with tools
             fileId: currentExcelFileId,
             fileName: currentExcelFile.name,
+            // Include live spreadsheet data for AI
+            spreadsheetSummary: spreadsheetData?.summary,
+            activeSheetName: spreadsheetData?.activeSheetName,
+            sheetNames: spreadsheetData?.sheets.map((s) => s.name),
+            selection: spreadsheetData?.selection,
           };
+
+          // If no manual cell context was added, auto-include active sheet preview
+          if (cellContexts.length === 0 && spreadsheetData?.sheets) {
+            const activeSheet = spreadsheetData.sheets.find(
+              (s) => s.name === spreadsheetData.activeSheetName
+            );
+            if (activeSheet && activeSheet.preview.length > 0) {
+              // Format preview data for the prompt
+              const previewStr = activeSheet.preview
+                .map((row) => row.map((c) => c ?? "").join("\t"))
+                .join("\n");
+              promptContent = `[Current spreadsheet data from "${activeSheet.name}" (${activeSheet.rowCount} rows × ${activeSheet.columnCount} cols)]:\n${previewStr}\n\n${promptContent}`;
+            }
+          }
         } else if (selectedArtifact?.type === "spreadsheet") {
           context = { workbookId: selectedArtifact.id };
         }
@@ -1320,14 +1368,6 @@ export function AgentPanel() {
           })),
         };
       }
-
-      console.log("[AgentPanel] Sending to backend:", {
-        sessionId,
-        tabType: activeTab,
-        contextWorkbookId: context?.workbookId,
-        contextDocumentId: context?.documentId,
-        contextPdfPagesCount: context?.pdfPages?.length ?? 0,
-      });
 
       await chatMutation.mutateAsync({
         sessionId,
@@ -1807,7 +1847,19 @@ export function AgentPanel() {
                 {messages
                   .filter((m) => m.content || m.toolCalls?.length)
                   .map((msg) => (
-                    <AgentMessage key={msg.id} message={msg} />
+                    <AgentMessage
+                      key={msg.id}
+                      message={msg}
+                      fileId={activeTab === "excel" ? currentExcelFileId : activeTab === "doc" ? currentDocFileId : null}
+                      onRestoreComplete={() => {
+                        // Refresh file data after restore
+                        if (activeTab === "excel" && currentExcelFileId) {
+                          utils.userFiles.get.invalidate({ id: currentExcelFileId });
+                        } else if (activeTab === "doc" && currentDocFileId) {
+                          utils.userFiles.get.invalidate({ id: currentDocFileId });
+                        }
+                      }}
+                    />
                   ))}
 
                 {/* Streaming message - include tool calls from the last assistant message */}
@@ -1826,23 +1878,11 @@ export function AgentPanel() {
                   />
                 )}
 
-                {/* Loading indicator */}
+                {/* Animated 3D loader - shows real-time agent status */}
                 {isStreaming && !streamingText && (
                   <div className="flex justify-start">
                     <div className="bg-muted/40 rounded-2xl rounded-bl-md px-4 py-3">
-                      <div className="flex items-center gap-2">
-                        <IconLoader2
-                          size={14}
-                          className="animate-spin text-primary"
-                        />
-                        <TextShimmer
-                          as="span"
-                          className="text-xs font-medium"
-                          duration={1.5}
-                        >
-                          Thinking...
-                        </TextShimmer>
-                      </div>
+                      <AgentPrismLoader size={24} speed={4} />
                     </div>
                   </div>
                 )}
@@ -1855,9 +1895,9 @@ export function AgentPanel() {
 
       {/* Task Tracker - Sticky above input */}
       {agentTasks.length > 0 && (
-        <AgentTaskTracker
+        <TaskProgressPanel
           tasks={agentTasks}
-          defaultExpanded={isStreaming}
+          isStreaming={isStreaming}
         />
       )}
 

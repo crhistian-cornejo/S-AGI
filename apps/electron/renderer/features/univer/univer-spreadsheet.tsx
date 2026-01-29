@@ -18,6 +18,9 @@ import {
 } from "@/lib/atoms/user-files";
 import { hasRealChanges } from "@/utils/univer-diff-stats";
 import { AddContextButton } from "./add-context-button";
+import { UniverToolsPanel } from "./univer-tools-panel";
+import { FloatingToolbarButtons } from "./floating-toolbar-buttons";
+import "./print.css";
 
 interface UniverSpreadsheetProps {
   // Legacy: artifact-based props (for backward compatibility)
@@ -55,6 +58,8 @@ export const UniverSpreadsheet = React.forwardRef<
   const containerRef = React.useRef<HTMLDivElement>(null);
   const [isLoading, setIsLoading] = React.useState(true);
   const [error, setError] = React.useState<string | null>(null);
+  const [chartsDialogOpen, setChartsDialogOpen] = React.useState(false);
+  const [printDialogOpen, setPrintDialogOpen] = React.useState(false);
   const [isSaving, setIsSaving] = React.useState(false);
   const workbookRef = React.useRef<any>(null);
   const versionRef = React.useRef<number>(-1);
@@ -837,25 +842,36 @@ export const UniverSpreadsheet = React.forwardRef<
       }
     }
 
-    instance.univer.createUnit(
-      UniverInstanceType.UNIVER_SHEET,
-      newData || {
-        id: effectiveDataId,
-        name: "Workbook",
-        sheetOrder: ["sheet1"],
-        sheets: {
-          sheet1: {
-            id: "sheet1",
-            name: "Sheet1",
-            rowCount: 100,
-            columnCount: 26,
-            cellData: {},
-            defaultColumnWidth: 100,
-            defaultRowHeight: 24,
+    try {
+      instance.univer.createUnit(
+        UniverInstanceType.UNIVER_SHEET,
+        newData || {
+          id: effectiveDataId,
+          name: "Workbook",
+          sheetOrder: ["sheet1"],
+          sheets: {
+            sheet1: {
+              id: "sheet1",
+              name: "Sheet1",
+              rowCount: 100,
+              columnCount: 26,
+              cellData: {},
+              defaultColumnWidth: 100,
+              defaultRowHeight: 24,
+            },
           },
         },
-      },
-    );
+      );
+    } catch (error: any) {
+      // Handle DI errors gracefully - some plugins may have optional dependencies
+      if (error?.message?.includes('Cannot find') || error?.message?.includes('registered by any injector')) {
+        console.warn('[UniverSpreadsheet] DI error during workbook creation (non-critical):', error.message);
+        // Continue - the workbook may still be created despite the error
+      } else {
+        // Re-throw critical errors
+        throw error;
+      }
+    }
     workbookRef.current = instance.api.getActiveWorkbook();
 
     // Disable initializing flag after a delay to allow Univer to finish setup
@@ -1318,6 +1334,59 @@ export const UniverSpreadsheet = React.forwardRef<
     };
   }, [fileId, updateFileMutation, setSavingState]);
 
+  // Listen for cell highlight requests from agent panel tool call badges
+  React.useEffect(() => {
+    const unsubscribe = window.desktopApi?.onHighlightCells?.(
+      (params: { range: string; sheetName?: string }) => {
+        const instance = getSheetsInstance();
+        if (!instance?.api) {
+          console.warn("[UniverSpreadsheet] No instance for cell highlight");
+          return;
+        }
+
+        try {
+          const workbook = instance.api.getActiveWorkbook();
+          if (!workbook) {
+            console.warn("[UniverSpreadsheet] No workbook for cell highlight");
+            return;
+          }
+
+          // If a sheet name is provided, try to switch to that sheet first
+          if (params.sheetName) {
+            const sheets = workbook.getSheets();
+            const targetSheet = sheets.find(
+              (s: { getSheetName: () => string }) => s.getSheetName() === params.sheetName
+            );
+            if (targetSheet) {
+              targetSheet.activate();
+            }
+          }
+
+          const activeSheet = workbook.getActiveSheet();
+          if (!activeSheet) {
+            console.warn("[UniverSpreadsheet] No active sheet for cell highlight");
+            return;
+          }
+
+          // Get the range and activate it (selects the cells)
+          const range = activeSheet.getRange(params.range);
+          if (range && typeof range.activate === "function") {
+            range.activate();
+            console.log("[UniverSpreadsheet] Highlighted cells:", params.range);
+          } else {
+            console.warn("[UniverSpreadsheet] Could not activate range:", params.range);
+          }
+        } catch (err) {
+          console.error("[UniverSpreadsheet] Failed to highlight cells:", err);
+        }
+      }
+    );
+
+    return () => {
+      unsubscribe?.();
+    };
+  }, []);
+
   if (error) {
     return (
       <div className="flex items-center justify-center h-full text-destructive">
@@ -1342,6 +1411,14 @@ export const UniverSpreadsheet = React.forwardRef<
         </div>
       )}
       <div ref={containerRef} className="w-full h-full outline-none" />
+      {/* Floating toolbar buttons - charts and print */}
+      {hasFileId && (
+        <FloatingToolbarButtons
+          onChartsClick={() => setChartsDialogOpen(true)}
+          onPrintClick={() => setPrintDialogOpen(true)}
+        />
+      )}
+      
       {/* Add Context button - appears when cells are selected */}
       {hasFileId && (
         <AddContextButton
@@ -1349,6 +1426,17 @@ export const UniverSpreadsheet = React.forwardRef<
           fileName={currentExcelFile?.name}
         />
       )}
+      
+      {/* Tools panel - dialogs for charts and print layout */}
+      <UniverToolsPanel
+        univerAPI={getSheetsInstance()}
+        fileId={fileId}
+        fileName={currentExcelFile?.name}
+        chartsDialogOpen={chartsDialogOpen}
+        onChartsDialogOpenChange={setChartsDialogOpen}
+        printDialogOpen={printDialogOpen}
+        onPrintDialogOpenChange={setPrintDialogOpen}
+      />
     </div>
   );
 });

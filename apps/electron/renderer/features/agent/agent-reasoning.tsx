@@ -143,11 +143,6 @@ export function AgentReasoning({
 }: AgentReasoningProps) {
   const [isExpanded, setIsExpanded] = useState(!defaultCollapsed)
 
-  // Debug logging
-  if (annotations.length > 0) {
-    console.log('[AgentReasoning] Received annotations:', annotations.length, annotations)
-  }
-
   const displayText = summary || content
   const hasContent = displayText.length > 0
   const hasActions = actions.length > 0

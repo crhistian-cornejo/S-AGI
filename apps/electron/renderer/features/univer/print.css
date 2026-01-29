@@ -1,0 +1,232 @@
+/**
+ * Print Styles - Estilos de impresión estilo Excel nativo
+ * Se aplican automáticamente cuando el usuario configura print layout
+ */
+
+@media print {
+  /* Configuración de página */
+  @page {
+    size: A4;
+    margin: 0.75in;
+  }
+
+  /* Reset de estilos para impresión */
+  * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+    color-adjust: exact !important;
+  }
+
+  /* Ocultar elementos de UI no imprimibles */
+  .univer-toolbar,
+  .univer-formula-bar,
+  .univer-scrollbar,
+  .univer-tab-bar,
+  .scrollbar-thumb,
+  .sidebar,
+  .status-bar,
+  .chat-panel,
+  .task-progress-panel,
+  button,
+  .print-layout-panel,
+  .charts-panel {
+    display: none !important;
+  }
+
+  /* Container principal de Univer */
+  .univer-container {
+    position: relative;
+    width: 100%;
+    height: auto;
+    overflow: visible;
+    background: white !important;
+  }
+
+  /* Hoja de cálculo */
+  .univer-sheet-container {
+    position: relative;
+    width: 100%;
+    min-height: 100vh;
+    background: white !important;
+    overflow: visible;
+  }
+
+  /* Celdas */
+  .univer-cell {
+    border: 1px solid #000 !important;
+    box-sizing: border-box;
+    page-break-inside: avoid;
+    page-break-after: auto;
+    background: white !important;
+  }
+
+  /* Encabezados de filas y columnas */
+  .univer-row-header,
+  .univer-column-header {
+    background: #f5f5f5 !important;
+    color: #000 !important;
+    font-weight: bold;
+    border: 1px solid #000 !important;
+    text-align: center;
+  }
+
+  .univer-row-header {
+    border-right: 1px solid #000 !important;
+  }
+
+  .univer-column-header {
+    border-bottom: 1px solid #000 !important;
+  }
+
+  /* Cabecera de esquina */
+  .univer-corner-header {
+    background: #f5f5f5 !important;
+    border: 1px solid #000 !important;
+  }
+
+  /* Celdas seleccionadas */
+  .univer-cell.selected {
+    background: #e8e8e8 !important;
+  }
+
+  /* Celdas con valor nulo */
+  .univer-cell:empty {
+    background: white !important;
+    border: 1px solid #ccc !important;
+  }
+
+  /* Comentarios y notas */
+  .univer-comment,
+  .univer-note {
+    display: none; /* Ocultar en impresión por defecto */
+  }
+
+  /* Imágenes y dibujos */
+  .univer-drawing-container {
+    position: absolute;
+    page-break-inside: avoid;
+  }
+
+  /* Líneas de cuadrícula (si está habilitado) */
+  body.show-gridlines .univer-cell {
+    border: 1px solid #000 !important;
+  }
+
+  body.hide-gridlines .univer-cell {
+    border: 1px solid #ccc !important;
+  }
+
+  /* Alineación de texto en celdas */
+  .univer-cell.align-left {
+    text-align: left;
+  }
+
+  .univer-cell.align-center {
+    text-align: center;
+  }
+
+  .univer-cell.align-right {
+    text-align: right;
+  }
+
+  /* Blancoy negro */
+  body.black-and-white {
+    filter: grayscale(100%);
+  }
+
+  body.black-and-white * {
+    filter: grayscale(100%);
+  }
+
+  /* Page breaks */
+  .univer-sheet-row {
+    page-break-inside: avoid;
+  }
+
+  .univer-sheet-row.univer-page-break {
+    page-break-before: always;
+  }
+
+  /* Encabezados de página (si se configuran) */
+  .print-header {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    text-align: center;
+    border-bottom: 1px solid #000;
+    padding: 8px;
+    font-size: 10px;
+  }
+
+  /* Pie de página */
+  .print-footer {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    text-align: center;
+    border-top: 1px solid #000;
+    padding: 8px;
+    font-size: 10px;
+  }
+
+  /* Número de página */
+  .page-number {
+    display: inline;
+  }
+
+  /* Control de calidad de impresión */
+  .print-quality {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  /* Zoom/scale transformaciones */
+  .print-scaled {
+    transform-origin: top left;
+    transform: scale(var(--print-scale, 1));
+  }
+
+  /* Área de impresión específica */
+  body.print-area-only .univer-sheet-row {
+    display: none;
+  }
+
+  body.print-area-only .univer-sheet-row.print-area {
+    display: table-row;
+  }
+}
+
+/* Estilos para vista previa de impresión */
+@media screen {
+  .print-preview-container {
+    width: 100%;
+    height: 100vh;
+    overflow: auto;
+    background: #525652;
+    padding: 20px;
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
+  }
+
+  .print-preview-page {
+    background: white;
+    box-shadow: 0 0 20px rgba(0, 0, 0, 0.5);
+    margin: 20px;
+    position: relative;
+    transform-origin: top left;
+  }
+
+  .print-preview-page::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    pointer-events: none;
+    border: 1px solid #ccc;
+  }
+}

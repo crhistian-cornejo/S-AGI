@@ -21,6 +21,7 @@ import { permissionsRouter } from "./routers/permissions";
 import { panelMessagesRouter } from "./routers/panel-messages";
 import { userFilesRouter } from "./routers/user-files";
 import { aiProvidersRouter } from "./routers/ai-providers";
+import { checkpointsRouter } from "./routers/checkpoints";
 
 // Main app router
 export const appRouter = router({
@@ -42,6 +43,7 @@ export const appRouter = router({
   panelMessages: panelMessagesRouter,
   userFiles: userFilesRouter,
   aiProviders: aiProvidersRouter,
+  checkpoints: checkpointsRouter,
 });
 
 // Export type for client

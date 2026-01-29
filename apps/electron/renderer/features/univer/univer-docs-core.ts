@@ -121,6 +121,31 @@ export async function initDocsUniver(
     logLevel: LogLevel.WARN,
   });
 
+  // Suppress non-critical DI warnings during plugin initialization
+  // These warnings occur when Univer plugins register identifiers multiple times (harmless)
+  const originalConsoleWarn = console.warn;
+  const suppressDIWarnings = () => {
+    console.warn = (...args: any[]) => {
+      const message = args[0]?.toString() || "";
+      // Suppress "Identifier X already exists. Returning the cached identifier decorator."
+      if (
+        message.includes("already exists") &&
+        message.includes("Returning the cached identifier decorator")
+      ) {
+        // Silently ignore - these are harmless DI identifier cache warnings
+        return;
+      }
+      originalConsoleWarn.apply(console, args);
+    };
+  };
+
+  const restoreConsoleWarn = () => {
+    console.warn = originalConsoleWarn;
+  };
+
+  // Suppress warnings during plugin registration
+  suppressDIWarnings();
+
   // Register plugins in order - Critical for dependency injection
   // 1. Docs plugin (Must be first for correct initialization)
   univer.registerPlugin(UniverDocsPlugin);
@@ -182,6 +207,9 @@ export async function initDocsUniver(
       // Ignore - API may not support this method
     }
   }
+
+  // Restore console.warn after initialization
+  restoreConsoleWarn();
 
   docsInstance = { univer, api, version: currentVersion };
   console.log(

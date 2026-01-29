@@ -80,7 +80,10 @@ function updateApplicationMenu() {
           {
             label: app.getName(),
             submenu: [
-              { role: "about" } as const,
+              {
+                label: "About S-AGI",
+                click: () => sendMenuAction("show-about"),
+              },
               { type: "separator" } as const,
               {
                 label: "Settings...",
@@ -236,7 +239,7 @@ function updateApplicationMenu() {
         },
         {
           label: "Show Keyboard Shortcuts",
-          accelerator: "Shift+?",
+          accelerator: process.platform === "darwin" ? "Command+Shift+/" : "Ctrl+Shift+/",
           click: () => sendMenuAction("show-shortcuts"),
         },
         { type: "separator" } as const,
@@ -499,8 +502,13 @@ function updateApplicationMenu() {
       label: "Help",
       submenu: [
         {
+          label: "About S-AGI",
+          click: () => sendMenuAction("show-about"),
+        },
+        { type: "separator" } as const,
+        {
           label: "Keyboard Shortcuts",
-          accelerator: "Shift+?",
+          accelerator: process.platform === "darwin" ? "Command+Shift+/" : "Ctrl+Shift+/",
           click: () => sendMenuAction("show-shortcuts"),
         },
         {
@@ -2025,5 +2033,15 @@ ipcMain.handle(
       default:
         log.warn("[Tray] Unknown action:", action);
     }
+  },
+);
+
+// Forward cell highlight requests from agent panel to Univer spreadsheet
+ipcMain.on(
+  "univer:highlight-cells",
+  (event, params: { range: string; sheetName?: string }) => {
+    if (!validateIPCSender(event.sender)) return;
+    // Forward to main window (same window, but this ensures proper routing)
+    sendToMainWindow("univer:highlight-cells", params);
   },
 );

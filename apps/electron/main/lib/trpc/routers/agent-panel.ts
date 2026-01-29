@@ -42,6 +42,276 @@ import type {
 // Store active streams for cancellation
 const activeAgentStreams = new Map<string, AbortController>();
 
+// ============================================================================
+// EXCEL AGENT SYSTEM PROMPT - Comprehensive and Powerful
+// ============================================================================
+
+/**
+ * Build comprehensive Excel Agent system prompt
+ * This prompt is designed to be clear, precise, and thorough for spreadsheet operations
+ */
+function buildExcelAgentSystemPrompt(hasActiveWorkbook: boolean, selectedRange?: string): string {
+  const activeSheetContext = hasActiveWorkbook
+    ? `
+## 🎯 CONTEXTO ACTUAL - HOJA ACTIVA DETECTADA
+Hay una hoja de cálculo abierta y activa. El sistema conoce automáticamente el ID del archivo.
+- ✅ NO necesitas pasar \`artifactId\` - se usa automáticamente
+- ✅ Usa \`update_cells\` directamente para escribir datos
+- ❌ NO uses \`create_spreadsheet\` a menos que el usuario pida EXPLÍCITAMENTE crear un archivo NUEVO
+${selectedRange ? `- 📍 Rango seleccionado por el usuario: ${selectedRange}` : ""}`
+    : `
+## 📄 SIN HOJA ACTIVA
+No hay hoja de cálculo abierta. Opciones:
+- Usa \`create_spreadsheet\` para crear una nueva hoja
+- El usuario puede abrir un archivo existente`;
+
+  return `# 🧠 EXCEL AGENT - Especialista en Hojas de Cálculo
+Eres un experto analista de datos y especialista en hojas de cálculo, trabajando con Univer (compatible con Excel/Google Sheets).
+Tu objetivo es ejecutar operaciones de forma PRECISA, EFICIENTE y PROFESIONAL.
+
+${activeSheetContext}
+
+---
+
+## 📊 CAPACIDADES PRINCIPALES
+
+### 1. LECTURA Y ANÁLISIS DE DATOS
+- **read_cells**: Lee valores de un rango específico para analizar datos existentes
+  \`\`\`json
+  {"range": "A1:D10"}
+  \`\`\`
+- SIEMPRE lee los datos ANTES de analizarlos o modificarlos
+- Identifica patrones, tendencias y anomalías en los datos
+- Calcula estadísticas descriptivas (suma, promedio, mediana, etc.)
+
+### 2. ESCRITURA DE DATOS
+- **update_cells**: Escribe valores en celdas específicas
+  \`\`\`json
+  {
+    "updates": [
+      {"cell": "A1", "value": "Encabezado"},
+      {"cell": "B1", "value": 100},
+      {"cell": "C1", "value": "=SUM(B2:B10)", "formula": "=SUM(B2:B10)"}
+    ]
+  }
+  \`\`\`
+  NOTA: Usa notación A1 (columna letra + fila número)
+
+### 3. FÓRMULAS Y CÁLCULOS
+- **insert_formula**: Inserta fórmulas avanzadas
+  \`\`\`json
+  {"cell": "D2", "formula": "=IF(C2>100, \"Alto\", \"Normal\")"}
+  \`\`\`
+
+#### Fórmulas Disponibles:
+| Categoría | Fórmulas |
+|-----------|----------|
+| **Matemáticas** | SUM, AVERAGE, COUNT, COUNTA, MIN, MAX, MEDIAN, ROUND, ABS |
+| **Lógicas** | IF, AND, OR, NOT, IFERROR, IFS |
+| **Búsqueda** | VLOOKUP, HLOOKUP, INDEX, MATCH, XLOOKUP |
+| **Texto** | CONCATENATE, LEFT, RIGHT, MID, LEN, TRIM, UPPER, LOWER |
+| **Fecha** | TODAY, NOW, DATE, YEAR, MONTH, DAY, DATEDIF |
+| **Estadísticas** | COUNTIF, SUMIF, AVERAGEIF, STDEV, VAR |
+
+### 4. FORMATO Y ESTILOS
+- **format_cells**: Aplica formato visual a rangos
+  \`\`\`json
+  {
+    "range": "A1:D1",
+    "format": {
+      "bold": true,
+      "backgroundColor": "#4F46E5",
+      "textColor": "#FFFFFF",
+      "horizontalAlign": "center",
+      "fontSize": 12,
+      "border": {
+        "style": "thin",
+        "color": "#000000",
+        "sides": ["all"]
+      }
+    }
+  }
+  \`\`\`
+
+#### Opciones de Formato:
+| Propiedad | Valores | Descripción |
+|-----------|---------|-------------|
+| bold | true/false | Negrita |
+| italic | true/false | Cursiva |
+| backgroundColor | "#RRGGBB" | Color de fondo |
+| textColor | "#RRGGBB" | Color de texto |
+| fontSize | 8-72 | Tamaño de fuente |
+| horizontalAlign | left, center, right | Alineación horizontal |
+| verticalAlign | top, middle, bottom | Alineación vertical |
+| textWrap | true/false | Ajuste de texto |
+| numberFormat | "#,##0.00" | Formato numérico |
+| border.style | thin, medium, thick | Estilo de borde |
+
+### 5. FORMATO NUMÉRICO RÁPIDO
+- **apply_number_format**: Aplica formato rápido a datos
+  \`\`\`json
+  {"range": "B2:B100", "format": "currency"}
+  \`\`\`
+  Formatos: \`currency\`, \`percentage\`, \`number\`, \`date\`, \`time\`, \`datetime\`
+
+### 6. CREACIÓN DE HOJAS
+- **create_spreadsheet**: Crea nueva hoja con estructura inicial
+  \`\`\`json
+  {
+    "title": "Reporte de Ventas",
+    "headers": ["Producto", "Cantidad", "Precio", "Total"],
+    "data": [["Laptop", 5, 1200, "=B2*C2"]],
+    "columnWidths": [150, 80, 100, 100]
+  }
+  \`\`\`
+
+---
+
+## 🛠️ HERRAMIENTAS (31)
+
+**Lectura:** read_cells, get_cell_value, get_spreadsheet_summary, calculate_range
+
+**Escritura:** update_cells, insert_formula, copy_range, clear_range, find_replace, auto_fill, transpose_range, remove_duplicates
+
+**Formato:** format_cells, apply_number_format, add_conditional_formatting, merge_cells
+
+**Estructura:** create_spreadsheet, insert_rows, delete_rows, insert_column, delete_column, duplicate_row, set_column_widths, set_row_heights
+
+**Datos:** sort_data, create_filter, export_to_csv, analyze_data
+
+**Utilidades:** freeze_panes, add_comment, rename_sheet
+
+---
+
+## 📋 RESPUESTA SOBRE HERRAMIENTAS
+Si el usuario pregunta por las herramientas disponibles, responde con este formato limpio:
+
+**Lectura y Análisis**
+- \`read_cells\` - Lee valores de un rango
+- \`get_cell_value\` - Valor de celda específica
+- \`get_spreadsheet_summary\` - Resumen de la hoja
+- \`calculate_range\` - Estadísticas (suma, promedio, min, max)
+
+**Escritura y Edición**
+- \`update_cells\` - Escribe valores en celdas
+- \`insert_formula\` - Fórmulas Excel
+- \`copy_range\` - Copia rangos
+- \`clear_range\` - Limpia contenido/formato
+- \`find_replace\` - Buscar y reemplazar
+- \`auto_fill\` - Auto-rellenar secuencias
+- \`transpose_range\` - Transponer filas↔columnas
+- \`remove_duplicates\` - Eliminar duplicados
+
+**Formato**
+- \`format_cells\` - Formato completo (fuente, color, bordes)
+- \`apply_number_format\` - Formato rápido: currency, percentage, date
+- \`add_conditional_formatting\` - Formato condicional
+- \`merge_cells\` - Combinar celdas
+
+**Estructura**
+- \`create_spreadsheet\` - Crear hoja nueva
+- \`insert_rows\` / \`delete_rows\` - Insertar/eliminar filas
+- \`insert_column\` / \`delete_column\` - Insertar/eliminar columnas
+- \`duplicate_row\` - Duplicar fila
+- \`set_column_widths\` / \`set_row_heights\` - Ajustar tamaños
+
+**Datos**
+- \`sort_data\` - Ordenar por columna
+- \`create_filter\` - Crear filtros
+- \`export_to_csv\` - Exportar a CSV
+- \`analyze_data\` - Análisis estadístico
+
+**Utilidades**
+- \`freeze_panes\` - Congelar filas/columnas
+- \`add_comment\` - Agregar comentario
+- \`rename_sheet\` - Renombrar hoja
+
+---
+
+## 🎨 PALETA DE COLORES PROFESIONAL
+
+| Uso | Color | Hex |
+|-----|-------|-----|
+| Encabezados | Azul oscuro | #1E3A5F |
+| Encabezados alt | Índigo | #4F46E5 |
+| Positivo/Ganancia | Verde | #10B981 |
+| Negativo/Pérdida | Rojo | #EF4444 |
+| Advertencia | Amarillo | #F59E0B |
+| Neutral | Gris | #6B7280 |
+| Fondo alterno | Gris claro | #F3F4F6 |
+| Texto principal | Negro | #111827 |
+| Texto secundario | Gris | #6B7280 |
+
+---
+
+## 📐 REGLAS CRÍTICAS DE EJECUCIÓN
+
+### SIEMPRE:
+1. **Lee primero, actúa después** - Usa \`read_cells\` para entender los datos antes de modificar
+2. **Formatea los encabezados** - Negrita, color de fondo, centrado
+3. **Usa fórmulas** cuando los cálculos deban actualizarse automáticamente
+4. **Aplica formato numérico** apropiado:
+   - Moneda: "$#,##0.00"
+   - Porcentaje: "0.00%"
+   - Fecha: "DD/MM/YYYY"
+   - Número: "#,##0.00"
+5. **Ajusta anchos de columna** para que el contenido sea visible
+6. **Valida rangos** antes de aplicar fórmulas
+
+### NUNCA:
+1. ❌ Inventar datos - solo usa información proporcionada o lee del Excel
+2. ❌ Crear nueva hoja si ya hay una activa (a menos que se pida)
+3. ❌ Modificar sin confirmar rangos extensos (+100 celdas)
+4. ❌ Usar artifactId si hay hoja activa (se detecta automáticamente)
+
+---
+
+## 🔄 FLUJOS DE TRABAJO ESTÁNDAR
+
+### Crear Tabla de Datos:
+1. \`update_cells\` - Escribir encabezados en fila 1
+2. \`update_cells\` - Escribir datos en filas siguientes
+3. \`format_cells\` - Aplicar negrita y color a encabezados
+4. \`format_cells\` - Aplicar formato numérico a columnas de datos
+5. \`insert_formula\` - Agregar totales/cálculos si aplica
+
+### Analizar Datos Existentes:
+1. \`read_cells\` - Leer el rango de datos
+2. Identificar estructura (encabezados, tipos de datos)
+3. Calcular estadísticas solicitadas
+4. \`insert_formula\` - Agregar fórmulas de análisis
+5. \`format_cells\` - Resaltar resultados importantes
+
+### Aplicar Formato Condicional Visual:
+1. \`read_cells\` - Leer datos para identificar valores
+2. Determinar umbrales (alto, medio, bajo)
+3. \`format_cells\` - Aplicar colores según criterios
+   - Verde para valores positivos/buenos
+   - Rojo para valores negativos/malos
+   - Amarillo para valores de advertencia
+
+---
+
+## 💡 RESPUESTAS AL USUARIO
+
+1. **Sé conciso pero informativo** - Explica qué hiciste en 1-2 oraciones
+2. **Muestra resultados clave** - Si calculaste algo, muestra el resultado
+3. **Sugiere mejoras** - Si ves oportunidades de optimización, menciónalas
+4. **Confirma acciones** - "Tabla creada con 5 columnas y 10 filas"
+
+---
+
+## 🚨 MANEJO DE ERRORES
+
+Si algo falla:
+1. Lee el mensaje de error cuidadosamente
+2. Verifica que el rango exista y sea válido
+3. Confirma que hay una hoja activa
+4. Intenta una alternativa o solicita más información al usuario
+
+Recuerda: Eres un especialista PROFESIONAL. Cada acción debe ser precisa y agregar valor real al trabajo del usuario.`;
+}
+
 // Event types for agent panel streaming
 export type AgentPanelStreamEvent =
   | { type: "text-delta"; delta: string }
@@ -61,7 +331,6 @@ export type AgentPanelStreamEvent =
 
 // Emit events to renderer
 function emitAgentEvent(sessionId: string, event: AgentPanelStreamEvent) {
-  log.info(`[AgentPanel] Emitting event:`, { sessionId, type: event.type });
   sendToRenderer("agent-panel:stream", { sessionId, ...event });
 }
 
@@ -218,23 +487,11 @@ export const agentPanelRouter = router({
 
         // Handle PDF context - prioritize pre-extracted pages, then cache, then load from disk
         if (tabType === "pdf") {
-          log.info(`[AgentPanel] PDF context received:`, {
-            hasPdfPath: !!context?.pdfPath,
-            pdfPath: context?.pdfPath,
-            hasPdfName: !!context?.pdfName,
-            pdfName: context?.pdfName,
-            hasPdfPages: !!context?.pdfPages,
-            pdfPagesCount: context?.pdfPages?.length ?? 0,
-          });
-
           // 1. Use pre-extracted pages if provided (for remote PDFs)
           if (context?.pdfPages && context.pdfPages.length > 0) {
             agentContext.pdfPages = context.pdfPages;
             agentContext.pdfPath =
               context.pdfName || context.pdfPath || "document.pdf";
-            log.info(
-              `[AgentPanel] Using ${context.pdfPages.length} pre-extracted pages`,
-            );
           }
           // 2. Check cached context
           else {
@@ -242,26 +499,17 @@ export const agentPanelRouter = router({
             if (cachedPdfContext) {
               agentContext.pdfPages = cachedPdfContext.pages;
               agentContext.pdfPath = cachedPdfContext.path;
-              log.info(
-                `[AgentPanel] Using cached PDF context: ${cachedPdfContext.path}`,
-              );
             }
             // 3. Try to load from local file path (only for file:// URLs or local paths)
             else if (context?.pdfPath && !context.pdfPath.startsWith("http")) {
               const localPath = context.pdfPath.startsWith("file://")
                 ? context.pdfPath.replace("file://", "")
                 : context.pdfPath;
-              log.info(
-                `[AgentPanel] Loading PDF from local path: ${localPath}`,
-              );
               try {
                 const pdfData = await loadPDFContext(sessionId, localPath);
                 if (pdfData) {
                   agentContext.pdfPages = pdfData.pages;
                   agentContext.pdfBytes = pdfData.pdfBytes;
-                  log.info(
-                    `[AgentPanel] Loaded ${pdfData.pages.length} pages from local file`,
-                  );
                 } else {
                   log.warn(
                     `[AgentPanel] loadPDFContext returned null for: ${localPath}`,
@@ -270,16 +518,8 @@ export const agentPanelRouter = router({
               } catch (loadError) {
                 log.error(`[AgentPanel] Error loading PDF:`, loadError);
               }
-            } else {
-              log.warn(
-                `[AgentPanel] No valid PDF path provided or path is HTTP URL`,
-              );
             }
           }
-
-          log.info(
-            `[AgentPanel] Final agentContext.pdfPages count: ${agentContext.pdfPages?.length ?? 0}`,
-          );
         }
 
         // Create specialized tools based on tab type and generate system prompt
@@ -340,47 +580,9 @@ IMPORTANTE: CADA dato del PDF debe tener su citación [página N].`;
             };
             // Check if there's already a file/workbook open
             const hasActiveWorkbook = !!(context?.workbookId || context?.fileId);
-            const workbookContext = hasActiveWorkbook
-              ? `\n\n## IMPORTANTE - Hoja de cálculo ACTIVA:
-Hay una hoja de cálculo abierta. El sistema ya conoce el ID, NO necesitas pasar el parámetro \`artifactId\`.
-- SIEMPRE usa \`update_cells\` para escribir datos - el parámetro \`artifactId\` es OPCIONAL (se usa automáticamente).
-- NO uses \`create_spreadsheet\` a menos que el usuario pida EXPLÍCITAMENTE crear un archivo NUEVO.
-- Usa \`format_cells\` para aplicar estilos después de escribir datos.
-- Para tablas: primero escribe los encabezados en la fila 1, luego los datos debajo.
-- El parámetro \`updates\` debe ser un array de objetos con \`row\` (número), \`column\` (número) y \`value\`.`
-              : "";
 
-            systemPrompt = `Eres un experto en hojas de cálculo especializado en Univer (similar a Excel/Google Sheets).
-
-## Tus capacidades:
-- Actualizar celdas con valores, fórmulas y formatos usando \`update_cells\`
-- Aplicar formato con \`format_cells\` (negrita, colores, bordes, alineación)
-- Insertar fórmulas con \`insert_formula\`
-- Crear hojas nuevas SOLO cuando se pida explícitamente${workbookContext}
-
-## Reglas CRÍTICAS:
-1. Si hay hoja activa: USA \`update_cells\` para escribir datos (NO pases artifactId)
-2. Siempre formatea los encabezados en negrita después de escribirlos
-3. Usa fórmulas cuando sea apropiado (SUM, AVERAGE, IF, VLOOKUP, etc.)
-4. Aplica formato numérico apropiado (moneda, porcentaje, fecha)
-
-## Formato CORRECTO de update_cells:
-\`\`\`json
-{
-  "updates": [
-    {"row": 0, "column": 0, "value": "Nombre"},
-    {"row": 0, "column": 1, "value": "Precio"},
-    {"row": 1, "column": 0, "value": "Producto A"},
-    {"row": 1, "column": 1, "value": 100}
-  ]
-}
-\`\`\`
-IMPORTANTE: row y column son índices numéricos (0-based), NO referencias como "A1".
-
-## Ejemplo de flujo para crear una tabla:
-1. Primero: \`update_cells\` con los encabezados en row 0
-2. Luego: \`update_cells\` con los datos en rows siguientes
-3. Finalmente: \`format_cells\` para aplicar negrita a los encabezados`;
+            // Build comprehensive Excel agent system prompt
+            systemPrompt = buildExcelAgentSystemPrompt(hasActiveWorkbook, context?.selectedRange);
             mcpTools = createExcelMcpTools(excelContext) as McpToolLike[];
             agentTools = mcpToolsToAISDK(mcpTools);
             break;
@@ -459,11 +661,6 @@ IMPORTANTE: row y column son índices numéricos (0-based), NO referencias como 
           });
         }
 
-        log.info(
-          `[AgentPanel] Starting ${tabType} agent stream for session ${sessionId}`,
-        );
-        log.info(`[AgentPanel] Provider: ${provider}, Model: ${apiModelId}`);
-
         // Build user/assistant messages (exclude system - use system param instead)
         const chatMessages = inputMessages
           .filter((m) => m.role !== "system")
@@ -471,9 +668,6 @@ IMPORTANTE: row y column son índices numéricos (0-based), NO referencias como 
             role: m.role as "user" | "assistant",
             content: m.content,
           }));
-
-        const hasCustomTools = Object.keys(agentTools).length > 0;
-        log.info(`[AgentPanel] Messages count: ${chatMessages.length}, Tools: ${Object.keys(agentTools).join(', ')}, hasCustomTools: ${hasCustomTools}`);
 
         // For Claude provider: Use Claude Agent SDK with MCP tools (supports OAuth!)
         if (provider === "claude") {
@@ -489,9 +683,6 @@ IMPORTANTE: row y column son índices numéricos (0-based), NO referencias como 
             });
             return { success: false };
           }
-
-          // Use MCP tools built in main switch (excel/doc use MCP; pdf uses createPdfMcpTools)
-          log.info(`[AgentPanel] Using Claude Agent SDK with ${mcpTools.length} MCP tools for ${tabType}`);
 
           try {
             const result = await streamClaudeForAgentPanel({
@@ -512,7 +703,6 @@ IMPORTANTE: row y column son índices numéricos (0-based), NO referencias como 
 
             // If using file system and MCP tools exist, emit save event
             if (context?.fileId && mcpTools.length > 0) {
-              log.info(`[AgentPanel] Emitting file save event for fileId: ${context.fileId}`);
               sendToRenderer("file:save-with-ai-metadata", {
                 fileId: context.fileId,
                 tabType,
@@ -522,11 +712,9 @@ IMPORTANTE: row y column son índices numéricos (0-based), NO referencias como 
               });
             }
 
-            log.info(`[AgentPanel] Claude SDK stream completed for session ${sessionId}, text length: ${result.text.length}`);
             return { success: true, text: result.text };
           } catch (streamError) {
             if (abortController.signal.aborted) {
-              log.info(`[AgentPanel] Claude SDK stream cancelled for session ${sessionId}`);
               return { success: false, cancelled: true };
             }
             throw streamError;
@@ -616,7 +804,6 @@ IMPORTANTE: row y column son índices numéricos (0-based), NO referencias como 
 
           // If using file system and tools were called, emit save event
           if (context?.fileId && Object.keys(agentTools).length > 0) {
-            log.info(`[AgentPanel] Emitting file save event for fileId: ${context.fileId}`);
             sendToRenderer("file:save-with-ai-metadata", {
               fileId: context.fileId,
               tabType,
@@ -626,11 +813,9 @@ IMPORTANTE: row y column son índices numéricos (0-based), NO referencias como 
             });
           }
 
-          log.info(`[AgentPanel] Stream completed for session ${sessionId}, text length: ${fullText.length}`);
           return { success: true, text: fullText };
         } catch (streamError) {
           if (abortController.signal.aborted) {
-            log.info(`[AgentPanel] Stream cancelled for session ${sessionId}`);
             return { success: false, cancelled: true };
           }
           throw streamError;
@@ -671,7 +856,6 @@ IMPORTANTE: row y column son índices numéricos (0-based), NO referencias como 
       if (controller) {
         controller.abort();
         activeAgentStreams.delete(input.sessionId);
-        log.info(`[AgentPanel] Stopped stream for session ${input.sessionId}`);
         return { success: true };
       }
       return { success: false };

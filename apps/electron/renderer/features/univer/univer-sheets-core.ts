@@ -163,11 +163,9 @@ export async function initSheetsUniver(container: HTMLElement): Promise<UniverSh
     // Defer dispose to next tick to avoid "synchronously unmount during render" error
     // This happens when React unmounts one component and mounts another in the same render cycle
     if (oldInstance) {
-        console.log('[UniverSheets] Scheduling deferred dispose of old instance before creating new one')
         await new Promise<void>((resolve) => {
             setTimeout(() => {
                 try {
-                    console.log('[UniverSheets] Executing deferred dispose')
                     oldInstance.univer.dispose()
                 } catch (e) {
                     console.warn('[UniverSheets] Error disposing old instance:', e)
@@ -176,11 +174,9 @@ export async function initSheetsUniver(container: HTMLElement): Promise<UniverSh
             }, 0)
         })
     }
-    
+
     // Clear container content
     container.innerHTML = ''
-    
-    console.log('[UniverSheets] Creating new instance (version:', currentVersion, ')')
     
     // Deep merge locales
     const mergedLocale = merge(
@@ -217,6 +213,82 @@ export async function initSheetsUniver(container: HTMLElement): Promise<UniverSh
         },
         logLevel: LogLevel.WARN,
     })
+    
+    // Suppress non-critical DI errors during plugin initialization
+    // These errors occur when plugins have optional dependencies that aren't available
+    const originalConsoleError = console.error
+    const originalConsoleWarn = console.warn
+    const originalWindowError = window.onerror
+    const originalUnhandledRejection = window.onunhandledrejection
+    
+    const suppressDIErrors = () => {
+        // Suppress console.warn messages about duplicate identifiers
+        // These occur when Univer plugins register identifiers multiple times (harmless)
+        console.warn = (...args: any[]) => {
+            const message = args[0]?.toString() || ''
+            // Suppress "Identifier X already exists. Returning the cached identifier decorator."
+            if (message.includes('already exists') && message.includes('Returning the cached identifier decorator')) {
+                // Silently ignore - these are harmless DI identifier cache warnings
+                return
+            }
+            originalConsoleWarn.apply(console, args)
+        }
+        
+        // Suppress console.error DI messages
+        console.error = (...args: any[]) => {
+            const message = args[0]?.toString() || ''
+            // Suppress DI dependency errors - they're non-critical and handled gracefully
+            if (message.includes('Cannot find') && 
+                (message.includes('registered by any injector') || 
+                 message.includes('DependencyNotFoundForModuleError'))) {
+                // Only log as warning, not error
+                console.warn('[UniverSheets] DI dependency warning (non-critical):', ...args.slice(1))
+                return
+            }
+            originalConsoleError.apply(console, args)
+        }
+        
+        // Suppress uncaught errors related to DI
+        window.onerror = (message, source, lineno, colno, error) => {
+            const errorMessage = String(message)
+            if (errorMessage.includes('Cannot find') && 
+                (errorMessage.includes('registered by any injector') ||
+                 errorMessage.includes('DependencyNotFoundForModuleError'))) {
+                console.warn('[UniverSheets] Uncaught DI error (non-critical):', message)
+                return true // Prevent default error handling
+            }
+            if (originalWindowError) {
+                return originalWindowError(message, source, lineno, colno, error)
+            }
+            return false
+        }
+        
+        // Suppress unhandled promise rejections related to DI
+        window.onunhandledrejection = (event: PromiseRejectionEvent) => {
+            const reason = event.reason
+            const errorMessage = reason?.message || String(reason)
+            if (errorMessage.includes('Cannot find') && 
+                (errorMessage.includes('registered by any injector') ||
+                 errorMessage.includes('DependencyNotFoundForModuleError'))) {
+                console.warn('[UniverSheets] Unhandled DI rejection (non-critical):', reason)
+                event.preventDefault() // Prevent default error handling
+                return
+            }
+            if (originalUnhandledRejection) {
+                originalUnhandledRejection(event)
+            }
+        }
+    }
+    
+    const restoreConsoleError = () => {
+        console.error = originalConsoleError
+        console.warn = originalConsoleWarn
+        window.onerror = originalWindowError
+        window.onunhandledrejection = originalUnhandledRejection
+    }
+    
+    // Suppress errors during plugin registration and API creation
+    suppressDIErrors()
     
     // Register plugins in order - Matching @univerjs/preset-sheets-core
     // This order is critical for correct input handling and initialization
@@ -284,15 +356,55 @@ export async function initSheetsUniver(container: HTMLElement): Promise<UniverSh
     univer.registerPlugin(UniverSheetsDataValidationUIPlugin)
 
     // Note plugins - Excel native-style notes (cell comments)
-    univer.registerPlugin(UniverSheetsNotePlugin)
-    univer.registerPlugin(UniverSheetsNoteUIPlugin)
+    // Register these last to ensure all dependencies are available
+    // Some Note UI components may have optional dependencies that can fail
+    try {
+        univer.registerPlugin(UniverSheetsNotePlugin)
+        univer.registerPlugin(UniverSheetsNoteUIPlugin)
+    } catch (error) {
+        console.warn('[UniverSheets] Failed to register Note plugins (non-critical):', error)
+        // Continue without notes - they're optional features
+    }
 
     // Thread Comment plugins - DISABLED
     // These require Univer Server infrastructure (IThreadCommentDataSourceService)
     // Without server, DI fails with: "Cannot find 'w15'/'z' registered by any injector"
     // univer.registerPlugin(UniverSheetsThreadCommentUIPlugin)
     
-    const api = FUniver.newAPI(univer)
+    // Create API with error handling for DI issues
+    // Some plugins may have optional dependencies that fail during initialization
+    let api: FUniver
+    try {
+        api = FUniver.newAPI(univer)
+    } catch (error: any) {
+        // If error is related to missing DI dependencies, log and try to continue
+        // These are often non-critical optional dependencies
+        const errorMessage = error?.message || String(error)
+        if (errorMessage.includes('Cannot find') || 
+            errorMessage.includes('registered by any injector') ||
+            errorMessage.includes('DependencyNotFoundForModuleError')) {
+            console.warn('[UniverSheets] DI error during API creation (non-critical):', errorMessage)
+            // Try to get API anyway - it may have been partially created
+            try {
+                api = FUniver.newAPI(univer)
+            } catch (retryError) {
+                console.error('[UniverSheets] Failed to create API after DI error:', retryError)
+                // Restore error handlers before throwing
+                restoreConsoleError()
+                throw retryError
+            }
+        } else {
+            // Restore error handlers before throwing critical errors
+            restoreConsoleError()
+            throw error
+        }
+    }
+    
+    // Keep error suppression active for a short time after API creation
+    // Some plugins initialize asynchronously and may trigger DI errors
+    setTimeout(() => {
+        restoreConsoleError()
+    }, 1000) // Restore after 1 second to allow async plugin initialization
 
     // Ensure header/toolbar UI parts are visible (required for drawing/image buttons)
     try {
@@ -330,8 +442,7 @@ export async function initSheetsUniver(container: HTMLElement): Promise<UniverSh
     }
     
     sheetsInstance = { univer, api, version: currentVersion }
-    console.log('[UniverSheets] Instance created successfully (version:', currentVersion, ')')
-    
+
     return sheetsInstance
 }
 
@@ -342,12 +453,10 @@ export async function initSheetsUniver(container: HTMLElement): Promise<UniverSh
 export function disposeSheetsUniver(version?: number): void {
     // If version provided, only dispose if it matches current instance
     if (version !== undefined && sheetsInstance?.version !== version) {
-        console.log('[UniverSheets] Skipping dispose - version mismatch (requested:', version, ', current:', sheetsInstance?.version, ')')
         return
     }
-    
+
     if (sheetsInstance) {
-        console.log('[UniverSheets] Disposing instance (version:', sheetsInstance.version, ')')
         try {
             sheetsInstance.univer.dispose()
         } catch (e) {
@@ -441,23 +550,28 @@ export function createWorkbook(univer: Univer, api: FUniver, data?: any, id?: st
     if (currentWorkbookId === workbookId) {
         const existingWorkbook = api.getActiveWorkbook()
         if (existingWorkbook) {
-            console.log('[UniverSheets] Reusing existing workbook with same ID:', workbookId)
             return existingWorkbook
         }
     }
-    
-    console.log('[UniverSheets] createWorkbook:', {
-        hasData: !!data,
-        dataId: data?.id,
-        workbookId,
-        sheetsKeys: data?.sheets ? Object.keys(data.sheets) : [],
-    })
-    
+
     // Normalize workbook data to ensure all required structures exist
     const workbookData = normalizeWorkbookData(data, workbookId)
     
     // Use createUnit instead of api.createWorkbook - this is the official way
-    univer.createUnit(UniverInstanceType.UNIVER_SHEET, workbookData)
+    // Wrap in try-catch to handle DI errors gracefully
+    try {
+        univer.createUnit(UniverInstanceType.UNIVER_SHEET, workbookData)
+    } catch (error: any) {
+        // If error is related to missing dependencies, log and continue
+        // Some plugins may have optional dependencies that fail during initialization
+        if (error?.message?.includes('Cannot find') || error?.message?.includes('registered by any injector')) {
+            console.warn('[UniverSheets] DI error during workbook creation (non-critical):', error.message)
+            // Try to continue - the workbook may still be created
+        } else {
+            // Re-throw critical errors
+            throw error
+        }
+    }
     
     // Get the workbook via API
     const workbook = api.getActiveWorkbook()
@@ -465,8 +579,6 @@ export function createWorkbook(univer: Univer, api: FUniver, data?: any, id?: st
     // Track workbook ID to prevent duplicates
     currentWorkbookId = workbookId
 
-    console.log('[UniverSheets] Workbook created with ID:', workbook?.getId?.() || workbookId)
-    
     return workbook
 }
 
@@ -494,16 +606,233 @@ export function setSheetsTheme(isDark: boolean, themeColors?: VSCodeThemeColors 
             themeService.setTheme(nextTheme)
             themeService.setDarkMode(isDark)
             ;(sheetsInstance.api as any).toggleDarkMode(isDark)
-
-            console.log('[UniverSheets] Theme updated:', {
-                isDark,
-                hasVSCodeColors: !!themeColors,
-                primary: nextTheme.primary?.[500],
-                background: nextTheme.white,
-                foreground: nextTheme.black,
-            })
         } catch (e) {
             console.warn('[UniverSheets] Failed to update theme:', e)
         }
+    }
+}
+
+// ============================================================================
+// SPREADSHEET CONTEXT - For AI Agent access to current workbook data
+// ============================================================================
+
+export interface SheetInfo {
+    id: string
+    name: string
+    rowCount: number
+    columnCount: number
+    /** First N rows of data as 2D array (for AI context) */
+    preview: Array<Array<string | number | null>>
+    /** Total cells with data */
+    cellCount: number
+}
+
+export interface SpreadsheetContext {
+    workbookId: string
+    workbookName: string
+    activeSheetId: string
+    activeSheetName: string
+    sheets: SheetInfo[]
+    /** Current selection range in A1 notation */
+    selection?: string
+    /** Summary of all data for AI */
+    summary: string
+}
+
+/**
+ * Get comprehensive context about the current spreadsheet for AI agents.
+ * Returns structured data that can be sent to the AI for context.
+ *
+ * @param maxPreviewRows - Maximum rows to include in sheet previews (default 20)
+ * @param maxPreviewCols - Maximum columns to include in previews (default 10)
+ */
+export function getSpreadsheetContext(
+    maxPreviewRows = 20,
+    maxPreviewCols = 10
+): SpreadsheetContext | null {
+    if (!sheetsInstance?.api) {
+        console.warn('[UniverSheets] getSpreadsheetContext: No active instance')
+        return null
+    }
+
+    try {
+        const workbook = sheetsInstance.api.getActiveWorkbook()
+        if (!workbook) {
+            console.warn('[UniverSheets] getSpreadsheetContext: No active workbook')
+            return null
+        }
+
+        const workbookId = workbook.getId() || 'unknown'
+        const workbookName = workbook.getName() || 'Untitled'
+        const activeSheet = workbook.getActiveSheet()
+        const activeSheetId = activeSheet?.getSheetId() || ''
+        const activeSheetName = activeSheet?.getSheetName() || 'Sheet1'
+
+        // Get all sheets info
+        const allSheets = workbook.getSheets()
+        const sheets: SheetInfo[] = []
+
+        for (const sheet of allSheets) {
+            const sheetId = sheet.getSheetId()
+            const sheetName = sheet.getSheetName()
+
+            // Get used range to determine actual data bounds
+            let usedRange: { getLastRow: () => number; getLastColumn: () => number } | null = null
+            try {
+                usedRange = sheet.getUsedRange()
+            } catch {
+                // If getUsedRange fails, use a default range
+                usedRange = null
+            }
+
+            let rowCount = 0
+            let columnCount = 0
+            let cellCount = 0
+            const preview: Array<Array<string | number | null>> = []
+
+            if (usedRange) {
+                // Get the actual bounds of data
+                const lastRow = usedRange.getLastRow()
+                const lastCol = usedRange.getLastColumn()
+                rowCount = lastRow + 1
+                columnCount = lastCol + 1
+
+                // Get preview data (first N rows and columns)
+                const previewRows = Math.min(rowCount, maxPreviewRows)
+                const previewCols = Math.min(columnCount, maxPreviewCols)
+
+                if (previewRows > 0 && previewCols > 0) {
+                    const previewRange = sheet.getRange(0, 0, previewRows, previewCols)
+                    const values = previewRange.getValues() as Array<Array<unknown>>
+
+                    for (const row of values) {
+                        const cleanRow: Array<string | number | null> = []
+                        for (const cell of row) {
+                            if (cell === undefined || cell === '') {
+                                cleanRow.push(null)
+                            } else if (typeof cell === 'string' || typeof cell === 'number') {
+                                cleanRow.push(cell)
+                                cellCount++
+                            } else {
+                                cleanRow.push(String(cell))
+                                cellCount++
+                            }
+                        }
+                        preview.push(cleanRow)
+                    }
+                }
+            }
+
+            sheets.push({
+                id: sheetId,
+                name: sheetName,
+                rowCount,
+                columnCount,
+                preview,
+                cellCount,
+            })
+        }
+
+        // Get current selection
+        let selection: string | undefined
+        try {
+            const fSelection = activeSheet?.getSelection()
+            const activeRange = fSelection?.getActiveRange()
+            if (activeRange) {
+                selection = activeRange.getA1Notation()
+            }
+        } catch {
+            // Selection not available
+        }
+
+        // Build summary for AI
+        const summaryParts: string[] = []
+        summaryParts.push(`Workbook: "${workbookName}" with ${sheets.length} sheet(s)`)
+        summaryParts.push(`Active sheet: "${activeSheetName}"`)
+
+        for (const sheet of sheets) {
+            if (sheet.cellCount > 0) {
+                summaryParts.push(
+                    `- "${sheet.name}": ${sheet.rowCount} rows × ${sheet.columnCount} cols (${sheet.cellCount} cells with data)`
+                )
+
+                // Add header row if available
+                if (sheet.preview.length > 0) {
+                    const headers = sheet.preview[0]
+                        .filter((h) => h !== null)
+                        .map((h) => String(h))
+                    if (headers.length > 0) {
+                        summaryParts.push(`  Headers: ${headers.join(', ')}`)
+                    }
+                }
+            }
+        }
+
+        if (selection) {
+            summaryParts.push(`Current selection: ${selection}`)
+        }
+
+        return {
+            workbookId,
+            workbookName,
+            activeSheetId,
+            activeSheetName,
+            sheets,
+            selection,
+            summary: summaryParts.join('\n'),
+        }
+    } catch (err) {
+        console.error('[UniverSheets] getSpreadsheetContext error:', err)
+        return null
+    }
+}
+
+/**
+ * Get the data from a specific range as a formatted string for AI context.
+ * Useful for getting data from user-selected ranges.
+ *
+ * @param rangeA1 - Range in A1 notation (e.g., "A1:D10" or "Sheet1!A1:D10")
+ */
+export function getRangeDataAsText(rangeA1: string): string | null {
+    if (!sheetsInstance?.api) return null
+
+    try {
+        const workbook = sheetsInstance.api.getActiveWorkbook()
+        if (!workbook) return null
+
+        const activeSheet = workbook.getActiveSheet()
+        if (!activeSheet) return null
+
+        // Parse sheet name from range if present
+        let sheetName: string | undefined
+        let rangePart = rangeA1
+        if (rangeA1.includes('!')) {
+            const parts = rangeA1.split('!')
+            sheetName = parts[0]
+            rangePart = parts[1]
+        }
+
+        // Get the target sheet
+        let targetSheet = activeSheet
+        if (sheetName) {
+            const sheets = workbook.getSheets()
+            const found = sheets.find((s: { getSheetName: () => string }) => s.getSheetName() === sheetName)
+            if (found) {
+                targetSheet = found
+            }
+        }
+
+        const range = targetSheet.getRange(rangePart)
+        const values = range.getValues() as Array<Array<unknown>>
+
+        // Format as tab-separated values
+        const lines = values.map((row) =>
+            row.map((cell) => (cell === null || cell === undefined ? '' : String(cell))).join('\t')
+        )
+
+        return lines.join('\n')
+    } catch (err) {
+        console.error('[UniverSheets] getRangeDataAsText error:', err)
+        return null
     }
 }

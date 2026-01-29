@@ -32,6 +32,8 @@ export interface AgentPanelMessage {
     result?: unknown
     args?: Record<string, unknown>
   }>
+  /** Version number of checkpoint created before this message (for restore) */
+  checkpointVersion?: number
 }
 
 // === AGENT PANEL CONFIG ===
@@ -77,6 +79,26 @@ export const agentPanelConfigAtom = atomWithStorage<AgentPanelConfig>(
 export const agentPanelStreamingAtom = atom(false)
 export const agentPanelStreamingTextAtom = atom('')
 
+// === AGENT STATUS (for animated loader) ===
+
+export type AgentStatusPhase =
+  | 'idle'
+  | 'thinking'       // Initial thinking before any tool calls
+  | 'executing'      // Executing a tool
+  | 'processing'     // Processing results
+  | 'writing'        // Writing response
+  | 'syncing'        // Syncing data to spreadsheet/doc
+
+export interface AgentStatus {
+  phase: AgentStatusPhase
+  /** Current tool being executed (if any) */
+  currentTool?: string
+  /** Human-readable status message */
+  message?: string
+}
+
+export const agentPanelStatusAtom = atom<AgentStatus>({ phase: 'idle' })
+
 // === IMAGE ATTACHMENTS ===
 
 export interface AgentPanelImageAttachment {
@@ -109,3 +131,42 @@ export interface CellContextAttachment {
 }
 
 export const agentPanelCellContextAtom = atom<CellContextAttachment[]>([])
+
+// === WORKBOOK CHECKPOINTS (Cursor-style restore) ===
+
+export interface WorkbookCheckpoint {
+  id: string
+  messageId: string // The user message this checkpoint belongs to
+  fileId: string
+  versionNumber: number
+  prompt: string // Preview of the user prompt
+  createdAt: number
+  /** Whether this checkpoint can be restored (has subsequent AI changes) */
+  canRestore: boolean
+}
+
+/** Checkpoints per session (fileId -> checkpoints[]) */
+export const agentPanelCheckpointsAtom = atom<Record<string, WorkbookCheckpoint[]>>({})
+
+/** Get checkpoints for a specific file */
+export const getFileCheckpointsAtom = (fileId: string) =>
+  atom(
+    (get) => get(agentPanelCheckpointsAtom)[fileId] ?? [],
+    (get, set, checkpoints: WorkbookCheckpoint[]) => {
+      const current = get(agentPanelCheckpointsAtom)
+      set(agentPanelCheckpointsAtom, { ...current, [fileId]: checkpoints })
+    }
+  )
+
+/** Add a new checkpoint */
+export const addCheckpointAtom = atom(
+  null,
+  (get, set, checkpoint: WorkbookCheckpoint) => {
+    const current = get(agentPanelCheckpointsAtom)
+    const fileCheckpoints = current[checkpoint.fileId] ?? []
+    set(agentPanelCheckpointsAtom, {
+      ...current,
+      [checkpoint.fileId]: [...fileCheckpoints, checkpoint],
+    })
+  }
+)

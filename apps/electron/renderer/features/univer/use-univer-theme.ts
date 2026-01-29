@@ -40,14 +40,6 @@ export function useUniverTheme(): void {
 
         setSheetsTheme(isDark, themeColors)
         setDocsTheme(isDark, themeColors)
-
-        console.log('[UniverTheme] Theme synchronized:', {
-            themeId: themeForUniver?.id,
-            themeName: themeForUniver?.name,
-            isDark,
-            hasColors: !!themeColors,
-            colorKeys: themeColors ? Object.keys(themeColors).length : 0,
-        })
     }, [resolvedTheme, themeForUniver, isDark])
 }
 

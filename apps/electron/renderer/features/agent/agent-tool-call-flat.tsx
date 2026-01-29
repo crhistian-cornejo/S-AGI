@@ -5,7 +5,7 @@
  * Shows tool actions with rich badges for context.
  */
 
-import { memo, useState, useMemo } from "react";
+import { memo, useState, useMemo, useCallback } from "react";
 import { cn } from "@/lib/utils";
 import {
   IconCheck,
@@ -143,15 +143,40 @@ function getChartData(tc: ToolCall): { artifactId: string; chartConfig: unknown;
 // ============================================================================
 
 interface ToolBadge {
-  type: "default" | "transform" | "range" | "info";
+  type: "default" | "transform" | "range" | "info" | "formula" | "style";
   content: string;
   from?: string;
   to?: string;
 }
 
+// Operation type colors for Ramp Sheets style
+const OPERATION_COLORS: Record<string, { bg: string; text: string; border: string }> = {
+  insert: { bg: "bg-emerald-500/10", text: "text-emerald-600 dark:text-emerald-400", border: "border-emerald-500/20" },
+  format: { bg: "bg-violet-500/10", text: "text-violet-600 dark:text-violet-400", border: "border-violet-500/20" },
+  formula: { bg: "bg-amber-500/10", text: "text-amber-600 dark:text-amber-400", border: "border-amber-500/20" },
+  delete: { bg: "bg-red-500/10", text: "text-red-600 dark:text-red-400", border: "border-red-500/20" },
+  read: { bg: "bg-sky-500/10", text: "text-sky-600 dark:text-sky-400", border: "border-sky-500/20" },
+  create: { bg: "bg-indigo-500/10", text: "text-indigo-600 dark:text-indigo-400", border: "border-indigo-500/20" },
+  chart: { bg: "bg-pink-500/10", text: "text-pink-600 dark:text-pink-400", border: "border-pink-500/20" },
+  default: { bg: "bg-blue-500/10", text: "text-blue-600 dark:text-blue-400", border: "border-blue-500/20" },
+};
+
+function getOperationType(toolName: string): keyof typeof OPERATION_COLORS {
+  if (toolName.includes("insert") || toolName.includes("add") || toolName.includes("set_cell")) return "insert";
+  if (toolName.includes("format") || toolName.includes("style") || toolName.includes("merge")) return "format";
+  if (toolName.includes("formula")) return "formula";
+  if (toolName.includes("delete") || toolName.includes("remove") || toolName.includes("clear")) return "delete";
+  if (toolName.includes("get") || toolName.includes("read") || toolName.includes("context")) return "read";
+  if (toolName.includes("create") || toolName.includes("new")) return "create";
+  if (toolName.includes("chart") || toolName.includes("graph")) return "chart";
+  return "default";
+}
+
 function extractBadges(tc: ToolCall): ToolBadge[] {
   const args = parseArgs(tc);
-  const result = tc.result as Record<string, unknown> | undefined;
+  // Result available for future badge extraction from tool outputs
+  const _result = tc.result as Record<string, unknown> | undefined;
+  void _result; // Silence unused variable warning
   const badges: ToolBadge[] = [];
 
   switch (tc.name) {
@@ -290,20 +315,38 @@ const ToolCallItem = memo(function ToolCallItem({
   const displayName = getToolDisplayName(tc.name, part);
   const Icon = getToolIcon(tc.name);
   const badges = extractBadges(tc);
+  const opType = getOperationType(tc.name);
+  const colors = OPERATION_COLORS[opType];
 
   const imageData = isImageTool(tc.name) && isSuccess ? getImageData(tc) : undefined;
   const chartData = isChartTool(tc.name) && isSuccess ? getChartData(tc) : undefined;
+
+  // Handler for clicking cell references to highlight in spreadsheet
+  const handleCellClick = useCallback((range: string) => {
+    // Parse range to get sheet and cells
+    // Format: "Sheet1!A1:B5" or just "A1:B5"
+    const [sheetPart, cellPart] = range.includes("!")
+      ? range.split("!")
+      : [undefined, range];
+
+    // Send IPC to highlight cells in spreadsheet
+    // @ts-expect-error - desktopApi extended in preload
+    window.desktopApi?.highlightCells?.({
+      range: cellPart,
+      sheetName: sheetPart,
+    });
+  }, []);
 
   return (
     <div className="py-1.5">
       {/* Main row */}
       <div className="flex items-center gap-2">
-        {/* Icon with status color */}
+        {/* Icon with operation-specific color */}
         <div
           className={cn(
             "shrink-0 w-5 h-5 rounded flex items-center justify-center",
             isPending && "text-primary",
-            isSuccess && "text-emerald-600 dark:text-emerald-400",
+            isSuccess && colors.text,
             isError && "text-destructive"
           )}
         >
@@ -344,7 +387,7 @@ const ToolCallItem = memo(function ToolCallItem({
       {badges.length > 0 && (
         <div className="flex items-center gap-1.5 mt-1.5 ml-7 flex-wrap">
           {badges.map((badge, idx) => (
-            <ToolBadgeDisplay key={idx} badge={badge} />
+            <ToolBadgeDisplay key={idx} badge={badge} onCellClick={handleCellClick} toolName={tc.name} />
           ))}
           {isSuccess && (
             <IconCheck size={12} className="text-emerald-500 ml-auto shrink-0" />
@@ -383,9 +426,17 @@ const ToolCallItem = memo(function ToolCallItem({
 
 const ToolBadgeDisplay = memo(function ToolBadgeDisplay({
   badge,
+  onCellClick,
+  toolName,
 }: {
   badge: ToolBadge;
+  onCellClick?: (range: string) => void;
+  toolName?: string;
 }) {
+  // Get operation-specific colors
+  const opType = toolName ? getOperationType(toolName) : "default";
+  const colors = OPERATION_COLORS[opType];
+
   if (badge.type === "transform" && badge.from && badge.to) {
     return (
       <div className="flex items-center gap-1">
@@ -399,7 +450,10 @@ const ToolBadgeDisplay = memo(function ToolBadgeDisplay({
         <IconArrowRight size={12} className="text-muted-foreground" />
         <Badge
           variant="outline"
-          className="text-[10px] px-1.5 py-0 h-5 bg-primary/10 text-primary border-primary/20 font-mono"
+          className={cn(
+            "text-[10px] px-1.5 py-0 h-5 font-mono",
+            colors.bg, colors.text, colors.border
+          )}
         >
           <IconTable size={10} className="mr-1 opacity-60" />
           {badge.to}
@@ -412,9 +466,29 @@ const ToolBadgeDisplay = memo(function ToolBadgeDisplay({
     return (
       <Badge
         variant="outline"
-        className="text-[10px] px-1.5 py-0 h-5 bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20 font-mono"
+        className={cn(
+          "text-[10px] px-1.5 py-0 h-5 font-mono",
+          colors.bg, colors.text, colors.border,
+          onCellClick && "cursor-pointer hover:opacity-80 transition-opacity"
+        )}
+        onClick={() => onCellClick?.(badge.content)}
       >
         <IconTable size={10} className="mr-1 opacity-60" />
+        {badge.content}
+      </Badge>
+    );
+  }
+
+  if (badge.type === "formula") {
+    const formulaColors = OPERATION_COLORS.formula;
+    return (
+      <Badge
+        variant="outline"
+        className={cn(
+          "text-[10px] px-1.5 py-0 h-5 font-mono",
+          formulaColors.bg, formulaColors.text, formulaColors.border
+        )}
+      >
         {badge.content}
       </Badge>
     );
