@@ -26,7 +26,7 @@ export function AboutDialog() {
   }, [isOpen]);
 
   const handleOpenGitHub = () => {
-    window.open("https://github.com/your-repo/s-agi", "_blank");
+    window.open("https://github.com/crhistian-cornejo/S-AGI", "_blank");
   };
 
   return (
@@ -38,7 +38,7 @@ export function AboutDialog() {
           </div>
           <DialogTitle className="text-2xl font-bold">S-AGI</DialogTitle>
           <p className="text-sm text-muted-foreground mt-2">
-            AI Agent for Spreadsheets with Univer
+            AI-Powered Workspace for Spreadsheets, Documents & PDFs
           </p>
         </DialogHeader>
 
@@ -52,9 +52,11 @@ export function AboutDialog() {
 
           <div className="border-t pt-4">
             <p className="text-sm text-muted-foreground text-center mb-4">
-              S-AGI es una aplicación Electron/Web para crear spreadsheets con
-              AI usando Univer. Los usuarios chatean con Claude para generar,
-              editar y manipular hojas de cálculo en tiempo real.
+              S-AGI is an AI-powered workspace for spreadsheets, documents, and
+              PDFs. Chat with Claude/Gemini/OpenAI to generate formulas,
+              manipulate data, create documents, analyze PDFs, and solve complex
+              problems through natural language. Built with Univer for
+              professional-grade spreadsheet capabilities.
             </p>
           </div>
 

@@ -63,6 +63,9 @@ import { AgentToolCallFlat } from "./agent-tool-call-flat";
 import { TaskProgressPanel, type TaskItem } from "./task-progress-panel";
 import { MessageCheckpointRestore } from "./message-checkpoint-restore";
 import { AgentPrismLoader } from "./agent-prism-loader";
+import { CheckpointDropdown } from "./checkpoint-dropdown";
+import { CheckpointBadge } from "./checkpoint-badge";
+import { RestorePreviewDialog } from "./restore-preview-dialog";
 import { getTodosAtom } from "@/lib/atoms";
 import {
   agentPanelOpenAtom,
@@ -256,8 +259,8 @@ function isAgentTab(tab: string): tab is AgentTab {
 // Parse content with tool markers into segments for interleaved rendering
 // Markers format: {{TOOL:toolCallId}}
 type ContentSegment =
-  | { type: 'text'; content: string }
-  | { type: 'tool'; toolCallId: string };
+  | { type: "text"; content: string }
+  | { type: "tool"; toolCallId: string };
 
 function parseContentWithToolMarkers(content: string): ContentSegment[] {
   if (!content) return [];
@@ -271,17 +274,17 @@ function parseContentWithToolMarkers(content: string): ContentSegment[] {
     // Add text before this marker
     const textBefore = content.slice(lastIndex, match.index).trim();
     if (textBefore) {
-      segments.push({ type: 'text', content: textBefore });
+      segments.push({ type: "text", content: textBefore });
     }
     // Add the tool marker
-    segments.push({ type: 'tool', toolCallId: match[1] });
+    segments.push({ type: "tool", toolCallId: match[1] });
     lastIndex = match.index + match[0].length;
   }
 
   // Add remaining text after last marker
   const remaining = content.slice(lastIndex).trim();
   if (remaining) {
-    segments.push({ type: 'text', content: remaining });
+    segments.push({ type: "text", content: remaining });
   }
 
   return segments;
@@ -300,13 +303,16 @@ const AgentMessage = memo(function AgentMessage({
   const isUser = message.role === "user";
   // Check if any tool call is currently executing (for spinner animation)
   const isExecuting = message.toolCalls?.some(
-    (tc) => tc.status === "executing"
+    (tc) => tc.status === "executing",
   );
 
   // Create a map of tool calls by ID for quick lookup
   const toolCallsMap = useMemo(() => {
-    const map = new Map<string, typeof message.toolCalls extends (infer T)[] | undefined ? T : never>();
-    message.toolCalls?.forEach(tc => {
+    const map = new Map<
+      string,
+      typeof message.toolCalls extends (infer T)[] | undefined ? T : never
+    >();
+    message.toolCalls?.forEach((tc) => {
       map.set(tc.toolCallId, tc);
     });
     return map;
@@ -318,7 +324,7 @@ const AgentMessage = memo(function AgentMessage({
   }, [message.content]);
 
   // Check if content has tool markers (Google Sheets AI style)
-  const hasToolMarkers = segments.some(s => s.type === 'tool');
+  const hasToolMarkers = segments.some((s) => s.type === "tool");
 
   // Render a single tool call
   const renderToolCall = (toolCallId: string) => {
@@ -328,18 +334,20 @@ const AgentMessage = memo(function AgentMessage({
     return (
       <div key={toolCallId} className="my-2">
         <AgentToolCallFlat
-          toolCalls={[{
-            id: tc.toolCallId,
-            name: tc.toolName,
-            args: tc.args,
-            result: tc.result,
-            status:
-              tc.status === "executing"
-                ? "streaming"
-                : tc.status === "done"
-                  ? "complete"
-                  : tc.status,
-          }]}
+          toolCalls={[
+            {
+              id: tc.toolCallId,
+              name: tc.toolName,
+              args: tc.args,
+              result: tc.result,
+              status:
+                tc.status === "executing"
+                  ? "streaming"
+                  : tc.status === "done"
+                    ? "complete"
+                    : tc.status,
+            },
+          ]}
           isStreaming={tc.status === "executing"}
         />
       </div>
@@ -360,7 +368,7 @@ const AgentMessage = memo(function AgentMessage({
             size={16}
             className={cn(
               "text-primary transition-transform",
-              isExecuting && "animate-spin"
+              isExecuting && "animate-spin",
             )}
           />
         </div>
@@ -392,7 +400,7 @@ const AgentMessage = memo(function AgentMessage({
         {!isUser && hasToolMarkers ? (
           <div className="space-y-1">
             {segments.map((segment, idx) => {
-              if (segment.type === 'text') {
+              if (segment.type === "text") {
                 return (
                   <div key={`text-${idx}`} className="text-sm text-foreground">
                     <ChatMarkdownRenderer content={segment.content} size="sm" />
@@ -403,9 +411,14 @@ const AgentMessage = memo(function AgentMessage({
               }
             })}
             {/* Render any tool calls that weren't in the content (fallback) */}
-            {message.toolCalls?.filter(tc =>
-              !segments.some(s => s.type === 'tool' && s.toolCallId === tc.toolCallId)
-            ).map(tc => renderToolCall(tc.toolCallId))}
+            {message.toolCalls
+              ?.filter(
+                (tc) =>
+                  !segments.some(
+                    (s) => s.type === "tool" && s.toolCallId === tc.toolCallId,
+                  ),
+              )
+              .map((tc) => renderToolCall(tc.toolCallId))}
           </div>
         ) : (
           <>
@@ -448,9 +461,18 @@ const AgentMessage = memo(function AgentMessage({
         )}
       </div>
 
-      {/* User avatar with restore button */}
+      {/* User avatar with checkpoint badge and restore button */}
       {isUser && (
-        <div className="flex items-start gap-1">
+        <div className="flex items-start gap-1.5">
+          {/* Checkpoint badge with version indicator */}
+          {message.checkpointVersion && (
+            <CheckpointBadge
+              versionNumber={message.checkpointVersion}
+              canRestore={true}
+              onRestoreClick={onRestoreComplete}
+              className="mt-1"
+            />
+          )}
           {/* Restore checkpoint button - shows on hover */}
           {message.checkpointVersion && fileId && (
             <MessageCheckpointRestore
@@ -515,7 +537,10 @@ const CellContextChip = memo(function CellContextChip({
 }) {
   return (
     <div className="relative group inline-flex items-center gap-2 px-3 py-1.5 bg-muted/70 text-foreground rounded-full border border-border/60 shadow-sm">
-      <IconCornerDownRight size={14} className="shrink-0 text-muted-foreground" />
+      <IconCornerDownRight
+        size={14}
+        className="shrink-0 text-muted-foreground"
+      />
       <span className="text-xs font-medium truncate max-w-[180px]">
         {context.range}
       </span>
@@ -730,6 +755,13 @@ export function AgentPanel() {
 
   const [input, setInput] = useState("");
   const [historyDialogOpen, setHistoryDialogOpen] = useState(false);
+  const [restorePreviewOpen, setRestorePreviewOpen] = useState(false);
+  const [selectedCheckpoint, setSelectedCheckpoint] = useState<{
+    id: string;
+    versionNumber: number;
+    prompt: string;
+    createdAt: string;
+  } | null>(null);
 
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -888,8 +920,8 @@ export function AgentPanel() {
         case "text-delta":
           // Update status to "writing" when text starts streaming
           setAgentStatus({
-            phase: 'writing',
-            message: 'Writing response',
+            phase: "writing",
+            message: "Writing response",
           });
           // Update both state (for UI) and ref (for finish handler)
           streamingTextRef.current += event.delta || "";
@@ -907,7 +939,7 @@ export function AgentPanel() {
         case "tool-call-start":
           // Update agent status to show executing tool
           setAgentStatus({
-            phase: 'executing',
+            phase: "executing",
             currentTool: event.toolName,
             message: `Running ${event.toolName}`,
           });
@@ -963,8 +995,8 @@ export function AgentPanel() {
         case "tool-call-done":
           // Update agent status - tool completed, back to processing
           setAgentStatus({
-            phase: 'processing',
-            message: 'Processing results',
+            phase: "processing",
+            message: "Processing results",
           });
 
           setMessages((prev: AgentPanelMessage[]) => {
@@ -1000,7 +1032,7 @@ export function AgentPanel() {
           streamingTextRef.current = "";
           setStreamingText("");
           setIsStreaming(false);
-          setAgentStatus({ phase: 'idle' });
+          setAgentStatus({ phase: "idle" });
           // Add error message
           setMessages((prev: AgentPanelMessage[]) => [
             ...prev,
@@ -1076,7 +1108,7 @@ export function AgentPanel() {
           streamingTextRef.current = "";
           setStreamingText("");
           setIsStreaming(false);
-          setAgentStatus({ phase: 'idle' });
+          setAgentStatus({ phase: "idle" });
           break;
       }
     };
@@ -1091,7 +1123,14 @@ export function AgentPanel() {
     // The 'finish' case uses streamingText from closure which may be stale, but that's
     // fine since we track full text in fullText variable inside the streaming handler.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sessionId, setStreamingText, setIsStreaming, setMessages, setAgentStatus, activeTab]);
+  }, [
+    sessionId,
+    setStreamingText,
+    setIsStreaming,
+    setMessages,
+    setAgentStatus,
+    activeTab,
+  ]);
 
   // Auto-scroll to bottom when new messages arrive
   useEffect(() => {
@@ -1187,7 +1226,8 @@ export function AgentPanel() {
 
   // Handle send message
   const handleSend = useCallback(async () => {
-    if (!input.trim() && images.length === 0 && cellContexts.length === 0) return;
+    if (!input.trim() && images.length === 0 && cellContexts.length === 0)
+      return;
     if (isStreaming || !agentContext) return;
 
     // Build prompt with cell context if present
@@ -1205,8 +1245,12 @@ export function AgentPanel() {
 
     // Create checkpoint before AI operation (for Excel/Doc files)
     let checkpointVersion: number | undefined;
-    const fileIdForCheckpoint = activeTab === "excel" ? currentExcelFileId :
-                                activeTab === "doc" ? currentDocFileId : null;
+    const fileIdForCheckpoint =
+      activeTab === "excel"
+        ? currentExcelFileId
+        : activeTab === "doc"
+          ? currentDocFileId
+          : null;
 
     if (fileIdForCheckpoint) {
       try {
@@ -1281,7 +1325,7 @@ export function AgentPanel() {
     }
     setIsStreaming(true);
     setStreamingText("");
-    setAgentStatus({ phase: 'thinking', message: 'Thinking...' });
+    setAgentStatus({ phase: "thinking", message: "Thinking..." });
 
     try {
       // Build context: Excel/Doc use current file (new) or artifact (legacy) so tools operate on the open spreadsheet/doc
@@ -1329,7 +1373,7 @@ export function AgentPanel() {
           // If no manual cell context was added, auto-include active sheet preview
           if (cellContexts.length === 0 && spreadsheetData?.sheets) {
             const activeSheet = spreadsheetData.sheets.find(
-              (s) => s.name === spreadsheetData.activeSheetName
+              (s) => s.name === spreadsheetData.activeSheetName,
             );
             if (activeSheet && activeSheet.preview.length > 0) {
               // Format preview data for the prompt
@@ -1658,96 +1702,123 @@ export function AgentPanel() {
         className="hidden"
       />
 
-      {/* Floating Action Icons - Top Right of Panel with safe area padding */}
-      <div className="absolute top-2 right-2 z-20 flex items-center gap-1 bg-background/80 backdrop-blur-sm rounded-lg p-1">
-        {/* History button */}
-        {isAgentTab(activeTab) && hasSavedHistory && (
+      {/* Header - Symmetric with Univer Tools toolbar line (matching exact height) */}
+      <div className="h-10 border-b border-border/50 flex items-center justify-between px-3 shrink-0 bg-muted/50">
+        {/* Left side - Title/Context */}
+        <div className="flex items-center gap-2">
+          <IconSparkles className="text-primary shrink-0" size={16} />
+          <h2 className="font-semibold tracking-tight shrink-0 text-xs">
+            {agentContext.title}
+          </h2>
+        </div>
+
+        {/* Right side - Action buttons */}
+        <div className="flex items-center gap-0.5">
+          {/* Checkpoint dropdown - shows for Excel/Doc with file open */}
+          {(activeTab === "excel" && currentExcelFileId) ||
+          (activeTab === "doc" && currentDocFileId) ? (
+            <CheckpointDropdown
+              fileId={
+                activeTab === "excel"
+                  ? currentExcelFileId!
+                  : currentDocFileId!
+              }
+              onRestoreClick={(cp) => {
+                setSelectedCheckpoint(cp);
+                setRestorePreviewOpen(true);
+              }}
+            />
+          ) : null}
+
+          {/* History button */}
+          {isAgentTab(activeTab) && hasSavedHistory && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  onClick={() => setHistoryDialogOpen(true)}
+                  className="relative h-7 w-7 rounded flex items-center justify-center text-muted-foreground/60 hover:text-foreground hover:bg-accent transition-all"
+                >
+                  <IconHistory size={14} />
+                  {historyCount > 0 && (
+                    <span className="absolute -top-0.5 -right-0.5 h-3.5 w-3.5 rounded-full bg-primary text-[8px] text-primary-foreground flex items-center justify-center font-bold">
+                      {historyCount > 9 ? "9+" : historyCount}
+                    </span>
+                  )}
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">
+                History ({historyCount})
+              </TooltipContent>
+            </Tooltip>
+          )}
+
+          {/* Refresh button */}
+          {isAgentTab(activeTab) && !hasSavedHistory && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  onClick={() => {
+                    refetchMessages();
+                    utils.panelMessages.list.invalidate({
+                      panelType: "agent_panel",
+                      sourceId: sessionId,
+                      tabType: activeTab,
+                    });
+                  }}
+                  disabled={isLoadingHistory}
+                  className="h-7 w-7 rounded flex items-center justify-center text-muted-foreground/60 hover:text-foreground hover:bg-accent transition-all disabled:opacity-50"
+                >
+                  <IconRefresh
+                    size={14}
+                    className={cn(isLoadingHistory && "animate-spin")}
+                  />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">Reload</TooltipContent>
+            </Tooltip>
+          )}
+
+          {/* Clear button */}
+          {messages.length > 0 && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  onClick={handleClear}
+                  className="h-7 w-7 rounded flex items-center justify-center text-muted-foreground/60 hover:text-destructive hover:bg-destructive/10 transition-all"
+                >
+                  <IconTrash size={14} />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">Clear</TooltipContent>
+            </Tooltip>
+          )}
+
+          {/* Close button */}
           <Tooltip>
             <TooltipTrigger asChild>
               <button
                 type="button"
-                onClick={() => setHistoryDialogOpen(true)}
-                className="relative h-7 w-7 rounded-md flex items-center justify-center text-muted-foreground/60 hover:text-foreground hover:bg-muted/50 transition-all"
+                onClick={() => setIsOpen(false)}
+                className="h-7 w-7 rounded flex items-center justify-center text-muted-foreground/60 hover:text-foreground hover:bg-accent transition-all"
               >
-                <IconHistory size={15} />
-                {historyCount > 0 && (
-                  <span className="absolute -top-1 -right-1 h-3.5 w-3.5 rounded-full bg-primary text-[8px] text-primary-foreground flex items-center justify-center font-bold">
-                    {historyCount > 9 ? "9+" : historyCount}
-                  </span>
-                )}
+                <IconX size={14} />
               </button>
             </TooltipTrigger>
-            <TooltipContent side="bottom">
-              History ({historyCount})
-            </TooltipContent>
+            <TooltipContent side="bottom">Close</TooltipContent>
           </Tooltip>
-        )}
-
-        {/* Refresh button */}
-        {isAgentTab(activeTab) && !hasSavedHistory && (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                type="button"
-                onClick={() => {
-                  refetchMessages();
-                  utils.panelMessages.list.invalidate({
-                    panelType: "agent_panel",
-                    sourceId: sessionId,
-                    tabType: activeTab,
-                  });
-                }}
-                disabled={isLoadingHistory}
-                className="h-7 w-7 rounded-md flex items-center justify-center text-muted-foreground/60 hover:text-foreground hover:bg-muted/50 transition-all disabled:opacity-50"
-              >
-                <IconRefresh
-                  size={15}
-                  className={cn(isLoadingHistory && "animate-spin")}
-                />
-              </button>
-            </TooltipTrigger>
-            <TooltipContent side="bottom">Reload</TooltipContent>
-          </Tooltip>
-        )}
-
-        {/* Clear button */}
-        {messages.length > 0 && (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                type="button"
-                onClick={handleClear}
-                className="h-7 w-7 rounded-md flex items-center justify-center text-muted-foreground/60 hover:text-destructive hover:bg-destructive/10 transition-all"
-              >
-                <IconTrash size={15} />
-              </button>
-            </TooltipTrigger>
-            <TooltipContent side="bottom">Clear</TooltipContent>
-          </Tooltip>
-        )}
-
-        {/* Close button */}
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              type="button"
-              onClick={() => setIsOpen(false)}
-              className="h-7 w-7 rounded-md flex items-center justify-center text-muted-foreground/60 hover:text-foreground hover:bg-muted/50 transition-all"
-            >
-              <IconX size={15} />
-            </button>
-          </TooltipTrigger>
-          <TooltipContent side="bottom">Close</TooltipContent>
-        </Tooltip>
+        </div>
       </div>
 
-      {/* Main Content Area */}
+      {/* Main Content Area - Safe area with padding for header */}
       <div className="flex-1 relative overflow-hidden min-h-0">
         <ScrollArea className="h-full">
           <div className="min-h-full flex flex-col pb-4">
             {/* Welcome State - Centered */}
             {showWelcomeState ? (
-              <div className="flex-1 flex flex-col pl-6 pr-14 py-10">
+              <div className="flex-1 flex flex-col pl-6 pr-6 py-10">
                 {/* Welcome Header */}
                 <div className="flex items-center gap-3">
                   <h1 className="text-[22px] font-semibold text-foreground tracking-tight whitespace-nowrap">
@@ -1850,13 +1921,23 @@ export function AgentPanel() {
                     <AgentMessage
                       key={msg.id}
                       message={msg}
-                      fileId={activeTab === "excel" ? currentExcelFileId : activeTab === "doc" ? currentDocFileId : null}
+                      fileId={
+                        activeTab === "excel"
+                          ? currentExcelFileId
+                          : activeTab === "doc"
+                            ? currentDocFileId
+                            : null
+                      }
                       onRestoreComplete={() => {
                         // Refresh file data after restore
                         if (activeTab === "excel" && currentExcelFileId) {
-                          utils.userFiles.get.invalidate({ id: currentExcelFileId });
+                          utils.userFiles.get.invalidate({
+                            id: currentExcelFileId,
+                          });
                         } else if (activeTab === "doc" && currentDocFileId) {
-                          utils.userFiles.get.invalidate({ id: currentDocFileId });
+                          utils.userFiles.get.invalidate({
+                            id: currentDocFileId,
+                          });
                         }
                       }}
                     />
@@ -1872,7 +1953,7 @@ export function AgentPanel() {
                       timestamp: Date.now(),
                       // Pass tool calls from the last assistant message during streaming
                       toolCalls: messages
-                        .filter(m => m.role === "assistant")
+                        .filter((m) => m.role === "assistant")
                         .pop()?.toolCalls,
                     }}
                   />
@@ -1895,10 +1976,7 @@ export function AgentPanel() {
 
       {/* Task Tracker - Sticky above input */}
       {agentTasks.length > 0 && (
-        <TaskProgressPanel
-          tasks={agentTasks}
-          isStreaming={isStreaming}
-        />
+        <TaskProgressPanel tasks={agentTasks} isStreaming={isStreaming} />
       )}
 
       {/* Input - Dynamic Growth Upwards */}
@@ -1947,10 +2025,14 @@ export function AgentPanel() {
               const scrollHeight = textarea.scrollHeight;
               const maxHeight = 200;
               const minHeight = 44;
-              const newHeight = Math.min(Math.max(scrollHeight, minHeight), maxHeight);
+              const newHeight = Math.min(
+                Math.max(scrollHeight, minHeight),
+                maxHeight,
+              );
               textarea.style.height = `${newHeight}px`;
               // Enable scroll only when content exceeds max height
-              textarea.style.overflowY = scrollHeight > maxHeight ? "auto" : "hidden";
+              textarea.style.overflowY =
+                scrollHeight > maxHeight ? "auto" : "hidden";
             }}
             onKeyDown={handleKeyDown}
             onPaste={handlePaste}
@@ -2120,6 +2202,39 @@ export function AgentPanel() {
           </ScrollArea>
         </DialogContent>
       </Dialog>
+
+      {/* Restore Preview Dialog */}
+      <RestorePreviewDialog
+        open={restorePreviewOpen}
+        onOpenChange={setRestorePreviewOpen}
+        checkpoint={selectedCheckpoint}
+        fileId={
+          activeTab === "excel"
+            ? currentExcelFileId || ""
+            : activeTab === "doc"
+              ? currentDocFileId || ""
+              : ""
+        }
+        currentVersionNumber={
+          activeTab === "excel"
+            ? currentExcelFile?.version_count
+            : activeTab === "doc"
+              ? currentDocFile?.version_count
+              : undefined
+        }
+        onRestoreComplete={() => {
+          // Refresh file data after restore
+          if (activeTab === "excel" && currentExcelFileId) {
+            utils.userFiles.get.invalidate({
+              id: currentExcelFileId,
+            });
+          } else if (activeTab === "doc" && currentDocFileId) {
+            utils.userFiles.get.invalidate({
+              id: currentDocFileId,
+            });
+          }
+        }}
+      />
     </div>
   );
 }

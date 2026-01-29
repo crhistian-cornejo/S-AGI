@@ -11,6 +11,7 @@
     "./types": "./src/types/index.ts",
     "./types/ai": "./src/types/ai.ts",
     "./types/hotkeys": "./src/types/hotkeys.ts",
+    "./types/checkpoints": "./src/types/checkpoints.ts",
     "./schemas": "./src/schemas/index.ts",
     "./file-config": "./src/file-config.ts",
     "./utils": "./src/utils/index.ts",

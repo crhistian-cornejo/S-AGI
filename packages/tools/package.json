@@ -1,0 +1,26 @@
+{
+  "name": "@s-agi/tools",
+  "version": "0.1.0",
+  "license": "Apache-2.0",
+  "description": "Unified tool definitions with provider-agnostic registry for S-AGI",
+  "type": "module",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./definitions": "./src/definitions/index.ts",
+    "./registry": "./src/registry.ts",
+    "./converters": "./src/converters/index.ts",
+    "./converters/ai-sdk": "./src/converters/ai-sdk.ts",
+    "./converters/mcp": "./src/converters/mcp.ts",
+    "./converters/openai": "./src/converters/openai.ts"
+  },
+  "peerDependencies": {
+    "zod": ">=3.0.0",
+    "ai": ">=4.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.4.0"
+  }
+}

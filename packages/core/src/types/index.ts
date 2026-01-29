@@ -22,3 +22,6 @@ export * from './agents'
 
 // Hotkey configuration types
 export * from './hotkeys'
+
+// Checkpoint types (version control, restore points)
+export * from './checkpoints'

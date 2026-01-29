@@ -5,6 +5,7 @@
   "private": true,
   "type": "module",
   "dependencies": {
-    "@s-agi/core": "workspace:*"
+    "@s-agi/core": "workspace:*",
+    "@s-agi/tools": "workspace:*"
   }
 }

@@ -229,16 +229,26 @@ export function createExcelMcpTools(context: ExcelContext): McpToolDefinition[] 
     return [
         {
             name: 'create_spreadsheet',
-            description: 'Crea una nueva hoja de calculo con datos iniciales. Usalo para crear tablas, reportes o analisis.',
+            description: `Crea una NUEVA hoja de cálculo. SOLO usar cuando NO hay hoja activa o el usuario pide explícitamente crear una nueva.
+
+EJEMPLO:
+{
+  "title": "Ventas Q1",
+  "headers": ["Producto", "Cantidad", "Precio", "Total"],
+  "data": [["Laptop", 5, 1200, "=B2*C2"], ["Mouse", 50, 25, "=B3*C3"]],
+  "columnWidths": [120, 80, 80, 100]
+}
+
+DEVUELVE: {"success": true, "artifactId": "uuid...", "rowCount": 3, "columnCount": 4}`,
             inputSchema: z.object({
-                title: z.string().describe('Titulo de la hoja de calculo'),
-                headers: z.array(z.string()).describe('Encabezados de las columnas'),
+                title: z.string().describe('Nombre de la hoja (ej: "Ventas Q1 2024")'),
+                headers: z.array(z.string()).describe('Array de encabezados: ["Col1", "Col2", "Col3"]'),
                 data: z.array(z.array(z.union([z.string(), z.number(), z.null()])))
                     .optional()
-                    .describe('Filas de datos (array de arrays)'),
+                    .describe('Filas de datos. Cada subarray es una fila: [["val1", 100, "=A2*2"], ["val2", 200, "=A3*2"]]'),
                 columnWidths: z.array(z.number())
                     .optional()
-                    .describe('Anchos de columna en pixeles')
+                    .describe('Anchos en px: [100, 80, 120]. Si omites, usa 100px default')
             }),
             handler: async (rawArgs) => {
                 try {
@@ -403,14 +413,35 @@ export function createExcelMcpTools(context: ExcelContext): McpToolDefinition[] 
         },
         {
             name: 'update_cells',
-            description: 'Actualiza celdas especificas en la hoja de calculo activa.',
+            description: `Escribe valores en celdas específicas de la hoja activa. Usa notación A1 (columna letra + fila número).
+
+EJEMPLO - Escribir encabezados:
+{
+  "updates": [
+    {"cell": "A1", "value": "Producto"},
+    {"cell": "B1", "value": "Cantidad"},
+    {"cell": "C1", "value": "Precio"}
+  ]
+}
+
+EJEMPLO - Datos con fórmula:
+{
+  "updates": [
+    {"cell": "A2", "value": "Laptop"},
+    {"cell": "B2", "value": 5},
+    {"cell": "C2", "value": 1200},
+    {"cell": "D2", "value": "=B2*C2", "formula": "=B2*C2"}
+  ]
+}
+
+DEVUELVE: {"success": true, "updatedCells": 4, "message": "4 celda(s) actualizada(s)."}`,
             inputSchema: z.object({
-                artifactId: z.string().optional().describe('ID del artefacto (opcional si hay uno activo)'),
+                artifactId: z.string().optional().describe('NO pasar si hay hoja activa - se detecta automáticamente'),
                 updates: z.array(z.object({
-                    cell: z.string().describe('Referencia de celda (ej: A1, B2)'),
-                    value: z.union([z.string(), z.number()]).describe('Nuevo valor'),
-                    formula: z.string().optional().describe('Formula (ej: =SUM(A1:A10))')
-                })).describe('Lista de actualizaciones de celdas')
+                    cell: z.string().describe('Celda en notación A1: "A1", "B5", "Z100"'),
+                    value: z.union([z.string(), z.number()]).describe('Valor: texto "Hola" o número 123'),
+                    formula: z.string().optional().describe('Fórmula Excel: "=SUM(A1:A10)", "=IF(B1>100,\\"Alto\\",\\"Bajo\\")"')
+                })).describe('Array de {cell, value, formula?}')
             }),
             handler: async (rawArgs) => {
                 try {
@@ -540,26 +571,53 @@ export function createExcelMcpTools(context: ExcelContext): McpToolDefinition[] 
         },
         {
             name: 'format_cells',
-            description: 'Aplica formato a un rango de celdas.',
+            description: `Aplica formato visual a un rango de celdas: colores, negrita, bordes, alineación.
+
+EJEMPLO - Encabezados profesionales:
+{
+  "range": "A1:D1",
+  "format": {
+    "bold": true,
+    "backgroundColor": "#1E3A5F",
+    "textColor": "#FFFFFF",
+    "horizontalAlign": "center",
+    "fontSize": 11
+  }
+}
+
+EJEMPLO - Bordes a toda la tabla:
+{
+  "range": "A1:D10",
+  "format": {
+    "border": {"style": "thin", "color": "#E5E7EB", "sides": ["all"]}
+  }
+}
+
+COLORES ÚTILES:
+- Headers: #1E3A5F (azul oscuro), #4F46E5 (índigo)
+- Positivo: #10B981 (verde), Negativo: #EF4444 (rojo)
+- Fondo alterno: #F9FAFB (gris claro)
+
+DEVUELVE: {"success": true, "cellCount": 4, "message": "Formato aplicado..."}`,
             inputSchema: z.object({
-                artifactId: z.string().optional().describe('ID del artefacto (opcional si hay uno activo)'),
-                range: z.string().describe('Rango de celdas (ej: A1:D10)'),
+                artifactId: z.string().optional().describe('NO pasar si hay hoja activa'),
+                range: z.string().describe('Rango A1: "A1:D1" (fila), "A1:A10" (columna), "A1:D10" (tabla)'),
                 format: z.object({
-                    bold: z.boolean().optional(),
-                    italic: z.boolean().optional(),
-                    backgroundColor: z.string().optional().describe('Color hex (ej: #FFFF00)'),
-                    textColor: z.string().optional().describe('Color hex (ej: #000000)'),
-                    fontSize: z.number().optional(),
-                    horizontalAlign: z.enum(['left', 'center', 'right']).optional(),
-                    verticalAlign: z.enum(['top', 'middle', 'bottom']).optional(),
-                    textWrap: z.boolean().optional(),
-                    numberFormat: z.string().optional().describe('Formato numerico (ej: #,##0.00)'),
+                    bold: z.boolean().optional().describe('true para negrita'),
+                    italic: z.boolean().optional().describe('true para cursiva'),
+                    backgroundColor: z.string().optional().describe('Hex: "#1E3A5F", "#FFFF00"'),
+                    textColor: z.string().optional().describe('Hex: "#FFFFFF", "#000000"'),
+                    fontSize: z.number().optional().describe('Puntos: 10, 11, 12, 14'),
+                    horizontalAlign: z.enum(['left', 'center', 'right']).optional().describe('"left", "center", "right"'),
+                    verticalAlign: z.enum(['top', 'middle', 'bottom']).optional().describe('"top", "middle", "bottom"'),
+                    textWrap: z.boolean().optional().describe('true para ajustar texto'),
+                    numberFormat: z.string().optional().describe('"#,##0.00", "$#,##0.00", "0.00%"'),
                     border: z.object({
-                        style: z.enum(['thin', 'medium', 'thick', 'dashed', 'dotted']).optional(),
-                        color: z.string().optional(),
-                        sides: z.array(z.enum(['top', 'bottom', 'left', 'right', 'all'])).optional()
-                    }).optional()
-                }).describe('Opciones de formato')
+                        style: z.enum(['thin', 'medium', 'thick', 'dashed', 'dotted']).optional().describe('"thin", "medium", "thick"'),
+                        color: z.string().optional().describe('Hex: "#E5E7EB", "#000000"'),
+                        sides: z.array(z.enum(['top', 'bottom', 'left', 'right', 'all'])).optional().describe('["all"] para todos los bordes')
+                    }).optional().describe('Bordes: {style, color, sides}')
+                }).describe('Propiedades de formato a aplicar')
             }),
             handler: async (rawArgs) => {
                 try {
@@ -753,11 +811,26 @@ export function createExcelMcpTools(context: ExcelContext): McpToolDefinition[] 
         },
         {
             name: 'insert_formula',
-            description: 'Inserta una formula en una celda.',
+            description: `Inserta una fórmula Excel en una celda específica.
+
+FÓRMULAS COMUNES:
+- Suma: =SUM(A1:A10)
+- Promedio: =AVERAGE(B2:B100)
+- Contar: =COUNT(A:A), =COUNTA(A:A)
+- Condicional: =IF(A1>100,"Alto","Bajo")
+- Buscar: =VLOOKUP(A1,B:C,2,FALSE)
+- Concatenar: =CONCATENATE(A1," ",B1)
+- Suma condicional: =SUMIF(A:A,"Laptop",B:B)
+- Manejo errores: =IFERROR(A1/B1,0)
+
+EJEMPLO:
+{"cell": "D11", "formula": "=SUM(D2:D10)"}
+
+DEVUELVE: {"success": true, "cell": "D11", "formula": "=SUM(D2:D10)", "message": "Formula insertada..."}`,
             inputSchema: z.object({
-                artifactId: z.string().optional().describe('ID del artefacto (opcional si hay uno activo)'),
-                cell: z.string().describe('Referencia de celda (ej: E5)'),
-                formula: z.string().describe('Formula Excel (ej: =SUM(A1:A10), =AVERAGE(B1:B5))')
+                artifactId: z.string().optional().describe('NO pasar si hay hoja activa'),
+                cell: z.string().describe('Celda destino: "D11", "E5", "B100"'),
+                formula: z.string().describe('Fórmula con = al inicio: "=SUM(A1:A10)", "=IF(B1>0,\\"Sí\\",\\"No\\")"')
             }),
             handler: async ({ cell, formula, artifactId: providedArtifactId }) => {
                 try {
@@ -856,20 +929,46 @@ export function createExcelMcpTools(context: ExcelContext): McpToolDefinition[] 
         },
         {
             name: 'add_conditional_formatting',
-            description: 'Aplica formato condicional a un rango basado en reglas.',
+            description: `Aplica formato condicional: colorea celdas según su valor.
+
+TIPOS DE REGLA:
+- "greaterThan": valor > X → aplica formato
+- "lessThan": valor < X → aplica formato
+- "equals": valor == X → aplica formato
+- "between": X <= valor <= Y → aplica formato
+- "text_contains": texto contiene X → aplica formato
+
+EJEMPLO - Resaltar valores altos/bajos:
+{
+  "range": "C2:C100",
+  "rules": [
+    {"type": "greaterThan", "value": 1000, "format": {"backgroundColor": "#D1FAE5", "textColor": "#065F46"}},
+    {"type": "lessThan", "value": 100, "format": {"backgroundColor": "#FEE2E2", "textColor": "#991B1B"}}
+  ]
+}
+
+EJEMPLO - Resaltar texto específico:
+{
+  "range": "A2:A100",
+  "rules": [
+    {"type": "text_contains", "value": "Urgente", "format": {"backgroundColor": "#FEF3C7", "bold": true}}
+  ]
+}
+
+DEVUELVE: {"success": true, "cellsFormatted": 15, "message": "Formato condicional aplicado..."}`,
             inputSchema: z.object({
-                artifactId: z.string().optional().describe('ID del artefacto (opcional si hay uno activo)'),
-                range: z.string().describe('Rango de celdas (ej: A1:D10)'),
+                artifactId: z.string().optional().describe('NO pasar si hay hoja activa'),
+                range: z.string().describe('Rango a evaluar: "C2:C100", "A1:D50"'),
                 rules: z.array(z.object({
-                    type: z.enum(['greaterThan', 'lessThan', 'equals', 'between', 'text_contains']),
-                    value: z.union([z.string(), z.number()]),
-                    value2: z.union([z.string(), z.number()]).optional(),
+                    type: z.enum(['greaterThan', 'lessThan', 'equals', 'between', 'text_contains']).describe('Tipo de comparación'),
+                    value: z.union([z.string(), z.number()]).describe('Valor a comparar: 1000, "Urgente"'),
+                    value2: z.union([z.string(), z.number()]).optional().describe('Segundo valor para "between"'),
                     format: z.object({
-                        backgroundColor: z.string().optional().describe('Color de fondo (hex, ej: #FF0000)'),
-                        textColor: z.string().optional().describe('Color de texto (hex)'),
-                        bold: z.boolean().optional()
-                    })
-                })).describe('Reglas de formato condicional')
+                        backgroundColor: z.string().optional().describe('Verde: "#D1FAE5", Rojo: "#FEE2E2", Amarillo: "#FEF3C7"'),
+                        textColor: z.string().optional().describe('Verde oscuro: "#065F46", Rojo: "#991B1B"'),
+                        bold: z.boolean().optional().describe('true para negrita')
+                    }).describe('Formato a aplicar cuando se cumple la condición')
+                })).describe('Array de reglas: se aplica la primera que coincida')
             }),
             handler: async (rawArgs) => {
                 try {
@@ -1060,13 +1159,36 @@ export function createExcelMcpTools(context: ExcelContext): McpToolDefinition[] 
         },
         {
             name: 'sort_data',
-            description: 'Ordena datos en un rango por una columna específica.',
+            description: `Ordena las filas de un rango por los valores de una columna.
+
+EJEMPLO - Ordenar por precio descendente:
+{
+  "range": "A1:D50",
+  "sortColumn": "C",
+  "ascending": false,
+  "hasHeaders": true
+}
+
+EJEMPLO - Ordenar alfabéticamente:
+{
+  "range": "A1:B100",
+  "sortColumn": "A",
+  "ascending": true,
+  "hasHeaders": true
+}
+
+NOTAS:
+- hasHeaders=true: la fila 1 NO se ordena (son encabezados)
+- ascending=true: A→Z, 1→100
+- ascending=false: Z→A, 100→1
+
+DEVUELVE: {"success": true, "sortedRows": 49, "sortColumn": "C", "ascending": false, "message": "Datos ordenados..."}`,
             inputSchema: z.object({
-                artifactId: z.string().optional().describe('ID del artefacto (opcional si hay uno activo)'),
-                range: z.string().describe('Rango de datos a ordenar (ej: A1:D10)'),
-                sortColumn: z.string().describe('Columna por la cual ordenar (ej: A, B)'),
-                ascending: z.boolean().default(true).describe('Orden ascendente (true) o descendente (false)'),
-                hasHeaders: z.boolean().default(true).describe('Si la primera fila son encabezados')
+                artifactId: z.string().optional().describe('NO pasar si hay hoja activa'),
+                range: z.string().describe('Rango completo a ordenar: "A1:D50"'),
+                sortColumn: z.string().describe('Letra de columna: "A", "B", "C"'),
+                ascending: z.boolean().default(true).describe('true=A→Z/1→100, false=Z→A/100→1'),
+                hasHeaders: z.boolean().default(true).describe('true si fila 1 son encabezados (no se ordenan)')
             }),
             handler: async (rawArgs) => {
                 try {
@@ -1339,10 +1461,31 @@ export function createExcelMcpTools(context: ExcelContext): McpToolDefinition[] 
         // ============================================================================
         {
             name: 'read_cells',
-            description: 'Lee el contenido de un rango de celdas. Útil para ver datos existentes antes de modificar.',
+            description: `Lee el contenido de un rango de celdas. SIEMPRE úsalo ANTES de modificar datos existentes.
+
+EJEMPLO:
+{"range": "A1:D10"}
+
+DEVUELVE:
+{
+  "success": true,
+  "data": [
+    ["Producto", "Cantidad", "Precio", "Total"],
+    ["Laptop", 5, 1200, 6000],
+    ["Mouse", 50, 25, 1250]
+  ],
+  "rowCount": 3,
+  "columnCount": 4
+}
+
+CUÁNDO USAR:
+- ANTES de analizar datos existentes
+- ANTES de modificar una tabla
+- Para verificar estructura y contenido
+- Para encontrar la última fila con datos`,
             inputSchema: z.object({
-                artifactId: z.string().optional().describe('ID del artefacto (opcional si hay uno activo)'),
-                range: z.string().describe('Rango de celdas a leer (ej: A1:D10)')
+                artifactId: z.string().optional().describe('NO pasar si hay hoja activa'),
+                range: z.string().describe('Rango A1: "A1:D10", "A1:Z100", "A:D" (columnas completas)')
             }),
             handler: async (rawArgs) => {
                 try {
@@ -2128,12 +2271,29 @@ export function createExcelMcpTools(context: ExcelContext): McpToolDefinition[] 
         // ============================================================================
         {
             name: 'apply_number_format',
-            description: 'Aplica formato numérico rápido a celdas: moneda, porcentaje, fecha, número.',
+            description: `Aplica formato numérico predefinido a un rango. Más simple que format_cells para formatos comunes.
+
+FORMATOS DISPONIBLES:
+- "currency": $1,234.56
+- "percentage": 12.34%
+- "number": 1,234.56
+- "date": 01/15/2024
+- "time": 14:30:00
+- "datetime": 01/15/2024 14:30
+- "scientific": 1.23E+03
+- "text": trata números como texto
+
+EJEMPLOS:
+{"range": "C2:C100", "format": "currency"}
+{"range": "D2:D100", "format": "percentage"}
+{"range": "E2:E100", "format": "date"}
+
+DEVUELVE: {"success": true, "message": "Formato currency aplicado a C2:C100"}`,
             inputSchema: z.object({
-                artifactId: z.string().optional().describe('ID del artefacto (opcional si hay uno activo)'),
-                range: z.string().describe('Rango de celdas (ej: B2:B100)'),
-                format: z.enum(['currency', 'percentage', 'number', 'date', 'time', 'datetime', 'scientific', 'text']).describe('Tipo de formato'),
-                customPattern: z.string().optional().describe('Patrón personalizado (solo si format es custom)')
+                artifactId: z.string().optional().describe('NO pasar si hay hoja activa'),
+                range: z.string().describe('Rango: "C2:C100", "B:B" (columna completa)'),
+                format: z.enum(['currency', 'percentage', 'number', 'date', 'time', 'datetime', 'scientific', 'text']).describe('Tipo: currency, percentage, number, date, time, datetime, scientific, text'),
+                customPattern: z.string().optional().describe('Patrón custom: "#,##0.00", "$#,##0", "0.00%"')
             }),
             handler: async (rawArgs) => {
                 try {

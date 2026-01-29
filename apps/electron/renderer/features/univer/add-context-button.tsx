@@ -20,10 +20,6 @@ import { toast } from 'sonner'
 interface SelectionInfo {
   range: string
   sheetName: string
-  startRow: number
-  startCol: number
-  endRow: number
-  endCol: number
   /** Number of cells selected */
   cellCount: number
 }
@@ -31,6 +27,8 @@ interface SelectionInfo {
 interface AddContextButtonProps {
   fileId?: string
   fileName?: string
+  artifactId?: string
+  workbookName?: string
   className?: string
 }
 
@@ -45,21 +43,183 @@ function colToLetter(col: number): string {
   return result
 }
 
+function buildRangeNotation(
+  sheetName: string,
+  startRow: number,
+  startColumn: number,
+  endRow: number,
+  endColumn: number
+): string {
+  const startColLetter = colToLetter(startColumn)
+  const endColLetter = colToLetter(endColumn)
+  return `${sheetName}!${startColLetter}${startRow + 1}:${endColLetter}${endRow + 1}`
+}
+
 export const AddContextButton = memo(function AddContextButton({
   fileId,
   fileName,
+  artifactId,
+  workbookName,
   className
 }: AddContextButtonProps) {
   const [selection, setSelection] = useState<SelectionInfo | null>(null)
   const [isVisible, setIsVisible] = useState(false)
   const [buttonPosition, setButtonPosition] = useState<{ x: number; y: number } | null>(null)
-  const containerRef = useRef<HTMLDivElement>(null)
   const buttonRef = useRef<HTMLButtonElement>(null)
   const lastSelectionRef = useRef<SelectionInfo | null>(null)
+  const lastSelectionRectRef = useRef<DOMRect | null>(null)
+  const lastRangeRectRef = useRef<{ x: number; y: number; width: number; height: number } | null>(null)
 
   const setCellContext = useSetAtom(agentPanelCellContextAtom)
   const setAgentPanelOpen = useSetAtom(agentPanelOpenAtom)
   const isAgentPanelOpen = useAtomValue(agentPanelOpenAtom)
+
+  const getSheetContainerRect = useCallback(() => {
+    const root =
+      buttonRef.current?.closest('.univer-workbench') ??
+      document.querySelector('.univer-workbench') ??
+      document.querySelector('.univer-container') ??
+      document.querySelector('.univer-app')
+    return root?.getBoundingClientRect() ?? null
+  }, [])
+
+  const resolveWorksheetByName = useCallback((api: any, sheetName: string) => {
+    const workbook = api.getActiveWorkbook?.()
+    if (!workbook) return null
+    const sheets = workbook.getSheets?.() ?? []
+    return sheets.find((s: { getSheetName: () => string }) => s.getSheetName() === sheetName)
+  }, [])
+
+  const getSelectionData = useCallback(
+    (api: any): { info: SelectionInfo; range: any; worksheet: any } | null => {
+    const workbook = api.getActiveWorkbook?.()
+    const worksheet = workbook?.getActiveSheet?.()
+    if (!workbook || !worksheet) return null
+
+    const selection = worksheet.getSelection?.()
+    const ranges = selection?.getRanges?.() ?? []
+    const activeRange = ranges[0] ?? selection?.getActiveRange?.()
+    if (!activeRange) return null
+
+    const sheetName = worksheet.getSheetName?.() || 'Sheet1'
+
+    const getAddress = () => {
+      const raw =
+        activeRange.getAddress?.() ??
+        activeRange.getA1Notation?.() ??
+        activeRange.getRange?.()?.getAddress?.() ??
+        activeRange.getRange?.()?.getA1Notation?.()
+      if (!raw) return null
+      return raw.includes('!') ? raw : `${sheetName}!${raw}`
+    }
+
+    let rangeNotation = getAddress()
+    if (!rangeNotation) {
+      // Fallback to numeric coords if available
+      const startRow = activeRange.startRow
+      const startCol = activeRange.startColumn
+      const endRow = activeRange.endRow
+      const endCol = activeRange.endColumn
+      if (
+        typeof startRow === 'number' &&
+        typeof startCol === 'number' &&
+        typeof endRow === 'number' &&
+        typeof endCol === 'number'
+      ) {
+        const startColLetter = colToLetter(startCol)
+        const endColLetter = colToLetter(endCol)
+        rangeNotation = `${sheetName}!${startColLetter}${startRow + 1}:${endColLetter}${endRow + 1}`
+      }
+    }
+
+    if (!rangeNotation) return null
+
+    let rowCount: number | null = null
+    let colCount: number | null = null
+
+    try {
+      const rows = activeRange.getRowCount?.() ?? activeRange.getNumRows?.()
+      const cols = activeRange.getColumnCount?.() ?? activeRange.getNumColumns?.()
+      if (typeof rows === 'number') rowCount = rows
+      if (typeof cols === 'number') colCount = cols
+    } catch {
+      // Ignore, fallback to values
+    }
+
+    if (!rowCount || !colCount) {
+      try {
+        const values = activeRange.getValues?.()
+        if (Array.isArray(values)) {
+          rowCount = values.length
+          colCount = values.reduce(
+            (max: number, row: unknown) =>
+              Math.max(max, Array.isArray(row) ? row.length : 0),
+            0
+          )
+        }
+      } catch {
+        // Ignore
+      }
+    }
+
+    const cellCount = (rowCount ?? 0) * (colCount ?? 0)
+
+    const info: SelectionInfo = {
+      range: rangeNotation,
+      sheetName,
+      cellCount
+    }
+
+    return { info, range: activeRange, worksheet }
+  }, [])
+
+  const getSelectionFromEvent = useCallback((api: any, params?: any) => {
+    if (!params?.selections || params.selections.length === 0) return null
+    const sel = params.selections[0]
+    const rangeLike = sel?.range ?? sel
+    if (!rangeLike) return null
+
+    const workbook = api.getActiveWorkbook?.()
+    const worksheet = workbook?.getActiveSheet?.()
+    if (!workbook || !worksheet) return null
+
+    const sheetName = worksheet.getSheetName?.() || 'Sheet1'
+
+    let startRow = rangeLike.startRow
+    let startColumn = rangeLike.startColumn
+    let endRow = rangeLike.endRow
+    let endColumn = rangeLike.endColumn
+
+    if (startRow === undefined || startColumn === undefined) return null
+    if (endRow === undefined || endColumn === undefined) {
+      const rowCount = rangeLike.rowCount ?? rangeLike.rows ?? rangeLike.getNumRows?.()
+      const colCount = rangeLike.columnCount ?? rangeLike.cols ?? rangeLike.getNumColumns?.()
+      if (rowCount !== undefined) endRow = startRow + rowCount - 1
+      if (colCount !== undefined) endColumn = startColumn + colCount - 1
+    }
+
+    if (
+      typeof startRow !== 'number' ||
+      typeof startColumn !== 'number' ||
+      typeof endRow !== 'number' ||
+      typeof endColumn !== 'number'
+    ) {
+      return null
+    }
+
+    const rangeNotation = buildRangeNotation(sheetName, startRow, startColumn, endRow, endColumn)
+    const cellCount = (endRow - startRow + 1) * (endColumn - startColumn + 1)
+
+    return {
+      info: {
+        range: rangeNotation,
+        sheetName,
+        cellCount,
+      },
+      range: rangeLike,
+      worksheet,
+    }
+  }, [])
 
   const findSelectionRect = useCallback(() => {
     const selectionElements = Array.from(
@@ -76,198 +236,119 @@ export const AddContextButton = memo(function AddContextButton({
     return selectionElement?.rect ?? null
   }, [])
 
-  const updateButtonPosition = useCallback(() => {
-    const selectionRect = findSelectionRect()
-
-    if (!selectionRect) return
-
+  const computePositionFromRect = useCallback((rect: { left: number; top: number; width: number; height: number }) => {
     const buttonRect = buttonRef.current?.getBoundingClientRect()
     const buttonWidth = buttonRect?.width ?? 140
     const buttonHeight = buttonRect?.height ?? 32
     const padding = 8
     const offset = 6
 
-    const selectionLeft = selectionRect.left
-    const selectionTop = selectionRect.top
-    const selectionWidth = selectionRect.width
-    const selectionHeight = selectionRect.height
     const viewportWidth = window.innerWidth
     const viewportHeight = window.innerHeight
 
-    let x = selectionLeft + selectionWidth - buttonWidth - offset
+    let x = rect.left + rect.width - buttonWidth - offset
     x = Math.min(Math.max(x, padding), viewportWidth - buttonWidth - padding)
 
-    let y = selectionTop + selectionHeight + offset
+    let y = rect.top + rect.height + offset
     if (y + buttonHeight > viewportHeight - padding) {
-      y = selectionTop - buttonHeight - offset
+      y = rect.top - buttonHeight - offset
     }
     y = Math.min(Math.max(y, padding), viewportHeight - buttonHeight - padding)
 
     setButtonPosition({ x, y })
-  }, [findSelectionRect])
+  }, [])
+
+  const updateButtonPosition = useCallback(() => {
+    const selectionRect = findSelectionRect()
+    if (selectionRect) {
+      lastSelectionRectRef.current = selectionRect
+    }
+    const effectiveRect = selectionRect ?? lastSelectionRectRef.current
+    if (!effectiveRect) return
+
+    computePositionFromRect({
+      left: effectiveRect.left,
+      top: effectiveRect.top,
+      width: effectiveRect.width,
+      height: effectiveRect.height
+    })
+  }, [findSelectionRect, computePositionFromRect])
 
   // Listen for selection changes
   useEffect(() => {
     let disposed = false
     let disposable: { dispose: () => void } | null = null
+    let selectionUnsub: (() => void) | null = null
     let retryTimer: ReturnType<typeof setInterval> | null = null
     let pollCleanup: (() => void) | null = null
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const subscribeToSelection = (api: any) => {
-      /**
-       * Resolve range coordinates from various Univer range object formats.
-       * Univer API can return ranges in different formats depending on context.
-       */
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const resolveRange = (range: any): {
-        startRow: number
-        startColumn: number
-        endRow: number
-        endColumn: number
-      } | null => {
-        if (!range) return null
-
-        // Try direct property access first (most common case)
-        let startRow = range.startRow
-        let startColumn = range.startColumn
-        let endRow = range.endRow
-        let endColumn = range.endColumn
-
-        // If properties are undefined, try alternate property names
-        if (startRow === undefined) {
-          startRow = range.row ?? (typeof range.getRow === 'function' ? range.getRow() : undefined)
-        }
-        if (startColumn === undefined) {
-          startColumn = range.column ?? (typeof range.getColumn === 'function' ? range.getColumn() : undefined)
-        }
-
-        // For end coordinates, try method calls and calculate from count if needed
-        if (endRow === undefined) {
-          if (typeof range.getEndRow === 'function') {
-            endRow = range.getEndRow()
-          } else {
-            const rowCount = range.rowCount ?? range.rows ??
-              (typeof range.getNumRows === 'function' ? range.getNumRows() :
-               typeof range.getRowCount === 'function' ? range.getRowCount() : undefined)
-            if (startRow !== undefined && rowCount !== undefined) {
-              endRow = startRow + rowCount - 1
-            }
-          }
-        }
-
-        if (endColumn === undefined) {
-          if (typeof range.getEndColumn === 'function') {
-            endColumn = range.getEndColumn()
-          } else {
-            const colCount = range.columnCount ?? range.cols ??
-              (typeof range.getNumColumns === 'function' ? range.getNumColumns() :
-               typeof range.getColumnCount === 'function' ? range.getColumnCount() : undefined)
-            if (startColumn !== undefined && colCount !== undefined) {
-              endColumn = startColumn + colCount - 1
-            }
-          }
-        }
-
-        // Validate all coordinates are valid numbers
-        if (
-          typeof startRow !== 'number' || Number.isNaN(startRow) ||
-          typeof startColumn !== 'number' || Number.isNaN(startColumn) ||
-          typeof endRow !== 'number' || Number.isNaN(endRow) ||
-          typeof endColumn !== 'number' || Number.isNaN(endColumn)
-        ) {
-          return null
-        }
-
-        return { startRow, startColumn, endRow, endColumn }
-      }
-
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const handleSelectionChanged = (params?: any) => {
         try {
-          const workbook = api.getActiveWorkbook()
-          const worksheet = workbook?.getActiveSheet()
-
-          if (!workbook || !worksheet) {
-            return
-          }
-
           // Hide if explicitly empty selection
           if (params?.selections && params.selections.length === 0) {
             setIsVisible(false)
             return
           }
 
-          // Try multiple sources to get the active range
-          // Priority: event params > selection API > getActiveRange
-          const selectionFromEvent = params?.selections?.[0]?.range ?? params?.selections?.[0]
-          const fSelection = worksheet.getSelection?.()
-          const ranges = fSelection?.getRanges?.() ?? []
-          const activeRange = selectionFromEvent ?? ranges[0] ?? fSelection?.getActiveRange?.()
-
-          if (!activeRange) {
-            return
-          }
-
-          const resolvedRange = resolveRange(activeRange)
-          if (!resolvedRange) {
-            return
-          }
-
-          const { startRow, startColumn, endRow, endColumn } = resolvedRange
-
-          // Only show button if more than one cell is selected
-          const isSingleCell = (endRow === startRow) && (endColumn === startColumn)
-          if (isSingleCell) {
+          const selectionData = getSelectionData(api) ?? getSelectionFromEvent(api, params)
+          if (!selectionData) {
             setIsVisible(false)
             return
           }
 
-          const sheetName = worksheet.getSheetName() || 'Sheet1'
-          const startColLetter = colToLetter(startColumn)
-          const endColLetter = colToLetter(endColumn)
-          const rangeNotation = `${sheetName}!${startColLetter}${startRow + 1}:${endColLetter}${endRow + 1}`
+          const nextSelection = selectionData.info
 
-          const rowCount = endRow - startRow + 1
-          const colCount = endColumn - startColumn + 1
-          const cellCount = rowCount * colCount
-
-          const nextSelection: SelectionInfo = {
-            range: rangeNotation,
-            sheetName,
-            startRow,
-            startCol: startColumn,
-            endRow,
-            endCol: endColumn,
-            cellCount
+          // Only show when there is an actual multi-cell selection
+          if (!nextSelection.cellCount || nextSelection.cellCount <= 1) {
+            setIsVisible(false)
+            setSelection(null)
+            return
           }
 
           // Only update if selection actually changed (avoid unnecessary re-renders)
           const lastSel = lastSelectionRef.current
-          if (
-            lastSel?.startRow === startRow &&
-            lastSel?.startCol === startColumn &&
-            lastSel?.endRow === endRow &&
-            lastSel?.endCol === endColumn &&
-            lastSel?.sheetName === sheetName
-          ) {
+          if (lastSel?.range === nextSelection.range) {
             return
           }
 
           setSelection(nextSelection)
           lastSelectionRef.current = nextSelection
 
+          // Try to use Univer's range rect if available (canvas selections)
+          const rangeRect = selectionData.range?.getCellRect?.()
+          if (rangeRect && typeof rangeRect.x === 'number' && typeof rangeRect.y === 'number') {
+            lastRangeRectRef.current = rangeRect
+            const containerRect = getSheetContainerRect()
+            const left = (containerRect?.left ?? 0) + rangeRect.x
+            const top = (containerRect?.top ?? 0) + rangeRect.y
+            computePositionFromRect({
+              left,
+              top,
+              width: rangeRect.width ?? 0,
+              height: rangeRect.height ?? 0
+            })
+          } else {
+            requestAnimationFrame(() => {
+              updateButtonPosition()
+            })
+          }
+
           setIsVisible(true)
-          requestAnimationFrame(() => {
-            updateButtonPosition()
-          })
         } catch {
           setIsVisible(false)
         }
       }
 
       // Subscribe to selection changes via Univer event API
-      disposable = api.addEvent(api.Event.SelectionChanged, handleSelectionChanged)
+      if (typeof api.onSelectionChanged === 'function') {
+        selectionUnsub = api.onSelectionChanged((params?: any) => handleSelectionChanged(params))
+      }
+      if (api.addEvent && api.Event?.SelectionChanged) {
+        disposable = api.addEvent(api.Event.SelectionChanged, handleSelectionChanged)
+      }
 
       // Fallback polling for cases where event doesn't fire (e.g., programmatic selection)
       const pollTimer = setInterval(() => {
@@ -309,54 +390,59 @@ export const AddContextButton = memo(function AddContextButton({
         clearInterval(retryTimer)
       }
       pollCleanup?.()
+      selectionUnsub?.()
       disposable?.dispose()
     }
-  }, [updateButtonPosition])
+  }, [updateButtonPosition, getSelectionData, getSelectionFromEvent, computePositionFromRect, getSheetContainerRect])
 
   useEffect(() => {
     if (!isVisible || !selection) return
     const frame = requestAnimationFrame(() => {
-      updateButtonPosition()
+      if (lastRangeRectRef.current) {
+        const containerRect = getSheetContainerRect()
+        computePositionFromRect({
+          left: (containerRect?.left ?? 0) + lastRangeRectRef.current.x,
+          top: (containerRect?.top ?? 0) + lastRangeRectRef.current.y,
+          width: lastRangeRectRef.current.width ?? 0,
+          height: lastRangeRectRef.current.height ?? 0
+        })
+      } else {
+        updateButtonPosition()
+      }
       setTimeout(updateButtonPosition, 50)
     })
-    const interval = setInterval(updateButtonPosition, 200)
+    const interval = setInterval(() => {
+      if (lastRangeRectRef.current) {
+        const containerRect = getSheetContainerRect()
+        computePositionFromRect({
+          left: (containerRect?.left ?? 0) + lastRangeRectRef.current.x,
+          top: (containerRect?.top ?? 0) + lastRangeRectRef.current.y,
+          width: lastRangeRectRef.current.width ?? 0,
+          height: lastRangeRectRef.current.height ?? 0
+        })
+      } else {
+        updateButtonPosition()
+      }
+    }, 200)
 
     return () => {
       cancelAnimationFrame(frame)
       clearInterval(interval)
     }
-  }, [isVisible, selection, updateButtonPosition])
+  }, [isVisible, selection, updateButtonPosition, computePositionFromRect, getSheetContainerRect])
 
   // Handle adding context
   const handleAddContext = useCallback(async () => {
-    if (!selection) return
-
     const instance = getSheetsInstance()
     if (!instance?.api) return
 
     try {
-      const workbook = instance.api.getActiveWorkbook()
-      const worksheet = workbook?.getActiveSheet()
-
-      if (!worksheet) return
-
-      // Calculate row and column counts
-      const rowCount = selection.endRow - selection.startRow + 1
-      const colCount = selection.endCol - selection.startCol + 1
-
-      // Get the range data using Univer's getRange API
-      // Parameters: startRow, startCol, numRows, numCols
-      const range = worksheet.getRange(
-        selection.startRow,
-        selection.startCol,
-        rowCount,
-        colCount
-      )
-
-      if (!range) {
-        toast.error('Failed to read selected range')
+      const selectionData = getSelectionData(instance.api)
+      if (!selectionData) {
+        toast.error('Selecciona un rango primero')
         return
       }
+      const { info, range, worksheet } = selectionData
 
       // Get values from the range
       // getValues() returns a 2D array of cell values
@@ -382,35 +468,44 @@ export const AddContextButton = memo(function AddContextButton({
           )
         }
       } catch {
-        // Fallback: try to get values cell by cell
-        for (let r = 0; r < rowCount; r++) {
-          const rowData: Array<string | number | null> = []
-          for (let c = 0; c < colCount; c++) {
-            try {
-              const cell = worksheet.getRange(selection.startRow + r, selection.startCol + c, 1, 1)
-              const cellValue = cell?.getValue?.()
-              if (cellValue === undefined || cellValue === null) {
-                rowData.push(null)
-              } else if (typeof cellValue === 'string' || typeof cellValue === 'number') {
-                rowData.push(cellValue)
-              } else {
-                rowData.push(String(cellValue))
-              }
-            } catch {
-              rowData.push(null)
-            }
+        // Fallback: try to read using worksheet range (A1) or by size
+        try {
+          const rangePart = info.range.includes('!') ? info.range.split('!')[1] : info.range
+          const targetSheet =
+            resolveWorksheetByName(instance.api, info.sheetName) ?? worksheet
+          const fallbackRange = targetSheet?.getRange?.(rangePart)
+          const fallbackValues = fallbackRange?.getValues?.()
+          if (Array.isArray(fallbackValues)) {
+            values = fallbackValues.map((row: unknown) =>
+              Array.isArray(row)
+                ? row.map((cell: unknown) => {
+                    if (cell === undefined || cell === null) return null
+                    if (typeof cell === 'object' && cell !== null && 'v' in cell) {
+                      const cellObj = cell as { v?: string | number | null }
+                      return cellObj.v ?? null
+                    }
+                    if (typeof cell === 'string' || typeof cell === 'number') {
+                      return cell
+                    }
+                    return String(cell)
+                  })
+                : []
+            )
           }
-          values.push(rowData)
+        } catch {
+          // Last resort: return empty matrix
+          values = []
         }
       }
 
       const contextAttachment: CellContextAttachment = {
         id: nanoid(),
-        range: selection.range,
-        sheetName: selection.sheetName,
+        range: info.range,
+        sheetName: info.sheetName,
         data: values,
         fileId,
-        workbookName: fileName
+        artifactId,
+        workbookName: workbookName ?? fileName
       }
 
       // Add to cell context
@@ -423,7 +518,7 @@ export const AddContextButton = memo(function AddContextButton({
 
       // Show success toast
       toast.success('Context added', {
-        description: `${selection.range} (${selection.cellCount} cells)`,
+        description: `${info.range} (${info.cellCount} cells)`,
         duration: 2000,
       })
 
@@ -432,17 +527,25 @@ export const AddContextButton = memo(function AddContextButton({
     } catch {
       toast.error('Failed to add context')
     }
-  }, [selection, fileId, fileName, setCellContext, setAgentPanelOpen, isAgentPanelOpen])
+  }, [
+    fileId,
+    fileName,
+    artifactId,
+    workbookName,
+    setCellContext,
+    setAgentPanelOpen,
+    isAgentPanelOpen,
+    getSelectionData,
+    getSelectionFromEvent,
+    resolveWorksheetByName
+  ])
 
-  if (!isVisible || !selection) {
+  if (!isVisible || !selection || !buttonPosition) {
     return null
   }
 
   return (
-    <div
-      ref={containerRef}
-      className="fixed inset-0 pointer-events-none z-[100]"
-    >
+    <div className="fixed inset-0 pointer-events-none z-[9999]">
       <button
         ref={buttonRef}
         type="button"

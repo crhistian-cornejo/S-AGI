@@ -59,3 +59,20 @@ export {
     getToolsForAPI,
     generateImageDirect
 } from '../tools'
+
+// Re-export ToolRegistry from @s-agi/tools package
+export {
+    ToolRegistry,
+    createToolRegistry,
+    createStandardToolRegistry,
+    // Converters
+    createAISDKTools,
+    createMCPTools,
+    createOpenAITools,
+    // Types
+    type ToolDefinition,
+    type ToolHandler,
+    type ToolExecutionContext,
+    type McpToolDefinition,
+    type OpenAIToolDefinition
+} from '@s-agi/tools'

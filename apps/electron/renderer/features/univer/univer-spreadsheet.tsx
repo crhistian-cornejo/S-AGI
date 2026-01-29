@@ -1420,12 +1420,12 @@ export const UniverSpreadsheet = React.forwardRef<
       )}
       
       {/* Add Context button - appears when cells are selected */}
-      {hasFileId && (
-        <AddContextButton
-          fileId={fileId}
-          fileName={currentExcelFile?.name}
-        />
-      )}
+      <AddContextButton
+        fileId={fileId}
+        fileName={currentExcelFile?.name}
+        artifactId={artifactId}
+        workbookName={currentExcelFile?.name}
+      />
       
       {/* Tools panel - dialogs for charts and print layout */}
       <UniverToolsPanel

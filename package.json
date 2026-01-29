@@ -26,7 +26,8 @@
     "electron:dist:mac": "bun run build && electron-builder --config apps/electron/electron-builder.yml --project apps/electron --mac",
     "electron:dist:win": "bun run build && electron-builder --config apps/electron/electron-builder.yml --project apps/electron --win",
     "electron:dist:linux": "bun run build && electron-builder --config apps/electron/electron-builder.yml --project apps/electron --linux",
-    "postinstall": "electron-rebuild -f -w better-sqlite3"
+    "postinstall": "node scripts/postinstall.cjs",
+    "install:fallback": "npm install"
   },
   "dependencies": {
     "@ai-sdk-tools/agents": "^1.2.0",
@@ -178,6 +179,7 @@
     "xlsx": "^0.18.5",
     "xterm": "^5.3.0",
     "zod": "^3.24.1",
+    "zod-to-json-schema": "^3.24.0",
     "zustand": "^5.0.3"
   },
   "devDependencies": {
