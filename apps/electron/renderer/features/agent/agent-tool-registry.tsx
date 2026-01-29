@@ -489,6 +489,122 @@ export const AgentToolRegistry: Record<string, ToolMeta> = {
     variant: "simple",
   },
 
+  "tool-read_cells": {
+    icon: EyeIcon,
+    title: (part) => {
+      const isPending =
+        part.state !== "output-available" && part.state !== "output-error"
+      return isPending ? "Reading cells" : "Read cells"
+    },
+    subtitle: (part) => {
+      const range = (part.input?.range as string) || ""
+      return range
+    },
+    variant: "simple",
+  },
+
+  "tool-insert_rows": {
+    icon: TableIcon,
+    title: (part) => {
+      const isPending =
+        part.state !== "output-available" && part.state !== "output-error"
+      return isPending ? "Inserting rows" : "Inserted rows"
+    },
+    subtitle: (part) => {
+      const count = (part.input?.count as number) || 1
+      const startRow = (part.input?.startRow as number) || 0
+      return `${count} row(s) at ${startRow}`
+    },
+    variant: "simple",
+  },
+
+  "tool-delete_rows": {
+    icon: TableIcon,
+    title: (part) => {
+      const isPending =
+        part.state !== "output-available" && part.state !== "output-error"
+      return isPending ? "Deleting rows" : "Deleted rows"
+    },
+    subtitle: (part) => {
+      const count = (part.input?.count as number) || 1
+      const startRow = (part.input?.startRow as number) || 0
+      return `${count} row(s) from ${startRow}`
+    },
+    variant: "simple",
+  },
+
+  "tool-set_column_widths": {
+    icon: TableIcon,
+    title: (part) => {
+      const isPending =
+        part.state !== "output-available" && part.state !== "output-error"
+      return isPending ? "Setting column widths" : "Set column widths"
+    },
+    subtitle: (part) => {
+      const columns = (part.input?.columns as unknown[]) || []
+      return `${columns.length} column(s)`
+    },
+    variant: "simple",
+  },
+
+  "tool-sort_data": {
+    icon: TableIcon,
+    title: (part) => {
+      const isPending =
+        part.state !== "output-available" && part.state !== "output-error"
+      return isPending ? "Sorting data" : "Sorted data"
+    },
+    subtitle: (part) => {
+      const sortColumn = (part.input?.sortColumn as string) || ""
+      const ascending = (part.input?.ascending as boolean) ?? true
+      return `Column ${sortColumn} ${ascending ? "↑" : "↓"}`
+    },
+    variant: "simple",
+  },
+
+  "tool-add_conditional_formatting": {
+    icon: TableIcon,
+    title: (part) => {
+      const isPending =
+        part.state !== "output-available" && part.state !== "output-error"
+      return isPending ? "Applying conditional formatting" : "Applied conditional formatting"
+    },
+    subtitle: (part) => {
+      const range = (part.input?.range as string) || ""
+      const rules = (part.input?.rules as unknown[]) || []
+      return `${range} (${rules.length} rule${rules.length !== 1 ? "s" : ""})`
+    },
+    variant: "simple",
+  },
+
+  "tool-create_filter": {
+    icon: TableIcon,
+    title: (part) => {
+      const isPending =
+        part.state !== "output-available" && part.state !== "output-error"
+      return isPending ? "Creating filter" : "Created filter"
+    },
+    subtitle: (part) => {
+      const range = (part.input?.range as string) || ""
+      return range
+    },
+    variant: "simple",
+  },
+
+  "tool-set_row_heights": {
+    icon: TableIcon,
+    title: (part) => {
+      const isPending =
+        part.state !== "output-available" && part.state !== "output-error"
+      return isPending ? "Setting row heights" : "Set row heights"
+    },
+    subtitle: (part) => {
+      const rows = (part.input?.rows as unknown[]) || []
+      return `${rows.length} row(s)`
+    },
+    variant: "simple",
+  },
+
   // Document tools
   "tool-create_document": {
     icon: WriteFileIcon,

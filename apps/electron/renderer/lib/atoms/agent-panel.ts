@@ -89,3 +89,23 @@ export interface AgentPanelImageAttachment {
 }
 
 export const agentPanelImagesAtom = atom<AgentPanelImageAttachment[]>([])
+
+// === CELL CONTEXT ATTACHMENTS (for "Add Context" feature) ===
+
+export interface CellContextAttachment {
+  id: string
+  /** Range reference like "Sheet1!A1:B5" */
+  range: string
+  /** Sheet name */
+  sheetName: string
+  /** Cell data as 2D array */
+  data: Array<Array<string | number | null>>
+  /** File ID if from user file */
+  fileId?: string
+  /** Artifact ID if from artifact */
+  artifactId?: string
+  /** Workbook name for display */
+  workbookName?: string
+}
+
+export const agentPanelCellContextAtom = atom<CellContextAttachment[]>([])

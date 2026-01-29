@@ -1804,6 +1804,50 @@ ipcMain.handle("clipboard:read-text", (event) => {
   return clipboard.readText();
 });
 
+ipcMain.handle("clipboard:write-html", (event, html: string, text?: string) => {
+  if (!validateIPCSender(event.sender)) return false;
+  const { clipboard } = require("electron");
+  if (text) {
+    clipboard.write({ html, text });
+  } else {
+    clipboard.writeHTML(html);
+  }
+  return true;
+});
+
+ipcMain.handle("clipboard:read-html", (event) => {
+  if (!validateIPCSender(event.sender)) return "";
+  const { clipboard } = require("electron");
+  return clipboard.readHTML();
+});
+
+ipcMain.handle("clipboard:read-formats", (event) => {
+  if (!validateIPCSender(event.sender)) return [];
+  const { clipboard } = require("electron");
+  return clipboard.availableFormats();
+});
+
+ipcMain.handle(
+  "clipboard:write",
+  (event, data: { text?: string; html?: string; rtf?: string }) => {
+    if (!validateIPCSender(event.sender)) return false;
+    const { clipboard } = require("electron");
+    clipboard.write(data);
+    return true;
+  },
+);
+
+ipcMain.handle("clipboard:read", (event) => {
+  if (!validateIPCSender(event.sender)) return {};
+  const { clipboard } = require("electron");
+  return {
+    text: clipboard.readText(),
+    html: clipboard.readHTML(),
+    rtf: clipboard.readRTF(),
+    formats: clipboard.availableFormats(),
+  };
+});
+
 // Haptic feedback handler (macOS only)
 // Uses Electron's built-in haptic feedback support on macOS
 ipcMain.handle("haptic:perform", (event, type: string) => {

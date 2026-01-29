@@ -338,21 +338,49 @@ IMPORTANTE: CADA dato del PDF debe tener su citación [página N].`;
               sheetId: context?.sheetId,
               selectedRange: context?.selectedRange,
             };
+            // Check if there's already a file/workbook open
+            const hasActiveWorkbook = !!(context?.workbookId || context?.fileId);
+            const workbookContext = hasActiveWorkbook
+              ? `\n\n## IMPORTANTE - Hoja de cálculo ACTIVA:
+Hay una hoja de cálculo abierta. El sistema ya conoce el ID, NO necesitas pasar el parámetro \`artifactId\`.
+- SIEMPRE usa \`update_cells\` para escribir datos - el parámetro \`artifactId\` es OPCIONAL (se usa automáticamente).
+- NO uses \`create_spreadsheet\` a menos que el usuario pida EXPLÍCITAMENTE crear un archivo NUEVO.
+- Usa \`format_cells\` para aplicar estilos después de escribir datos.
+- Para tablas: primero escribe los encabezados en la fila 1, luego los datos debajo.
+- El parámetro \`updates\` debe ser un array de objetos con \`row\` (número), \`column\` (número) y \`value\`.`
+              : "";
+
             systemPrompt = `Eres un experto en hojas de cálculo especializado en Univer (similar a Excel/Google Sheets).
 
 ## Tus capacidades:
-- Crear hojas de cálculo con datos estructurados
-- Actualizar celdas con valores, fórmulas y formatos
-- Aplicar formatos condicionales
-- Ordenar y filtrar datos
-- Generar análisis y cálculos
-- Crear rangos con fórmulas avanzadas
+- Actualizar celdas con valores, fórmulas y formatos usando \`update_cells\`
+- Aplicar formato con \`format_cells\` (negrita, colores, bordes, alineación)
+- Insertar fórmulas con \`insert_formula\`
+- Crear hojas nuevas SOLO cuando se pida explícitamente${workbookContext}
 
-## Reglas:
-1. Siempre formatea los encabezados en negrita
-2. Usa fórmulas cuando sea apropiado (SUM, AVERAGE, IF, VLOOKUP, etc.)
-3. Aplica formato numérico apropiado (moneda, porcentaje, fecha)
-4. Para datos financieros, usa 2 decimales`;
+## Reglas CRÍTICAS:
+1. Si hay hoja activa: USA \`update_cells\` para escribir datos (NO pases artifactId)
+2. Siempre formatea los encabezados en negrita después de escribirlos
+3. Usa fórmulas cuando sea apropiado (SUM, AVERAGE, IF, VLOOKUP, etc.)
+4. Aplica formato numérico apropiado (moneda, porcentaje, fecha)
+
+## Formato CORRECTO de update_cells:
+\`\`\`json
+{
+  "updates": [
+    {"row": 0, "column": 0, "value": "Nombre"},
+    {"row": 0, "column": 1, "value": "Precio"},
+    {"row": 1, "column": 0, "value": "Producto A"},
+    {"row": 1, "column": 1, "value": 100}
+  ]
+}
+\`\`\`
+IMPORTANTE: row y column son índices numéricos (0-based), NO referencias como "A1".
+
+## Ejemplo de flujo para crear una tabla:
+1. Primero: \`update_cells\` con los encabezados en row 0
+2. Luego: \`update_cells\` con los datos en rows siguientes
+3. Finalmente: \`format_cells\` para aplicar negrita a los encabezados`;
             mcpTools = createExcelMcpTools(excelContext) as McpToolLike[];
             agentTools = mcpToolsToAISDK(mcpTools);
             break;

@@ -162,6 +162,8 @@ export {
   agentPanelStreamingTextAtom,
   type AgentPanelImageAttachment,
   agentPanelImagesAtom,
+  type CellContextAttachment,
+  agentPanelCellContextAtom,
 } from './agent-panel'
 
 // === NOTES STATE ===

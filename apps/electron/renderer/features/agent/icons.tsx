@@ -1,11 +1,13 @@
-import React from "react"
+import React from "react";
 
-type IconProps = React.SVGProps<SVGSVGElement> & { className?: string }
+type IconProps = React.SVGProps<SVGSVGElement> & { className?: string };
 
 // Spinner icon with CSS animation
-export function IconSpinner(props: IconProps & { color?: string; size?: "default" | "nano" }) {
-  const { className, style, color, size = "default", ...rest } = props
-  const strokeWidth = size === "nano" ? 4 : 3
+export function IconSpinner(
+  props: IconProps & { color?: string; size?: "default" | "nano" },
+) {
+  const { className, style, color, size = "default", ...rest } = props;
+  const strokeWidth = size === "nano" ? 4 : 3;
   return (
     <>
       <style>{`
@@ -46,7 +48,7 @@ export function IconSpinner(props: IconProps & { color?: string; size?: "default
         />
       </svg>
     </>
-  )
+  );
 }
 
 // Expand icon (chevron pointing down/right)
@@ -66,7 +68,7 @@ export function ExpandIcon(props: IconProps) {
     >
       <path d="M4 6L8 10L12 6" />
     </svg>
-  )
+  );
 }
 
 // Collapse icon (chevron pointing up)
@@ -86,7 +88,7 @@ export function CollapseIcon(props: IconProps) {
     >
       <path d="M4 10L8 6L12 10" />
     </svg>
-  )
+  );
 }
 
 // External link icon
@@ -108,7 +110,7 @@ export function ExternalLinkIcon(props: IconProps) {
       <path d="M10 2.5H13.5V6" />
       <path d="M6.5 9.5L13 3" />
     </svg>
-  )
+  );
 }
 
 // Terminal icon
@@ -130,7 +132,7 @@ export function CustomTerminalIcon(props: IconProps) {
       <path d="M5 6L7 8L5 10" />
       <path d="M9 10H11" />
     </svg>
-  )
+  );
 }
 
 // Globe icon for web fetch
@@ -153,7 +155,7 @@ export function GlobeIcon(props: IconProps) {
       <path d="M8 2C9.5 3.5 10 5.5 10 8C10 10.5 9.5 12.5 8 14" />
       <path d="M8 2C6.5 3.5 6 5.5 6 8C6 10.5 6.5 12.5 8 14" />
     </svg>
-  )
+  );
 }
 
 // Search icon
@@ -174,7 +176,7 @@ export function SearchIcon(props: IconProps) {
       <circle cx="7" cy="7" r="4.5" />
       <path d="M10.5 10.5L14 14" />
     </svg>
-  )
+  );
 }
 
 // Sparkles icon for task/agent
@@ -196,7 +198,7 @@ export function SparklesIcon(props: IconProps) {
       <path d="M12 9L12.5 10.5L14 11L12.5 11.5L12 13L11.5 11.5L10 11L11.5 10.5L12 9Z" />
       <path d="M4 10L4.5 11.5L6 12L4.5 12.5L4 14L3.5 12.5L2 12L3.5 11.5L4 10Z" />
     </svg>
-  )
+  );
 }
 
 // Planning icon
@@ -219,13 +221,20 @@ export function PlanningIcon(props: IconProps) {
       <path d="M5 8H11" />
       <path d="M5 11H8" />
     </svg>
-  )
+  );
 }
 
 // Edit/File icon
 export function IconEditFile(props: IconProps) {
   return (
-    <svg viewBox="0 0 16 16" width="16" height="16" fill="none" aria-hidden="true" {...props}>
+    <svg
+      viewBox="0 0 16 16"
+      width="16"
+      height="16"
+      fill="none"
+      aria-hidden="true"
+      {...props}
+    >
       <path
         d="M6.67 14.33H5.33C4.22 14.33 3.33 13.44 3.33 12.33V4C3.33 2.89 4.22 2 5.33 2H10.67C11.78 2 12.67 2.89 12.67 4V7.33"
         stroke="currentColor"
@@ -253,7 +262,7 @@ export function IconEditFile(props: IconProps) {
         strokeLinecap="round"
       />
     </svg>
-  )
+  );
 }
 
 // Write file icon
@@ -276,7 +285,7 @@ export function WriteFileIcon(props: IconProps) {
       <path d="M6 9H10" />
       <path d="M6 11H8" />
     </svg>
-  )
+  );
 }
 
 // Eye icon for reading
@@ -297,7 +306,7 @@ export function EyeIcon(props: IconProps) {
       <path d="M1.5 8C2.5 5 5 3 8 3C11 3 13.5 5 14.5 8C13.5 11 11 13 8 13C5 13 2.5 11 1.5 8Z" />
       <circle cx="8" cy="8" r="2" />
     </svg>
-  )
+  );
 }
 
 // Brain icon for reasoning/thinking
@@ -321,7 +330,7 @@ export function BrainIcon(props: IconProps) {
       <circle cx="6" cy="6" r="0.5" fill="currentColor" />
       <circle cx="10" cy="6" r="0.5" fill="currentColor" />
     </svg>
-  )
+  );
 }
 
 // Code icon for code interpreter
@@ -343,7 +352,7 @@ export function CodeIcon(props: IconProps) {
       <path d="M11 4L14 8L11 12" />
       <path d="M9 3L7 13" />
     </svg>
-  )
+  );
 }
 
 // File search icon
@@ -366,7 +375,7 @@ export function FileSearchIcon(props: IconProps) {
       <circle cx="8" cy="10" r="2" />
       <path d="M9.5 11.5L11 13" />
     </svg>
-  )
+  );
 }
 
 // Table/Spreadsheet icon
@@ -388,7 +397,33 @@ export function TableIcon(props: IconProps) {
       <path d="M2 6H14" />
       <path d="M6 6V14" />
     </svg>
-  )
+  );
+}
+
+// Excel icon (Microsoft Excel logo style)
+export function ExcelIcon(props: IconProps & { size?: number }) {
+  const { size = 16, ...rest } = props;
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      width={size}
+      height={size}
+      fill="none"
+      aria-hidden="true"
+      {...rest}
+    >
+      <path
+        d="M14 2H6C4.89543 2 4 2.89543 4 4V20C4 21.1046 4.89543 22 6 22H18C19.1046 22 20 21.1046 20 20V8L14 2Z"
+        fill="#185C37"
+      />
+      <path d="M14 2V8H20L14 2Z" fill="#21A366" />
+      <path
+        d="M7 12L9.5 17H8L6.25 13.75L4.5 17H3L5.5 12L3 7H4.5L6.25 10.25L8 7H9.5L7 12Z"
+        fill="white"
+        transform="translate(4, 0)"
+      />
+    </svg>
+  );
 }
 
 // Image/Photo icon for AI image generation
@@ -410,7 +445,7 @@ export function ImageIcon(props: IconProps) {
       <circle cx="5.5" cy="5.5" r="1.5" />
       <path d="M14 10L11 7L4 14" />
     </svg>
-  )
+  );
 }
 
 export function ChartIcon(props: IconProps) {
@@ -427,9 +462,93 @@ export function ChartIcon(props: IconProps) {
       aria-hidden="true"
       {...props}
     >
-      <rect x="1" y="8" width="3" height="6" rx="0.5" fill="currentColor" opacity="0.3" />
-      <rect x="6" y="4" width="3" height="10" rx="0.5" fill="currentColor" opacity="0.5" />
-      <rect x="11" y="2" width="3" height="12" rx="0.5" fill="currentColor" opacity="0.7" />
+      <rect
+        x="1"
+        y="8"
+        width="3"
+        height="6"
+        rx="0.5"
+        fill="currentColor"
+        opacity="0.3"
+      />
+      <rect
+        x="6"
+        y="4"
+        width="3"
+        height="10"
+        rx="0.5"
+        fill="currentColor"
+        opacity="0.5"
+      />
+      <rect
+        x="11"
+        y="2"
+        width="3"
+        height="12"
+        rx="0.5"
+        fill="currentColor"
+        opacity="0.7"
+      />
     </svg>
-  )
+  );
+}
+
+// Word/Doc icon (Microsoft Word logo style - Blue)
+export function DocIcon(props: IconProps & { size?: number }) {
+  const { size = 16, ...rest } = props;
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      width={size}
+      height={size}
+      fill="none"
+      aria-hidden="true"
+      {...rest}
+    >
+      <path
+        d="M14 2H6C4.89543 2 4 2.89543 4 4V20C4 21.1046 4.89543 22 6 22H18C19.1046 22 20 21.1046 20 20V8L14 2Z"
+        fill="#2B579A"
+      />
+      <path d="M14 2V8H20L14 2Z" fill="#44546A" />
+      <path
+        d="M7 11H17M7 14H17M7 17H14"
+        stroke="white"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+// PDF icon (Red with document style)
+export function PdfIcon(props: IconProps & { size?: number }) {
+  const { size = 16, ...rest } = props;
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      width={size}
+      height={size}
+      fill="none"
+      aria-hidden="true"
+      {...rest}
+    >
+      <path
+        d="M14 2H6C4.89543 2 4 2.89543 4 4V20C4 21.1046 4.89543 22 6 22H18C19.1046 22 20 21.1046 20 20V8L14 2Z"
+        fill="#C82127"
+      />
+      <path d="M14 2V8H20L14 2Z" fill="#E63946" />
+      <text
+        x="12"
+        y="16"
+        fontSize="6"
+        fontWeight="bold"
+        fill="white"
+        textAnchor="middle"
+        dominantBaseline="middle"
+      >
+        PDF
+      </text>
+    </svg>
+  );
 }

@@ -7,6 +7,65 @@ import { cleanupFile } from "./user-files-cleanup";
 // Cleanup threshold - when version count exceeds this, trigger cleanup
 const CLEANUP_THRESHOLD = 100;
 
+// Smart versioning: interval between automatic snapshots (10 minutes)
+// This mimics Microsoft Excel/OneDrive behavior - persist frequently, version sparingly
+const SNAPSHOT_INTERVAL_MS = 10 * 60 * 1000; // 10 minutes
+
+// Events that ALWAYS create a version (regardless of time interval)
+const STRONG_VERSION_EVENTS = ['ai_edit', 'ai_create', 'restore', 'import', 'manual_save', 'created'];
+
+/**
+ * Determines if a new version/snapshot should be created.
+ *
+ * Philosophy (Microsoft Excel model):
+ * - PERSIST frequently (every few seconds) → data saved to user_files
+ * - VERSION sparingly (every ~10 min) → snapshot saved to file_versions
+ *
+ * This prevents "version spam" while maintaining full data safety.
+ */
+async function shouldCreateSnapshot(
+  fileId: string,
+  changeType: string
+): Promise<boolean> {
+  // Strong events ALWAYS create a version
+  if (STRONG_VERSION_EVENTS.includes(changeType)) {
+    log.debug(`[SmartVersioning] Creating version for strong event: ${changeType}`);
+    return true;
+  }
+
+  // Check when was the last snapshot
+  const { data: lastVersion, error } = await supabase
+    .from("file_versions")
+    .select("created_at")
+    .eq("file_id", fileId)
+    .order("version_number", { ascending: false })
+    .limit(1)
+    .single();
+
+  // If no versions exist or error, create first version
+  if (error || !lastVersion) {
+    log.debug(`[SmartVersioning] Creating first version for file: ${fileId}`);
+    return true;
+  }
+
+  // Check if enough time has passed since last snapshot
+  const lastSnapshotTime = new Date(lastVersion.created_at).getTime();
+  const elapsed = Date.now() - lastSnapshotTime;
+  const shouldSnapshot = elapsed >= SNAPSHOT_INTERVAL_MS;
+
+  if (shouldSnapshot) {
+    log.debug(
+      `[SmartVersioning] Creating version after ${Math.round(elapsed / 60000)} min for file: ${fileId}`
+    );
+  } else {
+    log.debug(
+      `[SmartVersioning] Skipping version (${Math.round(elapsed / 60000)} min < 10 min threshold) for file: ${fileId}`
+    );
+  }
+
+  return shouldSnapshot;
+}
+
 // Schemas
 const fileTypeSchema = z.enum(["excel", "doc", "note"]);
 const changeTypeSchema = z.enum([
@@ -251,12 +310,24 @@ export const userFilesRouter = router({
         throw new Error(updateError.message);
       }
 
-      // Create new version if needed
-      if (
-        !skipVersion &&
-        (updates.univerData !== undefined || updates.content !== undefined)
-      ) {
-        const newVersionNumber = (currentFile.version_count || 0) + 1;
+      // Create new version if needed (using smart versioning logic)
+      // Smart versioning: only create snapshots every ~10 min or on strong events
+      const hasDataChanges = updates.univerData !== undefined || updates.content !== undefined;
+      const shouldSnapshot = hasDataChanges && !skipVersion
+        ? await shouldCreateSnapshot(id, changeType)
+        : false;
+
+      if (shouldSnapshot) {
+        // Use SQL function to get next version number atomically (prevents race conditions)
+        const { data: nextVersionData, error: versionError } = await supabase
+          .rpc("get_next_file_version", { p_file_id: id });
+
+        if (versionError) {
+          log.error("[UserFilesRouter] Error getting next version:", versionError);
+          throw new Error(`Failed to get next version number: ${versionError.message}`);
+        }
+
+        const newVersionNumber = nextVersionData || (currentFile.version_count || 0) + 1;
 
         // Get previous version for diff calculation (if available)
         const { data: previousVersion } = await supabase
@@ -310,12 +381,12 @@ export const userFilesRouter = router({
           previousVersionNumber: newVersionNumber - 1,
         };
 
-        const { error: versionError } = await supabase
+        const { error: insertVersionError } = await supabase
           .from("file_versions")
           .insert(versionData);
 
-        if (versionError) {
-          log.error("[UserFilesRouter] Error creating version:", versionError);
+        if (insertVersionError) {
+          log.error("[UserFilesRouter] Error creating version:", insertVersionError);
         } else {
           // Update version count
           await supabase
@@ -587,9 +658,18 @@ export const userFilesRouter = router({
       // 2. Create a new version with the restored content
       // 3. This creates a new branch in the version history
 
-      // Soft delete: Mark all versions after the restored one as obsolete
-      // This preserves history and allows recovery if needed
-      const newVersionNumber = input.versionNumber + 1;
+      // Use SQL function to get next version number atomically (prevents race conditions)
+      const { data: nextVersionData, error: nextVersionError } = await supabase
+        .rpc("get_next_file_version", { p_file_id: input.fileId });
+
+      if (nextVersionError) {
+        log.error("[UserFilesRouter] Error getting next version for restore:", nextVersionError);
+        throw new Error(`Failed to get next version number: ${nextVersionError.message}`);
+      }
+
+      // Ensure the new version is higher than the restored version
+      const calculatedVersion = nextVersionData || currentVersionNumber + 1;
+      const newVersionNumber = Math.max(calculatedVersion, input.versionNumber + 1);
 
       if (input.versionNumber < currentVersionNumber) {
         const { error: obsoleteError } = await supabase

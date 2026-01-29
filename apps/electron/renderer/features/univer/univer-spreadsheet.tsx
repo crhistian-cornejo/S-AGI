@@ -17,6 +17,7 @@ import {
   currentExcelFileAtom,
 } from "@/lib/atoms/user-files";
 import { hasRealChanges } from "@/utils/univer-diff-stats";
+import { AddContextButton } from "./add-context-button";
 
 interface UniverSpreadsheetProps {
   // Legacy: artifact-based props (for backward compatibility)
@@ -339,7 +340,47 @@ export const UniverSpreadsheet = React.forwardRef<
 
     try {
       setIsSaving(true);
+
+      // DEBUG: Check drawing service BEFORE calling save()
+      const instance = getSheetsInstance();
+      if (instance) {
+        try {
+          const injector = (instance.univer as any).__getInjector?.();
+          if (injector) {
+            // Try to import and access the ISheetDrawingService
+            const { ISheetDrawingService } = await import("@univerjs/sheets-drawing");
+            const drawingService = injector.get(ISheetDrawingService);
+            const workbookId = workbookRef.current?.getId();
+
+            if (drawingService && workbookId) {
+              const drawingData = drawingService.getDrawingDataForUnit(workbookId);
+              console.log("[UniverSpreadsheet] Drawing service data BEFORE save():", {
+                workbookId,
+                hasDrawingData: !!drawingData,
+                sheetIds: drawingData ? Object.keys(drawingData) : [],
+                fullDrawingData: drawingData,
+              });
+            }
+          }
+        } catch (serviceErr) {
+          console.warn("[UniverSpreadsheet] Could not access drawing service:", serviceErr);
+        }
+      }
+
       const snapshot = workbookRef.current.save();
+
+      // DEBUG: Check if snapshot includes drawings
+      if (snapshot) {
+        const drawingRes = snapshot.resources?.find((r: any) => r.name === "SHEET_DRAWING_PLUGIN" || r.name?.includes("drawing"));
+        console.log("[UniverSpreadsheet] Snapshot resources on save:", {
+          hasResources: !!snapshot.resources,
+          resourceCount: snapshot.resources?.length,
+          resourceNames: snapshot.resources?.map((r: any) => r.name),
+          hasDrawingResource: !!drawingRes,
+          drawingDataLength: drawingRes?.data?.length,
+          drawingDataPreview: drawingRes?.data?.substring(0, 100),
+        });
+      }
 
       if (snapshot) {
         if (hasFileId && fileId) {
@@ -1127,6 +1168,9 @@ export const UniverSpreadsheet = React.forwardRef<
           style?: unknown;
         }> = [];
 
+        // Check if any cell has styles - if so, we need full recreation
+        let hasStyles = false;
+
         for (const [rowKey, rowData] of Object.entries(cellData)) {
           const row = parseInt(rowKey, 10);
           if (Number.isNaN(row) || !rowData || typeof rowData !== "object")
@@ -1146,34 +1190,23 @@ export const UniverSpreadsheet = React.forwardRef<
                 value: cell.v,
                 style: cell.s,
               });
+              // Check if this cell has any styles defined
+              if (cell.s && typeof cell.s === 'object' && Object.keys(cell.s).length > 0) {
+                hasStyles = true;
+              }
             }
           }
         }
 
         if (updates.length > 0) {
           console.log(
-            `[UniverSpreadsheet] Applying ${updates.length} cell updates incrementally`,
+            `[UniverSpreadsheet] Applying ${updates.length} cell updates, hasStyles: ${hasStyles}`,
           );
 
-          const maxRow = Math.max(...updates.map((u) => u.row)) + 1;
-          const maxCol = Math.max(...updates.map((u) => u.col)) + 1;
-
-          const valueMatrix: Record<number, Record<number, unknown>> = {};
-          for (const update of updates) {
-            if (!valueMatrix[update.row]) valueMatrix[update.row] = {};
-            valueMatrix[update.row][update.col] = update.value;
-          }
-
-          try {
-            const range = activeSheet.getRange(0, 0, maxRow, maxCol);
-            if (range && typeof range.setValues === "function") {
-              range.setValues(valueMatrix);
-            }
-          } catch (rangeErr) {
-            console.warn(
-              "[UniverSpreadsheet] setValues failed, falling back:",
-              rangeErr,
-            );
+          // If styles are involved, do a full workbook recreation to apply them properly
+          // The incremental setValues API doesn't support styles
+          if (hasStyles) {
+            console.log("[UniverSpreadsheet] Styles detected, doing full recreation");
             const unitId = currentWorkbook.getId();
             if (unitId) {
               instance.api.disposeUnit(unitId);
@@ -1183,10 +1216,41 @@ export const UniverSpreadsheet = React.forwardRef<
               updateData.univerData,
             );
             workbookRef.current = instance.api.getActiveWorkbook();
+          } else {
+            // Values-only update can use incremental approach
+            const maxRow = Math.max(...updates.map((u) => u.row)) + 1;
+            const maxCol = Math.max(...updates.map((u) => u.col)) + 1;
+
+            const valueMatrix: Record<number, Record<number, unknown>> = {};
+            for (const update of updates) {
+              if (!valueMatrix[update.row]) valueMatrix[update.row] = {};
+              valueMatrix[update.row][update.col] = update.value;
+            }
+
+            try {
+              const range = activeSheet.getRange(0, 0, maxRow, maxCol);
+              if (range && typeof range.setValues === "function") {
+                range.setValues(valueMatrix);
+              }
+            } catch (rangeErr) {
+              console.warn(
+                "[UniverSpreadsheet] setValues failed, falling back to full recreation:",
+                rangeErr,
+              );
+              const unitId = currentWorkbook.getId();
+              if (unitId) {
+                instance.api.disposeUnit(unitId);
+              }
+              instance.univer.createUnit(
+                UniverInstanceType.UNIVER_SHEET,
+                updateData.univerData,
+              );
+              workbookRef.current = instance.api.getActiveWorkbook();
+            }
           }
         }
 
-        console.log("[UniverSpreadsheet] Incremental update applied");
+        console.log("[UniverSpreadsheet] Live update applied");
       } catch (err) {
         console.error("[UniverSpreadsheet] Failed to apply live update:", err);
       }
@@ -1278,6 +1342,13 @@ export const UniverSpreadsheet = React.forwardRef<
         </div>
       )}
       <div ref={containerRef} className="w-full h-full outline-none" />
+      {/* Add Context button - appears when cells are selected */}
+      {hasFileId && (
+        <AddContextButton
+          fileId={fileId}
+          fileName={currentExcelFile?.name}
+        />
+      )}
     </div>
   );
 });
