@@ -1,5 +1,6 @@
 {
   "lockfileVersion": 1,
+  "configVersion": 0,
   "workspaces": {
     "": {
       "name": "s-agi",
@@ -153,6 +154,7 @@
         "xlsx": "^0.18.5",
         "xterm": "^5.3.0",
         "zod": "^3.24.1",
+        "zod-to-json-schema": "^3.24.0",
         "zustand": "^5.0.3",
       },
       "devDependencies": {
@@ -182,12 +184,25 @@
       "version": "0.1.0",
       "dependencies": {
         "@s-agi/core": "workspace:*",
+        "@s-agi/tools": "workspace:*",
       },
     },
     "packages/core": {
       "name": "@s-agi/core",
       "version": "0.1.0",
       "peerDependencies": {
+        "zod": ">=3.0.0",
+      },
+    },
+    "packages/tools": {
+      "name": "@s-agi/tools",
+      "version": "0.1.0",
+      "devDependencies": {
+        "@types/node": "^22.0.0",
+        "typescript": "^5.4.0",
+      },
+      "peerDependencies": {
+        "ai": ">=4.0.0",
         "zod": ">=3.0.0",
       },
     },
@@ -732,6 +747,8 @@
     "@s-agi/core": ["@s-agi/core@workspace:packages/core"],
 
     "@s-agi/electron": ["@s-agi/electron@workspace:apps/electron"],
+
+    "@s-agi/tools": ["@s-agi/tools@workspace:packages/tools"],
 
     "@scure/base": ["@scure/base@2.0.0", "", {}, "sha512-3E1kpuZginKkek01ovG8krQ0Z44E3DHPjc5S2rjJw9lZn3KSQOs8S7wqikF/AH7iRanHypj85uGyxk0XAyC37w=="],
 
@@ -2805,6 +2822,8 @@
 
     "zod": ["zod@3.25.76", "", {}, ""],
 
+    "zod-to-json-schema": ["zod-to-json-schema@3.25.1", "", { "peerDependencies": { "zod": "^3.25 || ^4" } }, "sha512-pM/SU9d3YAggzi6MtR4h7ruuQlqKtad8e9S0fmxcMi+ueAK5Korys/aWcV9LIIHTVbj01NdzxcnXSN+O74ZIVA=="],
+
     "zustand": ["zustand@5.0.10", "", { "peerDependencies": { "@types/react": ">=18.0.0", "immer": ">=9.0.6", "react": ">=18.0.0", "use-sync-external-store": ">=1.2.0" } }, ""],
 
     "zwitch": ["zwitch@2.0.4", "", {}, ""],
@@ -2906,6 +2925,8 @@
     "@react-pdf/reconciler/scheduler": ["scheduler@0.25.0-rc-603e6108-20241029", "", {}, "sha512-pFwF6H1XrSdYYNLfOcGlM28/j8CGLu8IvdrxqhjWULe2bPcKiKW4CV+OWqR/9fT52mywx65l7ysNkjLKBda7eA=="],
 
     "@reduxjs/toolkit/immer": ["immer@11.1.3", "", {}, "sha512-6jQTc5z0KJFtr1UgFpIL3N9XSC3saRaI9PwWtzM2pSqkNGtiNkYY2OSwkOGDK2XcTRcLb1pi/aNkKZz0nxVH4Q=="],
+
+    "@s-agi/tools/@types/node": ["@types/node@22.19.7", "", { "dependencies": { "undici-types": "~6.21.0" } }, "sha512-MciR4AKGHWl7xwxkBa6xUGxQJ4VBOmPTF7sL+iGzuahOFaO0jHCsuEfS80pan1ef4gWId1oWOweIhrDEYLuaOw=="],
 
     "@tabler/icons-react/@tabler/icons": ["@tabler/icons@file:node_modules/@tabler/icons", {}],
 
@@ -3126,6 +3147,8 @@
     "@isaacs/cliui/strip-ansi/ansi-regex": ["ansi-regex@6.2.2", "", {}, ""],
 
     "@isaacs/cliui/wrap-ansi/ansi-styles": ["ansi-styles@6.2.3", "", {}, ""],
+
+    "@s-agi/tools/@types/node/undici-types": ["undici-types@6.21.0", "", {}, ""],
 
     "@types/cacheable-request/@types/node/undici-types": ["undici-types@6.21.0", "", {}, ""],
 

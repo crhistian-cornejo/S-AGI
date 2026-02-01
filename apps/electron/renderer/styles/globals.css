@@ -495,7 +495,6 @@
 .dark .rc-dropdown-menu,
 .dark [id^="univer-popup-portal"] > div,
 .dark [data-slot="dropdown-menu-content"],
-.dark [data-radix-popper-content-wrapper],
 .univer-dark .univer-dropdown,
 .univer-dark .univer-popup,
 .univer-dark .univer-menu,
@@ -506,8 +505,7 @@
 .univer-dark .rc-dropdown ul,
 .univer-dark .rc-dropdown-menu,
 .univer-dark [id^="univer-popup-portal"] > div,
-.univer-dark [data-slot="dropdown-menu-content"],
-.univer-dark [data-radix-popper-content-wrapper] {
+.univer-dark [data-slot="dropdown-menu-content"] {
   background-color: #262626 !important;
   border: 1px solid rgba(255, 255, 255, 0.12) !important;
   box-shadow:
@@ -526,7 +524,6 @@
 .dark .rc-dropdown ul *,
 .dark [id^="univer-popup-portal"] > div *,
 .dark [data-slot="dropdown-menu-content"] *,
-.dark [data-radix-popper-content-wrapper] *,
 .univer-dark .univer-dropdown *,
 .univer-dark .univer-popup *,
 .univer-dark .univer-menu *,
@@ -536,11 +533,17 @@
 .univer-dark .rc-dropdown-menu *,
 .univer-dark .rc-dropdown ul *,
 .univer-dark [id^="univer-popup-portal"] > div *,
-.univer-dark [data-slot="dropdown-menu-content"] *,
-.univer-dark [data-radix-popper-content-wrapper] * {
+.univer-dark [data-slot="dropdown-menu-content"] * {
   color: #fafafa !important;
   fill: #fafafa !important;
   stroke: #fafafa !important;
+}
+
+[data-radix-popper-content-wrapper] {
+  background: transparent !important;
+  border: 0 !important;
+  box-shadow: none !important;
+  padding: 0 !important;
 }
 
 .dark .univer-dropdown [data-slot="dropdown-menu-item"]:hover,

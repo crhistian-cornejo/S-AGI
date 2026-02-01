@@ -26,7 +26,6 @@
     "electron:dist:mac": "bun run build && electron-builder --config apps/electron/electron-builder.yml --project apps/electron --mac",
     "electron:dist:win": "bun run build && electron-builder --config apps/electron/electron-builder.yml --project apps/electron --win",
     "electron:dist:linux": "bun run build && electron-builder --config apps/electron/electron-builder.yml --project apps/electron --linux",
-    "postinstall": "node scripts/postinstall.cjs",
     "install:fallback": "npm install"
   },
   "dependencies": {
