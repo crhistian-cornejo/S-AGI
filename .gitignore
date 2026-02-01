@@ -54,6 +54,9 @@ sshkey
 id_rsa*
 id_ed25519*
 
+# Apple signing keys
+.keys/
+
 # Credentials
 credentials.enc
 *.credentials
