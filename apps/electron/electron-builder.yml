@@ -3,18 +3,18 @@ productName: S-AGI
 copyright: Copyright 2025 S-AGI
 
 directories:
-  buildResources: build
-  output: release
+  buildResources: apps/electron/build
+  output: apps/electron/release
 
-# Files relative to project directory (apps/electron)
+# Files relative to monorepo root (no --project flag)
 files:
-  - from: ../../out
+  - from: out
     to: .
     filter:
       - "**/*"
-  - from: ../../package.json
+  - from: package.json
     to: package.json
-  - from: ../../node_modules
+  - from: node_modules
     to: node_modules
     filter:
       - "**/*"
@@ -26,15 +26,15 @@ files:
 
 # Extra resources bundled outside ASAR (accessible at runtime)
 extraResources:
-  - from: resources/dictionaries
+  - from: apps/electron/resources/dictionaries
     to: dictionaries
     filter:
       - "**/*"
-  - from: resources/fonts
+  - from: apps/electron/resources/fonts
     to: fonts
     filter:
       - "**/*"
-  - from: resources/pdfium.wasm
+  - from: apps/electron/resources/pdfium.wasm
     to: pdfium.wasm
 
 asar: true
@@ -55,7 +55,7 @@ protocols:
 
 # macOS Configuration
 mac:
-  icon: build/icon.icns
+  icon: apps/electron/build/icon.icns
   category: public.app-category.productivity
   target:
     - target: dmg
@@ -68,8 +68,8 @@ mac:
         - x64
   hardenedRuntime: true
   gatekeeperAssess: false
-  entitlements: build/entitlements.mac.plist
-  entitlementsInherit: build/entitlements.mac.plist
+  entitlements: apps/electron/build/entitlements.mac.plist
+  entitlementsInherit: apps/electron/build/entitlements.mac.plist
   identity: "${env.APPLE_IDENTITY}"
   notarize:
     teamId: "${env.APPLE_TEAM_ID}"
@@ -94,7 +94,7 @@ dmg:
 
 # Windows Configuration
 win:
-  icon: build/icon.ico
+  icon: apps/electron/build/icon.ico
   target:
     - target: nsis
       arch:
@@ -108,8 +108,8 @@ nsis:
   oneClick: false
   perMachine: false
   allowToChangeInstallationDirectory: true
-  installerIcon: build/icon.ico
-  uninstallerIcon: build/icon.ico
+  installerIcon: apps/electron/build/icon.ico
+  uninstallerIcon: apps/electron/build/icon.ico
   deleteAppDataOnUninstall: false
   createDesktopShortcut: true
   createStartMenuShortcut: true
