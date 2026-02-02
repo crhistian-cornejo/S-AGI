@@ -1,12 +1,12 @@
 appId: com.sagi.app
 productName: S-AGI
-copyright: Copyright © 2025 S-AGI
+copyright: Copyright 2025 S-AGI
 
 directories:
   buildResources: build
   output: release
 
-# Files relative to root (electron-builder runs from monorepo root)
+# Files relative to project directory (apps/electron)
 files:
   - from: ../../out
     to: .
@@ -19,14 +19,31 @@ files:
     filter:
       - "**/*"
       - "!**/*.map"
+      - "!**/*.d.ts"
+      - "!**/test/**"
+      - "!**/tests/**"
+      - "!**/__tests__/**"
 
-extraResources: []
+# Extra resources bundled outside ASAR (accessible at runtime)
+extraResources:
+  - from: resources/dictionaries
+    to: dictionaries
+    filter:
+      - "**/*"
+  - from: resources/fonts
+    to: fonts
+    filter:
+      - "**/*"
+  - from: resources/pdfium.wasm
+    to: pdfium.wasm
+
 asar: true
 # Unpack native modules so they can load correctly
 asarUnpack:
-  - "**/node_modules/better-sqlite3/**"
-  - "**/node_modules/sharp/**"
-  - "**/node_modules/@img/**"
+  - "**/node_modules/better-sqlite3/**/*"
+  - "**/node_modules/sharp/**/*"
+  - "**/node_modules/@img/**/*"
+
 npmRebuild: true
 
 protocols:
@@ -34,14 +51,7 @@ protocols:
     schemes:
       - s-agi
 
-linux:
-  icon: build/icon.png
-  target:
-    - AppImage
-    - deb
-  category: Office
-  artifactName: "S-AGI-${arch}.${ext}"
-
+# macOS Configuration
 mac:
   icon: build/icon.icns
   category: public.app-category.productivity
@@ -62,6 +72,8 @@ mac:
   notarize:
     teamId: "${env.APPLE_TEAM_ID}"
   artifactName: "S-AGI-${arch}.${ext}"
+  extendInfo:
+    NSMicrophoneUsageDescription: "S-AGI needs microphone access for voice input"
 
 dmg:
   artifactName: "S-AGI-${arch}.dmg"
@@ -78,19 +90,29 @@ dmg:
       path: /Applications
   iconSize: 80
 
+# Windows Configuration
 win:
   icon: build/icon.ico
   target:
-    - nsis
-    - portable
+    - target: nsis
+      arch:
+        - x64
+    - target: portable
+      arch:
+        - x64
   artifactName: "S-AGI-${arch}.${ext}"
 
 nsis:
-  oneClick: true
+  oneClick: false
   perMachine: false
-  allowToChangeInstallationDirectory: false
-  deleteAppDataOnUninstall: true
+  allowToChangeInstallationDirectory: true
+  installerIcon: build/icon.ico
+  uninstallerIcon: build/icon.ico
+  deleteAppDataOnUninstall: false
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
 
+# Auto-update configuration
 publish:
   provider: generic
   url: https://releases.sagi.app

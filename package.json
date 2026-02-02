@@ -25,6 +25,11 @@
     "electron:dist": "bun run build && electron-builder --config electron-builder.yml --project apps/electron",
     "electron:dist:mac": "bun run build && electron-builder --config electron-builder.yml --project apps/electron --mac",
     "electron:dist:win": "bun run build && electron-builder --config electron-builder.yml --project apps/electron --win",
+    "electron:dist:all": "bun run build && electron-builder --config electron-builder.yml --project apps/electron --mac --win",
+    "dist:manifest": "node apps/electron/scripts/generate-update-manifest.mjs",
+    "release:mac": "bun run clean && bun run electron:dist:mac && bun run dist:manifest",
+    "release:win": "bun run clean && bun run electron:dist:win && bun run dist:manifest",
+    "release:all": "bun run clean && bun run electron:dist:all && bun run dist:manifest",
     "install:fallback": "npm install"
   },
   "dependencies": {
