@@ -32,6 +32,9 @@ jobs:
       - name: Install dependencies
         run: bun i
 
+      - name: Remove workspace symlinks
+        run: rm -rf node_modules/@s-agi
+
       - name: Build and package macOS
         run: bun run electron:dist:mac
 
@@ -65,6 +68,10 @@ jobs:
 
       - name: Install dependencies
         run: bun i
+
+      - name: Remove workspace symlinks
+        run: Remove-Item -Recurse -Force node_modules/@s-agi -ErrorAction SilentlyContinue
+        shell: pwsh
 
       - name: Build and package Windows
         run: bun run electron:dist:win

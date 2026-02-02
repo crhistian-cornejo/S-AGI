@@ -23,9 +23,6 @@ files:
       - "!**/test/**"
       - "!**/tests/**"
       - "!**/__tests__/**"
-      # Exclude workspace symlinks to avoid "must be under" errors
-      - "!@s-agi"
-      - "!@s-agi/**"
 
 # Extra resources bundled outside ASAR (accessible at runtime)
 extraResources:
