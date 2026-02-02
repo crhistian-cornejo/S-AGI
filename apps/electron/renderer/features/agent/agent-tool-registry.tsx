@@ -22,6 +22,7 @@ export interface ToolMeta {
   icon: React.ComponentType<{ className?: string }>
   title: (part: ToolPart) => string
   subtitle?: (part: ToolPart) => string
+  tooltipContent?: (part: ToolPart, projectPath?: string) => string
   variant: ToolVariant
 }
 
@@ -31,6 +32,56 @@ export interface ToolPart {
   state?: 'input-streaming' | 'input-available' | 'output-available' | 'output-error'
   input?: Record<string, unknown>
   output?: Record<string, unknown> & { success?: boolean }
+}
+
+/**
+ * Get clean display path - removes sandbox/worktree/absolute prefixes
+ * @param filePath - The file path to clean
+ * @param projectPath - Optional project root path for relative paths
+ */
+export function getDisplayPath(filePath: string, projectPath?: string): string {
+  if (!filePath) return ""
+
+  // If projectPath is provided, strip it to get a project-relative path
+  if (projectPath && filePath.startsWith(projectPath)) {
+    const relative = filePath.slice(projectPath.length).replace(/^\//, "")
+    return relative || filePath.split("/").pop() || filePath
+  }
+
+  // Common sandbox/container prefixes to strip
+  const prefixes = [
+    "/project/sandbox/repo/",
+    "/project/sandbox/",
+    "/project/",
+    "/workspace/",
+  ]
+  for (const prefix of prefixes) {
+    if (filePath.startsWith(prefix)) {
+      return filePath.slice(prefix.length)
+    }
+  }
+
+  // Handle worktree paths
+  const worktreeMatch = filePath.match(/\.worktrees?\/[^/]+\/[^/]+\/(.+)$/)
+  if (worktreeMatch) {
+    return worktreeMatch[1]
+  }
+
+  // Handle absolute paths - find root indicators
+  if (filePath.startsWith("/")) {
+    const parts = filePath.split("/")
+    const rootIndicators = ["apps", "packages", "src", "lib", "components"]
+    const rootIndex = parts.findIndex((p) => rootIndicators.includes(p))
+    if (rootIndex > 0) {
+      return parts.slice(rootIndex).join("/")
+    }
+    // For other absolute paths, show last 3 segments
+    if (parts.length > 3) {
+      return parts.slice(-3).join("/")
+    }
+  }
+
+  return filePath
 }
 
 /**
@@ -97,20 +148,34 @@ export const AgentToolRegistry: Record<string, ToolMeta> = {
     title: (part) => {
       const isPending =
         part.state !== "output-available" && part.state !== "output-error"
+      const isInputStreaming = part.state === "input-streaming"
+      if (isInputStreaming) return "Preparing search"
       if (isPending) return "Grepping"
       const numFiles = (part.output?.numFiles as number) || 0
+      const numLines = (part.output?.numLines as number) || 0
+      const mode = part.output?.mode
+      if (mode === "content") {
+        return numLines > 0 ? `Found ${numLines} matches` : "No matches"
+      }
       return numFiles > 0 ? `Grepped ${numFiles} files` : "No matches"
     },
     subtitle: (part) => {
+      if (part.state === "input-streaming") return ""
       const pattern = (part.input?.pattern as string) || ""
       const path = (part.input?.path as string) || ""
 
       if (path) {
-        const combined = `${pattern} in ${path}`
+        const displayPath = getDisplayPath(path)
+        const combined = `${pattern} in ${displayPath}`
         return combined.length > 40 ? combined.slice(0, 37) + "..." : combined
       }
 
       return pattern.length > 40 ? pattern.slice(0, 37) + "..." : pattern
+    },
+    tooltipContent: (part, projectPath) => {
+      if (part.state === "input-streaming") return ""
+      const path = (part.input?.path as string) || ""
+      return getDisplayPath(path, projectPath)
     },
     variant: "simple",
   },
@@ -120,20 +185,29 @@ export const AgentToolRegistry: Record<string, ToolMeta> = {
     title: (part) => {
       const isPending =
         part.state !== "output-available" && part.state !== "output-error"
+      const isInputStreaming = part.state === "input-streaming"
+      if (isInputStreaming) return "Preparing search"
       if (isPending) return "Exploring files"
       const numFiles = (part.output?.numFiles as number) || 0
       return numFiles > 0 ? `Found ${numFiles} files` : "No files found"
     },
     subtitle: (part) => {
+      if (part.state === "input-streaming") return ""
       const pattern = (part.input?.pattern as string) || ""
-      const targetDir = (part.input?.target_directory as string) || ""
+      const targetDir = (part.input?.target_directory as string) || (part.input?.path as string) || ""
 
       if (targetDir) {
-        const combined = `${pattern} in ${targetDir}`
+        const displayPath = getDisplayPath(targetDir)
+        const combined = `${pattern} in ${displayPath}`
         return combined.length > 40 ? combined.slice(0, 37) + "..." : combined
       }
 
       return pattern.length > 40 ? pattern.slice(0, 37) + "..." : pattern
+    },
+    tooltipContent: (part, projectPath) => {
+      if (part.state === "input-streaming") return ""
+      const targetDir = (part.input?.target_directory as string) || (part.input?.path as string) || ""
+      return getDisplayPath(targetDir, projectPath)
     },
     variant: "simple",
   },
@@ -143,12 +217,27 @@ export const AgentToolRegistry: Record<string, ToolMeta> = {
     title: (part) => {
       const isPending =
         part.state !== "output-available" && part.state !== "output-error"
+      const isInputStreaming = part.state === "input-streaming"
+      if (isInputStreaming) return "Preparing to read"
       return isPending ? "Reading" : "Read"
     },
     subtitle: (part) => {
+      if (part.state === "input-streaming") return ""
       const filePath = (part.input?.file_path as string) || ""
       if (!filePath) return ""
-      return filePath.split("/").pop() || ""
+      // Show filename + line range if available
+      const filename = filePath.split("/").pop() || ""
+      const offset = part.input?.offset as number | undefined
+      const limit = part.input?.limit as number | undefined
+      if (offset !== undefined && limit !== undefined) {
+        return `${filename} ${offset}-${offset + limit}`
+      }
+      return filename
+    },
+    tooltipContent: (part, projectPath) => {
+      if (part.state === "input-streaming") return ""
+      const filePath = (part.input?.file_path as string) || ""
+      return getDisplayPath(filePath, projectPath)
     },
     variant: "simple",
   },
