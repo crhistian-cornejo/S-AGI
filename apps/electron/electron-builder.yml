@@ -9,7 +9,7 @@ directories:
 # Files relative to monorepo root (no --project flag)
 files:
   - from: out
-    to: .
+    to: out
     filter:
       - "**/*"
   - from: package.json
