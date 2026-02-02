@@ -22,10 +22,9 @@
     "typecheck:core": "cd packages/core && bun run tsc --noEmit",
     "clean": "rm -rf out dist apps/electron/release",
     "clean:modules": "rm -rf node_modules apps/electron/node_modules packages/*/node_modules",
-    "electron:dist": "bun run build && electron-builder --config apps/electron/electron-builder.yml --project apps/electron",
-    "electron:dist:mac": "bun run build && electron-builder --config apps/electron/electron-builder.yml --project apps/electron --mac",
-    "electron:dist:win": "bun run build && electron-builder --config apps/electron/electron-builder.yml --project apps/electron --win",
-    "electron:dist:linux": "bun run build && electron-builder --config apps/electron/electron-builder.yml --project apps/electron --linux",
+    "electron:dist": "bun run build && electron-builder --config electron-builder.yml --project apps/electron",
+    "electron:dist:mac": "bun run build && electron-builder --config electron-builder.yml --project apps/electron --mac",
+    "electron:dist:win": "bun run build && electron-builder --config electron-builder.yml --project apps/electron --win",
     "install:fallback": "npm install"
   },
   "dependencies": {
