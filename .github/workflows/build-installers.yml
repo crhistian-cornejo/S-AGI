@@ -32,12 +32,8 @@ jobs:
       - name: Install dependencies
         run: bun i
 
-      - name: Build renderer and main
-        run: bun run build
-
-      - name: Build macOS installer
-        working-directory: apps/electron
-        run: npx electron-builder --mac --config electron-builder.yml
+      - name: Build and package macOS
+        run: bun run electron:dist:mac
 
       - name: Generate update manifests
         run: bun run dist:manifest
@@ -70,12 +66,8 @@ jobs:
       - name: Install dependencies
         run: bun i
 
-      - name: Build renderer and main
-        run: bun run build
-
-      - name: Build Windows installer
-        working-directory: apps/electron
-        run: npx electron-builder --win --config electron-builder.yml
+      - name: Build and package Windows
+        run: bun run electron:dist:win
 
       - name: Generate update manifests
         run: bun run dist:manifest
