@@ -44,7 +44,9 @@ asarUnpack:
   - "**/node_modules/sharp/**/*"
   - "**/node_modules/@img/**/*"
 
-npmRebuild: true
+# Disable npm rebuild - we bundle pre-built node_modules from monorepo root
+npmRebuild: false
+buildDependenciesFromSource: false
 
 protocols:
   - name: S-AGI
