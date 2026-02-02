@@ -35,6 +35,9 @@ jobs:
       - name: Remove workspace symlinks
         run: rm -rf node_modules/@s-agi
 
+      - name: Clean release directory
+        run: rm -rf apps/electron/release
+
       - name: Build and package macOS
         run: bun run electron:dist:mac
 
@@ -71,6 +74,10 @@ jobs:
 
       - name: Remove workspace symlinks
         run: Remove-Item -Recurse -Force node_modules/@s-agi -ErrorAction SilentlyContinue
+        shell: pwsh
+
+      - name: Clean release directory
+        run: Remove-Item -Recurse -Force apps/electron/release -ErrorAction SilentlyContinue
         shell: pwsh
 
       - name: Build and package Windows
