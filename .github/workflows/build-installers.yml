@@ -40,6 +40,8 @@ jobs:
 
       - name: Build and package macOS
         run: bun run electron:dist:mac
+        env:
+          USE_HARD_LINKS: false
 
       - name: Generate update manifests
         run: bun run dist:manifest
@@ -82,6 +84,8 @@ jobs:
 
       - name: Build and package Windows
         run: bun run electron:dist:win
+        env:
+          USE_HARD_LINKS: false
 
       - name: Generate update manifests
         run: bun run dist:manifest
