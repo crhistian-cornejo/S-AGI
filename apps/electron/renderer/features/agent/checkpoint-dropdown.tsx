@@ -56,12 +56,9 @@ export const CheckpointDropdown = memo(function CheckpointDropdown({
     if (!checkpoints) return [];
     return checkpoints.map((cp) => ({
       ...cp,
-      relativeTime: formatDistanceToNow(new Date(cp.created_at), {
+      relativeTime: formatDistanceToNow(new Date(cp.createdAt), {
         addSuffix: true,
       }),
-      prompt:
-        cp.change_description?.replace(/^Checkpoint:\s*/, "") ||
-        "Checkpoint",
     }));
   }, [checkpoints]);
 
@@ -133,9 +130,9 @@ export const CheckpointDropdown = memo(function CheckpointDropdown({
                   cp.canRestore &&
                   onRestoreClick({
                     id: cp.id,
-                    versionNumber: cp.version_number,
+                    versionNumber: cp.versionNumber,
                     prompt: cp.prompt,
-                    createdAt: cp.created_at,
+                    createdAt: cp.createdAt,
                   })
                 }
               >
@@ -152,7 +149,7 @@ export const CheckpointDropdown = memo(function CheckpointDropdown({
                 <div className="flex-1 min-w-0">
                   <p className="text-xs truncate">{cp.prompt}</p>
                   <p className="text-[10px] text-muted-foreground">
-                    v{cp.version_number} · {cp.relativeTime}
+                    v{cp.versionNumber} · {cp.relativeTime}
                   </p>
                 </div>
               </DropdownMenuItem>

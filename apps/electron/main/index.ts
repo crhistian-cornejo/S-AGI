@@ -1199,7 +1199,8 @@ function registerPermissionRequestHandler(): void {
 
       // Allow clipboard permissions for trusted origins (needed for Univer)
       if (
-        (permission === "clipboard-write" || permission === "clipboard-read") &&
+        (permission === "clipboard-sanitized-write" ||
+          permission === "clipboard-read") &&
         (isLocal || isTrustedOrigin)
       ) {
         log.info(

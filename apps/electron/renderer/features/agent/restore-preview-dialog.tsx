@@ -245,6 +245,7 @@ const StatCard = memo(function StatCard({
       >
         {value}
       </p>
+      <p className="text-[10px] text-muted-foreground">{label}</p>
       <p className="text-[10px] text-muted-foreground">{sublabel}</p>
     </div>
   );

@@ -575,7 +575,7 @@ export const ChatMarkdownRenderer = memo(function ChatMarkdownRenderer({
       .then((module) => {
         setMermaidPlugin(() => module.mermaid);
       })
-      .catch((error) => {
+      .catch(() => {
         // Mermaid not available - this is OK, diagrams just won't render
         // This happens when lodash-es fails to install due to Windows permissions
         console.warn(

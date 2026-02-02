@@ -24,11 +24,14 @@ import {
   AreaChart,
   Area,
 } from 'recharts'
-import type { FRange } from '@univerjs/core/facade'
 
 interface ChartDataPoint {
   name: string
   [key: string]: string | number
+}
+
+type SelectedRange = {
+  getAddress: () => string
 }
 
 interface ChartColumn {
@@ -40,7 +43,7 @@ interface ChartColumn {
 }
 
 export function UniverCharts({ univerAPI }: { univerAPI: any }) {
-  const [selectedRange, setSelectedRange] = useState<FRange | null>(null)
+  const [selectedRange, setSelectedRange] = useState<SelectedRange | null>(null)
   const [chartData, setChartData] = useState<ChartDataPoint[]>([])
   const [columns, setColumns] = useState<ChartColumn[]>([])
   const [chartType, setChartType] = useState<'bar' | 'line' | 'pie' | 'area'>('bar')
@@ -224,7 +227,7 @@ export function UniverCharts({ univerAPI }: { univerAPI: any }) {
           </ResponsiveContainer>
         )
 
-      case 'pie':
+      case 'pie': {
         const pieData = chartData.map(point => ({
           name: point.name,
           value: Object.values(point).find(v => typeof v === 'number') || 0,
@@ -242,6 +245,7 @@ export function UniverCharts({ univerAPI }: { univerAPI: any }) {
             </PieChart>
           </ResponsiveContainer>
         )
+      }
 
       default:
         return null
@@ -265,10 +269,10 @@ export function UniverCharts({ univerAPI }: { univerAPI: any }) {
       <div className="flex items-center justify-between">
         <h3 className="text-lg font-semibold">Gráficos de Datos</h3>
         <div className="flex gap-2">
-          <button onClick={() => setChartType('bar')} className={`px-3 py-1 rounded-md text-sm transition-colors ${chartType === 'bar' ? 'bg-primary text-primary-foreground' : 'bg-muted hover:bg-muted/80'}`}>Barras</button>
-          <button onClick={() => setChartType('line')} className={`px-3 py-1 rounded-md text-sm transition-colors ${chartType === 'line' ? 'bg-primary text-primary-foreground' : 'bg-muted hover:bg-muted/80'}`}>Líneas</button>
-          <button onClick={() => setChartType('area')} className={`px-3 py-1 rounded-md text-sm transition-colors ${chartType === 'area' ? 'bg-primary text-primary-foreground' : 'bg-muted hover:bg-muted/80'}`}>Área</button>
-          <button onClick={() => setChartType('pie')} className={`px-3 py-1 rounded-md text-sm transition-colors ${chartType === 'pie' ? 'bg-primary text-primary-foreground' : 'bg-muted hover:bg-muted/80'}`}>Circular</button>
+          <button type="button" onClick={() => setChartType('bar')} className={`px-3 py-1 rounded-md text-sm transition-colors ${chartType === 'bar' ? 'bg-primary text-primary-foreground' : 'bg-muted hover:bg-muted/80'}`}>Barras</button>
+          <button type="button" onClick={() => setChartType('line')} className={`px-3 py-1 rounded-md text-sm transition-colors ${chartType === 'line' ? 'bg-primary text-primary-foreground' : 'bg-muted hover:bg-muted/80'}`}>Líneas</button>
+          <button type="button" onClick={() => setChartType('area')} className={`px-3 py-1 rounded-md text-sm transition-colors ${chartType === 'area' ? 'bg-primary text-primary-foreground' : 'bg-muted hover:bg-muted/80'}`}>Área</button>
+          <button type="button" onClick={() => setChartType('pie')} className={`px-3 py-1 rounded-md text-sm transition-colors ${chartType === 'pie' ? 'bg-primary text-primary-foreground' : 'bg-muted hover:bg-muted/80'}`}>Circular</button>
         </div>
       </div>
       <div className="border rounded-md p-4 bg-background">{renderChart()}</div>

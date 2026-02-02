@@ -103,7 +103,7 @@ export function TitleBar({ className, noTrafficLightSpace }: TitleBarProps) {
   }, []);
 
   const provider = useAtomValue(currentProviderAtom);
-  const [sidebarOpen, setSidebarOpen] = useAtom(sidebarOpenAtom);
+  const sidebarOpen = useAtomValue(sidebarOpenAtom);
   const [notesSidebarOpen, setNotesSidebarOpen] = useAtom(notesSidebarOpenAtom);
   const [pdfSidebarOpen, setPdfSidebarOpen] = useAtom(pdfSidebarOpenAtom);
   const [agentPanelOpen, setAgentPanelOpen] = useAtom(agentPanelOpenAtom);

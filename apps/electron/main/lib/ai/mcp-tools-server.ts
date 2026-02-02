@@ -80,7 +80,7 @@ function notifyArtifactUpdate(
 
 // Types for univer data structure
 interface UniverSheetData {
-    cellData: Record<number, Record<number, { v?: unknown; s?: Record<string, unknown> }>>;
+    cellData: Record<number, Record<number, { v?: unknown; s?: Record<string, unknown>; f?: unknown }>>;
     [key: string]: unknown;
 }
 
@@ -211,6 +211,27 @@ function getBorderStyle(style: 'thin' | 'medium' | 'thick' | 'dashed' | 'dotted'
         case 'dotted': return 5
         default: return 1
     }
+}
+
+function getOrCreateCellStyle(
+    cell: Record<string, any>,
+    univerData: Record<string, any>
+): Record<string, any> {
+    const currentStyle = cell.s
+    if (currentStyle && typeof currentStyle === 'object') {
+        return currentStyle as Record<string, any>
+    }
+    if (typeof currentStyle === 'string') {
+        const baseStyle = univerData.styles?.[currentStyle]
+        if (baseStyle && typeof baseStyle === 'object') {
+            const cloned = JSON.parse(JSON.stringify(baseStyle)) as Record<string, any>
+            cell.s = cloned
+            return cloned
+        }
+    }
+    const newStyle: Record<string, any> = {}
+    cell.s = newStyle
+    return newStyle
 }
 
 /**
@@ -727,26 +748,21 @@ DEVUELVE: {"success": true, "cellCount": 4, "message": "Formato aplicado..."}`,
                             if (!sheet.cellData[row][col]) sheet.cellData[row][col] = {}
                             
                             const cell = sheet.cellData[row][col]
-                            if (!cell.s) cell.s = {}
+                            const style = getOrCreateCellStyle(cell as Record<string, unknown>, univerData)
                             
-                            // Font styling
-                            if (format.bold !== undefined) cell.s.bl = format.bold ? 1 : 0
-                            if (format.italic !== undefined) cell.s.it = format.italic ? 1 : 0
-                            if (format.textColor) cell.s.cl = { rgb: format.textColor }
-                            if (format.fontSize !== undefined) cell.s.fs = format.fontSize
+                            if (format.bold !== undefined) style.bl = format.bold ? 1 : 0
+                            if (format.italic !== undefined) style.it = format.italic ? 1 : 0
+                            if (format.textColor) style.cl = { rgb: format.textColor }
+                            if (format.fontSize !== undefined) style.fs = format.fontSize
                             
-                            // Background
-                            if (format.backgroundColor) cell.s.bg = { rgb: format.backgroundColor }
+                            if (format.backgroundColor) style.bg = { rgb: format.backgroundColor }
                             
-                            // Alignment
-                            if (format.horizontalAlign) cell.s.ht = getHorizontalAlign(format.horizontalAlign)
-                            if (format.verticalAlign) cell.s.vt = getVerticalAlign(format.verticalAlign)
-                            if (format.textWrap !== undefined) cell.s.tb = format.textWrap ? 2 : 1
+                            if (format.horizontalAlign) style.ht = getHorizontalAlign(format.horizontalAlign)
+                            if (format.verticalAlign) style.vt = getVerticalAlign(format.verticalAlign)
+                            if (format.textWrap !== undefined) style.tb = format.textWrap ? 2 : 1
                             
-                            // Number format
-                            if (format.numberFormat) cell.s.n = { pattern: format.numberFormat }
+                            if (format.numberFormat) style.n = { pattern: format.numberFormat }
                             
-                            // Borders
                             if (format.border) {
                                 const borderStyle = getBorderStyle(format.border.style || 'thin')
                                 const borderColor = format.border.color || '#000000'
@@ -757,12 +773,12 @@ DEVUELVE: {"success": true, "cellCount": 4, "message": "Formato aplicado..."}`,
                                     cl: { rgb: borderColor }
                                 }
                                 
-                                if (!cell.s.bd) cell.s.bd = {}
+                                if (!style.bd) style.bd = {}
                                 
-                                if (sides.includes('all') || sides.includes('top')) cell.s.bd.t = borderDef
-                                if (sides.includes('all') || sides.includes('bottom')) cell.s.bd.b = borderDef
-                                if (sides.includes('all') || sides.includes('left')) cell.s.bd.l = borderDef
-                                if (sides.includes('all') || sides.includes('right')) cell.s.bd.r = borderDef
+                                if (sides.includes('all') || sides.includes('top')) style.bd.t = borderDef
+                                if (sides.includes('all') || sides.includes('bottom')) style.bd.b = borderDef
+                                if (sides.includes('all') || sides.includes('left')) style.bd.l = borderDef
+                                if (sides.includes('all') || sides.includes('right')) style.bd.r = borderDef
                             }
                         }
                     }
@@ -1089,8 +1105,7 @@ DEVUELVE: {"success": true, "cellsFormatted": 15, "message": "Formato condiciona
                                         cellData[row][col] = (cell || {}) as typeof cellData[number][number]
                                     }
                                     const targetCell = cellData[row][col] as Record<string, unknown>
-                                    if (!targetCell.s) targetCell.s = {}
-                                    const style = targetCell.s as Record<string, unknown>
+                                    const style = getOrCreateCellStyle(targetCell, univerData)
 
                                     if (rule.format.backgroundColor) {
                                         const rgb = hexToRgb(rule.format.backgroundColor)
@@ -2353,8 +2368,11 @@ DEVUELVE: {"success": true, "message": "Formato currency aplicado a C2:C100"}`,
                         for (let col = start.col; col <= end.col; col++) {
                             if (!sheet.cellData[row]) sheet.cellData[row] = {}
                             if (!sheet.cellData[row][col]) sheet.cellData[row][col] = {}
-                            if (!sheet.cellData[row][col].s) sheet.cellData[row][col].s = {}
-                            ;(sheet.cellData[row][col].s as Record<string, unknown>).n = { pattern }
+                            const style = getOrCreateCellStyle(
+                                sheet.cellData[row][col] as Record<string, unknown>,
+                                univerData
+                            )
+                            style.n = { pattern }
                         }
                     }
 
@@ -2450,7 +2468,7 @@ DEVUELVE: {"success": true, "message": "Formato currency aplicado a C2:C100"}`,
                     // Extract sample data
                     const sampleData: Array<Array<unknown>> = []
                     for (let row = 1; row <= Math.min(maxRow, maxRows); row++) {
-                        const rowData: unknown[] = []
+                        const rowData: Array<{ v?: unknown; s?: Record<string, unknown>; f?: unknown } | null> = []
                         for (let col = 0; col <= maxCol; col++) {
                             rowData.push(cellData[row]?.[col]?.v ?? null)
                         }
@@ -2853,7 +2871,7 @@ DEVUELVE: {"success": true, "message": "Formato currency aplicado a C2:C100"}`,
                     // Shift existing columns to the right
                     for (const rowStr of Object.keys(cellData)) {
                         const row = parseInt(rowStr)
-                        const newRowData: Record<number, unknown> = {}
+                        const newRowData: Record<number, { v?: unknown; s?: Record<string, unknown>; f?: unknown }> = {}
                         for (const colStr of Object.keys(cellData[row] || {})) {
                             const col = parseInt(colStr)
                             if (col >= insertCol) {
@@ -2924,7 +2942,7 @@ DEVUELVE: {"success": true, "message": "Formato currency aplicado a C2:C100"}`,
                     for (const deleteCol of colIndices) {
                         for (const rowStr of Object.keys(cellData)) {
                             const row = parseInt(rowStr)
-                            const newRowData: Record<number, unknown> = {}
+                            const newRowData: Record<number, { v?: unknown; s?: Record<string, unknown>; f?: unknown }> = {}
                             for (const colStr of Object.keys(cellData[row] || {})) {
                                 const col = parseInt(colStr)
                                 if (col < deleteCol) {
@@ -3208,11 +3226,14 @@ DEVUELVE: {"success": true, "message": "Formato currency aplicado a C2:C100"}`,
                     const dest = parseCellReference(destinationCell)
 
                     // Read source data
-                    const sourceData: unknown[][] = []
+                    const sourceData: Array<Array<{ v?: unknown; s?: Record<string, unknown>; f?: unknown } | null>> = []
                     for (let row = start.row; row <= end.row; row++) {
-                        const rowData: unknown[] = []
+                        const rowData: Array<{ v?: unknown; s?: Record<string, unknown>; f?: unknown } | null> = []
                         for (let col = start.col; col <= end.col; col++) {
-                            rowData.push(sheet.cellData[row]?.[col] ? JSON.parse(JSON.stringify(sheet.cellData[row][col])) : null)
+                            const cellCopy = sheet.cellData[row]?.[col]
+                                ? (JSON.parse(JSON.stringify(sheet.cellData[row][col])) as { v?: unknown; s?: Record<string, unknown>; f?: unknown })
+                                : null
+                            rowData.push(cellCopy)
                         }
                         sourceData.push(rowData)
                     }
@@ -3223,8 +3244,9 @@ DEVUELVE: {"success": true, "message": "Formato currency aplicado a C2:C100"}`,
                             const destRow = dest.row + srcCol
                             const destCol = dest.col + srcRow
                             if (!sheet.cellData[destRow]) sheet.cellData[destRow] = {}
-                            if (sourceData[srcRow][srcCol]) {
-                                sheet.cellData[destRow][destCol] = sourceData[srcRow][srcCol]
+                            const cellValue = sourceData[srcRow][srcCol]
+                            if (cellValue) {
+                                sheet.cellData[destRow][destCol] = cellValue
                             }
                         }
                     }

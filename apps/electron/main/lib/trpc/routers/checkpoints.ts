@@ -10,6 +10,15 @@ import { router, protectedProcedure } from "../trpc";
 import { supabase } from "../../supabase/client";
 import log from "electron-log";
 
+const isMissingColumnError = (error: unknown, column: string): boolean => {
+  if (!error || typeof error !== "object") return false;
+  const err = error as { code?: string; message?: string; details?: string };
+  if (err.code === "42703" || err.code === "PGRST204") return true;
+  if (typeof err.message === "string" && err.message.includes(column)) return true;
+  if (typeof err.details === "string" && err.details.includes(column)) return true;
+  return false;
+};
+
 export const checkpointsRouter = router({
   /**
    * Create a checkpoint before AI operation
@@ -53,25 +62,46 @@ export const checkpointsRouter = router({
       const versionNumber = nextVersion || (file.version_count || 0) + 1;
 
       // Create checkpoint version
-      const { data: checkpoint, error: insertError } = await supabase
+      const baseInsert = {
+        file_id: fileId,
+        version_number: versionNumber,
+        univer_data: file.univer_data,
+        content: file.content,
+        change_type: "checkpoint",
+        change_description: `Checkpoint: ${promptPreview}`,
+        created_by: ctx.userId,
+        is_checkpoint: true,
+        size_bytes: JSON.stringify(file.univer_data || file.content || "").length,
+      };
+
+      let { data: checkpoint, error: insertError } = await supabase
         .from("file_versions")
         .insert({
-          file_id: fileId,
-          version_number: versionNumber,
-          univer_data: file.univer_data,
-          content: file.content,
-          change_type: "checkpoint",
-          change_description: `Checkpoint: ${promptPreview}`,
-          created_by: ctx.userId,
-          is_checkpoint: true,
+          ...baseInsert,
           checkpoint_message_id: messageId,
           checkpoint_prompt_id: messageId,
-          size_bytes: JSON.stringify(file.univer_data || file.content || "").length,
         })
         .select("id, version_number, created_at")
         .single();
 
-      if (insertError) {
+      if (
+        insertError &&
+        (isMissingColumnError(insertError, "checkpoint_message_id") ||
+          isMissingColumnError(insertError, "checkpoint_prompt_id"))
+      ) {
+        log.warn(
+          "[Checkpoints] Missing checkpoint columns, retrying without message IDs",
+        );
+        const retry = await supabase
+          .from("file_versions")
+          .insert(baseInsert)
+          .select("id, version_number, created_at")
+          .single();
+        checkpoint = retry.data;
+        insertError = retry.error;
+      }
+
+      if (insertError || !checkpoint) {
         log.error("[Checkpoints] Error creating checkpoint:", insertError);
         throw new Error("Failed to create checkpoint");
       }
@@ -114,13 +144,32 @@ export const checkpointsRouter = router({
         throw new Error("File not found");
       }
 
-      const { data, error } = await supabase
+      const initial = await supabase
         .from("file_versions")
-        .select("id, version_number, change_description, checkpoint_message_id, created_at")
+        .select(
+          "id, version_number, change_description, checkpoint_message_id, created_at",
+        )
         .eq("file_id", input.fileId)
         .eq("is_checkpoint", true)
         .order("version_number", { ascending: false })
         .limit(input.limit);
+      let data = initial.data as Array<Record<string, any>> | null;
+      let error = initial.error;
+
+      if (error && isMissingColumnError(error, "checkpoint_message_id")) {
+        log.warn(
+          "[Checkpoints] Missing checkpoint_message_id column, retrying without it",
+        );
+        const retry = await supabase
+          .from("file_versions")
+          .select("id, version_number, change_description, created_at")
+          .eq("file_id", input.fileId)
+          .eq("is_checkpoint", true)
+          .order("version_number", { ascending: false })
+          .limit(input.limit);
+        data = retry.data as Array<Record<string, any>> | null;
+        error = retry.error;
+      }
 
       if (error) {
         log.error("[Checkpoints] Error listing checkpoints:", error);
@@ -129,7 +178,12 @@ export const checkpointsRouter = router({
 
       const currentVersion = file.version_count || 0;
       return (data || []).map((cp) => ({
-        ...cp,
+        id: cp.id,
+        versionNumber: cp.version_number,
+        prompt:
+          cp.change_description?.replace(/^Checkpoint:\s*/, "") || "Checkpoint",
+        createdAt: cp.created_at,
+        checkpointMessageId: cp.checkpoint_message_id,
         canRestore: cp.version_number < currentVersion,
       }));
     }),

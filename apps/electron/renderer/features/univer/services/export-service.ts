@@ -5,7 +5,6 @@
 
 import ExcelJS from 'exceljs'
 import { saveAs } from 'file-saver'
-import type { FWorkbook, FWorksheet } from '@univerjs/core/facade'
 
 export interface ExportOptions {
   filename?: string
@@ -40,7 +39,7 @@ export class UniverExportService {
 
       const range = options.printArea
         ? fWorksheet.getRange(options.printArea)
-        : fWorksheet.getUsedRange()
+        : (fWorksheet as any).getUsedRange?.() ?? fWorksheet.getRange()
 
       if (!range) {
         throw new Error('No hay datos para exportar')
@@ -175,7 +174,7 @@ export class UniverExportService {
 
       const range = options.printArea
         ? fWorksheet.getRange(options.printArea)
-        : fWorksheet.getUsedRange()
+        : (fWorksheet as any).getUsedRange?.() ?? fWorksheet.getRange()
 
       if (!range) {
         throw new Error('No hay datos para exportar')

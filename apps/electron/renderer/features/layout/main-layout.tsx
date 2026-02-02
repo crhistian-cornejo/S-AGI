@@ -170,9 +170,8 @@ export function MainLayout() {
     "excel" | "doc" | "note"
   >("excel");
   // Version preview from atoms (managed by useFileVersions hook)
-  const [previewVersionNumber, setPreviewVersionNumber] = useAtom(versionHistoryPreviewVersionAtom);
+  const [, setPreviewVersionNumber] = useAtom(versionHistoryPreviewVersionAtom);
   const [previewVersionData, setPreviewVersionData] = useAtom(versionPreviewDataAtom);
-  const isPreviewLoading = useAtomValue(versionPreviewLoadingAtom);
 
   // IMPORTANT: Only use preview data if it matches the current file
   // This prevents showing data from another file due to cached/stale queries

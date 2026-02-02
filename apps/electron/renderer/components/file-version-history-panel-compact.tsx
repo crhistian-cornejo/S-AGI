@@ -31,7 +31,6 @@ import { formatTimeAgo } from "@/utils/time-format";
 import {
   Sheet,
   SheetContent,
-  SheetDescription,
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
@@ -44,11 +43,6 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { useSetAtom } from "jotai";
-import {
-  currentExcelFileIdAtom,
-  currentDocFileIdAtom,
-} from "@/lib/atoms/user-files";
 
 interface FileVersionHistoryPanelProps {
   fileId: string | null;
@@ -82,9 +76,6 @@ export function FileVersionHistoryPanel({
     getChangeTypeLabel,
     formatSize,
   } = useFileVersions(fileId, { includeObsolete: showObsolete });
-
-  const setCurrentExcelFileId = useSetAtom(currentExcelFileIdAtom);
-  const setCurrentDocFileId = useSetAtom(currentDocFileIdAtom);
 
   // Get current user for avatar
   const { data: currentUser } = trpc.auth.getUser.useQuery();
@@ -469,25 +460,26 @@ function CompactVersionCard({
   return (
     <div
       className={cn(
-        "group relative flex items-center gap-2 px-2 py-1.5 rounded-md text-sm transition-all duration-200 cursor-pointer select-none w-full text-left outline-none",
-        "focus-visible:ring-2 focus-visible:ring-primary",
+        "group relative flex items-center gap-2 px-2 py-1.5 rounded-md text-sm transition-all duration-200 w-full",
         isSelected
           ? "bg-accent/80 text-accent-foreground"
           : "text-foreground/70 hover:bg-accent/50 hover:text-foreground",
         isObsolete &&
           "opacity-60 border border-dashed border-amber-500/30 bg-amber-500/5",
       )}
-      onClick={onPreview}
-      role="button"
-      tabIndex={0}
       title={
         isObsolete
           ? `Versión obsoleta (reemplazada por v${version.obsoleted_by_version})`
           : undefined
       }
     >
-      {/* Avatar */}
-      <Avatar className="h-7 w-7 shrink-0">
+      <button
+        type="button"
+        onClick={onPreview}
+        className="flex items-center gap-2 flex-1 min-w-0 text-left outline-none focus-visible:ring-2 focus-visible:ring-primary rounded-md"
+      >
+        {/* Avatar */}
+        <Avatar className="h-7 w-7 shrink-0">
         {userAvatar && !isAIGenerated ? (
           <AvatarImage src={userAvatar} alt={userName} />
         ) : null}
@@ -505,23 +497,23 @@ function CompactVersionCard({
             userInitials || <IconUser size={14} />
           )}
         </AvatarFallback>
-      </Avatar>
+        </Avatar>
 
-      {/* Version Number Badge */}
-      <Badge
-        variant="outline"
-        className={cn(
-          "shrink-0 w-8 text-center text-[10px] font-mono font-bold px-1.5 py-0 h-5",
-          isSelected
-            ? "bg-primary/10 text-primary border-primary/30"
-            : "text-muted-foreground/60",
-        )}
-      >
-        v{version.version_number}
-      </Badge>
+        {/* Version Number Badge */}
+        <Badge
+          variant="outline"
+          className={cn(
+            "shrink-0 w-8 text-center text-[10px] font-mono font-bold px-1.5 py-0 h-5",
+            isSelected
+              ? "bg-primary/10 text-primary border-primary/30"
+              : "text-muted-foreground/60",
+          )}
+        >
+          v{version.version_number}
+        </Badge>
 
-      {/* Content */}
-      <div className="flex-1 min-w-0">
+        {/* Content */}
+        <div className="flex-1 min-w-0">
         <div className="flex items-center gap-1.5 flex-wrap">
           <Badge
             variant="outline"
@@ -625,7 +617,8 @@ function CompactVersionCard({
             </>
           )}
         </div>
-      </div>
+        </div>
+      </button>
 
       {/* Actions */}
       <div
@@ -633,7 +626,6 @@ function CompactVersionCard({
           "flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity duration-150 shrink-0 will-change-opacity",
           isSelected && "opacity-100",
         )}
-        onClick={(e) => e.stopPropagation()}
       >
         {onShowDiff && diffStats && diffStats.totalChanges > 0 && (
           <Tooltip>
@@ -642,7 +634,10 @@ function CompactVersionCard({
                 variant="ghost"
                 size="icon"
                 className="h-6 w-6"
-                onClick={onShowDiff}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onShowDiff();
+                }}
               >
                 <IconGitCompare size={14} />
               </Button>
@@ -658,7 +653,10 @@ function CompactVersionCard({
               variant="ghost"
               size="icon"
               className="h-6 w-6"
-              onClick={onRestore}
+              onClick={(e) => {
+                e.stopPropagation();
+                onRestore();
+              }}
               disabled={isRestoring}
             >
               <IconRestore size={14} />

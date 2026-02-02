@@ -123,8 +123,7 @@ async function handleAIRequest(req: IncomingMessage, res: ServerResponse) {
 
     // Use BlockNote's document format helpers with optimized settings
     const result = streamText({
-      // @ts-expect-error - AI SDK model types may not match exactly
-      model: model as any,
+    model: model as any,
       system: aiDocumentFormats.html.systemPrompt,
       messages: await convertToModelMessages(
         injectDocumentStateMessages(messages),
@@ -236,7 +235,6 @@ export function stopAIServer(): void {
     server = null;
     serverPort = 0;
     serverReadyPromise = null;
-    clientCache.clear();
     log.info("[AI Server] Stopped");
   }
 }

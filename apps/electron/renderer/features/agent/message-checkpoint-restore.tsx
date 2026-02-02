@@ -27,7 +27,6 @@ import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 
 interface MessageCheckpointRestoreProps {
-  messageId: string;
   fileId: string;
   checkpointVersion?: number;
   canRestore: boolean;
@@ -36,7 +35,6 @@ interface MessageCheckpointRestoreProps {
 }
 
 export const MessageCheckpointRestore = memo(function MessageCheckpointRestore({
-  messageId,
   fileId,
   checkpointVersion,
   canRestore,

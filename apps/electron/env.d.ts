@@ -23,13 +23,16 @@ interface ImportMeta {
 interface DesktopApi {
     minimize: () => Promise<void>
     maximize: () => Promise<void>
+    unmaximize?: () => Promise<void>
     close: () => Promise<void>
+    quit?: () => Promise<void>
     isMaximized: () => Promise<boolean>
     onMaximizeChange: (callback: (maximized: boolean) => void) => () => void
     getVersion: () => Promise<string>
     getTheme: () => Promise<'system' | 'light' | 'dark'>
     setTheme: (theme: 'system' | 'light' | 'dark') => Promise<boolean>
     platform: 'darwin' | 'win32' | 'linux'
+    toggleDevTools?: () => Promise<void>
     onAuthCallback: (callback: (data: { type?: string; code?: string; access_token?: string; refresh_token?: string }) => void) => () => void
     onOAuthTokens: (callback: (data: { access_token: string; refresh_token: string }) => void) => () => void
     setSession: (session: { access_token: string; refresh_token: string } | null) => Promise<{ success: boolean; error?: string }>
@@ -131,15 +134,51 @@ interface DesktopApi {
         onOpenSettings: (callback: (data?: { tab?: string }) => void) => () => void
     }
     preferences: {
-        get: () => Promise<{ trayEnabled: boolean; quickPromptEnabled: boolean }>
-        set: (data: { trayEnabled?: boolean; quickPromptEnabled?: boolean }) => Promise<{ trayEnabled: boolean; quickPromptEnabled: boolean }>
-        onPreferencesUpdated: (callback: (data: { trayEnabled: boolean; quickPromptEnabled: boolean }) => void) => () => void
+        get: () => Promise<{ trayEnabled: boolean; quickPromptEnabled: boolean; autoSaveDelay: number }>
+        set: (data: { trayEnabled?: boolean; quickPromptEnabled?: boolean; autoSaveDelay?: number }) => Promise<{ trayEnabled: boolean; quickPromptEnabled: boolean; autoSaveDelay: number }>
+        onPreferencesUpdated: (callback: (data: { trayEnabled: boolean; quickPromptEnabled: boolean; autoSaveDelay: number }) => void) => () => void
     }
+    menu?: {
+        onNewChat: (callback: () => void) => () => void
+        onNewSpreadsheet: (callback: () => void) => () => void
+        onNewDocument: (callback: () => void) => () => void
+        onFilesImported: (callback: () => void) => () => void
+        onOpenPdf: (callback: (data: { files: Array<{ path: string; name: string; size: number }> }) => void) => () => void
+        onToggleSidebar: (callback: () => void) => () => void
+        onShowShortcuts: (callback: () => void) => () => void
+        onGoToTab: (callback: (data: { tab: string }) => void) => () => void
+        onCommandK: (callback: () => void) => () => void
+        onStopGeneration: (callback: () => void) => () => void
+        onCycleReasoning: (callback: () => void) => () => void
+        onClearChat: (callback: () => void) => () => void
+        onArchiveChat: (callback: () => void) => () => void
+        onDeleteChat: (callback: () => void) => () => void
+        onSaveArtifact: (callback: () => void) => () => void
+        onExportExcel: (callback: () => void) => () => void
+        onExportChartPng: (callback: () => void) => () => void
+        onExportChartPdf: (callback: () => void) => () => void
+        onCopyChart: (callback: () => void) => () => void
+        onDownloadPdf: (callback: () => void) => () => void
+        onOpenPdfBrowser: (callback: () => void) => () => void
+        onCloseArtifact: (callback: () => void) => () => void
+        onSavePdfAnnotations: (callback: () => void) => () => void
+        onPdfNavigate: (callback: () => void) => () => void
+        onPdfHighlight: (callback: () => void) => () => void
+        onPdfZoomIn: (callback: () => void) => () => void
+        onPdfZoomOut: (callback: () => void) => () => void
+        onPdfZoomReset: (callback: () => void) => () => void
+        onToggleAgentPanel: (callback: () => void) => () => void
+        onClearAgentHistory: (callback: () => void) => () => void
+    }
+    highlightCells?: (params: { range: string; sheetName?: string }) => void
+    onHighlightCells?: (callback: (params: { range: string; sheetName?: string }) => void) => () => void
+    onFileSaveWithAIMetadata?: (callback: (data: { fileId: string; tabType: "excel" | "doc"; aiModel: string; aiPrompt: string; toolName: string }) => void) => () => void
 }
 
 // Artifact live update event from main process
 interface ArtifactUpdateEvent {
     artifactId: string
+    fileId?: string
     univerData: any
     type: 'spreadsheet' | 'document'
 }

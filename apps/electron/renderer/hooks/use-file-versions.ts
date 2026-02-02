@@ -168,6 +168,8 @@ export function useFileVersions(fileId: string | null, options: UseFileVersionsO
       return;
     }
 
+    if (!fileId) return;
+
     // All validations passed - safe to sync
     console.log(
       "[useFileVersions] Syncing validated preview data:",

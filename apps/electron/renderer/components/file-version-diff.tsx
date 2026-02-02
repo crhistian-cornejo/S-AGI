@@ -5,12 +5,7 @@
  */
 
 import * as React from "react";
-import {
-  diffWorkbooks,
-  generateChangeSummary,
-  type WorkbookDiff,
-  type CellChange,
-} from "@/utils/univer-diff";
+import { diffWorkbooks, generateChangeSummary, type CellChange } from "@/utils/univer-diff";
 import { IconChevronDown, IconChevronUp } from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
 
@@ -151,6 +146,7 @@ export function FileVersionDiff({
             className="border rounded-lg overflow-hidden"
           >
             <button
+              type="button"
               onClick={() => toggleSheet(sheet.sheetId)}
               className="w-full p-3 bg-muted hover:bg-muted/80 flex items-center justify-between transition-colors"
             >
@@ -200,6 +196,7 @@ export function FileVersionDiff({
                         {(change.oldValue !== undefined ||
                           change.newValue !== undefined) && (
                           <button
+                            type="button"
                             onClick={() => toggleCell(cellKey)}
                             className="text-xs text-muted-foreground hover:text-foreground"
                           >

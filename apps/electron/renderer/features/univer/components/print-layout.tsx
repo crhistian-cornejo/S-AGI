@@ -29,6 +29,7 @@ interface PrintSettings {
   showGridlines: boolean
   showHeaders: boolean
   blackAndWhite: boolean
+  alignment: 'left' | 'center' | 'right'
 }
 
 export function PrintLayout({ 
@@ -50,11 +51,12 @@ export function PrintLayout({
     showGridlines: true,
     showHeaders: true,
     blackAndWhite: false,
+    alignment: 'left',
   })
 
   // Calcular dimensiones en pixels
   const getPageDimensions = () => {
-    const { pageSize, orientation, margins, scale } = settings
+    const { pageSize, orientation, margins } = settings
     const inchesPerMm = 0.03937
 
     // Tamaños en mm
@@ -123,29 +125,6 @@ export function PrintLayout({
     { name: 'Centrado', top: 0.75, right: 0.75, bottom: 0.75, left: 0.75 }, // Solo para preview
   ]
 
-  // Obtener áreas de impresión de Univer
-  const getPrintAreas = () => {
-    if (!univerAPI) return []
-    
-    try {
-      const workbook = univerAPI.getActiveWorkbook()
-      const worksheet = workbook?.getActiveSheet()
-      if (!worksheet) return []
-
-      // En Univer, las áreas de impresión se definen con named ranges
-      // Por ahora devolvemos opciones básicas
-      return [
-        { value: '', label: 'Imprimir hoja completa' },
-        { value: 'selection', label: 'Solo selección actual' },
-      ]
-    } catch {
-      return [
-        { value: '', label: 'Imprimir hoja completa' },
-        { value: 'selection', label: 'Solo selección actual' },
-      ]
-    }
-  }
-
   return (
     <div className="space-y-4 bg-card p-6 rounded-lg border">
       <div className="flex items-center justify-between border-b pb-4">
@@ -155,6 +134,7 @@ export function PrintLayout({
         </div>
         <div className="flex gap-2">
           <button
+            type="button"
             onClick={() => onPreview()}
             className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 transition-colors"
           >
@@ -162,6 +142,7 @@ export function PrintLayout({
             Vista Previa
           </button>
           <button
+            type="button"
             onClick={() => onApply(settings)}
             className="px-4 py-2 bg-secondary text-secondary-foreground rounded-md hover:bg-secondary/90 transition-colors"
           >
@@ -173,7 +154,7 @@ export function PrintLayout({
       {/* Tamaño y Orientación */}
       <div className="grid grid-cols-2 gap-6">
         <div className="space-y-2">
-          <label className="text-sm font-medium">Tamaño de papel</label>
+          <div className="text-sm font-medium">Tamaño de papel</div>
           <select
             value={settings.pageSize}
             onChange={(e) => setSettings({ ...settings, pageSize: e.target.value as any })}
@@ -186,9 +167,10 @@ export function PrintLayout({
         </div>
 
         <div className="space-y-2">
-          <label className="text-sm font-medium">Orientación</label>
+          <div className="text-sm font-medium">Orientación</div>
           <div className="flex gap-2">
             <button
+              type="button"
               onClick={() => setSettings({ ...settings, orientation: 'portrait' })}
               className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 border rounded-md transition-colors ${settings.orientation === 'portrait' ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'}`}
             >
@@ -196,6 +178,7 @@ export function PrintLayout({
               <span className="text-sm">Vertical</span>
             </button>
             <button
+              type="button"
               onClick={() => setSettings({ ...settings, orientation: 'landscape' })}
               className={`flex-1 flex items-center justify-center gap-2 px-3 py-2 border rounded-md transition-colors ${settings.orientation === 'landscape' ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'}`}
             >
@@ -208,11 +191,12 @@ export function PrintLayout({
 
       {/* Márgenes */}
       <div className="space-y-3">
-        <label className="text-sm font-medium">Márgenes (pulgadas)</label>
+        <div className="text-sm font-medium">Márgenes (pulgadas)</div>
         
         <div className="grid grid-cols-4 gap-2">
           {marginPresets.map(preset => (
             <button
+              type="button"
               key={preset.name}
               onClick={() => setSettings({ ...settings, margins: preset as any })}
               className={`px-3 py-2 text-sm border rounded-md transition-colors ${JSON.stringify(settings.margins) === JSON.stringify(preset) ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'}`}
@@ -288,7 +272,7 @@ export function PrintLayout({
 
       {/* Escala */}
       <div className="space-y-3">
-        <label className="text-sm font-medium">Escala</label>
+        <div className="text-sm font-medium">Escala</div>
         <div className="flex items-center gap-4">
           <div className="flex items-center gap-2">
             <input
@@ -350,7 +334,7 @@ export function PrintLayout({
 
       {/* Opciones de impresión */}
       <div className="space-y-3">
-        <label className="text-sm font-medium">Opciones de impresión</label>
+        <div className="text-sm font-medium">Opciones de impresión</div>
         <div className="grid grid-cols-2 gap-4">
           <label className="flex items-center gap-3 cursor-pointer">
             <input
@@ -386,19 +370,22 @@ export function PrintLayout({
             <span className="text-sm">Alinear:</span>
             <div className="flex border rounded-md">
               <button
-                onClick={() => setSettings({ ...settings, alignment: 'left' as any })}
+                type="button"
+                onClick={() => setSettings({ ...settings, alignment: 'left' })}
                 className="px-3 py-1 hover:bg-muted border-r"
               >
                 <IconAlignLeft size={16} />
               </button>
               <button
-                onClick={() => setSettings({ ...settings, alignment: 'center' as any })}
+                type="button"
+                onClick={() => setSettings({ ...settings, alignment: 'center' })}
                 className="px-3 py-1 hover:bg-muted border-r"
               >
                 <IconAlignCenter size={16} />
               </button>
               <button
-                onClick={() => setSettings({ ...settings, alignment: 'right' as any })}
+                type="button"
+                onClick={() => setSettings({ ...settings, alignment: 'right' })}
                 className="px-3 py-1 hover:bg-muted"
               >
                 <IconAlignRight size={16} />
@@ -410,7 +397,7 @@ export function PrintLayout({
 
       {/* Vista previa de página */}
       <div className="space-y-2">
-        <label className="text-sm font-medium">Vista previa de página</label>
+        <div className="text-sm font-medium">Vista previa de página</div>
         <div 
           className="mx-auto border-2 border-muted-foreground/20 rounded bg-background relative"
           style={{

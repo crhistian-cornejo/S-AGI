@@ -56,19 +56,6 @@ export const ArtifactSchema = z.object({
 })
 export type Artifact = z.infer<typeof ArtifactSchema>
 
-// Tool call types for AI SDK
-export interface ToolCall {
-    id: string
-    name: string
-    arguments: Record<string, unknown>
-}
-
-export interface ToolResult {
-    id: string
-    result: unknown
-    error?: string
-}
-
 // Univer workbook data structure
 export interface UniverWorkbookData {
     id: string

@@ -24,13 +24,17 @@ export function createAISDKTools(
     for (const [name, def] of definitions) {
         const handler = handlers.get(name)
 
-        tools[name] = tool({
+        const baseConfig = {
             description: def.description,
             parameters: def.inputSchema,
-            execute: handler
-                ? async (args) => handler(args)
-                : undefined
-        })
+        }
+        const config = handler
+            ? {
+                ...baseConfig,
+                execute: async (args: unknown) => handler(args as any),
+            }
+            : baseConfig
+        tools[name] = tool(config as any) as ReturnType<typeof tool>
     }
 
     return tools
@@ -46,10 +50,17 @@ export function toAISDKTool(
 ): { name: string; tool: ReturnType<typeof tool> } {
     return {
         name,
-        tool: tool({
-            description: definition.description,
-            parameters: definition.inputSchema,
-            execute: handler ? async (args) => handler(args) : undefined
-        })
+        tool: (tool(
+            handler
+                ? {
+                    description: definition.description,
+                    parameters: definition.inputSchema,
+                    execute: async (args: unknown) => handler(args as any),
+                }
+                : {
+                    description: definition.description,
+                    parameters: definition.inputSchema,
+                }
+        ) as any) as ReturnType<typeof tool>
     }
 }

@@ -136,7 +136,7 @@ export function SuggestedPrompts({
                 className="flex-shrink-0"
               >
                 {isLong ? (
-                  <Tooltip delayDuration={100} skipDelayDuration={0}>
+                  <Tooltip delayDuration={100}>
                     <TooltipTrigger asChild>{buttonContent}</TooltipTrigger>
                     <TooltipContent
                       side="top"

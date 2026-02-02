@@ -59,6 +59,10 @@ import {
 } from "@/components/ui/tooltip";
 import { ModelIcon } from "@/components/icons/model-icons";
 import { LogoOutline } from "@/components/ui/logo";
+import {
+  AgentReasoning,
+  type AgentReasoningAction,
+} from "@/features/agent";
 import { AgentToolCallFlat } from "./agent-tool-call-flat";
 import { TaskProgressPanel, type TaskItem } from "./task-progress-panel";
 import { MessageCheckpointRestore } from "./message-checkpoint-restore";
@@ -268,9 +272,9 @@ function parseContentWithToolMarkers(content: string): ContentSegment[] {
   const segments: ContentSegment[] = [];
   const toolMarkerRegex = /\{\{TOOL:([^}]+)\}\}/g;
   let lastIndex = 0;
-  let match: RegExpExecArray | null;
+  let match: RegExpExecArray | null = toolMarkerRegex.exec(content);
 
-  while ((match = toolMarkerRegex.exec(content)) !== null) {
+  while (match !== null) {
     // Add text before this marker
     const textBefore = content.slice(lastIndex, match.index).trim();
     if (textBefore) {
@@ -279,6 +283,7 @@ function parseContentWithToolMarkers(content: string): ContentSegment[] {
     // Add the tool marker
     segments.push({ type: "tool", toolCallId: match[1] });
     lastIndex = match.index + match[0].length;
+    match = toolMarkerRegex.exec(content);
   }
 
   // Add remaining text after last marker
@@ -326,32 +331,35 @@ const AgentMessage = memo(function AgentMessage({
   // Check if content has tool markers (Google Sheets AI style)
   const hasToolMarkers = segments.some((s) => s.type === "tool");
 
+  const derivedActions = useMemo<AgentReasoningAction[]>(() => {
+    if (isUser) return [];
+    const list: AgentReasoningAction[] = [];
+    if (message.images && message.images.length > 0) {
+      list.push({ type: "attachments", count: message.images.length });
+    }
+    if (message.toolCalls && message.toolCalls.length > 0) {
+      message.toolCalls.forEach((tc) => {
+        list.push({
+          type: "tool",
+          label: tc.toolName,
+          toolCall: {
+            id: tc.toolCallId,
+            name: tc.toolName,
+            args: tc.args as any,
+            result: tc.result,
+            status: tc.status === "executing" ? "streaming" : tc.status === "done" ? "complete" : tc.status as any
+          }
+        });
+      });
+    }
+    return list;
+  }, [isUser, message.images, message.toolCalls]);
+
   // Render a single tool call
   const renderToolCall = (toolCallId: string) => {
-    const tc = toolCallsMap.get(toolCallId);
-    if (!tc) return null;
-
-    return (
-      <div key={toolCallId} className="my-2">
-        <AgentToolCallFlat
-          toolCalls={[
-            {
-              id: tc.toolCallId,
-              name: tc.toolName,
-              args: tc.args,
-              result: tc.result,
-              status:
-                tc.status === "executing"
-                  ? "streaming"
-                  : tc.status === "done"
-                    ? "complete"
-                    : tc.status,
-            },
-          ]}
-          isStreaming={tc.status === "executing"}
-        />
-      </div>
-    );
+    // Tool calls are now rendered in AgentReasoning component to avoid duplication
+    // and keep the activity sequence ordered in the "Thinking/Activity" block.
+    return null;
   };
 
   return (
@@ -396,6 +404,17 @@ const AgentMessage = memo(function AgentMessage({
           </div>
         )}
 
+        {!isUser && derivedActions.length > 0 && (
+          <div className="mb-2">
+            <AgentReasoning
+              content=""
+              actions={derivedActions}
+              isStreaming={isExecuting}
+              defaultCollapsed={false}
+            />
+          </div>
+        )}
+
         {/* Interleaved content rendering (Google Sheets AI style) */}
         {!isUser && hasToolMarkers ? (
           <div className="space-y-1">
@@ -422,29 +441,6 @@ const AgentMessage = memo(function AgentMessage({
           </div>
         ) : (
           <>
-            {/* Legacy rendering: Tool calls first, then content */}
-            {message.toolCalls && message.toolCalls.length > 0 && (
-              <div className="mb-2">
-                <AgentToolCallFlat
-                  toolCalls={message.toolCalls.map((tc) => ({
-                    id: tc.toolCallId,
-                    name: tc.toolName,
-                    args: tc.args,
-                    result: tc.result,
-                    status:
-                      tc.status === "executing"
-                        ? "streaming"
-                        : tc.status === "done"
-                          ? "complete"
-                          : tc.status,
-                  }))}
-                  isStreaming={message.toolCalls.some(
-                    (tc) => tc.status === "executing",
-                  )}
-                />
-              </div>
-            )}
-
             {/* Content */}
             {isUser ? (
               <p className="text-sm leading-relaxed whitespace-pre-wrap">
@@ -476,7 +472,6 @@ const AgentMessage = memo(function AgentMessage({
           {/* Restore checkpoint button - shows on hover */}
           {message.checkpointVersion && fileId && (
             <MessageCheckpointRestore
-              messageId={message.id}
               fileId={fileId}
               checkpointVersion={message.checkpointVersion}
               canRestore={true}
@@ -986,7 +981,7 @@ export function AgentPanel() {
                 role: "assistant" as const,
                 content: "",
                 toolCalls: [newToolCall],
-                timestamp: new Date().toISOString(),
+                timestamp: Date.now(),
               },
             ];
           });
@@ -1943,7 +1938,7 @@ export function AgentPanel() {
                     />
                   ))}
 
-                {/* Streaming message - include tool calls from the last assistant message */}
+                {/* Streaming message */}
                 {streamingText && (
                   <AgentMessage
                     message={{
@@ -1951,10 +1946,6 @@ export function AgentPanel() {
                       role: "assistant",
                       content: streamingText,
                       timestamp: Date.now(),
-                      // Pass tool calls from the last assistant message during streaming
-                      toolCalls: messages
-                        .filter((m) => m.role === "assistant")
-                        .pop()?.toolCalls,
                     }}
                   />
                 )}

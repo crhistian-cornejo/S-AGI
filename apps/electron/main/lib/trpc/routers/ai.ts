@@ -24,7 +24,6 @@ import {
   IMAGE_TOOLS,
   CHART_TOOLS,
   PLAN_TOOLS,
-  UI_NAVIGATION_TOOLS,
   executeTool,
   generateImageDirect,
   type ToolContext,
@@ -37,7 +36,6 @@ import type {
 } from "@s-agi/core/types/ai";
 import {
   AI_MODELS,
-  DEFAULT_MODELS,
   getModelById,
   resolveModelForProvider,
   resolveModelIdForApi,

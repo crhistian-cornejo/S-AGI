@@ -5,7 +5,7 @@
  */
 
 import { getSheetsInstance } from "../features/univer/univer-sheets-core";
-import type { WorkbookDiff, CellChange } from "./univer-diff";
+import type { WorkbookDiff } from "./univer-diff";
 
 export interface HighlightOptions {
   addedColor?: string; // Color para celdas agregadas (default: verde claro)
@@ -91,7 +91,9 @@ export function highlightChanges(
   // Auto-fade después del tiempo especificado
   if (opts.fadeAfter > 0) {
     const fadeTimeout = setTimeout(() => {
-      cleanupFunctions.forEach((fn) => fn());
+      cleanupFunctions.forEach((fn) => {
+        fn();
+      });
     }, opts.fadeAfter);
 
     cleanupFunctions.push(() => clearTimeout(fadeTimeout));
@@ -99,7 +101,9 @@ export function highlightChanges(
 
   // Retornar función de cleanup
   return () => {
-    cleanupFunctions.forEach((fn) => fn());
+    cleanupFunctions.forEach((fn) => {
+      fn();
+    });
   };
 }
 
@@ -182,7 +186,9 @@ function highlightCell(
  * Limpia todos los highlights activos
  */
 export function clearHighlights(cleanupFunctions: Array<() => void>): void {
-  cleanupFunctions.forEach((fn) => fn());
+  cleanupFunctions.forEach((fn) => {
+    fn();
+  });
 }
 
 /**

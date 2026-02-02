@@ -52,7 +52,6 @@ export const CellCitation = memo(function CellCitation({
   onNavigate,
 }: CellCitationProps) {
   const isClickable = !!onNavigate;
-  const cellRef = parseCellRef(citation.cell.split(":")[0]);
   const range = isRange(citation.cell);
 
   const handleClick = (e: React.MouseEvent) => {

@@ -2,7 +2,7 @@
  * Hook for managing user files (Excel, Docs, Notes) with version history
  * Provides CRUD operations, auto-save, and version tracking
  */
-import { useAtom, useSetAtom } from "jotai";
+import { useAtom } from "jotai";
 import { useCallback, useEffect, useRef } from "react";
 import { trpc } from "@/lib/trpc";
 import {
@@ -10,7 +10,6 @@ import {
   getFileAtom,
   fileSnapshotCacheAtom,
   fileSavingAtom,
-  type UserFile,
   type UserFileType,
 } from "@/lib/atoms/user-files";
 
@@ -46,21 +45,15 @@ export function useUserFile(type: UserFileType) {
   // ==================== QUERIES ====================
 
   // List files of this type
-  const {
-    data: filesList,
-    isLoading: isLoadingList,
-    refetch: refetchList,
-  } = trpc.userFiles.list.useQuery(
+  const { data: filesList, isLoading: isLoadingList } =
+    trpc.userFiles.list.useQuery(
     { type, includeArchived: false },
     { staleTime: 30000 },
   );
 
   // Get current file data
-  const {
-    data: fetchedFile,
-    isLoading: isLoadingFile,
-    refetch: refetchFile,
-  } = trpc.userFiles.get.useQuery(
+  const { data: fetchedFile, isLoading: isLoadingFile } =
+    trpc.userFiles.get.useQuery(
     { id: currentFileId! },
     {
       enabled: !!currentFileId,

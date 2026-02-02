@@ -1,9 +1,10 @@
-import { useState } from 'react'
+import { useState, type ComponentType } from 'react'
 import { cn } from '@/lib/utils'
-import { IconChevronDown, IconChevronRight, IconPaperclip, IconTool } from '@tabler/icons-react'
+import { IconBookmark, IconChevronDown, IconChevronRight, IconPaperclip, IconTool } from '@tabler/icons-react'
 import { BrainIcon, CustomTerminalIcon, FileSearchIcon, GlobeIcon, IconSpinner } from './icons'
 import { getModelById } from '@s-agi/core/types/ai'
 import { OpenAIIcon, ZaiIcon, ClaudeIcon } from '@/components/icons/model-icons'
+import { AgentToolCallFlat, type ToolCall } from './agent-tool-call-flat'
 
 export interface AgentReasoningAction {
   type: 'attachments' | 'web-search' | 'file-search' | 'code-interpreter' | 'tool' | 'model'
@@ -11,6 +12,7 @@ export interface AgentReasoningAction {
   label?: string
   modelId?: string
   modelName?: string
+  toolCall?: ToolCall
 }
 
 /** Web search info with query and sources */
@@ -152,9 +154,66 @@ export function AgentReasoning({
 
   if (!canToggle && !isStreaming) return null
 
+  const hasDuration = typeof durationMs === 'number' && durationMs > 0
   const headerLabel = isStreaming
     ? 'Thinking...'
-    : `Thought for ${formatThinkingDuration(durationMs)}`
+    : hasDuration
+      ? `Thought for ${formatThinkingDuration(durationMs)}`
+      : 'Activity'
+
+  const urlSet = new Set<string>()
+  const fileSet = new Set<string>()
+  annotations.forEach((annotation) => {
+    if (annotation.type === 'url_citation') {
+      urlSet.add(annotation.url)
+    }
+    if (annotation.type === 'file_citation') {
+      fileSet.add(annotation.fileId)
+    }
+  })
+  const uniqueUrlCount = urlSet.size
+  const uniqueFileCount = fileSet.size
+
+  const totalSources = uniqueUrlCount + uniqueFileCount
+
+  const normalizedActions = hasWebSearches
+    ? actions.filter((a) => a.type !== 'web-search')
+    : actions
+
+  const sequenceItems: Array<{
+    key: string
+    icon: ComponentType<{ className?: string }>
+    label: string
+    badge?: string
+    isActive?: boolean
+    toolCall?: ToolCall
+  }> = [
+    ...normalizedActions.map((action, index) => ({
+      key: `${action.type}-${index}`,
+      icon: getActionIcon(action),
+      label: getActionLabel(action),
+      isActive: false,
+      toolCall: action.toolCall
+    })),
+    ...webSearches.map((ws) => ({
+      key: `web-${ws.searchId}`,
+      icon: GlobeIcon,
+      label: ws.status === 'searching' ? 'Searching the web' : 'Searched the web',
+      badge: ws.query ? `"${ws.query}"` : undefined,
+      isActive: ws.status === 'searching'
+    })),
+    ...(totalSources > 0
+      ? [
+          {
+            key: 'sources',
+            icon: IconBookmark,
+            label: 'Sources',
+            badge: String(totalSources),
+            isActive: false
+          }
+        ]
+      : [])
+  ]
 
   return (
     <div className={cn("", className)}>
@@ -191,27 +250,46 @@ export function AgentReasoning({
 
       {(isExpanded || isStreaming) && (
         <div className="mt-2 pl-5 space-y-2">
-          {/* Regular actions */}
-          {hasActions && (
-            <div className="space-y-1">
-              {actions.map((action, index) => {
-                const ActionIcon = getActionIcon(action)
+          {sequenceItems.length > 0 && (
+            <div className="relative space-y-2">
+              <div className="absolute left-[6px] top-2 bottom-2 w-px bg-border/40" />
+              {sequenceItems.map((item) => {
+                const ItemIcon = item.icon
                 return (
-                  <div key={`${action.type}-${index}`} className="flex items-center gap-2 text-xs text-muted-foreground/80">
-                    <ActionIcon className="w-3.5 h-3.5" />
-                    <span>{getActionLabel(action)}</span>
+                  <div key={item.key} className="relative pl-5">
+                    <span
+                      className={cn(
+                        "absolute left-0 top-2 h-2 w-2 rounded-full",
+                        item.isActive ? "bg-primary" : "bg-muted-foreground/40"
+                      )}
+                    />
+                    
+                    {item.toolCall ? (
+                      <div className="-mt-1.5">
+                        <AgentToolCallFlat
+                          toolCalls={[item.toolCall]}
+                          isStreaming={item.toolCall.status === 'executing' || item.toolCall.status === 'streaming'}
+                        />
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-2 text-xs text-muted-foreground/80">
+                        <ItemIcon
+                          className={cn(
+                            "w-3.5 h-3.5",
+                            item.isActive && "text-primary"
+                          )}
+                        />
+                        <span>{item.label}</span>
+                        {item.badge && (
+                          <span className="ml-1 px-1.5 py-0.5 rounded bg-muted text-[10px] font-mono">
+                            {item.badge}
+                          </span>
+                        )}
+                      </div>
+                    )}
                   </div>
                 )
               })}
-            </div>
-          )}
-
-          {/* Web searches with detailed info */}
-          {hasWebSearches && (
-            <div className="space-y-2">
-              {webSearches.map((ws) => (
-                <WebSearchItem key={ws.searchId} webSearch={ws} />
-              ))}
             </div>
           )}
 
@@ -231,39 +309,13 @@ export function AgentReasoning({
         </div>
       )}
 
-      {isStreaming && !hasContent && !hasActions && !hasWebSearches && (
+      {isStreaming && !hasContent && sequenceItems.length === 0 && (
         <div className="mt-1 pl-5 flex items-center gap-1">
           <span className="w-1 h-1 bg-muted-foreground/40 rounded-full animate-pulse" />
           <span className="w-1 h-1 bg-muted-foreground/40 rounded-full animate-pulse [animation-delay:150ms]" />
           <span className="w-1 h-1 bg-muted-foreground/40 rounded-full animate-pulse [animation-delay:300ms]" />
         </div>
       )}
-    </div>
-  )
-}
-
-/** Web search item with query and status */
-function WebSearchItem({ webSearch }: { webSearch: WebSearchData }) {
-  const isSearching = webSearch.status === 'searching'
-  
-  return (
-    <div className="flex items-center gap-2 text-xs text-muted-foreground/80">
-      {isSearching ? (
-        <IconSpinner className="w-3.5 h-3.5" />
-      ) : (
-        <GlobeIcon className="w-3.5 h-3.5" />
-      )}
-      <span>
-        {isSearching ? 'Searching' : 'Searched'} the web
-        {webSearch.query && (
-          <span className="ml-1.5 px-1.5 py-0.5 rounded bg-muted text-[10px] font-mono">
-            "{webSearch.query}"
-          </span>
-        )}
-      </span>
-      <span className="ml-auto text-[10px] px-1 py-0.5 rounded bg-violet-500/10 text-violet-600 font-medium">
-        Native
-      </span>
     </div>
   )
 }

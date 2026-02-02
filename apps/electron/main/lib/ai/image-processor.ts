@@ -50,8 +50,8 @@ export async function getSharp() {
     if (!sharpPromise) {
         sharpPromise = import('sharp')
     }
-    const mod = await sharpPromise
-    const sharp = mod.default ?? mod
+    const mod = await (sharpPromise ?? import('sharp'))
+    const sharp = (mod as any).default ?? mod
     if (!sharpConfigured) {
         // Configure Sharp memory limits to prevent OOM
         sharp.cache({ memory: 256, files: 20, items: 100 }) // 256MB cache limit

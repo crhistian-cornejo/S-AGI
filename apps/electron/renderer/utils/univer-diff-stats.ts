@@ -4,7 +4,7 @@
  * Calcula estadísticas compactas de cambios para mostrar en version cards
  */
 
-import { diffWorkbooks, type WorkbookDiff } from "./univer-diff";
+import { diffWorkbooks } from "./univer-diff";
 
 export interface DiffStats {
   cellsAdded: number;

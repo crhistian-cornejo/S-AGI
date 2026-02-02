@@ -7,7 +7,6 @@
 export interface TimeAgoOptions {
   includeDate?: boolean; // Incluir fecha completa además del tiempo relativo
   showSeconds?: boolean; // Mostrar segundos para tiempos muy recientes
-  fullFormat?: boolean; // Formato completo con fecha y hora
 }
 
 /**
@@ -18,11 +17,7 @@ export function formatTimeAgo(
   date: string | Date,
   options: TimeAgoOptions = {},
 ): string {
-  const {
-    includeDate = false,
-    showSeconds = false,
-    fullFormat = false,
-  } = options;
+  const { includeDate = false, showSeconds = false } = options;
   const d = typeof date === "string" ? new Date(date) : date;
   const now = new Date();
   const diff = now.getTime() - d.getTime();

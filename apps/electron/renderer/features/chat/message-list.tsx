@@ -644,6 +644,7 @@ export const MessageList = memo(function MessageList({
                     content={streamingReasoning || ""}
                     isStreaming={isReasoning}
                     annotations={streamingAnnotations}
+                    webSearches={streamingWebSearches}
                   />
                 )}
 

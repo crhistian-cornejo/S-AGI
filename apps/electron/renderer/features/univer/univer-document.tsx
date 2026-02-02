@@ -15,7 +15,7 @@ import {
   fileSavingAtom,
   currentDocFileAtom,
 } from "@/lib/atoms/user-files";
-import { CommandType, UniverInstanceType } from "@univerjs/core";
+import { CommandType } from "@univerjs/core";
 import { hasRealChanges } from "@/utils/univer-diff-stats";
 
 interface UniverDocumentProps {
@@ -238,8 +238,10 @@ export const UniverDocument = React.forwardRef<
     const instance = getDocsInstance();
     if (instance) {
       try {
-        const activeDoc = instance.api.getActiveDocument?.();
-        if (activeDoc && typeof activeDoc.save === "function") {
+        const activeDoc = instance.api.getActiveDocument?.() as
+          | { save?: () => Promise<unknown> | unknown }
+          | undefined;
+        if (activeDoc?.save) {
           return activeDoc.save();
         }
       } catch (err) {

@@ -10,7 +10,6 @@ import { cn } from "@/lib/utils";
 import {
   IconCheck,
   IconLoader2,
-  IconX,
   IconChevronDown,
   IconChevronRight,
   IconTable,
@@ -26,7 +25,7 @@ import { AgentGeneratedChart } from "./agent-generated-chart";
 // TYPES
 // ============================================================================
 
-interface ToolCall {
+export interface ToolCall {
   id: string;
   name: string;
   args?: string | Record<string, unknown>;

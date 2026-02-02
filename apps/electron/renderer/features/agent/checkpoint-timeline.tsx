@@ -48,14 +48,11 @@ export const CheckpointTimeline = memo(function CheckpointTimeline({
     if (!checkpoints) return [];
     return checkpoints.map((cp) => ({
       ...cp,
-      relativeTime: formatDistanceToNow(new Date(cp.created_at), {
+      relativeTime: formatDistanceToNow(new Date(cp.createdAt), {
         addSuffix: true,
       }),
-      formattedDate: format(new Date(cp.created_at), "MMM d, HH:mm"),
-      prompt:
-        cp.change_description?.replace(/^Checkpoint:\s*/, "") ||
-        "Checkpoint",
-      isCurrent: cp.version_number === currentVersion,
+      formattedDate: format(new Date(cp.createdAt), "MMM d, HH:mm"),
+      isCurrent: cp.versionNumber === currentVersion,
     }));
   }, [checkpoints, currentVersion]);
 
@@ -156,9 +153,9 @@ export const CheckpointTimeline = memo(function CheckpointTimeline({
                     onClick={() =>
                       onRestoreClick({
                         id: cp.id,
-                        versionNumber: cp.version_number,
+                        versionNumber: cp.versionNumber,
                         prompt: cp.prompt,
-                        createdAt: cp.created_at,
+                        createdAt: cp.createdAt,
                       })
                     }
                   >

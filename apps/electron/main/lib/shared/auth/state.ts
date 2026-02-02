@@ -62,7 +62,6 @@ export async function getAuthState(): Promise<AuthState> {
         isChatGPTExpired,
         hasOpenAI,
         hasZai,
-        hasTavily,
     ] = await Promise.all([
         manager.hasAnthropicKey(),
         manager.getClaudeOAuth(),
@@ -71,8 +70,8 @@ export async function getAuthState(): Promise<AuthState> {
         manager.isChatGPTTokenExpired(),
         manager.hasOpenAIKey(),
         manager.hasZaiKey(),
-        manager.hasTavilyKey(),
     ])
+    const hasTavily = false
 
     // Determine Claude auth type and source
     let claudeType: AuthType | null = null

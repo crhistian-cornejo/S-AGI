@@ -275,7 +275,7 @@ export async function initSheetsUniver(container: HTMLElement): Promise<UniverSh
                 return
             }
             if (originalUnhandledRejection) {
-                originalUnhandledRejection(event)
+                originalUnhandledRejection.call(window, event)
             }
         }
     }
@@ -359,8 +359,8 @@ export async function initSheetsUniver(container: HTMLElement): Promise<UniverSh
     // Register these last to ensure all dependencies are available
     // Some Note UI components may have optional dependencies that can fail
     try {
-        univer.registerPlugin(UniverSheetsNotePlugin)
-        univer.registerPlugin(UniverSheetsNoteUIPlugin)
+        univer.registerPlugin(UniverSheetsNotePlugin as any)
+        univer.registerPlugin(UniverSheetsNoteUIPlugin as any)
     } catch (error) {
         console.warn('[UniverSheets] Failed to register Note plugins (non-critical):', error)
         // Continue without notes - they're optional features
@@ -679,9 +679,8 @@ export function getSpreadsheetContext(
             // Get used range to determine actual data bounds
             let usedRange: { getLastRow: () => number; getLastColumn: () => number } | null = null
             try {
-                usedRange = sheet.getUsedRange()
+                usedRange = (sheet as any).getUsedRange?.() || null
             } catch {
-                // If getUsedRange fails, use a default range
                 usedRange = null
             }
 

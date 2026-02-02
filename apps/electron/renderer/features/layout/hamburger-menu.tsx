@@ -7,8 +7,6 @@ import {
   DropdownMenuSub,
   DropdownMenuSubTrigger,
   DropdownMenuSubContent,
-  DropdownMenuShortcut,
-  DropdownMenuCheckboxItem,
 } from "@/components/ui/dropdown-menu";
 import { IconMenu2 } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
@@ -24,7 +22,6 @@ import {
   aboutDialogOpenAtom,
   commandKOpenAtom,
   selectedArtifactAtom,
-  artifactPanelOpenAtom,
   agentPanelOpenAtom,
   notesSidebarOpenAtom,
   pdfSidebarOpenAtom,
@@ -32,7 +29,7 @@ import {
   docSidebarOpenAtom,
 } from "@/lib/atoms";
 import { trpc } from "@/lib/trpc";
-import { cn, isMac, isMacOS } from "@/lib/utils";
+import { isMacOS } from "@/lib/utils";
 import { useEffect, useState, useMemo } from "react";
 import type { SettingsTab } from "@/lib/atoms";
 
@@ -80,23 +77,12 @@ export function HamburgerMenu() {
   const setCommandKOpen = useSetAtom(commandKOpenAtom);
 
   const [selectedArtifact, setSelectedArtifact] = useAtom(selectedArtifactAtom);
-  const [artifactPanelOpen, setArtifactPanelOpen] = useAtom(
-    artifactPanelOpenAtom,
-  );
   const [agentPanelOpen, setAgentPanelOpen] = useAtom(agentPanelOpenAtom);
 
   const [notesSidebarOpen, setNotesSidebarOpen] = useAtom(notesSidebarOpenAtom);
   const [pdfSidebarOpen, setPdfSidebarOpen] = useAtom(pdfSidebarOpenAtom);
   const [excelSidebarOpen, setExcelSidebarOpen] = useAtom(excelSidebarOpenAtom);
   const [docSidebarOpen, setDocSidebarOpen] = useAtom(docSidebarOpenAtom);
-
-  const utils = trpc.useUtils();
-  const signOut = trpc.auth.signOut.useMutation({
-    onSuccess: () => {
-      window.desktopApi?.setSession(null);
-      utils.auth.getSession.invalidate();
-    },
-  });
 
   const handleNewChat = () => {
     // Siempre asegurar que estamos en el tab de chat

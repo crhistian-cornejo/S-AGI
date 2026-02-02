@@ -9,6 +9,9 @@
  * Based on Claude for Excel and midday patterns.
  */
 
+import { parseCellCitations, hasCellCitations } from "../cell-citation";
+import { parseCitations, hasCitations } from "../inline-citation";
+
 // Re-export all citation types
 export {
   CellCitation,

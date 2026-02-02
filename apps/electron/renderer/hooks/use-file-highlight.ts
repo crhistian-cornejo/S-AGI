@@ -7,7 +7,6 @@
 import { useCallback, useEffect, useRef } from "react";
 import {
   highlightChanges,
-  clearHighlights,
   type HighlightOptions,
 } from "@/utils/univer-highlight";
 import type { WorkbookDiff } from "@/utils/univer-diff";

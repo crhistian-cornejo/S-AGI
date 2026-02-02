@@ -22,7 +22,6 @@ import {
   IconPencil,
   IconDots,
   IconFileText,
-  IconTable,
   IconLayoutSidebarLeftCollapse,
   IconArchive,
   IconDeviceFloppy,
@@ -66,7 +65,7 @@ import { Button } from "@/components/ui/button";
 import { cn, isMacOS } from "@/lib/utils";
 import { toast } from "sonner";
 import { importFromExcel } from "@/features/univer/excel-exchange";
-import { formatTimeAgo, formatDateWithTime } from "@/utils/time-format";
+import { formatTimeAgo } from "@/utils/time-format";
 import { FontWarningDialog } from "@/components/font-warning-dialog";
 import { ExcelIcon, DocIcon, PdfIcon } from "@/features/agent/icons";
 
@@ -176,9 +175,10 @@ function FileItem({
   }, [isEditing]);
 
   const isExcel = file.type === "excel";
+  const ContainerTag = isEditing ? "div" : "button";
 
   return (
-    <div
+    <ContainerTag
       className={cn(
         "group relative flex items-center gap-2 px-2 py-1.5 rounded-md text-sm transition-all duration-200 cursor-pointer select-none w-full text-left outline-none",
         "focus-visible:ring-2 focus-visible:ring-primary",
@@ -186,15 +186,18 @@ function FileItem({
           ? "bg-accent/80 text-accent-foreground"
           : "text-foreground/70 hover:bg-accent/50 hover:text-foreground",
       )}
-      onClick={onSelect}
-      onKeyDown={(e) => {
-        if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault();
-          onSelect();
-        }
-      }}
-      role="button"
-      tabIndex={0}
+      {...(!isEditing
+        ? {
+            type: "button" as const,
+            onClick: onSelect,
+            onKeyDown: (e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                onSelect();
+              }
+            },
+          }
+        : {})}
     >
       {/* Icon */}
       <div className="shrink-0">
@@ -267,14 +270,13 @@ function FileItem({
       >
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <div
+            <button
+              type="button"
               className="p-1 hover:bg-accent rounded transition-colors cursor-pointer"
               onClick={(e) => e.stopPropagation()}
-              role="button"
-              tabIndex={0}
             >
               <IconDots size={12} className="text-muted-foreground" />
-            </div>
+            </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-40">
             <DropdownMenuItem onClick={onStartRename}>
@@ -318,7 +320,7 @@ function FileItem({
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
-    </div>
+    </ContainerTag>
   );
 }
 
@@ -343,25 +345,44 @@ function ScratchItem({
   const label = type === "excel" ? "Crear hoja nueva" : "Crear documento";
 
   return (
-    <div
+    <button
+      type="button"
       className={cn(
         "group relative flex items-center gap-2 px-2 py-1.5 rounded-md text-sm transition-all duration-200 cursor-pointer select-none w-full text-left outline-none border border-dashed",
         "text-foreground/70 hover:bg-accent/50 hover:text-foreground border-border/50 hover:border-primary/30",
+        isSelected && "bg-accent/80 text-foreground border-primary/40",
       )}
       onClick={onSelect}
-      role="button"
-      tabIndex={0}
     >
       <div className="shrink-0 transition-colors text-muted-foreground/60 group-hover:text-primary">
         <IconPlus size={16} />
       </div>
       <div className="flex-1 min-w-0">
         <span className="block truncate text-sm">{label}</span>
-        <span className="block text-[10px] text-muted-foreground/60">
-          Clic para crear
-        </span>
+        {hasDirtyContent ? (
+          <span className="block text-[10px] text-muted-foreground/60">
+            Cambios sin guardar
+          </span>
+        ) : (
+          <span className="block text-[10px] text-muted-foreground/60">
+            Clic para crear
+          </span>
+        )}
       </div>
-    </div>
+      {hasDirtyContent && (
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-6 w-6"
+          onClick={(e) => {
+            e.stopPropagation();
+            onSaveAsNew();
+          }}
+        >
+          <IconDeviceFloppy size={14} />
+        </Button>
+      )}
+    </button>
   );
 }
 

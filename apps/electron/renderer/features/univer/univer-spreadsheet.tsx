@@ -1246,7 +1246,7 @@ export const UniverSpreadsheet = React.forwardRef<
             try {
               const range = activeSheet.getRange(0, 0, maxRow, maxCol);
               if (range && typeof range.setValues === "function") {
-                range.setValues(valueMatrix);
+          range.setValues(valueMatrix as any);
               }
             } catch (rangeErr) {
               console.warn(

@@ -24,7 +24,6 @@ import {
   IconUser,
   IconRobot,
   IconCheck,
-  IconAlertTriangle,
   IconInfoCircle,
 } from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
@@ -66,11 +65,8 @@ export function FileVersionHistoryPanel({
     versions,
     isLoadingVersions,
     previewVersion,
-    previewVersionData,
     selectedVersions,
     comparisonData,
-    isLoadingComparison,
-    isRestoring,
     selectVersionForPreview,
     selectVersionsForComparison,
     clearComparison,
@@ -312,12 +308,12 @@ export function FileVersionHistoryPanel({
                               version={version}
                               previousVersion={prevVersion}
                               fileType={fileType}
-                              isSelected={
+                              isSelected={Boolean(
                                 previewVersion === version.version_number ||
-                                selectedVersions?.includes(
-                                  version.version_number,
-                                )
-                              }
+                                  selectedVersions?.includes(
+                                    version.version_number,
+                                  ),
+                              )}
                               isPreview={
                                 previewVersion === version.version_number
                               }
@@ -585,15 +581,18 @@ function EnhancedVersionCard({
   return (
     <div
       className={cn(
-        "group relative rounded-xl border-2 transition-all cursor-pointer",
+        "group relative rounded-xl border-2 transition-all",
         "hover:shadow-md hover:border-primary/30",
         isSelected
           ? "bg-primary/5 border-primary/50 shadow-lg"
           : "bg-card border-border/50 hover:bg-muted/30",
       )}
-      onClick={onSelect}
     >
-      <div className="p-4">
+      <button
+        type="button"
+        onClick={onSelect}
+        className="w-full text-left p-4 rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-primary"
+      >
         <div className="flex items-start gap-4">
           {/* Enhanced Avatar with User Image */}
           <div className="relative shrink-0">
@@ -660,31 +659,6 @@ function EnhancedVersionCard({
                 )}
               </div>
 
-              {/* Actions */}
-              <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity duration-150 shrink-0">
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-8 w-8"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onPreview();
-                  }}
-                >
-                  <IconEye size={16} />
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-8 w-8"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onRestore();
-                  }}
-                >
-                  <IconRestore size={16} />
-                </Button>
-              </div>
             </div>
 
             {/* Description */}
@@ -776,6 +750,24 @@ function EnhancedVersionCard({
             </div>
           </div>
         </div>
+      </button>
+      <div className="absolute top-4 right-4 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity duration-150">
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-8 w-8"
+          onClick={onPreview}
+        >
+          <IconEye size={16} />
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-8 w-8"
+          onClick={onRestore}
+        >
+          <IconRestore size={16} />
+        </Button>
       </div>
     </div>
   );
