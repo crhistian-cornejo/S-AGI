@@ -8,21 +8,14 @@ directories:
 
 # Files relative to monorepo root (no --project flag)
 files:
-  - from: out
-    to: out
-    filter:
-      - "**/*"
-  - from: package.json
-    to: package.json
-  - from: node_modules
-    to: node_modules
-    filter:
-      - "**/*"
-      - "!**/*.map"
-      - "!**/*.d.ts"
-      - "!**/test/**"
-      - "!**/tests/**"
-      - "!**/__tests__/**"
+  - "out/**/*"
+  - "package.json"
+  - "node_modules/**/*"
+  - "!node_modules/**/*.map"
+  - "!node_modules/**/*.d.ts"
+  - "!node_modules/**/test/**"
+  - "!node_modules/**/tests/**"
+  - "!node_modules/**/__tests__/**"
 
 # Extra resources bundled outside ASAR (accessible at runtime)
 extraResources:
