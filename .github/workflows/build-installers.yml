@@ -15,6 +15,7 @@ jobs:
       matrix:
         os: [macos-latest, windows-latest, ubuntu-latest]
     env:
+      NODE_OPTIONS: --max-old-space-size=8192
       APPLE_IDENTITY: ${{ secrets.APPLE_IDENTITY }}
       APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
       APPLE_ID: ${{ secrets.APPLE_ID }}
