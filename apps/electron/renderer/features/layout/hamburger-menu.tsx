@@ -22,6 +22,7 @@ import {
   aboutDialogOpenAtom,
   commandKOpenAtom,
   selectedArtifactAtom,
+  artifactPanelOpenAtom,
   agentPanelOpenAtom,
   notesSidebarOpenAtom,
   pdfSidebarOpenAtom,
@@ -77,6 +78,7 @@ export function HamburgerMenu() {
   const setCommandKOpen = useSetAtom(commandKOpenAtom);
 
   const [selectedArtifact, setSelectedArtifact] = useAtom(selectedArtifactAtom);
+  const setArtifactPanelOpen = useSetAtom(artifactPanelOpenAtom);
   const [agentPanelOpen, setAgentPanelOpen] = useAtom(agentPanelOpenAtom);
 
   const [notesSidebarOpen, setNotesSidebarOpen] = useAtom(notesSidebarOpenAtom);

@@ -66,12 +66,12 @@ mac:
   identity: "${env.APPLE_IDENTITY}"
   notarize:
     teamId: "${env.APPLE_TEAM_ID}"
-  artifactName: "S-AGI-${arch}.${ext}"
+  artifactName: "S-AGI-mac-${arch}.${ext}"
   extendInfo:
     NSMicrophoneUsageDescription: "S-AGI needs microphone access for voice input"
 
 dmg:
-  artifactName: "S-AGI-${arch}.dmg"
+  artifactName: "S-AGI-mac-${arch}.dmg"
   window:
     width: 540
     height: 380
@@ -95,7 +95,7 @@ win:
     - target: portable
       arch:
         - x64
-  artifactName: "S-AGI-${arch}.${ext}"
+  artifactName: "S-AGI-win-${arch}.${ext}"
 
 nsis:
   oneClick: false

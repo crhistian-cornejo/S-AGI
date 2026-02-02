@@ -1801,6 +1801,16 @@ export const aiRouter = router({
             input.apiKey = openaiApiKey;
           }
 
+          let openaiClient = client;
+          if (
+            (provider === "openai" ||
+              provider === "chatgpt-plus" ||
+              provider === "zai") &&
+            !openaiClient
+          ) {
+            throw new Error("OpenAI client not initialized");
+          }
+
           // Build tool context for image generation and other API-requiring tools
           const toolContext: ToolContext = {
             apiKey: input.apiKey,
@@ -2308,7 +2318,7 @@ CITATION REQUIREMENTS (MANDATORY):
             (provider === "openai" || provider === "chatgpt-plus")
           ) {
             try {
-              const planRes = await client.responses.create({
+              const planRes = await openaiClient!.responses.create({
                 model: apiModelId,
                 input: toResponsesMessages(
                   input.messages || [],
@@ -2462,7 +2472,7 @@ CITATION REQUIREMENTS (MANDATORY):
                   abortController.signal,
                   0,
                   (signal) =>
-                    client.chat.completions.create(params, {
+                    openaiClient!.chat.completions.create(params, {
                       signal,
                       timeout: DEFAULT_REQUEST_TIMEOUT_MS,
                     }) as any,
@@ -2476,7 +2486,7 @@ CITATION REQUIREMENTS (MANDATORY):
                       "[AI] Z.AI coding endpoint billing error - falling back to general endpoint",
                     );
                     zaiBaseURL = ZAI_GENERAL_BASE_URL;
-                    client = new OpenAI({
+                    openaiClient = new OpenAI({
                       apiKey: input.apiKey!,
                       baseURL: zaiBaseURL,
                       defaultHeaders: { "X-Source": ZAI_SOURCE_HEADER },
@@ -2487,7 +2497,7 @@ CITATION REQUIREMENTS (MANDATORY):
                         abortController.signal,
                         0,
                         (signal) =>
-                          client.chat.completions.create(params, {
+                          openaiClient!.chat.completions.create(params, {
                             signal,
                             timeout: DEFAULT_REQUEST_TIMEOUT_MS,
                           }) as any,
@@ -2508,7 +2518,7 @@ CITATION REQUIREMENTS (MANDATORY):
                       abortController.signal,
                       0,
                       (signal) =>
-                        client.chat.completions.create(params, {
+                        openaiClient!.chat.completions.create(params, {
                           signal,
                           timeout: DEFAULT_REQUEST_TIMEOUT_MS,
                         }) as any,
@@ -2961,9 +2971,7 @@ CITATION REQUIREMENTS (MANDATORY):
 
             // Build request options
             // Note: ChatGPT Plus auth headers are handled in custom fetch
-            const requestOptions: Parameters<
-              typeof client.responses.stream
-            >[1] = {
+            const requestOptions = {
               // Increase timeout for flex processing (can be slower)
               timeout: requestTimeoutMs,
             };
@@ -2973,7 +2981,7 @@ CITATION REQUIREMENTS (MANDATORY):
               abortController.signal,
               0,
               async (signal) =>
-                client.responses.stream(streamParams, {
+                openaiClient!.responses.stream(streamParams, {
                   ...(requestOptions as any),
                   signal,
                 }) as any,

@@ -65,6 +65,7 @@ function copyTrayIcons() {
 
 export default defineConfig({
     main: {
+        envPrefix: ['MAIN_VITE_', 'VITE_'],
         plugins: [
             externalizeDepsPlugin({
                 // Don't externalize these - bundle them instead
@@ -105,6 +106,7 @@ export default defineConfig({
         }
     },
     preload: {
+        envPrefix: ['MAIN_VITE_', 'VITE_'],
         plugins: [
             externalizeDepsPlugin({
                 exclude: ['trpc-electron']
