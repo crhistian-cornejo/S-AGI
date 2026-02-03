@@ -146,7 +146,7 @@ export function AppearanceTab() {
     }
 
     return (
-        <div className="p-6 space-y-6 overflow-y-auto max-h-[70vh]">
+	    <div className="p-6 space-y-6">
             <div className="flex flex-col space-y-1.5 text-center sm:text-left">
                 <h3 className="text-sm font-semibold text-foreground">Appearance</h3>
                 <p className="text-xs text-muted-foreground">
@@ -155,7 +155,7 @@ export function AppearanceTab() {
             </div>
 
             {/* Interface Theme Section */}
-            <div className="bg-background rounded-lg border border-border overflow-hidden">
+            <div className="space-y-0">
                 {/* Main theme selector */}
                 <div className="flex items-center justify-between p-4">
                     <div className="flex flex-col space-y-1">
@@ -304,41 +304,39 @@ export function AppearanceTab() {
             </div>
 
             {/* Sound Effects Toggle */}
-            <div className="bg-background rounded-lg border border-border overflow-hidden">
-                <div className="flex items-center justify-between p-4">
-                    <div className="flex flex-col space-y-1">
-                        <span className="text-sm font-medium text-foreground">
-                            Sound effects
-                        </span>
-                        <span className="text-xs text-muted-foreground">
-                            Play sounds for chat events (thinking, tools, artifacts, etc.)
-                        </span>
-                    </div>
-
-                    <Tooltip>
-                        <TooltipTrigger asChild>
-                            <Button
-                                type="button"
-                                variant="ghost"
-                                size="icon"
-                                onClick={() => setSoundsEnabled(!soundsEnabled)}
-                                className="h-9 w-9 rounded-md"
-                            >
-                                {soundsEnabled ? (
-                                    <IconVolume size={18} />
-                                ) : (
-                                    <IconVolumeOff size={18} className="text-muted-foreground" />
-                                )}
-                                <span className="sr-only">
-                                    {soundsEnabled ? 'Disable sounds' : 'Enable sounds'}
-                                </span>
-                            </Button>
-                        </TooltipTrigger>
-                        <TooltipContent side="left">
-                            {soundsEnabled ? 'Disable sounds' : 'Enable sounds'}
-                        </TooltipContent>
-                    </Tooltip>
+            <div className="flex items-center justify-between pt-4 border-t border-border/50">
+                <div className="flex flex-col space-y-1">
+                    <span className="text-sm font-medium text-foreground">
+                        Sound effects
+                    </span>
+                    <span className="text-xs text-muted-foreground">
+                        Play sounds for chat events (thinking, tools, artifacts, etc.)
+                    </span>
                 </div>
+
+                <Tooltip>
+                    <TooltipTrigger asChild>
+                        <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => setSoundsEnabled(!soundsEnabled)}
+                            className="h-9 w-9 rounded-md"
+                        >
+                            {soundsEnabled ? (
+                                <IconVolume size={18} />
+                            ) : (
+                                <IconVolumeOff size={18} className="text-muted-foreground" />
+                            )}
+                            <span className="sr-only">
+                                {soundsEnabled ? 'Disable sounds' : 'Enable sounds'}
+                            </span>
+                        </Button>
+                    </TooltipTrigger>
+                    <TooltipContent side="left">
+                        {soundsEnabled ? 'Disable sounds' : 'Enable sounds'}
+                    </TooltipContent>
+                </Tooltip>
             </div>
         </div>
     )

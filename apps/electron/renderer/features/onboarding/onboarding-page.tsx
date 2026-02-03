@@ -9,7 +9,8 @@ import { Logo } from "@/components/ui/logo"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { cn } from "@/lib/utils"
-import { onboardingCompletedAtom, settingsActiveTabAtom, settingsModalOpenAtom, themeAtom, selectedFullThemeIdAtom, fullThemeDataAtom } from "@/lib/atoms"
+import { onboardingCompletedAtom, themeAtom, selectedFullThemeIdAtom, fullThemeDataAtom } from "@/lib/atoms"
+import { useOpenSettingsPage } from "@/features/settings/use-open-settings-page"
 import { BUILTIN_THEMES } from "@/lib/themes/builtin-themes"
 import { trpc } from "@/lib/trpc"
 import { toast } from "sonner"
@@ -311,8 +312,7 @@ function ApiKeysStep({ onNext, onBack }: { onNext: () => void; onBack: () => voi
     const { data: keyStatus } = trpc.settings.getApiKeyStatus.useQuery()
     
     // Settings state
-    const setSettingsOpen = useSetAtom(settingsModalOpenAtom)
-    const setActiveTab = useSetAtom(settingsActiveTabAtom)
+    const openSettingsPage = useOpenSettingsPage()
 
     const setOpenAIKeyMutation = trpc.settings.setOpenAIKey.useMutation({
         onSuccess: () => {
@@ -395,8 +395,7 @@ function ApiKeysStep({ onNext, onBack }: { onNext: () => void; onBack: () => voi
                             <button
                                 type="button"
                                 onClick={() => {
-                                    setActiveTab('api-keys')
-                                    setSettingsOpen(true)
+                                    openSettingsPage('api-keys')
                                 }}
                                 className="text-xs text-primary hover:underline font-medium"
                             >

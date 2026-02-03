@@ -106,6 +106,7 @@ export {
   // Tabs
   type AppTab,
   activeTabAtom,
+  settingsReturnTabAtom,
   // Theme
   themeAtom,
   type VSCodeFullTheme,

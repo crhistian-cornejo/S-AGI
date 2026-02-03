@@ -13,7 +13,6 @@ import {
   chatInputAtom,
   isStreamingAtom,
   currentProviderAtom,
-  settingsModalOpenAtom,
   chatModeAtom,
   isPlanModeAtom,
   isImageGenerationModeAtom,
@@ -67,6 +66,7 @@ import { useMessageQueueStore } from "./stores/message-queue-store";
 import { useStreamingStatusStore } from "./stores/streaming-status-store";
 import { useSendCallbackStore } from "./stores/send-callback-store";
 import { generateQueueId, createQueueItem } from "./lib/queue-utils";
+import { useOpenSettingsPage } from "@/features/settings/use-open-settings-page";
 
 export function ChatView() {
   // Sound effects preference
@@ -81,7 +81,7 @@ export function ChatView() {
   const setIsStreaming = useSetAtom(isStreamingAtom);
   const provider = useAtomValue(currentProviderAtom);
   const mode = useAtomValue(chatModeAtom);
-  const setSettingsOpen = useSetAtom(settingsModalOpenAtom);
+  const openSettingsPage = useOpenSettingsPage();
   const selectedModel = useAtomValue(selectedModelAtom);
 
   // Smooth streaming for text (show immediately as received)
@@ -1587,7 +1587,7 @@ export function ChatView() {
                 variant="outline"
                 size="sm"
                 className="mt-3"
-                onClick={() => setSettingsOpen(true)}
+                onClick={() => openSettingsPage()}
               >
                 {provider === "openai" ? (
                   <IconBrandOpenai size={16} className="mr-2" />
@@ -1637,7 +1637,7 @@ export function ChatView() {
               <Button
                 className="w-full"
                 variant="outline"
-                onClick={() => setSettingsOpen(true)}
+                onClick={() => openSettingsPage()}
               >
                 Configure API Key to start chatting
               </Button>
@@ -1667,7 +1667,7 @@ export function ChatView() {
       {/* Messages area */}
       <div className="flex-1 relative overflow-hidden">
         {/* Top Fade Overlay */}
-        <div className="absolute top-0 left-0 right-0 h-12 bg-gradient-to-b from-background via-background/80 to-transparent pointer-events-none z-10" />
+        <div className="absolute top-0 left-0 right-0 h-12 bg-gradient-to-b from-sidebar via-sidebar/80 to-transparent pointer-events-none z-10" />
 
         <ScrollArea className="h-full w-full" ref={scrollContainerRef}>
           <div className="pt-2 pb-16 w-full overflow-hidden">
@@ -1713,7 +1713,7 @@ export function ChatView() {
         )}
 
         {/* Bottom Fade Overlay */}
-        <div className="absolute bottom-0 left-0 right-0 h-16 bg-gradient-to-t from-background to-transparent pointer-events-none z-10" />
+        <div className="absolute bottom-0 left-0 right-0 h-16 bg-gradient-to-t from-sidebar to-transparent pointer-events-none z-10" />
 
         {/* Floating ToC - right side, horizontal lines, length by prompt */}
         <div className="absolute right-2 top-10 bottom-16 w-12 flex flex-col items-end justify-start pt-2 z-[8] pointer-events-none overflow-hidden">
@@ -1756,7 +1756,7 @@ export function ChatView() {
               <Button
                 className="w-full"
                 variant="outline"
-                onClick={() => setSettingsOpen(true)}
+                onClick={() => openSettingsPage()}
               >
                 Configure API Key to start chatting
               </Button>

@@ -3,8 +3,6 @@ import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import { ZaiIcon } from "@/components/icons/model-icons";
 // NOTE: Gemini disabled - import { ZaiIcon, GeminiIcon } from '@/components/icons/model-icons'
 import {
-  IconPlus,
-  IconMessage,
   IconSettings,
   IconBrandOpenai,
   IconBrain,
@@ -22,22 +20,21 @@ import {
   IconChevronDown,
   IconChevronRight,
   IconPhoto,
-  IconCode,
-  IconTable,
-  IconFileText,
+  IconLoader2,
 } from "@tabler/icons-react";
 import { trpc } from "@/lib/trpc";
 import {
   selectedChatIdAtom,
   currentProviderAtom,
-  settingsModalOpenAtom,
   sidebarOpenAtom,
   selectedArtifactAtom,
   artifactPanelOpenAtom,
   undoStackAtom,
   activeTabAtom,
+  commandKOpenAtom,
   type UndoItem,
 } from "@/lib/atoms";
+import { useOpenSettingsPage } from "@/features/settings/use-open-settings-page";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -45,8 +42,6 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { CursorTooltip } from "@/components/ui/cursor-tooltip";
-import { Input } from "@/components/ui/input";
 import { Logo } from "@/components/ui/logo";
 import { toast } from "sonner";
 
@@ -60,7 +55,9 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { Separator } from "@/components/ui/separator";
-import { cn, formatRelativeTime, isMacOS, isWindows } from "@/lib/utils";
+import { cn, detectLanguage, isMacOS, isWindows } from "@/lib/utils";
+import { PageNav } from "@/features/sidebar/page-nav";
+import { useStreamingStatusStore } from "@/features/chat/stores";
 
 // ============================================================================
 // FadeScrollArea - Scroll area with fade effect at top/bottom when content overflows
@@ -107,7 +104,7 @@ function FadeScrollArea({ children, className }: FadeScrollAreaProps) {
       <div
         className={cn(
           "absolute top-0 left-0 right-0 h-8 z-10 pointer-events-none transition-opacity duration-200",
-          "bg-gradient-to-b from-background to-transparent",
+          "bg-gradient-to-b from-sidebar to-transparent",
           canScrollUp ? "opacity-100" : "opacity-0",
         )}
       />
@@ -124,7 +121,7 @@ function FadeScrollArea({ children, className }: FadeScrollAreaProps) {
       <div
         className={cn(
           "absolute bottom-0 left-0 right-0 h-8 z-10 pointer-events-none transition-opacity duration-200",
-          "bg-gradient-to-t from-background to-transparent",
+          "bg-gradient-to-t from-sidebar to-transparent",
           canScrollDown ? "opacity-100" : "opacity-0",
         )}
       />
@@ -168,6 +165,24 @@ interface ChatItemProps {
   isArchived?: boolean;
 }
 
+function formatRelativeTimeCompact(date: Date | string) {
+  const d = typeof date === "string" ? new Date(date) : date;
+  const now = new Date();
+  const diff = now.getTime() - d.getTime();
+
+  const minutes = Math.floor(diff / 60000);
+  const hours = Math.floor(diff / 3600000);
+  const days = Math.floor(diff / 86400000);
+
+  if (minutes <= 0) return "1m";
+  if (minutes < 60) return `${minutes}m`;
+  if (hours < 24) return `${hours}h`;
+  if (days < 7) return `${days}d`;
+
+  const locale = detectLanguage();
+  return new Intl.DateTimeFormat(locale, { month: "short", day: "numeric" }).format(d);
+}
+
 function ChatItem({
   chat,
   isSelected,
@@ -185,192 +200,28 @@ function ChatItem({
   isArchived,
 }: ChatItemProps) {
   const inputRef = useRef<HTMLInputElement>(null);
+  const isStreaming = useStreamingStatusStore((state) =>
+    state.isStreaming(chat.id),
+  );
 
   useEffect(() => {
     if (isEditing) {
       inputRef.current?.focus();
     }
   }, [isEditing]);
-  // Parse dates with timezone awareness
-  const createdDate = new Date(chat.created_at);
-  const now = new Date();
-
-  // Calculate days difference using local dates (not UTC)
-  const todayLocal = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const createdLocal = new Date(
-    createdDate.getFullYear(),
-    createdDate.getMonth(),
-    createdDate.getDate(),
-  );
-  const daysSinceCreated = Math.floor(
-    (todayLocal.getTime() - createdLocal.getTime()) / (1000 * 60 * 60 * 24),
-  );
-
-  // Format date for display (uses local timezone)
-  const formatDate = (date: Date) => {
-    return date.toLocaleDateString(undefined, {
-      month: "short",
-      day: "numeric",
-      year: "numeric",
-      timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-    });
-  };
-
-  const tooltipContent = (
-    <div className="space-y-3 min-w-[200px]">
-      {/* Title and Message Count Indicator */}
-      <div className="flex items-start justify-between gap-3">
-        <p className="font-semibold text-foreground text-sm leading-tight line-clamp-2">
-          {chat.title || "Untitled"}
-        </p>
-        {chat.meta?.messageCount !== undefined &&
-          chat.meta.messageCount > 0 && (
-            <div
-              className="flex items-center gap-1.5 shrink-0 pt-0.5"
-              title={`${chat.meta.messageCount} user prompts`}
-            >
-              <div className="flex items-end gap-[2px] h-3.5">
-                {[0, 1, 2, 3, 4].map((i) => {
-                  // Notion-style bars: vertical version of the horizontal ToC lines
-                  const heights = [4, 9, 6, 12, 8];
-                  const messageCount = chat.meta?.messageCount ?? 0;
-                  let active = false;
-                  if (messageCount > 0 && i === 0) active = true;
-                  if (messageCount > 2 && i === 1) active = true;
-                  if (messageCount > 8 && i === 2) active = true;
-                  if (messageCount > 20 && i === 3) active = true;
-                  if (messageCount > 45 && i === 4) active = true;
-
-                  return (
-                    <div
-                      key={i}
-                      className={cn(
-                        "w-[3px] rounded-full transition-all duration-500",
-                        active ? "bg-primary" : "bg-muted-foreground/15",
-                      )}
-                      style={{ height: `${heights[i]}px` }}
-                    />
-                  );
-                })}
-              </div>
-              <span className="text-[10px] font-bold text-muted-foreground/50 tabular-nums">
-                {chat.meta.messageCount}
-              </span>
-            </div>
-          )}
-      </div>
-
-      {/* Status Badges */}
-      <div className="flex flex-wrap gap-1.5">
-        {chat.pinned && (
-          <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-amber-500/15 text-amber-500 font-medium flex items-center gap-1">
-            <IconPinFilled size={10} />
-            Pinned
-          </span>
-        )}
-        {isArchived && (
-          <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-orange-500/15 text-orange-500 font-medium flex items-center gap-1">
-            <IconArchive size={10} />
-            Archived
-          </span>
-        )}
-        {isSelected && (
-          <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-emerald-500/15 text-emerald-500 font-medium">
-            Currently Open
-          </span>
-        )}
-      </div>
-
-      {/* Contains: code, artifacts, images — estilo neutro, sin mucho color */}
-      {chat.meta &&
-        (chat.meta.hasCode ||
-          chat.meta.spreadsheets > 0 ||
-          chat.meta.documents > 0 ||
-          chat.meta.hasImages) && (
-          <div className="flex flex-wrap gap-1.5">
-            {chat.meta.hasCode && (
-              <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-muted/60 text-muted-foreground border border-border/40 inline-flex items-center gap-1">
-                <IconCode size={10} />
-                Code
-              </span>
-            )}
-            {chat.meta.spreadsheets > 0 && (
-              <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-muted/60 text-muted-foreground border border-border/40 inline-flex items-center gap-1">
-                <IconTable size={10} />
-                {chat.meta.spreadsheets === 1
-                  ? "Spreadsheet"
-                  : `${chat.meta.spreadsheets} spreadsheets`}
-              </span>
-            )}
-            {chat.meta.documents > 0 && (
-              <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-muted/60 text-muted-foreground border border-border/40 inline-flex items-center gap-1">
-                <IconFileText size={10} />
-                {chat.meta.documents === 1
-                  ? "Document"
-                  : `${chat.meta.documents} documents`}
-              </span>
-            )}
-            {chat.meta.hasImages && (
-              <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-muted/60 text-muted-foreground border border-border/40 inline-flex items-center gap-1">
-                <IconPhoto size={10} />
-                Images
-              </span>
-            )}
-          </div>
-        )}
-
-      {/* Timestamps */}
-      <div className="pt-2 border-t border-border/40 space-y-1.5">
-        <div className="flex items-center justify-between text-xs">
-          <span className="text-muted-foreground">Created</span>
-          <span className="text-foreground/80 font-medium">
-            {formatDate(createdDate)}
-          </span>
-        </div>
-        <div className="flex items-center justify-between text-xs">
-          <span className="text-muted-foreground">Last updated</span>
-          <span className="text-foreground/80 font-medium">
-            {formatRelativeTime(chat.updated_at)}
-          </span>
-        </div>
-        {daysSinceCreated > 0 && (
-          <div className="flex items-center justify-between text-xs">
-            <span className="text-muted-foreground">Age</span>
-            <span className="text-foreground/80 font-medium">
-              {daysSinceCreated === 1 ? "1 day" : `${daysSinceCreated} days`}
-            </span>
-          </div>
-        )}
-      </div>
-
-      {/* Chat ID (subtle) */}
-      <div className="pt-2 border-t border-border/40">
-        <p className="text-[10px] font-mono text-muted-foreground/50 select-all">
-          {chat.id.slice(0, 8)}...{chat.id.slice(-4)}
-        </p>
-      </div>
-    </div>
-  );
 
   if (isEditing) {
     return (
       <div
         className={cn(
-          "group relative flex flex-col gap-1.5 px-3 py-2.5 rounded-lg text-sm transition-colors w-full text-left",
+          "group relative flex flex-col gap-1 px-2 py-2 rounded-lg text-xs transition-colors w-full text-left",
           isSelected
-            ? "bg-accent/80 ring-1 ring-primary/20 shadow-sm"
-            : "text-foreground/80 hover:bg-accent/50",
+            ? "bg-muted/30 text-foreground ring-1 ring-border/40"
+            : "text-foreground/80 hover:bg-muted/30",
         )}
       >
         {/* First row: editing indicator */}
-        <div className="flex items-center gap-1.5">
-          <IconMessage
-            size={12}
-            className={cn(
-              "shrink-0",
-              isSelected ? "text-primary" : "text-muted-foreground/40",
-            )}
-          />
+        <div className="flex items-center gap-2">
           <span className="text-[10px] text-muted-foreground font-medium truncate leading-snug flex-1 min-w-0">
             Editing...
           </span>
@@ -391,7 +242,7 @@ function ChatItem({
               }
             }}
             onBlur={() => onSaveRename(editingTitle)}
-            className="w-full bg-background border border-border rounded px-2 py-0.5 text-xs font-medium focus:outline-none focus:ring-1 focus:ring-primary"
+            className="w-full bg-background border border-border rounded px-2 py-1 text-[13px] font-medium focus:outline-none focus:ring-1 focus:ring-primary"
             onClick={(e) => e.stopPropagation()}
             aria-label="Chat title"
             name="chat-title"
@@ -408,10 +259,10 @@ function ChatItem({
       role="button"
       tabIndex={0}
       className={cn(
-        "group relative flex flex-col gap-1.5 px-3 py-2.5 rounded-lg text-sm transition-all duration-200 cursor-pointer select-none w-full text-left outline-none focus-visible:ring-2 focus-visible:ring-primary",
+        "group relative flex items-center px-2 py-2 rounded-lg transition-all duration-200 cursor-pointer select-none w-full text-left outline-none focus-visible:ring-2 focus-visible:ring-primary",
         isSelected
-          ? "bg-accent/80 text-accent-foreground ring-1 ring-primary/20 shadow-sm"
-          : "text-foreground/80 hover:bg-accent/50 hover:shadow-sm",
+          ? "bg-muted/30 text-foreground ring-1 ring-border/40"
+          : "text-foreground/80 hover:bg-muted/30",
       )}
       onClick={onSelect}
       onKeyDown={(e) => {
@@ -421,27 +272,32 @@ function ChatItem({
         }
       }}
     >
-      {/* First row: timestamp (always visible), actions (on hover) */}
-      <div className="flex items-center gap-1.5 w-full">
-        <IconMessage
-          size={12}
-          className={cn(
-            "shrink-0 transition-colors",
-            isSelected ? "text-primary" : "text-muted-foreground/40",
-          )}
-        />
-        <span className="text-[10px] text-muted-foreground font-medium truncate leading-snug flex-1 min-w-0">
-          {formatRelativeTime(chat.updated_at)}
+      <div className="min-w-0 flex-1 pr-2 transition-[padding] duration-150 group-hover:pr-20">
+        <p className="truncate font-semibold text-[15px] leading-tight">
+          {chat.title || "Untitled"}
+        </p>
+      </div>
+      <div className="flex items-center gap-2 shrink-0 transition-all duration-150 group-hover:opacity-0 group-hover:w-0 group-hover:overflow-hidden">
+        {isStreaming && (
+          <IconLoader2
+            size={14}
+            className={cn(
+              "shrink-0 animate-spin",
+              isSelected ? "text-primary" : "text-muted-foreground/60",
+            )}
+          />
+        )}
+        <span className="text-[13px] text-muted-foreground font-medium tabular-nums">
+          {formatRelativeTimeCompact(chat.updated_at)}
         </span>
-        {/* Action buttons - aligned to right */}
-        <div
-          className={cn(
-            "flex items-center gap-0.5 shrink-0 transition-opacity duration-150 ml-auto",
-            "opacity-0 group-hover:opacity-100",
-            // Always visible if pinned
-            chat.pinned && "opacity-100",
-          )}
-        >
+      </div>
+      {/* Action buttons - appear on hover, overlay right side */}
+      <div
+        className={cn(
+          "absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-0.5 transition-opacity duration-150",
+          "opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto",
+        )}
+      >
           <Tooltip>
             <TooltipTrigger asChild>
               <button
@@ -450,7 +306,7 @@ function ChatItem({
                   "p-1 rounded-md transition-colors flex items-center justify-center",
                   chat.pinned
                     ? "text-primary opacity-100"
-                    : "text-muted-foreground/60 hover:text-foreground hover:bg-accent/50",
+                    : "text-muted-foreground/60 hover:text-foreground hover:bg-muted/30",
                 )}
                 onClick={(e) => {
                   e.stopPropagation();
@@ -474,7 +330,7 @@ function ChatItem({
               <TooltipTrigger asChild>
                 <button
                   type="button"
-                  className="p-1 text-muted-foreground/60 hover:text-foreground hover:bg-accent/50 rounded-md transition-colors flex items-center justify-center"
+                  className="p-1 text-muted-foreground/60 hover:text-foreground hover:bg-muted/30 rounded-md transition-colors flex items-center justify-center"
                   onClick={(e) => {
                     e.stopPropagation();
                     onArchive();
@@ -493,7 +349,7 @@ function ChatItem({
             <DropdownMenuTrigger asChild>
               <button
                 type="button"
-                className="p-1 text-muted-foreground/60 hover:text-foreground hover:bg-accent/50 rounded-md transition-colors active:scale-95 flex items-center justify-center"
+                className="p-1 text-muted-foreground/60 hover:text-foreground hover:bg-muted/30 rounded-md transition-colors active:scale-95 flex items-center justify-center"
                 onClick={(e) => e.stopPropagation()}
               >
                 <IconDots size={14} />
@@ -523,16 +379,6 @@ function ChatItem({
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
-      </div>
-
-      {/* Second row: title with full width */}
-      <div className="w-full min-w-0">
-        <CursorTooltip content={tooltipContent} containerClassName="w-full">
-          <p className="truncate font-medium text-sm leading-snug">
-            {chat.title || "Untitled"}
-          </p>
-        </CursorTooltip>
-      </div>
     </div>
   );
 }
@@ -577,12 +423,12 @@ function SectionHeader({
 export function Sidebar() {
   const [selectedChatId, setSelectedChatId] = useAtom(selectedChatIdAtom);
   const provider = useAtomValue(currentProviderAtom);
-  const setSettingsOpen = useSetAtom(settingsModalOpenAtom);
+  const openSettingsPage = useOpenSettingsPage();
   const [sidebarOpen, setSidebarOpen] = useAtom(sidebarOpenAtom);
   const setSelectedArtifact = useSetAtom(selectedArtifactAtom);
   const setArtifactPanelOpen = useSetAtom(artifactPanelOpenAtom);
   const setActiveTab = useSetAtom(activeTabAtom);
-  const [searchQuery, setSearchQuery] = useState("");
+  const setCommandKOpen = useSetAtom(commandKOpenAtom);
   const showWindowsLogo = isWindows() && sidebarOpen;
   const [editingChatId, setEditingChatId] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState("");
@@ -639,24 +485,10 @@ export function Sidebar() {
     });
   }, [chats]);
 
-  // Filter chats based on search query
-  const filterChats = useCallback(
-    (chatList: Chat[]) =>
-      chatList.filter((chat) =>
-        (chat.title || "Untitled")
-          .toLowerCase()
-          .includes(searchQuery.toLowerCase()),
-      ),
-    [searchQuery],
-  );
-
-  const filteredChats = useMemo(
-    () => filterChats(sortedChats),
-    [filterChats, sortedChats],
-  );
+  const filteredChats = useMemo(() => sortedChats, [sortedChats]);
   const filteredArchived = useMemo(
-    () => filterChats(archivedChats || []),
-    [filterChats, archivedChats],
+    () => archivedChats || [],
+    [archivedChats],
   );
 
   const utils = trpc.useUtils();
@@ -817,6 +649,7 @@ export function Sidebar() {
   });
 
   const handleNewChat = () => {
+    setActiveTab("chat");
     createChat.mutate({ title: "New Chat" });
   };
 
@@ -869,11 +702,7 @@ export function Sidebar() {
     if (chatList.length === 0) {
       return (
         <div className="text-xs text-muted-foreground text-center py-4 px-4">
-          {searchQuery
-            ? "No results found"
-            : isArchived
-              ? "No archived chats"
-              : "No conversations"}
+          {isArchived ? "No archived chats" : "No conversations"}
         </div>
       );
     }
@@ -901,114 +730,106 @@ export function Sidebar() {
 
   return (
     <div className="flex flex-col h-full">
-      {/* Header / New Chat */}
+      {/* Header */}
       <div
         className={cn(
-          "flex items-center gap-2 px-4",
-          showWindowsLogo ? "justify-between" : "justify-end",
-          isMacOS() ? "h-11 pt-1 pl-20" : "h-10 pt-0",
+          "px-4 h-9 flex items-center",
+          isMacOS() ? "pl-20" : "",
           "drag-region",
         )}
       >
-        {showWindowsLogo && (
-          <div className="flex items-center gap-2 no-drag">
-            <Logo size={20} />
-            <span className="text-sm font-semibold text-foreground tracking-tight">
-              S-AGI
-            </span>
+        <div className="flex w-full items-center justify-between">
+          {showWindowsLogo ? (
+            <div className="flex items-center gap-2 no-drag">
+              <Logo size={20} />
+              <span className="text-sm font-semibold text-foreground tracking-tight">
+                S-AGI
+              </span>
+            </div>
+          ) : (
+            <div className="flex-1" />
+          )}
+          <div className="flex items-center gap-1">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8 text-muted-foreground hover:text-foreground rounded-xl shrink-0 no-drag"
+                  onClick={() => setActiveTab("gallery")}
+                  aria-label="Open gallery"
+                >
+                  <IconPhoto size={18} />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent
+                side="bottom"
+                className="flex items-center gap-2 font-semibold"
+              >
+                Gallery
+              </TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8 text-muted-foreground hover:text-foreground rounded-xl shrink-0 no-drag"
+                  onClick={() => setCommandKOpen(true)}
+                  aria-label="Search chats"
+                >
+                  <IconSearch size={18} />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent
+                side="bottom"
+                className="flex items-center gap-2 font-semibold"
+              >
+                Search chats
+                <kbd className="pointer-events-none inline-flex h-5 select-none items-center gap-1 rounded border bg-muted px-1.5 font-mono text-[10px] font-medium text-muted-foreground opacity-100">
+                  {isMacOS() ? "⌘" : "Ctrl"} K
+                </kbd>
+              </TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8 text-muted-foreground hover:text-foreground rounded-xl shrink-0 no-drag"
+                  onClick={() => setSidebarOpen(false)}
+                  aria-label="Collapse sidebar"
+                >
+                  <IconLayoutSidebarLeftCollapse size={18} />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent
+                side="bottom"
+                className="flex items-center gap-2 font-semibold"
+              >
+                Collapse Sidebar
+                <kbd className="pointer-events-none inline-flex h-5 select-none items-center gap-1 rounded border bg-muted px-1.5 font-mono text-[10px] font-medium text-muted-foreground opacity-100">
+                  {navigator.platform.toLowerCase().includes("mac")
+                    ? "⌘"
+                    : "Ctrl"}{" "}
+                  \
+                </kbd>
+              </TooltipContent>
+            </Tooltip>
           </div>
-        )}
-        <div className="flex items-center gap-1">
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-8 w-8 text-muted-foreground hover:text-foreground rounded-xl shrink-0 no-drag"
-                onClick={() => setActiveTab("gallery")}
-              >
-                <IconPhoto size={18} />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent side="bottom">Gallery</TooltipContent>
-          </Tooltip>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-8 w-8 text-muted-foreground hover:text-foreground rounded-xl shrink-0 no-drag"
-                onClick={handleNewChat}
-                disabled={createChat.isPending}
-              >
-                <IconPlus size={18} />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent
-              side="bottom"
-              className="flex items-center gap-2 font-semibold"
-            >
-              New Conversation
-              <kbd className="pointer-events-none inline-flex h-5 select-none items-center gap-1 rounded border bg-muted px-1.5 font-mono text-[10px] font-medium text-muted-foreground opacity-100">
-                {navigator.platform.toLowerCase().includes("mac")
-                  ? "⌘"
-                  : "Ctrl"}{" "}
-                N
-              </kbd>
-            </TooltipContent>
-          </Tooltip>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-8 w-8 text-muted-foreground hover:text-foreground rounded-xl shrink-0 no-drag"
-                onClick={() => setSidebarOpen(false)}
-                aria-label="Collapse sidebar"
-              >
-                <IconLayoutSidebarLeftCollapse size={18} />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent
-              side="bottom"
-              className="flex items-center gap-2 font-semibold"
-            >
-              Collapse Sidebar
-              <kbd className="pointer-events-none inline-flex h-5 select-none items-center gap-1 rounded border bg-muted px-1.5 font-mono text-[10px] font-medium text-muted-foreground opacity-100">
-                {navigator.platform.toLowerCase().includes("mac")
-                  ? "⌘"
-                  : "Ctrl"}{" "}
-                \
-              </kbd>
-            </TooltipContent>
-          </Tooltip>
         </div>
       </div>
 
-      {/* Search Bar */}
-      <div className="px-4 pb-2 w-full">
-        <div className="relative group w-full">
-          <IconSearch
-            size={14}
-            className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground group-focus-within:text-primary transition-colors shrink-0"
-          />
-          <Input
-            placeholder="Search conversations…"
-            className="pl-9 pr-14 h-9 bg-accent/30 border-none rounded-xl text-xs placeholder:text-muted-foreground/50 focus-visible:ring-1 focus-visible:ring-primary/20 transition-[box-shadow,background-color] w-full"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            aria-label="Search conversations"
-            name="chat-search"
-            autoComplete="off"
-            spellCheck={false}
-          />
-          <kbd className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 inline-flex h-5 select-none items-center gap-0.5 rounded border bg-muted/80 px-1.5 font-mono text-[10px] font-medium text-muted-foreground shrink-0">
-            {isMacOS() ? "⌘" : "Ctrl"} K
-          </kbd>
-        </div>
+      {/* Page Navigation */}
+      <div className="px-2 pt-1 pb-2">
+        <PageNav onNewChat={handleNewChat} />
       </div>
 
       <Separator className="my-1 opacity-40" />
+
+      <div className="px-4 pb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+        Threads
+      </div>
 
       {/* Chat list with fade scroll effect */}
       <FadeScrollArea className="flex-1 pl-4 pr-2">
@@ -1026,20 +847,18 @@ export function Sidebar() {
                   count={filteredChats.length}
                   isOpen={showRecent}
                   onToggle={() => setShowRecent(!showRecent)}
-                  icon={<IconMessage size={12} />}
+                  icon={<IconPin size={12} />}
                 />
                 {showRecent && (
-                  <div className="space-y-1.5">
+                  <div className="space-y-1">
                     {filteredChats.length === 0 ? (
                       <div className="text-sm text-muted-foreground text-center py-8 px-4">
-                        <IconMessage
+                        <IconPin
                           size={32}
                           className="mx-auto mb-2 opacity-30"
                         />
                         <p>
-                          {searchQuery
-                            ? "No results found"
-                            : "No conversations yet"}
+                          No conversations yet
                         </p>
                       </div>
                     ) : (
@@ -1060,7 +879,7 @@ export function Sidebar() {
                     icon={<IconArchive size={12} />}
                   />
                   {showArchived && (
-                    <div className="space-y-1.5">
+                    <div className="space-y-1">
                       {renderChatList(filteredArchived, true)}
                     </div>
                   )}
@@ -1076,10 +895,10 @@ export function Sidebar() {
         {/* AI Provider Status */}
         <button
           type="button"
-          onClick={() => setSettingsOpen(true)}
+          onClick={() => openSettingsPage()}
           className={cn(
             "w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors",
-            "hover:bg-accent/50 text-left",
+            "hover:bg-muted/30 text-left",
           )}
         >
           {provider === "chatgpt-plus" ? (
@@ -1122,7 +941,7 @@ export function Sidebar() {
             <DropdownMenuTrigger asChild>
               <Button
                 variant="ghost"
-                className="h-9 w-full justify-start gap-2 px-2 hover:bg-accent/50 relative"
+                className="h-9 w-full justify-start gap-2 px-2 hover:bg-muted/30 relative"
               >
                 <Avatar className="h-6 w-6">
                   <AvatarImage
@@ -1164,7 +983,7 @@ export function Sidebar() {
               </DropdownMenuLabel>
               <DropdownMenuSeparator />
               <DropdownMenuItem
-                onClick={() => setSettingsOpen(true)}
+                onClick={() => openSettingsPage()}
                 className="justify-between"
               >
                 <span className="flex items-center">

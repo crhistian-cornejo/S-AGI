@@ -4,7 +4,6 @@ import {
   artifactPanelOpenAtom,
   selectedArtifactAtom,
   activeTabAtom,
-  settingsModalOpenAtom,
   currentProviderAtom,
   sidebarOpenAtom,
   notesSidebarOpenAtom,
@@ -16,7 +15,9 @@ import {
   notesIsExportingPdfAtom,
   excelSidebarOpenAtom,
   docSidebarOpenAtom,
+  selectedChatIdAtom,
 } from "@/lib/atoms";
+import { useOpenSettingsPage } from "@/features/settings/use-open-settings-page";
 import { trpc } from "@/lib/trpc";
 import {
   DropdownMenu,
@@ -28,21 +29,21 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import {
-  IconMessageChatbot,
-  IconTable,
-  IconFileText,
-  IconFileTypePdf,
   IconSettings,
   IconLogout,
   IconChevronDown,
+  IconFileTypePdf,
   IconLayoutSidebarLeftExpand,
   IconLayoutSidebarRightCollapse,
   IconArrowsDiagonalMinimize2,
   IconMinus,
   IconSquare,
   IconX,
-  IconNotes,
   IconCommand,
+  IconMessages,
+  IconTable,
+  IconFileText,
+  IconPlus,
 } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
 import { Logo } from "@/components/ui/logo";
@@ -71,7 +72,7 @@ export function TitleBar({ className, noTrafficLightSpace }: TitleBarProps) {
     artifactPanelOpenAtom,
   );
   const [activeTab, setActiveTab] = useAtom(activeTabAtom);
-  const setSettingsOpen = useSetAtom(settingsModalOpenAtom);
+  const openSettingsPage = useOpenSettingsPage();
   const setShortcutsOpen = useSetAtom(shortcutsDialogOpenAtom);
   const selectedArtifact = useAtomValue(selectedArtifactAtom);
   const isDesktop = isElectron();
@@ -103,13 +104,21 @@ export function TitleBar({ className, noTrafficLightSpace }: TitleBarProps) {
   }, []);
 
   const provider = useAtomValue(currentProviderAtom);
-  const sidebarOpen = useAtomValue(sidebarOpenAtom);
+  const [sidebarOpen, setSidebarOpen] = useAtom(sidebarOpenAtom);
   const [notesSidebarOpen, setNotesSidebarOpen] = useAtom(notesSidebarOpenAtom);
   const [pdfSidebarOpen, setPdfSidebarOpen] = useAtom(pdfSidebarOpenAtom);
   const [agentPanelOpen, setAgentPanelOpen] = useAtom(agentPanelOpenAtom);
   const [excelSidebarOpen, setExcelSidebarOpen] = useAtom(excelSidebarOpenAtom);
   const [docSidebarOpen, setDocSidebarOpen] = useAtom(docSidebarOpenAtom);
+  const setSelectedChatId = useSetAtom(selectedChatIdAtom);
   const { data: keyStatus } = trpc.settings.getApiKeyStatus.useQuery();
+
+  // Handler to create new thread (go to chat tab with new chat)
+  const handleNewThread = useCallback(() => {
+    setSelectedChatId(null);
+    setActiveTab("chat");
+    setSidebarOpen(true);
+  }, [setSelectedChatId, setActiveTab, setSidebarOpen]);
 
   // Notes editor controls (for titlebar)
   const [selectedModelId, setSelectedModelId] = useAtom(
@@ -195,7 +204,7 @@ export function TitleBar({ className, noTrafficLightSpace }: TitleBarProps) {
   return (
     <div
       className={cn(
-        "h-10 flex items-center bg-transparent drag-region shrink-0 px-2 transition-all duration-300 relative",
+        "h-9 flex items-center bg-sidebar drag-region shrink-0 px-2 transition-all duration-300 relative",
         showTrafficLights && !noTrafficLightSpace && "pl-20",
         !showTrafficLights && "pr-0",
         className,
@@ -403,12 +412,15 @@ export function TitleBar({ className, noTrafficLightSpace }: TitleBarProps) {
           </Tooltip>
         </div>
       )}
-      {/* Excel tab - show sidebar toggle when collapsed */}
-      {activeTab === "excel" && !excelSidebarOpen && (
+      {/* Excel tab - show sidebar toggles when collapsed */}
+      {activeTab === "excel" && (!sidebarOpen || !excelSidebarOpen) && (
         <div
           className={cn(
-            "flex items-center gap-2 no-drag shrink-0 z-[100] relative pointer-events-auto",
-            showTrafficLights ? "ml-1" : "ml-2",
+            "flex items-center gap-1.5 shrink-0 z-[100]",
+            // Center buttons on macOS when main sidebar is collapsed, otherwise left-aligned
+            showTrafficLights && !sidebarOpen
+              ? "absolute left-1/2 -translate-x-1/2"
+              : showTrafficLights ? "ml-1" : "ml-2",
           )}
         >
           {isWindows() && <HamburgerMenu />}
@@ -446,30 +458,64 @@ export function TitleBar({ className, noTrafficLightSpace }: TitleBarProps) {
             </>
           )}
 
-          {/* Sidebar toggle */}
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                type="button"
-                onClick={() => setExcelSidebarOpen(true)}
-                className={cn(
-                  "flex items-center justify-center w-7 h-7 rounded-md transition-all duration-200",
-                  "hover:bg-accent/50 text-muted-foreground hover:text-foreground",
-                )}
-              >
-                <IconLayoutSidebarLeftExpand size={16} />
-              </button>
-            </TooltipTrigger>
-            <TooltipContent side="bottom">Mostrar archivos</TooltipContent>
-          </Tooltip>
+          {/* Main sidebar toggle (chats) - when collapsed */}
+          {!sidebarOpen && (
+            <>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    onClick={() => setSidebarOpen(true)}
+                    className="no-drag pointer-events-auto flex items-center justify-center w-7 h-7 rounded-md transition-all duration-200 hover:bg-accent/50 text-muted-foreground hover:text-foreground"
+                  >
+                    <IconMessages size={16} />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">Mostrar chats</TooltipContent>
+              </Tooltip>
+
+              {/* New thread button */}
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    onClick={handleNewThread}
+                    className="no-drag pointer-events-auto flex items-center justify-center w-7 h-7 rounded-md transition-all duration-200 hover:bg-accent/50 text-muted-foreground hover:text-foreground"
+                  >
+                    <IconPlus size={16} />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">Nuevo hilo</TooltipContent>
+              </Tooltip>
+            </>
+          )}
+
+          {/* Excel files sidebar toggle - when collapsed */}
+          {!excelSidebarOpen && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  onClick={() => setExcelSidebarOpen(true)}
+                  className="no-drag pointer-events-auto flex items-center justify-center w-7 h-7 rounded-md transition-all duration-200 hover:bg-accent/50 text-muted-foreground hover:text-foreground"
+                >
+                  <IconTable size={16} />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">Mostrar archivos</TooltipContent>
+            </Tooltip>
+          )}
         </div>
       )}
       {/* Doc tab - show sidebar toggle when collapsed */}
-      {activeTab === "doc" && !docSidebarOpen && (
+      {activeTab === "doc" && (!sidebarOpen || !docSidebarOpen) && (
         <div
           className={cn(
-            "flex items-center gap-2 no-drag shrink-0 z-[100] relative pointer-events-auto",
-            showTrafficLights ? "ml-1" : "ml-2",
+            "flex items-center gap-1.5 shrink-0 z-[100]",
+            // Center buttons on macOS when main sidebar is collapsed, otherwise left-aligned
+            showTrafficLights && !sidebarOpen
+              ? "absolute left-1/2 -translate-x-1/2"
+              : showTrafficLights ? "ml-1" : "ml-2",
           )}
         >
           {isWindows() && <HamburgerMenu />}
@@ -507,67 +553,120 @@ export function TitleBar({ className, noTrafficLightSpace }: TitleBarProps) {
             </>
           )}
 
-          {/* Sidebar toggle */}
+          {/* Main sidebar toggle (chats) - when collapsed */}
+          {!sidebarOpen && (
+            <>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    onClick={() => setSidebarOpen(true)}
+                    className="no-drag pointer-events-auto flex items-center justify-center w-7 h-7 rounded-md transition-all duration-200 hover:bg-accent/50 text-muted-foreground hover:text-foreground"
+                  >
+                    <IconMessages size={16} />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">Mostrar chats</TooltipContent>
+              </Tooltip>
+
+              {/* New thread button */}
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    onClick={handleNewThread}
+                    className="no-drag pointer-events-auto flex items-center justify-center w-7 h-7 rounded-md transition-all duration-200 hover:bg-accent/50 text-muted-foreground hover:text-foreground"
+                  >
+                    <IconPlus size={16} />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">Nuevo hilo</TooltipContent>
+              </Tooltip>
+            </>
+          )}
+
+          {/* Doc files sidebar toggle */}
           <Tooltip>
             <TooltipTrigger asChild>
               <button
                 type="button"
                 onClick={() => setDocSidebarOpen(true)}
-                className={cn(
-                  "flex items-center justify-center w-7 h-7 rounded-md transition-all duration-200",
-                  "hover:bg-accent/50 text-muted-foreground hover:text-foreground",
-                )}
+                className="no-drag pointer-events-auto flex items-center justify-center w-7 h-7 rounded-md transition-all duration-200 hover:bg-accent/50 text-muted-foreground hover:text-foreground"
               >
-                <IconLayoutSidebarLeftExpand size={16} />
+                <IconFileText size={16} />
               </button>
             </TooltipTrigger>
-            <TooltipContent side="bottom">Mostrar archivos</TooltipContent>
+            <TooltipContent side="bottom">Mostrar documentos</TooltipContent>
           </Tooltip>
         </div>
       )}
-      {/* Chat tab - always show hamburger menu on Windows */}
-      {activeTab === "chat" && isWindows() && (
+      {/* Chat tab - show hamburger menu on Windows + sidebar toggle when collapsed */}
+      {activeTab === "chat" && (isWindows() || !sidebarOpen) && (
         <div
           className={cn(
-            "flex items-center gap-2 no-drag shrink-0 z-[100] relative pointer-events-auto",
-            showTrafficLights ? "ml-1" : "ml-2",
+            "flex items-center gap-1.5 shrink-0 z-[100]",
+            // Center buttons on macOS when main sidebar is collapsed, otherwise left-aligned
+            showTrafficLights && !sidebarOpen
+              ? "absolute left-1/2 -translate-x-1/2"
+              : showTrafficLights ? "ml-1" : "ml-2",
           )}
         >
-          <HamburgerMenu />
-          {/* Logo (clickable for agent panel) */}
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                type="button"
-                onClick={() =>
-                  isAgentEnabled && setAgentPanelOpen(!agentPanelOpen)
-                }
-                disabled={!isAgentEnabled}
-                className={cn(
-                  "flex items-center gap-2 transition-all duration-200",
-                  isAgentEnabled &&
-                    "hover:opacity-80 active:scale-95 cursor-pointer",
-                  !isAgentEnabled && "cursor-default",
-                  isAgentEnabled && agentPanelOpen && "text-primary",
-                )}
-              >
-                <div className="relative">
-                  <Logo size={20} />
-                  {isAgentEnabled && agentPanelOpen && (
-                    <span className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-primary" />
+          {isWindows() && <HamburgerMenu />}
+          {/* Logo (clickable for agent panel) - only on Windows */}
+          {isWindows() && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  onClick={() =>
+                    isAgentEnabled && setAgentPanelOpen(!agentPanelOpen)
+                  }
+                  disabled={!isAgentEnabled}
+                  className={cn(
+                    "flex items-center gap-2 transition-all duration-200",
+                    isAgentEnabled &&
+                      "hover:opacity-80 active:scale-95 cursor-pointer",
+                    !isAgentEnabled && "cursor-default",
+                    isAgentEnabled && agentPanelOpen && "text-primary",
                   )}
-                </div>
-                <span className="text-sm font-semibold text-foreground tracking-tight">
-                  S-AGI
-                </span>
-              </button>
-            </TooltipTrigger>
-            {isAgentEnabled && (
-              <TooltipContent side="bottom">
-                {agentPanelOpen ? "Close Agent Panel" : "Open Agent Panel"}
-              </TooltipContent>
-            )}
-          </Tooltip>
+                >
+                  <div className="relative">
+                    <Logo size={20} />
+                    {isAgentEnabled && agentPanelOpen && (
+                      <span className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-primary" />
+                    )}
+                  </div>
+                  <span className="text-sm font-semibold text-foreground tracking-tight">
+                    S-AGI
+                  </span>
+                </button>
+              </TooltipTrigger>
+              {isAgentEnabled && (
+                <TooltipContent side="bottom">
+                  {agentPanelOpen ? "Close Agent Panel" : "Open Agent Panel"}
+                </TooltipContent>
+              )}
+            </Tooltip>
+          )}
+
+          {/* Sidebar toggle - when collapsed */}
+          {!sidebarOpen && (
+            <>
+              {isWindows() && <div className="w-px h-4 bg-border" />}
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    onClick={() => setSidebarOpen(true)}
+                    className="no-drag pointer-events-auto flex items-center justify-center w-7 h-7 rounded-md transition-all duration-200 hover:bg-accent/50 text-muted-foreground hover:text-foreground"
+                  >
+                    <IconLayoutSidebarLeftExpand size={16} />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">Mostrar sidebar</TooltipContent>
+              </Tooltip>
+            </>
+          )}
         </div>
       )}
       {activeTab !== "ideas" &&
@@ -616,81 +715,6 @@ export function TitleBar({ className, noTrafficLightSpace }: TitleBarProps) {
             </Tooltip>
           </div>
         )}
-
-      {/* Center - Navigation tabs (absolute positioned for true centering) */}
-      <div
-        className={cn(
-          "no-drag z-0 absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2",
-        )}
-      >
-        <div className="flex items-center bg-background/40 backdrop-blur-md border border-border/50 rounded-lg p-0.5 h-8">
-          <button
-            type="button"
-            onClick={() => setActiveTab("chat")}
-            className={cn(
-              "flex items-center gap-1.5 px-3 h-full rounded-md text-[11px] font-bold uppercase tracking-wider transition-all duration-300",
-              activeTab === "chat"
-                ? "bg-accent text-primary shadow-sm"
-                : "text-muted-foreground hover:text-foreground hover:bg-accent/30",
-            )}
-          >
-            <IconMessageChatbot size={14} />
-            Chat
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab("excel")}
-            className={cn(
-              "flex items-center gap-1.5 px-3 h-full rounded-md text-[11px] font-bold uppercase tracking-wider transition-all duration-300",
-              activeTab === "excel"
-                ? "bg-accent text-primary shadow-sm"
-                : "text-muted-foreground hover:text-foreground hover:bg-accent/30",
-            )}
-          >
-            <IconTable size={14} />
-            Excel
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab("doc")}
-            className={cn(
-              "flex items-center gap-1.5 px-3 h-full rounded-md text-[11px] font-bold uppercase tracking-wider transition-all duration-300",
-              activeTab === "doc"
-                ? "bg-accent text-primary shadow-sm"
-                : "text-muted-foreground hover:text-foreground hover:bg-accent/30",
-            )}
-          >
-            <IconFileText size={14} />
-            Docs
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab("pdf")}
-            className={cn(
-              "flex items-center gap-1.5 px-3 h-full rounded-md text-[11px] font-bold uppercase tracking-wider transition-all duration-300",
-              activeTab === "pdf"
-                ? "bg-accent text-primary shadow-sm"
-                : "text-muted-foreground hover:text-foreground hover:bg-accent/30",
-            )}
-          >
-            <IconFileTypePdf size={14} />
-            PDF
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab("ideas")}
-            className={cn(
-              "flex items-center gap-1.5 px-3 h-full rounded-md text-[11px] font-bold uppercase tracking-wider transition-all duration-300",
-              activeTab === "ideas"
-                ? "bg-accent text-primary shadow-sm"
-                : "text-muted-foreground hover:text-foreground hover:bg-accent/30",
-            )}
-          >
-            <IconNotes size={14} />
-            Notes
-          </button>
-        </div>
-      </div>
 
       {/* Spacer for right-side items */}
       <div className="flex-1" />
@@ -773,7 +797,7 @@ export function TitleBar({ className, noTrafficLightSpace }: TitleBarProps) {
           <div className="flex items-center">
             <Button
               variant="ghost"
-              className="h-10 w-11 rounded-none hover:bg-accent"
+              className="h-9 w-10 rounded-none hover:bg-accent"
               onClick={handleMinimize}
             >
               <IconMinus size={16} />
@@ -781,7 +805,7 @@ export function TitleBar({ className, noTrafficLightSpace }: TitleBarProps) {
             <Button
               variant="ghost"
               size="icon"
-              className="h-10 w-11 rounded-none hover:bg-accent"
+              className="h-9 w-10 rounded-none hover:bg-accent"
               onClick={handleMaximize}
             >
               {isMaximized ? (
@@ -793,7 +817,7 @@ export function TitleBar({ className, noTrafficLightSpace }: TitleBarProps) {
             <Button
               variant="ghost"
               size="icon"
-              className="h-10 w-11 rounded-none hover:bg-destructive hover:text-destructive-foreground"
+              className="h-9 w-10 rounded-none hover:bg-destructive hover:text-destructive-foreground"
               onClick={handleClose}
             >
               <IconX size={16} />
@@ -851,7 +875,7 @@ export function TitleBar({ className, noTrafficLightSpace }: TitleBarProps) {
               </DropdownMenuLabel>
               <DropdownMenuSeparator />
               <DropdownMenuItem
-                onClick={() => setSettingsOpen(true)}
+                onClick={() => openSettingsPage()}
                 className="justify-between cursor-pointer"
               >
                 <span className="flex items-center">

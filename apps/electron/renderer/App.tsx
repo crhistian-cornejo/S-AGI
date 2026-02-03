@@ -5,7 +5,6 @@ import { Toaster } from "sonner";
 import { TRPCProvider, trpc } from "./lib/trpc";
 import { TooltipProvider } from "./components/ui/tooltip";
 import { MainLayout } from "./features/layout/main-layout";
-import { SettingsDialog } from "./features/settings/settings-dialog";
 import { AuthDialog, AuthGuard, OAuthCallbackHandler } from "./features/auth";
 import { OnboardingGuard } from "./features/onboarding";
 import { AboutDialog } from "./features/help/about-dialog";
@@ -240,7 +239,6 @@ export function App() {
                 </AuthGuard>
               </div>
               <AuthDialog />
-              <SettingsDialog />
               <AboutDialog />
               <ThemedToaster />
             </TooltipProvider>

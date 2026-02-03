@@ -66,24 +66,27 @@ mac:
   identity: "${env.APPLE_IDENTITY}"
   notarize:
     teamId: "${env.APPLE_TEAM_ID}"
-  artifactName: "S-AGI-mac-${arch}.${ext}"
+  artifactName: "S-AGI-${version}-macOS-${arch}.${ext}"
   extendInfo:
     NSMicrophoneUsageDescription: "S-AGI needs microphone access for voice input"
+    NSCameraUsageDescription: "S-AGI needs camera access to capture profile photos"
 
 dmg:
-  artifactName: "S-AGI-mac-${arch}.dmg"
+  artifactName: "S-AGI-${version}-macOS-${arch}.dmg"
+  background: apps/electron/build/dmg-background.png
+  icon: apps/electron/build/icon.icns
+  iconSize: 100
   window:
-    width: 540
-    height: 380
+    width: 660
+    height: 400
   contents:
-    - x: 140
-      y: 150
+    - x: 180
+      y: 170
       type: file
-    - x: 400
-      y: 150
+    - x: 480
+      y: 170
       type: link
       path: /Applications
-  iconSize: 80
 
 # Windows Configuration
 win:
@@ -95,19 +98,28 @@ win:
     - target: portable
       arch:
         - x64
-  artifactName: "S-AGI-win-${arch}.${ext}"
+  artifactName: "S-AGI-${version}-Windows-${arch}.${ext}"
 
 nsis:
   oneClick: false
   perMachine: false
   allowToChangeInstallationDirectory: true
+  allowElevation: true
   installerIcon: apps/electron/build/icon.ico
   uninstallerIcon: apps/electron/build/icon.ico
+  installerHeaderIcon: apps/electron/build/icon.ico
+  installerSidebar: apps/electron/build/installer-sidebar.png
+  uninstallerSidebar: apps/electron/build/installer-sidebar.png
   deleteAppDataOnUninstall: false
   createDesktopShortcut: true
   createStartMenuShortcut: true
+  shortcutName: S-AGI
+  runAfterFinish: true
+  menuCategory: true
 
-# Auto-update configuration
+# Auto-update configuration - Uses GitHub Releases
 publish:
-  provider: generic
-  url: https://releases.sagi.app
+  provider: github
+  owner: crhistian-cornejo
+  repo: S-AGI
+  releaseType: release

@@ -12,6 +12,7 @@ import {
   IconHistory,
   IconTable,
   IconFileText,
+  IconPhoto,
 } from "@tabler/icons-react";
 import { ChatQueueProcessor } from "@/features/chat/components/queue-processor";
 import { trpc } from "@/lib/trpc";
@@ -25,7 +26,6 @@ import {
   activeTabAtom,
   shortcutsDialogOpenAtom,
   aboutDialogOpenAtom,
-  settingsModalOpenAtom,
   settingsActiveTabAtom,
   type SettingsTab,
   commandKOpenAtom,
@@ -54,6 +54,8 @@ import { NotesSidebar } from "@/features/notes/notes-sidebar";
 import { NotesPageTabs } from "@/features/notes/notes-page-tabs";
 import { ChatView } from "@/features/chat/chat-view";
 import { GalleryView } from "@/features/gallery/gallery-view";
+import { SettingsPage } from "@/features/settings/settings-page";
+import { useOpenSettingsPage } from "@/features/settings/use-open-settings-page";
 import { TitleBar } from "./title-bar";
 import { cn, isMacOS } from "@/lib/utils";
 import { useAtom, useSetAtom, useAtomValue } from "jotai";
@@ -199,7 +201,6 @@ export function MainLayout() {
   const previousTabRef = useRef<string>(activeTab);
   const [, setShortcutsOpen] = useAtom(shortcutsDialogOpenAtom);
   const [, setAboutOpen] = useAtom(aboutDialogOpenAtom);
-  const setSettingsOpen = useSetAtom(settingsModalOpenAtom);
   const setSettingsTab = useSetAtom(settingsActiveTabAtom);
   const setSelectedArtifact = useSetAtom(selectedArtifactAtom);
   const setCommandKOpen = useSetAtom(commandKOpenAtom);
@@ -207,6 +208,7 @@ export function MainLayout() {
   const supportsReasoning = useAtomValue(supportsReasoningAtom);
   const addLocalPdf = useSetAtom(addLocalPdfAtom);
   const utils = trpc.useUtils();
+  const openSettingsPage = useOpenSettingsPage();
 
   // Sync Univer theme with app dark/light mode
   useUniverTheme();
@@ -269,6 +271,7 @@ export function MainLayout() {
 
   const handleNewChat = useCallback(
     (message?: string | React.MouseEvent) => {
+      setActiveTab("chat");
       const title =
         typeof message === "string"
           ? message.length > 30
@@ -398,7 +401,7 @@ export function MainLayout() {
         if (data?.tab && settingsTabs.includes(data.tab as SettingsTab)) {
           setSettingsTab(data.tab as SettingsTab);
         }
-        setSettingsOpen(true);
+        openSettingsPage(data?.tab as SettingsTab | undefined);
       }),
     ];
 
@@ -438,9 +441,9 @@ export function MainLayout() {
     setActiveTab,
     setSelectedArtifact,
     setSelectedChatId,
-    setSettingsOpen,
     setSettingsTab,
     addLocalPdf,
+    openSettingsPage,
   ]);
 
   // Global Listeners for Native Menu Bar Events (macOS File, Edit, View menus)
@@ -496,8 +499,8 @@ export function MainLayout() {
       // Go menu
       api.menu.onGoToTab((data: { tab: string }) => {
         const validTabs: Array<
-          "chat" | "excel" | "doc" | "pdf" | "ideas" | "gallery"
-        > = ["chat", "excel", "doc", "pdf", "ideas", "gallery"];
+          "chat" | "excel" | "doc" | "pdf" | "ideas" | "gallery" | "settings"
+        > = ["chat", "excel", "doc", "pdf", "ideas", "gallery", "settings"];
         if (validTabs.includes(data.tab as any)) {
           setActiveTab(data.tab as any);
         }
@@ -615,13 +618,13 @@ export function MainLayout() {
       if (data?.tab && settingsTabs.includes(data.tab as SettingsTab)) {
         setSettingsTab(data.tab as SettingsTab);
       }
-      setSettingsOpen(true);
+      openSettingsPage(data?.tab as SettingsTab | undefined);
     });
 
     return () => {
       cleanup();
     };
-  }, [setSettingsOpen, setSettingsTab]);
+  }, [openSettingsPage, setSettingsTab]);
 
   // Global Listeners for Agent-controlled UI Navigation
   useEffect(() => {
@@ -699,7 +702,7 @@ export function MainLayout() {
       enabled: !isUniverTabActive,
     },
   );
-  useHotkeys("meta+comma, ctrl+comma", () => setSettingsOpen(true), {
+  useHotkeys("meta+comma, ctrl+comma", () => openSettingsPage(), {
     preventDefault: true,
     enabled: !isUniverTabActive,
   });
@@ -736,25 +739,31 @@ export function MainLayout() {
       <ChatQueueProcessor />
       <TitleBar
         className={cn(
-          "absolute top-0 right-0 z-50 h-10 transition-all duration-300",
+          "absolute top-0 right-0 z-50 h-9 transition-all duration-300",
+          activeTab === "settings" ? "bg-background" : "bg-sidebar",
           (activeTab === "chat" || activeTab === "gallery") && sidebarOpen
             ? "left-72"
             : activeTab === "ideas" && notesSidebarOpen
               ? "left-72"
               : activeTab === "pdf" && pdfSidebarOpen
                 ? "left-72"
-                : activeTab === "excel" && excelSidebarOpen
-                  ? "left-72"
+                : activeTab === "excel" && sidebarOpen && excelSidebarOpen
+                  ? "left-[36rem]"
+                  : activeTab === "excel" && (sidebarOpen || excelSidebarOpen)
+                    ? "left-72"
                   : activeTab === "doc" && docSidebarOpen
                     ? "left-72"
-                    : "left-0",
+                    : activeTab === "settings"
+                      ? "left-72"
+                      : "left-0",
         )}
         noTrafficLightSpace={
           ((activeTab === "chat" || activeTab === "gallery") && sidebarOpen) ||
           (activeTab === "ideas" && notesSidebarOpen) ||
           (activeTab === "pdf" && pdfSidebarOpen) ||
-          (activeTab === "excel" && excelSidebarOpen) ||
-          (activeTab === "doc" && docSidebarOpen)
+          (activeTab === "excel" && (sidebarOpen || excelSidebarOpen)) ||
+          (activeTab === "doc" && docSidebarOpen) ||
+          activeTab === "settings"
         }
       />
       <ShortcutsDialog />
@@ -767,8 +776,12 @@ export function MainLayout() {
             {/* Sidebar */}
             <div
               className={cn(
-                "h-full border-r border-border bg-sidebar transition-all duration-300 ease-in-out overflow-hidden shrink-0",
-                sidebarOpen ? "w-72" : "w-0 border-r-0",
+                "h-full bg-sidebar transition-all duration-300 ease-in-out overflow-hidden shrink-0",
+                sidebarOpen
+                  ? activeTab === "chat"
+                    ? "w-72"
+                    : "w-72 border-r border-sidebar-border/40"
+                  : "w-0 border-r-0",
               )}
             >
               <div className="w-72 h-full">
@@ -777,14 +790,14 @@ export function MainLayout() {
             </div>
 
             {/* Content area */}
-            <div className="flex-1 flex flex-col min-w-0 overflow-hidden relative pt-10">
+            <div className="flex-1 flex flex-col min-w-0 overflow-hidden relative pt-9 bg-sidebar">
               {!sidebarOpen && (
                 <>
                   {isMacOS() && (
                     <div
                       className={cn(
                         "absolute z-[60] flex items-center gap-2 animate-in fade-in slide-in-from-left-4 duration-500 no-drag",
-                        "top-0 h-11 pl-16 pr-2 left-4",
+                        "top-0 h-9 pl-14 pr-2 left-4",
                       )}
                     >
                       <Tooltip>
@@ -809,6 +822,25 @@ export function MainLayout() {
                               : "Ctrl"}{" "}
                             \
                           </kbd>
+                        </TooltipContent>
+                      </Tooltip>
+
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8 rounded-xl bg-background/60 backdrop-blur-xl border border-border/50 shadow-sm hover:bg-accent hover:scale-110 transition-all active:scale-95 no-drag"
+                            onClick={() => setActiveTab("gallery")}
+                          >
+                            <IconPhoto size={18} />
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent
+                          side="bottom"
+                          className="flex items-center gap-2 font-semibold"
+                        >
+                          Gallery
                         </TooltipContent>
                       </Tooltip>
 
@@ -898,6 +930,25 @@ export function MainLayout() {
                             variant="ghost"
                             size="icon"
                             className="h-8 w-8 rounded-xl bg-background/60 backdrop-blur-xl border border-border/50 shadow-sm hover:bg-accent hover:scale-110 transition-all active:scale-95 no-drag"
+                            onClick={() => setActiveTab("gallery")}
+                          >
+                            <IconPhoto size={18} />
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent
+                          side="right"
+                          className="flex items-center gap-2 font-semibold"
+                        >
+                          Gallery
+                        </TooltipContent>
+                      </Tooltip>
+
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8 rounded-xl bg-background/60 backdrop-blur-xl border border-border/50 shadow-sm hover:bg-accent hover:scale-110 transition-all active:scale-95 no-drag"
                             onClick={handleNewChat}
                             disabled={createChat.isPending}
                           >
@@ -944,14 +995,18 @@ export function MainLayout() {
                 </>
               )}
 
-              {activeTab === "chat" ? <ChatView /> : <GalleryView />}
+              <div className="flex-1 flex flex-col min-w-0 overflow-hidden p-2">
+                <div className="flex-1 flex flex-col min-w-0 overflow-hidden rounded-[26px] border border-sidebar-border/40 bg-sidebar">
+                  {activeTab === "chat" ? <ChatView /> : <GalleryView />}
+                </div>
+              </div>
             </div>
 
             {/* Artifact panel - only in Chat */}
             {activeTab === "chat" && (
               <div
                 className={cn(
-                  "h-full border-l border-border bg-background transition-all duration-300 ease-in-out overflow-hidden shrink-0 pt-10",
+                "h-full bg-sidebar transition-all duration-300 ease-in-out overflow-hidden shrink-0 pt-9",
                   selectedArtifact && artifactPanelOpen
                     ? "w-[600px]"
                     : "w-0 border-l-0",
@@ -967,17 +1022,36 @@ export function MainLayout() {
           </>
         )}
 
+        {/* Settings Page */}
+        {activeTab === "settings" && <SettingsPage />}
+
         {/*
          * Excel Tab - Persistent file system with sidebar
          * Sidebar outside content area (like chat) for consistent behavior
          */}
         {activeTab === "excel" && (
           <>
-            {/* Excel File Sidebar - full height like chat sidebar */}
+            {/* Primary Sidebar (Chat) */}
             <div
               className={cn(
-                "h-full border-r border-border bg-sidebar transition-all duration-300 ease-in-out overflow-hidden shrink-0",
-                excelSidebarOpen ? "w-72" : "w-0 border-r-0",
+                "h-full bg-sidebar transition-all duration-300 ease-in-out overflow-hidden shrink-0",
+                sidebarOpen
+                  ? "w-72 border-r border-sidebar-border/40"
+                  : "w-0 border-r-0",
+              )}
+            >
+              <div className="w-72 h-full">
+                <Sidebar />
+              </div>
+            </div>
+
+            {/* Excel File Sidebar - second sidebar */}
+            <div
+              className={cn(
+                "h-full bg-sidebar transition-all duration-300 ease-in-out overflow-hidden shrink-0",
+                excelSidebarOpen
+                  ? "w-72 border-r border-sidebar-border/40"
+                  : "w-0 border-r-0",
               )}
             >
               <div className="w-72 h-full">
@@ -991,101 +1065,121 @@ export function MainLayout() {
             </div>
 
             {/* Main content area */}
-            <div className="flex-1 flex flex-col min-w-0 overflow-hidden pt-10 animate-in fade-in zoom-in-95 duration-300">
-              {/* File Header - shows when valid file is loaded (ID matches) */}
-              {currentExcelFile && currentExcelFile.id === currentExcelFileId && (
-                <Suspense fallback={null}>
-                  <FileHeader
-                    file={currentExcelFile}
-                    onRename={handleRenameExcel}
-                    onExport={handleExportExcel}
-                    onSave={async () => {
-                      if (univerSpreadsheetRef.current?.save) {
-                        await univerSpreadsheetRef.current.save();
-                        toast.success("Guardado");
-                      }
-                    }}
-                    storageKind="cloud"
-                    storageLabel="Nube (S-AGI)"
-                    storageTooltip="Guardado en la nube con historial de versiones"
-                    onOpenHistory={() => {
-                      setVersionHistoryFileId(currentExcelFileId);
-                      setVersionHistoryFileType("excel");
-                      setVersionHistoryOpen(true);
-                    }}
-                  />
-                </Suspense>
-              )}
-              {/* Loading header when file ID is set but data not yet loaded */}
-              {currentExcelFileId && (!currentExcelFile || currentExcelFile.id !== currentExcelFileId) && (
-                <div className="h-10 border-b border-border/50 bg-background/50 flex items-center px-4">
-                  <div className="w-4 h-4 border-2 border-primary border-t-transparent rounded-full animate-spin mr-2" />
-                  <span className="text-sm text-muted-foreground">Cargando archivo...</span>
-                </div>
-              )}
-              {/* Scratch header when no file selected */}
-              {!currentExcelFileId && (
-                <div className="h-10 border-b border-border/50 bg-background/50 flex items-center px-4">
-                  <IconTable size={16} className="text-muted-foreground mr-2" />
-                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                    <span>Hoja nueva - Guarda para crear un archivo</span>
-                    <span className="text-xs text-muted-foreground/60">
-                      • Sin guardar (local temporal)
-                    </span>
-                  </div>
-                </div>
-              )}
-              {/* Version Preview Banner for Excel */}
-              <VersionPreviewBanner fileId={currentExcelFileId} />
+            <div className="flex-1 flex flex-col min-w-0 overflow-hidden relative pt-9 bg-sidebar animate-in fade-in zoom-in-95 duration-300">
+              <div className="flex-1 flex flex-col min-w-0 overflow-hidden p-2">
+                <div className="flex-1 flex min-w-0 overflow-hidden rounded-[26px] border border-sidebar-border/40 bg-sidebar relative">
+                  <div
+                    className={cn(
+                      "flex-1 flex flex-col min-w-0 overflow-hidden",
+                      agentPanelOpen && "pr-[320px]",
+                    )}
+                  >
+                    {/* File Header - shows when valid file is loaded (ID matches) */}
+                    {currentExcelFile && currentExcelFile.id === currentExcelFileId && (
+                      <Suspense fallback={null}>
+                        <FileHeader
+                          file={currentExcelFile}
+                          onRename={handleRenameExcel}
+                          onExport={handleExportExcel}
+                          onSave={async () => {
+                            if (univerSpreadsheetRef.current?.save) {
+                              await univerSpreadsheetRef.current.save();
+                              toast.success("Guardado");
+                            }
+                          }}
+                          storageKind="cloud"
+                          storageLabel="Nube (S-AGI)"
+                          storageTooltip="Guardado en la nube con historial de versiones"
+                          onOpenHistory={() => {
+                            setVersionHistoryFileId(currentExcelFileId);
+                            setVersionHistoryFileType("excel");
+                            setVersionHistoryOpen(true);
+                          }}
+                        />
+                      </Suspense>
+                    )}
+                    {/* Loading header when file ID is set but data not yet loaded */}
+                    {currentExcelFileId &&
+                      (!currentExcelFile ||
+                        currentExcelFile.id !== currentExcelFileId) && (
+                        <div className="h-10 border-b border-border/50 bg-background/50 flex items-center px-4">
+                          <div className="w-4 h-4 border-2 border-primary border-t-transparent rounded-full animate-spin mr-2" />
+                          <span className="text-sm text-muted-foreground">
+                            Cargando archivo...
+                          </span>
+                        </div>
+                      )}
+                    {/* Scratch header when no file selected */}
+                    {!currentExcelFileId && (
+                      <div className="h-10 border-b border-border/50 bg-background/50 flex items-center px-4">
+                        <IconTable
+                          size={16}
+                          className="text-muted-foreground mr-2"
+                        />
+                        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                          <span>Hoja nueva - Guarda para crear un archivo</span>
+                          <span className="text-xs text-muted-foreground/60">
+                            • Sin guardar (local temporal)
+                          </span>
+                        </div>
+                      </div>
+                    )}
+                    {/* Version Preview Banner for Excel */}
+                    <VersionPreviewBanner fileId={currentExcelFileId} />
 
-              {/* Spreadsheet */}
-              <div className="flex-1 flex overflow-hidden">
-                <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-                  <Suspense fallback={<PanelLoadingFallback />}>
-                    <UniverSpreadsheet
-                      ref={univerSpreadsheetRef}
-                      key={`spreadsheet-${currentExcelFileId || excelScratchId}-v${validExcelPreviewData?.versionNumber || "current"}-${validExcelPreviewData?.fileId || "none"}-vc${currentExcelFile?.version_count || 0}`}
-                      fileId={
-                        validExcelPreviewData
-                          ? undefined // Don't save when previewing
-                          : currentExcelFileId || undefined
-                      }
-                      fileData={
-                        validExcelPreviewData?.univerData ||
-                        validExcelFileData
-                      }
-                      artifactId={
-                        !currentExcelFileId
-                          ? selectedArtifact?.type === "spreadsheet"
-                            ? selectedArtifact.id
-                            : excelScratchId
-                          : undefined
-                      }
-                      data={
-                        !currentExcelFileId
-                          ? selectedArtifact?.type === "spreadsheet"
-                            ? selectedArtifact.univer_data
-                            : undefined
-                          : undefined
-                      }
-                      isPreviewMode={!!validExcelPreviewData}
-                    />
-                  </Suspense>
-                </div>
-                {/* Agent Panel - slides from right */}
-                <div
-                  className={cn(
-                    "h-full border-l border-border/50 bg-background transition-all duration-300 ease-in-out overflow-hidden shrink-0",
-                    agentPanelOpen
-                      ? "w-[320px] min-w-[300px]"
-                      : "w-0 border-l-0",
-                  )}
-                  inert={!agentPanelOpen || undefined}
-                >
-                  <div className="w-[320px] min-w-[300px] h-full">
-                    <Suspense fallback={<PanelLoadingFallback />}>
-                      <AgentPanel />
-                    </Suspense>
+                    {/* Spreadsheet */}
+                    <div className="flex-1 flex overflow-hidden">
+                      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+                        <Suspense fallback={<PanelLoadingFallback />}>
+                          <UniverSpreadsheet
+                            ref={univerSpreadsheetRef}
+                            key={`spreadsheet-${currentExcelFileId || excelScratchId}-v${validExcelPreviewData?.versionNumber || "current"}-${validExcelPreviewData?.fileId || "none"}-vc${currentExcelFile?.version_count || 0}`}
+                            fileId={
+                              validExcelPreviewData
+                                ? undefined // Don't save when previewing
+                                : currentExcelFileId || undefined
+                            }
+                            fileData={
+                              validExcelPreviewData?.univerData ||
+                              validExcelFileData
+                            }
+                            artifactId={
+                              !currentExcelFileId
+                                ? selectedArtifact?.type === "spreadsheet"
+                                  ? selectedArtifact.id
+                                  : excelScratchId
+                                : undefined
+                            }
+                            data={
+                              !currentExcelFileId
+                                ? selectedArtifact?.type === "spreadsheet"
+                                  ? selectedArtifact.univer_data
+                                  : undefined
+                                : undefined
+                            }
+                            isPreviewMode={!!validExcelPreviewData}
+                          />
+                        </Suspense>
+                      </div>
+                    </div>
+                  </div>
+                  {/* Agent Panel - GPU slide, no layout animation */}
+                  <div
+                    className={cn(
+                      "absolute right-0 top-0 h-full w-[320px] bg-sidebar border-l border-sidebar-border/40",
+                      "transition-transform transition-opacity duration-300 ease-in-out transform-gpu",
+                      agentPanelOpen
+                        ? "translate-x-0 opacity-100"
+                        : "translate-x-full opacity-0 pointer-events-none",
+                    )}
+                    inert={!agentPanelOpen || undefined}
+                    aria-hidden={!agentPanelOpen}
+                  >
+                    <div className="h-full w-[320px]">
+                      <Suspense fallback={<PanelLoadingFallback />}>
+                        <AgentPanel />
+                      </Suspense>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -1102,8 +1196,10 @@ export function MainLayout() {
             {/* Doc File Sidebar - full height like chat sidebar */}
             <div
               className={cn(
-                "h-full border-r border-border bg-sidebar transition-all duration-300 ease-in-out overflow-hidden shrink-0",
-                docSidebarOpen ? "w-72" : "w-0 border-r-0",
+                "h-full bg-sidebar transition-all duration-300 ease-in-out overflow-hidden shrink-0",
+                docSidebarOpen
+                  ? "w-72 border-r border-sidebar-border/40"
+                  : "w-0 border-r-0",
               )}
             >
               <div className="w-72 h-full">
@@ -1117,7 +1213,7 @@ export function MainLayout() {
             </div>
 
             {/* Main content area */}
-            <div className="flex-1 flex flex-col min-w-0 overflow-hidden pt-10 animate-in fade-in zoom-in-95 duration-300">
+            <div className="flex-1 flex flex-col min-w-0 overflow-hidden pt-9 animate-in fade-in zoom-in-95 duration-300">
               {/* File Header - shows when valid file is loaded (ID matches) */}
               {currentDocFile && currentDocFile.id === currentDocFileId && (
                 <Suspense fallback={null}>
@@ -1167,8 +1263,13 @@ export function MainLayout() {
               <VersionPreviewBanner fileId={currentDocFileId} />
 
               {/* Document */}
-              <div className="flex-1 flex overflow-hidden">
-                <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+              <div className="flex-1 flex overflow-hidden relative">
+                <div
+                  className={cn(
+                    "flex-1 flex flex-col min-w-0 overflow-hidden",
+                    agentPanelOpen && "pr-[320px]",
+                  )}
+                >
                   <Suspense fallback={<PanelLoadingFallback />}>
                     <UniverDocument
                       ref={univerDocumentRef}
@@ -1200,17 +1301,19 @@ export function MainLayout() {
                     />
                   </Suspense>
                 </div>
-                {/* Agent Panel - slides from right */}
+                {/* Agent Panel - GPU slide, no layout animation */}
                 <div
                   className={cn(
-                    "h-full border-l border-border/50 bg-background transition-all duration-300 ease-in-out overflow-hidden shrink-0",
+                    "absolute right-0 top-0 h-full w-[320px] bg-sidebar border-l border-sidebar-border/40",
+                    "transition-transform transition-opacity duration-300 ease-in-out transform-gpu",
                     agentPanelOpen
-                      ? "w-[320px] min-w-[300px]"
-                      : "w-0 border-l-0",
+                      ? "translate-x-0 opacity-100"
+                      : "translate-x-full opacity-0 pointer-events-none",
                   )}
                   inert={!agentPanelOpen || undefined}
+                  aria-hidden={!agentPanelOpen}
                 >
-                  <div className="w-[320px] min-w-[300px] h-full">
+                  <div className="h-full w-[320px]">
                     <Suspense fallback={<PanelLoadingFallback />}>
                       <AgentPanel />
                     </Suspense>
@@ -1227,22 +1330,31 @@ export function MainLayout() {
          * Includes AI-powered Q&A panel.
          */}
         {activeTab === "pdf" && (
-          <div className="flex-1 flex animate-in fade-in zoom-in-95 duration-300 overflow-hidden">
+          <div className="flex-1 flex animate-in fade-in zoom-in-95 duration-300 overflow-hidden relative">
             {/* Main content */}
-            <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+            <div
+              className={cn(
+                "flex-1 flex flex-col min-w-0 overflow-hidden",
+                agentPanelOpen && "pr-[320px]",
+              )}
+            >
               <Suspense fallback={<PanelLoadingFallback />}>
                 <PdfTabView />
               </Suspense>
             </div>
-            {/* Agent Panel - slides from right, pt-10 for titlebar safe area */}
+            {/* Agent Panel - slides from right, pt-9 for titlebar safe area */}
             <div
               className={cn(
-                "h-full border-l border-border/50 bg-background transition-all duration-300 ease-in-out overflow-hidden shrink-0 pt-10",
-                agentPanelOpen ? "w-[320px] min-w-[300px]" : "w-0 border-l-0",
+                "absolute right-0 top-0 h-full w-[320px] bg-sidebar border-l border-sidebar-border/40 pt-9",
+                "transition-transform transition-opacity duration-300 ease-in-out transform-gpu",
+                agentPanelOpen
+                  ? "translate-x-0 opacity-100"
+                  : "translate-x-full opacity-0 pointer-events-none",
               )}
               inert={!agentPanelOpen || undefined}
+              aria-hidden={!agentPanelOpen}
             >
-              <div className="w-[320px] min-w-[300px] h-full">
+              <div className="w-[320px] h-full">
                 <Suspense fallback={<PanelLoadingFallback />}>
                   <AgentPanel />
                 </Suspense>
@@ -1260,7 +1372,7 @@ export function MainLayout() {
             <NotesSidebar />
 
             {/* Content area */}
-            <div className="flex-1 flex flex-col min-w-0 overflow-hidden relative pt-10">
+            <div className="flex-1 flex flex-col min-w-0 overflow-hidden relative pt-9">
               {/* Page tabs - below titlebar */}
               <div className="h-9 border-b border-border/50 bg-background flex items-center px-4 shrink-0">
                 <NotesPageTabs />

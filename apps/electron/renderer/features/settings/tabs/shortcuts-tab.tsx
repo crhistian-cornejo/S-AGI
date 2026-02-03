@@ -89,7 +89,7 @@ export function ShortcutsTab() {
     }
 
     return (
-        <div className="p-6 space-y-6 overflow-y-auto max-h-[70vh]">
+	    <div className="p-6 space-y-6">
             {/* Header */}
             <div className="flex flex-col space-y-1.5 text-center sm:text-left">
                 <div className="flex items-center gap-2">
@@ -103,82 +103,80 @@ export function ShortcutsTab() {
 
             {/* Shortcuts List */}
             <div className="space-y-4">
-                <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground pl-1">
+                <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                     Global Shortcuts
                 </h4>
 
-                <div className="bg-background rounded-lg border border-border overflow-hidden">
-                    <div className="p-4 space-y-4">
-                        {hotkeys?.map((hotkey, index) => (
-                            <div
-                                key={hotkey.id}
-                                className={cn(
-                                    'flex items-center justify-between gap-4',
-                                    index > 0 && 'pt-4 border-t border-border/50'
-                                )}
-                            >
-                                {/* Info */}
-                                <div className="flex-1 min-w-0">
-                                    <div className="flex items-center gap-2">
-                                        <Label className="text-sm font-medium">{hotkey.name}</Label>
-                                        {/* Status badge */}
-                                        {hotkey.enabled && (
-                                            hotkey.isRegistered ? (
-                                                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-medium rounded-full bg-green-500/10 text-green-600 dark:text-green-400">
-                                                    <IconCheck size={10} />
-                                                    Active
-                                                </span>
-                                            ) : (
-                                                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-medium rounded-full bg-yellow-500/10 text-yellow-600 dark:text-yellow-400">
-                                                    <IconAlertTriangle size={10} />
-                                                    {hotkey.error || 'Not registered'}
-                                                </span>
-                                            )
-                                        )}
-                                    </div>
-                                    <p className="text-xs text-muted-foreground mt-0.5 truncate">
-                                        {hotkey.description}
-                                    </p>
+                <div className="space-y-4">
+                    {hotkeys?.map((hotkey, index) => (
+                        <div
+                            key={hotkey.id}
+                            className={cn(
+                                'flex items-center justify-between gap-4',
+                                index > 0 && 'pt-4 border-t border-border/50'
+                            )}
+                        >
+                            {/* Info */}
+                            <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2">
+                                    <Label className="text-sm font-medium">{hotkey.name}</Label>
+                                    {/* Status badge */}
+                                    {hotkey.enabled && (
+                                        hotkey.isRegistered ? (
+                                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-medium rounded-full bg-green-500/10 text-green-600 dark:text-green-400">
+                                                <IconCheck size={10} />
+                                                Active
+                                            </span>
+                                        ) : (
+                                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-medium rounded-full bg-yellow-500/10 text-yellow-600 dark:text-yellow-400">
+                                                <IconAlertTriangle size={10} />
+                                                {hotkey.error || 'Not registered'}
+                                            </span>
+                                        )
+                                    )}
                                 </div>
-
-                                {/* Controls */}
-                                <div className="flex items-center gap-3 flex-shrink-0">
-                                    {/* Shortcut Input */}
-                                    <ShortcutInput
-                                        value={hotkey.shortcut}
-                                        onChange={(value) => handleShortcutChange(hotkey.id, value)}
-                                        onValidate={(value) => handleValidate(value, hotkey.id)}
-                                        disabled={!hotkey.enabled}
-                                    />
-
-                                    {/* Enable/Disable Toggle */}
-                                    <Switch
-                                        checked={hotkey.enabled}
-                                        onCheckedChange={(checked) => handleToggleEnabled(hotkey.id, checked)}
-                                        className="data-[state=checked]:bg-primary"
-                                    />
-
-                                    {/* Reset Button */}
-                                    <Button
-                                        variant="ghost"
-                                        size="icon"
-                                        onClick={() => handleReset(hotkey.id)}
-                                        className="h-8 w-8 text-muted-foreground hover:text-foreground"
-                                        title="Reset to default"
-                                    >
-                                        <IconRefresh size={14} />
-                                    </Button>
-                                </div>
+                                <p className="text-xs text-muted-foreground mt-0.5 truncate">
+                                    {hotkey.description}
+                                </p>
                             </div>
-                        ))}
 
-                        {/* Empty state */}
-                        {(!hotkeys || hotkeys.length === 0) && (
-                            <p className="text-sm text-muted-foreground text-center py-4">
-                                No configurable shortcuts available
-                            </p>
-                        )}
-                    </div>
+                            {/* Controls */}
+                            <div className="flex items-center gap-3 flex-shrink-0">
+                                {/* Shortcut Input */}
+                                <ShortcutInput
+                                    value={hotkey.shortcut}
+                                    onChange={(value) => handleShortcutChange(hotkey.id, value)}
+                                    onValidate={(value) => handleValidate(value, hotkey.id)}
+                                    disabled={!hotkey.enabled}
+                                />
+
+                                {/* Enable/Disable Toggle */}
+                                <Switch
+                                    checked={hotkey.enabled}
+                                    onCheckedChange={(checked) => handleToggleEnabled(hotkey.id, checked)}
+                                    className="data-[state=checked]:bg-primary"
+                                />
+
+                                {/* Reset Button */}
+                                <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    onClick={() => handleReset(hotkey.id)}
+                                    className="h-8 w-8 text-muted-foreground hover:text-foreground"
+                                    title="Reset to default"
+                                >
+                                    <IconRefresh size={14} />
+                                </Button>
+                            </div>
+                        </div>
+                    ))}
+
+                    {/* Empty state */}
+                    {(!hotkeys || hotkeys.length === 0) && (
+                        <p className="text-sm text-muted-foreground text-center py-4">
+                            No configurable shortcuts available
+                        </p>
+                    )}
                 </div>
             </div>
 

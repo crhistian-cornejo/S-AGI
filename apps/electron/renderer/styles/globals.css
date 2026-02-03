@@ -31,7 +31,7 @@
     --plan-mode-foreground: 0 0% 8%;
 
     /* Sidebar */
-    --sidebar-background: 0 0% 98%;
+    --sidebar-background: 0 0% 98.8%;
     --sidebar-foreground: 240 5.3% 26.1%;
     --sidebar-primary: 217 91% 60%;
     --sidebar-primary-foreground: 0 0% 100%;
@@ -69,7 +69,7 @@
     --plan-mode-foreground: 0 0% 8%;
 
     /* Sidebar */
-    --sidebar-background: 240 5.9% 6%;
+    --sidebar-background: 0 0% 12.2%;
     --sidebar-foreground: 240 4.8% 85%;
     --sidebar-primary: 217 91% 60%;
     --sidebar-primary-foreground: 0 0% 100%;
@@ -537,6 +537,31 @@
   color: #fafafa !important;
   fill: #fafafa !important;
   stroke: #fafafa !important;
+}
+
+/* rc-select (Univer font/size dropdowns) - dark mode contrast */
+.dark .rc-select-dropdown,
+.univer-dark .rc-select-dropdown {
+  background-color: #262626 !important;
+  border: 1px solid rgba(255, 255, 255, 0.12) !important;
+  box-shadow:
+    0 4px 12px rgba(0, 0, 0, 0.5),
+    0 0 0 1px rgba(255, 255, 255, 0.08) !important;
+  color: #fafafa !important;
+}
+
+.dark .rc-select-dropdown *,
+.univer-dark .rc-select-dropdown * {
+  color: #fafafa !important;
+  fill: #fafafa !important;
+  stroke: #fafafa !important;
+}
+
+.dark .rc-select-item-option-active,
+.dark .rc-select-item-option-selected,
+.univer-dark .rc-select-item-option-active,
+.univer-dark .rc-select-item-option-selected {
+  background-color: rgba(255, 255, 255, 0.12) !important;
 }
 
 [data-radix-popper-content-wrapper] {

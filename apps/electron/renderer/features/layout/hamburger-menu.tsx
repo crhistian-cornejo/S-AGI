@@ -13,8 +13,6 @@ import { Button } from "@/components/ui/button";
 import { Kbd } from "@/components/ui/kbd";
 import { useAtom, useSetAtom } from "jotai";
 import {
-  settingsModalOpenAtom,
-  settingsActiveTabAtom,
   selectedChatIdAtom,
   activeTabAtom,
   sidebarOpenAtom,
@@ -29,9 +27,8 @@ import {
   excelSidebarOpenAtom,
   docSidebarOpenAtom,
 } from "@/lib/atoms";
-import { trpc } from "@/lib/trpc";
+import { useOpenSettingsPage } from "@/features/settings/use-open-settings-page";
 import { isMacOS } from "@/lib/utils";
-import { useEffect, useState, useMemo } from "react";
 import type { SettingsTab } from "@/lib/atoms";
 
 // Helper function to format hotkey string into a single Kbd component
@@ -68,8 +65,7 @@ function formatHotkey(hotkey: string) {
 }
 
 export function HamburgerMenu() {
-  const setSettingsOpen = useSetAtom(settingsModalOpenAtom);
-  const setSettingsTab = useSetAtom(settingsActiveTabAtom);
+  const openSettingsPage = useOpenSettingsPage();
   const setSelectedChatId = useSetAtom(selectedChatIdAtom);
   const [activeTab, setActiveTab] = useAtom(activeTabAtom);
   const [sidebarOpen, setSidebarOpen] = useAtom(sidebarOpenAtom);
@@ -139,8 +135,7 @@ export function HamburgerMenu() {
 
   // Handler to open settings with specific tab
   const handleOpenSettings = (tab: SettingsTab) => {
-    setSettingsTab(tab);
-    setSettingsOpen(true);
+    openSettingsPage(tab);
   };
 
   return (
