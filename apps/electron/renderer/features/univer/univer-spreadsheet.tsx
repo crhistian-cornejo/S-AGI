@@ -1281,8 +1281,7 @@ export const UniverSpreadsheet = React.forwardRef<
   React.useEffect(() => {
     if (!fileId) return;
 
-    // @ts-expect-error - desktopApi type extended in preload
-    const unsubscribe = window.desktopApi?.onFileSaveWithAIMetadata?.(
+    const unsubscribe = (window as any).desktopApi?.onFileSaveWithAIMetadata?.(
       (data: {
         fileId: string;
         tabType: "excel" | "doc";

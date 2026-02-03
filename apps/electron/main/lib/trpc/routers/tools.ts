@@ -1,10 +1,23 @@
 import { z } from 'zod'
 import { router, protectedProcedure } from '../trpc'
-import { supabase } from '../../supabase/client'
+import { supabase, isSupabaseConfigured } from '../../supabase/client'
 import { sendToRenderer } from '../../window-manager'
 import { getSecureApiKeyStore } from '../../auth/api-key-store'
 import log from 'electron-log'
 import OpenAI from 'openai'
+import { getStorageAdapter, getStorageMode } from '../../storage'
+
+/**
+ * Check if we should use local storage mode
+ * Defaults to local - cloud sync is a future premium feature
+ */
+function isLocalMode(): boolean {
+    const mode = getStorageMode()
+    if (mode === 'local') {
+        return true
+    }
+    return !isSupabaseConfigured()
+}
 
 /**
  * Tool execution router - executes spreadsheet tools in the main process
@@ -4979,15 +4992,22 @@ export const toolsRouter = router({
             apiKey: z.string().optional() // Optional - will fallback to stored key
         }))
         .mutation(async ({ ctx, input }) => {
-            // Verify chat ownership
-            const { data: chat } = await supabase
-                .from('chats')
-                .select('id')
-                .eq('id', input.chatId)
-                .eq('user_id', ctx.userId)
-                .single()
+            // Verify chat ownership (skip in local mode - single user)
+            if (isLocalMode()) {
+                log.debug('[Tools] Local mode - skipping chat ownership check')
+                const adapter = await getStorageAdapter()
+                const chat = await adapter.chats.getById!(input.chatId)
+                if (!chat) throw new Error('Chat not found')
+            } else {
+                const { data: chat } = await supabase
+                    .from('chats')
+                    .select('id')
+                    .eq('id', input.chatId)
+                    .eq('user_id', ctx.userId)
+                    .single()
 
-            if (!chat) throw new Error('Chat not found or access denied')
+                if (!chat) throw new Error('Chat not found or access denied')
+            }
 
             // Get API key - prefer input, fallback to stored key
             const storedKey = getSecureApiKeyStore().getOpenAIKey()

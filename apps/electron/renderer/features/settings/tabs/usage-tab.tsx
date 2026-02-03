@@ -9,7 +9,7 @@ export function UsageTab() {
           <IconChartBar size={24} className="text-primary" />
           <h3 className="text-lg font-semibold">Token Usage</h3>
         </div>
-        <p className="text-sm text-muted-foreground">
+        <p className="text-sm text-foreground/70">
           Track your AI token consumption and model usage over time.
         </p>
       </div>

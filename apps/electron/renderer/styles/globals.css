@@ -86,16 +86,29 @@
     @apply border-border;
   }
 
+  :root {
+    --font-family: "Inter", system-ui, -apple-system, sans-serif;
+    --font-size-primary: 15px;
+    --font-size-secondary: 14px;
+    font-size: var(--font-size-primary);
+  }
+
+  html {
+    font-size: var(--font-size-primary);
+  }
+
   body {
     @apply bg-background text-foreground;
-    font-family:
-      "Inter",
-      system-ui,
-      -apple-system,
-      sans-serif;
+    font-family: var(--font-family);
+    font-size: var(--font-size-primary);
     font-feature-settings:
       "rlig" 1,
       "calt" 1;
+  }
+
+  /* Secondary text size utility */
+  .text-secondary-size {
+    font-size: var(--font-size-secondary);
   }
 }
 
@@ -895,8 +908,30 @@
    Streamdown / Markdown Rendering Styles
    ========================================================================== */
 
-/* Include Streamdown's base styles */
-@source "../../../node_modules/streamdown/dist/*.js";
+/* Ensure list item text is visible (fix for invisible bullet text) */
+.prose li,
+.prose ul li,
+.prose ol li {
+  color: hsl(var(--foreground) / 0.9) !important;
+}
+
+.prose li > *,
+.prose ul li > *,
+.prose ol li > * {
+  color: inherit !important;
+}
+
+/* Ensure strong/bold text in lists is visible */
+.prose li strong,
+.prose li b {
+  color: hsl(var(--foreground)) !important;
+  font-weight: 600;
+}
+
+/* Ensure links in lists are visible */
+.prose li a {
+  color: hsl(var(--primary)) !important;
+}
 
 /* Shiki syntax highlighting theme adjustments */
 .shiki,

@@ -333,6 +333,29 @@ export function BrainIcon(props: IconProps) {
   );
 }
 
+// Asterisk/Sparkle icon for thinking (Perplexity style)
+export function ThinkingSparkleIcon(props: IconProps) {
+  return (
+    <svg
+      viewBox="0 0 16 16"
+      width="16"
+      height="16"
+      fill="currentColor"
+      aria-hidden="true"
+      {...props}
+    >
+      {/* 6-pointed asterisk/sparkle - compact version */}
+      <path
+        d="M8 3V6.5M8 9.5V13M3 8H6.5M9.5 8H13M4.5 4.5L6.8 6.8M9.2 9.2L11.5 11.5M11.5 4.5L9.2 6.8M6.8 9.2L4.5 11.5"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        fill="none"
+      />
+    </svg>
+  );
+}
+
 // Code icon for code interpreter
 export function CodeIcon(props: IconProps) {
   return (

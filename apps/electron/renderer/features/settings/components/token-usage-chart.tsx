@@ -159,8 +159,8 @@ export function TokenUsageChart() {
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-4">
             <div className="flex items-center gap-2">
-              <IconCalendarStats className="text-muted-foreground" size={18} />
-              <h3 className="text-sm font-medium tracking-wide text-muted-foreground uppercase">
+              <IconCalendarStats className="text-foreground/70" size={18} />
+              <h3 className="text-sm font-medium tracking-wide text-foreground/70 uppercase">
                 {currentDate
                   .toLocaleDateString("en-US", {
                     month: "long",
@@ -193,7 +193,7 @@ export function TokenUsageChart() {
           </div>
 
           <div className="flex items-center gap-2 text-xs">
-            <span className="text-muted-foreground uppercase tracking-wider font-medium">
+            <span className="text-foreground/70 uppercase tracking-wider font-medium">
               Monthly Total:
             </span>
             <span className="font-mono font-semibold text-foreground text-sm">
@@ -220,7 +220,7 @@ export function TokenUsageChart() {
                 dataKey="displayDate"
                 axisLine={false}
                 tickLine={false}
-                tick={{ fill: "var(--muted-foreground)", fontSize: 10 }}
+                tick={{ fill: "hsl(var(--foreground) / 0.7)", fontSize: 10 }}
                 dy={10}
                 interval="preserveStartEnd"
                 minTickGap={30}
@@ -232,12 +232,12 @@ export function TokenUsageChart() {
                     fill={
                       entry.tokens === maxTokens
                         ? "var(--primary)" // Orange/Accent for max
-                        : "hsl(var(--muted-foreground) / 0.3)" // Darker grey for others
+                        : "hsl(var(--foreground) / 0.35)" // Clearer bars in dark mode
                     }
                     stroke={
                       entry.tokens === maxTokens
                         ? "var(--primary)"
-                        : "hsl(var(--muted-foreground) / 0.5)"
+                        : "hsl(var(--foreground) / 0.55)"
                     }
                     strokeWidth={1}
                     className={cn(
@@ -260,15 +260,15 @@ export function TokenUsageChart() {
 function TotalCard({ label, value }: { label: string; value: number }) {
   return (
     <div className="rounded-lg border border-border bg-card p-4 flex flex-col justify-between hover:bg-accent/5 transition-colors">
-      <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium">
-        {label}
-      </span>
-      <div className="mt-2 flex items-baseline gap-1">
-        <span className="text-2xl font-bold tracking-tight">
-          {formatTokenCount(value)}
+        <span className="text-[10px] uppercase tracking-wider text-foreground/70 font-medium">
+          {label}
         </span>
-        <span className="text-[10px] text-muted-foreground">tks</span>
+        <div className="mt-2 flex items-baseline gap-1">
+          <span className="text-2xl font-bold tracking-tight">
+            {formatTokenCount(value)}
+          </span>
+          <span className="text-[10px] text-foreground/60">tks</span>
+        </div>
       </div>
-    </div>
   );
 }

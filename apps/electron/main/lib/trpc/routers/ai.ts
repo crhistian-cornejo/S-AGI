@@ -3,7 +3,8 @@ import { z } from "zod";
 import { router, protectedProcedure } from "../trpc";
 import log from "electron-log";
 import { sendToRenderer } from "../../window-manager";
-import { supabase } from "../../supabase/client";
+import { supabase, isSupabaseConfigured } from "../../supabase/client";
+import { getStorageAdapter, getStorageMode } from "../../storage";
 import { getSecureApiKeyStore } from "../../auth/api-key-store";
 import { getChatGPTAuthManager, getClaudeCodeAuthManager } from "../../auth";
 import { getCredentialManager } from "../../shared/credentials";
@@ -87,6 +88,27 @@ const activeStreams = new Map<string, AbortController>();
 // ============================================================================
 
 const AUTO_TITLE_MAX_LENGTH = 25;
+
+/**
+ * Check if we should use local storage mode
+ * Following OpenCode pattern for local-first storage
+ * Always defaults to local mode - cloud sync is a future premium feature
+ */
+function isLocalMode(): boolean {
+  const mode = getStorageMode();
+  const supabaseConfigured = isSupabaseConfigured();
+
+  log.debug("[AI] isLocalMode check - storageMode:", mode, "supabaseConfigured:", supabaseConfigured);
+
+  // Default to local mode - only use cloud if BOTH conditions are met:
+  // 1. Storage mode is explicitly "cloud"
+  // 2. Supabase is properly configured
+  if (mode === "local") {
+    return true;
+  }
+
+  return !supabaseConfigured;
+}
 
 function getFallbackTitle(prompt: string) {
   const trimmed = prompt.trim();
@@ -1421,20 +1443,33 @@ export const aiRouter = router({
     )
     .mutation(async ({ ctx, input }) => {
       // Validate user has access to this chat
-      const { data: chat, error } = await supabase
-        .from("chats")
-        .select("id")
-        .eq("id", input.chatId)
-        .eq("user_id", ctx.userId)
-        .single();
+      // Following OpenCode pattern: use local storage in local mode
+      if (isLocalMode()) {
+        log.info("[AI] Local mode - verifying chat access via SQLite");
+        const adapter = await getStorageAdapter();
+        const chat = await adapter.chats.getById!(input.chatId);
+        if (!chat) {
+          log.error("[AI] Chat not found in local storage:", input.chatId);
+          throw new Error("Chat not found");
+        }
+        log.debug("[AI] Local mode - chat verified:", input.chatId);
+      } else {
+        // Cloud mode: use Supabase
+        const { data: chat, error } = await supabase
+          .from("chats")
+          .select("id")
+          .eq("id", input.chatId)
+          .eq("user_id", ctx.userId)
+          .single();
 
-      if (error || !chat) {
-        log.error("[AI] Chat access denied:", {
-          chatId: input.chatId,
-          userId: ctx.userId,
-          error,
-        });
-        throw new Error("Chat not found or access denied");
+        if (error || !chat) {
+          log.error("[AI] Chat access denied:", {
+            chatId: input.chatId,
+            userId: ctx.userId,
+            error,
+          });
+          throw new Error("Chat not found or access denied");
+        }
       }
 
       // Cancel existing stream for this chat if any
@@ -2001,23 +2036,47 @@ Time: ${now.toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit", ti
           // This allows the AI to search uploaded documents without explicit frontend request
           // Following Anthropic/OpenAI best practices for RAG systems
           if (modelDef?.supportsFileSearch) {
-            const { data: chatData } = await supabase
-              .from("chats")
-              .select("openai_vector_store_id")
-              .eq("id", input.chatId)
-              .single();
+            let chatVectorStoreId: string | null = null;
 
-            if (chatData?.openai_vector_store_id) {
+            // Get vector store ID from appropriate storage
+            if (isLocalMode()) {
+              const adapter = await getStorageAdapter();
+              const chatData = await adapter.chats.getById!(input.chatId);
+              chatVectorStoreId = chatData?.openaiVectorStoreId || null;
+            } else {
+              const { data: chatData } = await supabase
+                .from("chats")
+                .select("openai_vector_store_id")
+                .eq("id", input.chatId)
+                .single();
+              chatVectorStoreId = chatData?.openai_vector_store_id || null;
+            }
+
+            if (chatVectorStoreId) {
               log.info(
-                `[AI] Chat has Knowledge Base, auto-enabling file search with vector store: ${chatData.openai_vector_store_id}`,
+                `[AI] Chat has Knowledge Base, auto-enabling file search with vector store: ${chatVectorStoreId}`,
               );
 
               // Get list of uploaded files FIRST to inform both isDocumentQuery and system prompt
-              const { data: chatFiles } = await supabase
-                .from("chat_files")
-                .select("filename, file_size, content_type, openai_file_id")
-                .eq("chat_id", input.chatId)
-                .order("created_at", { ascending: false });
+              let chatFiles: Array<{ filename: string; file_size?: number; content_type?: string; openai_file_id?: string }> | null = null;
+
+              if (isLocalMode()) {
+                const adapter = await getStorageAdapter();
+                const localFiles = await adapter.chatFiles.list(input.chatId, "local-user");
+                chatFiles = localFiles.map(f => ({
+                  filename: f.filename,
+                  file_size: f.fileSize || undefined,
+                  content_type: f.contentType || undefined,
+                  openai_file_id: f.openaiFileId || undefined,
+                }));
+              } else {
+                const { data } = await supabase
+                  .from("chat_files")
+                  .select("filename, file_size, content_type, openai_file_id")
+                  .eq("chat_id", input.chatId)
+                  .order("created_at", { ascending: false });
+                chatFiles = data;
+              }
 
               let fallbackFiles: Array<{
                 filename: string;
@@ -2033,7 +2092,7 @@ Time: ${now.toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit", ti
                       apiKey: fileServiceApiKey,
                     });
                     const openaiFiles = await fileService.listVectorStoreFiles(
-                      chatData.openai_vector_store_id,
+                      chatVectorStoreId,
                     );
                     fallbackFiles = openaiFiles.map((file) => ({
                       filename: file.filename,
@@ -2087,7 +2146,7 @@ Time: ${now.toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit", ti
                   ...(typeof nativeToolsConfig?.fileSearch === "object"
                     ? nativeToolsConfig.fileSearch
                     : {}),
-                  vectorStoreIds: [chatData.openai_vector_store_id],
+                  vectorStoreIds: [chatVectorStoreId],
                   // Increase max results for better coverage
                   maxResults: 10,
                 },
@@ -3564,12 +3623,12 @@ CITATION REQUIREMENTS (MANDATORY):
           const credentialManager = getCredentialManager();
           const provider = input.provider || "openai";
 
-          let apiKey = input.apiKey;
+          let apiKey: string | undefined = input.apiKey;
           if (!apiKey) {
             if (provider === "zai") {
-              apiKey = await credentialManager.getZaiKey();
+              apiKey = (await credentialManager.getZaiKey()) ?? undefined;
             } else {
-              apiKey = await credentialManager.getOpenAIKey();
+              apiKey = (await credentialManager.getOpenAIKey()) ?? undefined;
             }
           }
 
@@ -3694,18 +3753,66 @@ CITATION REQUIREMENTS (MANDATORY):
     .input(
       z.object({
         prompt: z.string(),
-        provider: z.enum(["openai"]),
-        apiKey: z.string(),
+        provider: z.enum(["openai", "anthropic", "zai", "chatgpt-plus"]).optional(),
+        apiKey: z.string().optional(),
         model: z.string().optional(),
       }),
     )
     .mutation(async ({ input }) => {
       try {
+        // Try to get API key from credential manager if not provided
+        let apiKey = input.apiKey || "";
+
+        if (!apiKey) {
+          // Try OpenAI first
+          const credentialManager = getCredentialManager();
+          const openAiKey = await credentialManager.getOpenAIKey();
+          if (openAiKey) apiKey = openAiKey;
+
+          // If no OpenAI key, try Anthropic
+          if (!apiKey) {
+            const anthropicKey = getSecureApiKeyStore().getAnthropicKey();
+            if (anthropicKey) {
+              // Use Anthropic for title generation
+              const Anthropic = (await import("@anthropic-ai/sdk")).default;
+              const anthropic = new Anthropic({ apiKey: anthropicKey });
+
+              const response = await anthropic.messages.create({
+                model: "claude-3-5-haiku-latest",
+                max_tokens: 50,
+                messages: [
+                  {
+                    role: "user",
+                    content: `Generate a short, concise title (max 5 words) for this message. Do not use quotes. Just respond with the title, nothing else.\n\nMessage: ${input.prompt}`,
+                  },
+                ],
+              });
+
+              const candidate = response.content[0]?.type === "text"
+                ? response.content[0].text.trim()
+                : "";
+              const title =
+                candidate && candidate !== "New Chat"
+                  ? candidate
+                  : getFallbackTitle(input.prompt);
+
+              return { title };
+            }
+          }
+        }
+
+        // If still no API key, return fallback
+        if (!apiKey) {
+          log.warn("[AI] No API key available for title generation, using fallback");
+          return { title: getFallbackTitle(input.prompt) };
+        }
+
+        // Use OpenAI for title generation
         const client = new OpenAI({
-          apiKey: input.apiKey,
+          apiKey,
         });
 
-        const modelId = input.model || "gpt-5-nano";
+        const modelId = input.model || "gpt-4o-mini";
 
         const response = await withRetry(
           "responses.create",

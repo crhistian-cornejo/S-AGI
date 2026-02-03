@@ -9,6 +9,7 @@ import {
   session,
   shell,
   dialog,
+  powerMonitor,
 } from "electron";
 import { validateIPCSender } from "./lib/security/ipc-validation";
 import { join } from "path";
@@ -19,6 +20,7 @@ import { appRouter } from "./lib/trpc";
 import { createContext } from "./lib/trpc/trpc";
 import { supabase } from "./lib/supabase/client";
 import { setMainWindow } from "./lib/window-manager";
+import { initializeStorage, closeStorage } from "./lib/storage";
 import { getHotkeyManager, getHotkeyStore } from "./lib/hotkeys";
 import { registerFileManagerIpc } from "./lib/file-manager/ipc";
 import { registerSecurityIpc } from "./lib/security/ipc";
@@ -870,6 +872,8 @@ function createTrayPopover(): BrowserWindow {
       sandbox: true,
       contextIsolation: true,
       nodeIntegration: false,
+      backgroundThrottling: true,
+      v8CacheOptions: "bypassHeatCheck",
     },
   });
 
@@ -936,6 +940,8 @@ function createQuickPromptWindow(): BrowserWindow {
       sandbox: true,
       contextIsolation: true,
       nodeIntegration: false,
+      backgroundThrottling: true,
+      v8CacheOptions: "bypassHeatCheck",
     },
   });
 
@@ -1145,7 +1151,7 @@ function registerContentSecurityPolicy(): void {
   // In production, avoid eval/inline sources where possible
   const scriptSrc = is.dev
     ? `'self' 'unsafe-inline' 'unsafe-eval' blob: ${devOrigins}`
-    : `'self' 'unsafe-eval' blob:`;
+    : `'self' 'wasm-unsafe-eval' blob:`;
 
   const csp = [
     `default-src 'self' blob: ${devOrigins}`,
@@ -1193,15 +1199,9 @@ function registerPermissionRequestHandler(): void {
       }
 
       // Allow camera/microphone access for trusted origins
-      if (
-        (permission === "media" ||
-          permission === "mediaVideoCapture" ||
-          permission === "mediaAudioCapture" ||
-          permission === "camera" ||
-          permission === "microphone") &&
-        (isLocal || isTrustedOrigin)
-      ) {
-        const mediaTypes = details?.mediaTypes ?? [];
+      if (permission === "media" && (isLocal || isTrustedOrigin)) {
+        const mediaTypes =
+          (details as { mediaTypes?: string[] })?.mediaTypes ?? [];
         const mediaLabel =
           mediaTypes.length > 0 ? mediaTypes.join(", ") : "unknown";
         log.info(
@@ -1236,7 +1236,7 @@ function registerPermissionRequestHandler(): void {
 
   session.defaultSession.setPermissionCheckHandler(
     (webContents, permission, _requestingOrigin, details) => {
-      const url = webContents.getURL();
+      const url = webContents?.getURL() ?? "";
       const rendererOrigins = getRendererOrigins();
       const isLocal = url.startsWith("file://");
       const isTrustedOrigin = rendererOrigins.some((origin) =>
@@ -1250,18 +1250,11 @@ function registerPermissionRequestHandler(): void {
         return false;
       }
 
-      if (
-        permission === "media" ||
-        permission === "mediaVideoCapture" ||
-        permission === "mediaAudioCapture" ||
-        permission === "camera" ||
-        permission === "microphone"
-      ) {
-        const mediaTypes = details?.mediaTypes ?? [];
-        const mediaLabel =
-          mediaTypes.length > 0 ? mediaTypes.join(", ") : "unknown";
+      if (permission === "media") {
+        const mediaType =
+          (details as { mediaType?: string })?.mediaType ?? "unknown";
         log.info(
-          `[Security] Permission check allowed '${permission}' (${mediaLabel}) for: ${url}`,
+          `[Security] Permission check allowed '${permission}' (${mediaType}) for: ${url}`,
         );
         return true;
       }
@@ -1427,6 +1420,8 @@ function createWindow(): void {
       sandbox: true,
       contextIsolation: true,
       nodeIntegration: false,
+      backgroundThrottling: true,
+      v8CacheOptions: "bypassHeatCheck",
     },
   });
 
@@ -1552,8 +1547,28 @@ if (process.defaultApp) {
 }
 
 // App lifecycle
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   app.setAboutPanelOptions({ applicationName: app.getName() });
+
+  // Initialize local storage (SQLite) - runs before window creation
+  try {
+    const adapter = await initializeStorage("local");
+    if (adapter && adapter.isConnected) {
+      log.info("[App] Local storage initialized successfully, isConnected:", adapter.isConnected);
+    } else {
+      log.warn("[App] Local storage adapter created but not connected - cloud mode may be required");
+    }
+  } catch (error) {
+    log.error("[App] Failed to initialize local storage:", error);
+    // Show error dialog in production
+    if (!is.dev) {
+      const { dialog } = require("electron");
+      dialog.showErrorBox(
+        "Storage Initialization Error",
+        `Failed to initialize local storage: ${error instanceof Error ? error.message : String(error)}\n\nThe app may not function correctly.`
+      );
+    }
+  }
 
   // Set app icon for macOS dock in development
   if (process.platform === "darwin") {
@@ -1662,6 +1677,38 @@ app.whenReady().then(() => {
       mainWindow.focus();
     }
   });
+
+  // ═══ POWER MONITOR (Energy Efficiency) ═══
+  // Throttle background tasks when on battery or system suspends
+  powerMonitor.on("on-battery", () => {
+    log.info("[Power] Switched to battery - reducing background activity");
+    sendToMainWindow("power:battery-status", { onBattery: true });
+  });
+
+  powerMonitor.on("on-ac", () => {
+    log.info("[Power] Switched to AC power - normal operation");
+    sendToMainWindow("power:battery-status", { onBattery: false });
+  });
+
+  powerMonitor.on("suspend", () => {
+    log.info("[Power] System suspending - pausing background tasks");
+    sendToMainWindow("power:suspend", {});
+  });
+
+  powerMonitor.on("resume", () => {
+    log.info("[Power] System resumed - refreshing data");
+    sendToMainWindow("power:resume", {});
+  });
+
+  powerMonitor.on("lock-screen", () => {
+    log.info("[Power] Screen locked - pausing animations");
+    sendToMainWindow("power:lock-screen", {});
+  });
+
+  powerMonitor.on("unlock-screen", () => {
+    log.info("[Power] Screen unlocked - resuming animations");
+    sendToMainWindow("power:unlock-screen", {});
+  });
 });
 
 app.on("window-all-closed", () => {
@@ -1671,8 +1718,16 @@ app.on("window-all-closed", () => {
 });
 
 // Graceful shutdown - Clean up resources before quitting
-app.on("before-quit", () => {
+app.on("before-quit", async () => {
   log.info("[App] Before quit - cleaning up resources...");
+
+  // Close local storage
+  try {
+    await closeStorage();
+    log.info("[App] Local storage closed");
+  } catch (error) {
+    log.error("[App] Error closing local storage:", error);
+  }
 
   // Stop AI server
   stopAIServer();

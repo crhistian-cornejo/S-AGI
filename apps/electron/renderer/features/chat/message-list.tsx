@@ -1010,11 +1010,11 @@ const MessageItem = memo(function MessageItem({
               {(modelId || modelName) && (
                 <Tooltip>
                   <TooltipTrigger asChild>
-                    <span className="h-5 px-1.5 flex items-center gap-1.5 text-[10px] rounded-md text-muted-foreground/70 font-medium">
+                    <span className="h-5 px-2 flex items-center gap-1.5 text-[10px] rounded-full bg-muted/40 text-muted-foreground/80 font-medium hover:bg-muted/60 transition-colors cursor-default">
                       <ModelIcon
                         provider={modelProvider}
                         size={12}
-                        className="shrink-0"
+                        className="shrink-0 opacity-70"
                       />
                       <span className="truncate max-w-[120px]">
                         {modelName}
@@ -1450,7 +1450,7 @@ const SourcesIndicator = memo(function SourcesIndicator({
           <button
             type="button"
             onClick={() => setIsExpanded(!isExpanded)}
-            className="h-6 px-2 flex items-center gap-1.5 text-xs text-muted-foreground/70 hover:text-muted-foreground hover:bg-muted/50 rounded-md transition-colors"
+            className="h-5 px-2 flex items-center gap-1.5 text-[10px] text-muted-foreground/80 hover:text-muted-foreground bg-muted/40 hover:bg-muted/60 rounded-full transition-colors"
           >
             {/* Stacked icons */}
             <div className="flex items-center">

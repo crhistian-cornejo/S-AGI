@@ -21,6 +21,11 @@ import {
   IconChevronRight,
   IconPhoto,
   IconLoader2,
+  IconCheck,
+  IconPlus,
+  IconUsers,
+  IconDeviceDesktop,
+  IconCloud,
 } from "@tabler/icons-react";
 import { trpc } from "@/lib/trpc";
 import {
@@ -31,10 +36,14 @@ import {
   artifactPanelOpenAtom,
   undoStackAtom,
   activeTabAtom,
+  agentPanelOpenAtom,
   commandKOpenAtom,
+  authDialogOpenAtom,
+  settingsActiveTabAtom,
   type UndoItem,
 } from "@/lib/atoms";
 import { useOpenSettingsPage } from "@/features/settings/use-open-settings-page";
+import { HamburgerMenu } from "@/features/layout/hamburger-menu";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -136,6 +145,7 @@ interface Chat {
   created_at: string;
   archived: boolean;
   pinned?: boolean;
+  isLocal?: boolean;
   meta?: {
     spreadsheets: number;
     documents: number;
@@ -165,8 +175,10 @@ interface ChatItemProps {
   isArchived?: boolean;
 }
 
-function formatRelativeTimeCompact(date: Date | string) {
+function formatRelativeTimeCompact(date: Date | string | null | undefined) {
+  if (!date) return "";
   const d = typeof date === "string" ? new Date(date) : date;
+  if (isNaN(d.getTime())) return "";
   const now = new Date();
   const diff = now.getTime() - d.getTime();
 
@@ -277,7 +289,7 @@ function ChatItem({
           {chat.title || "Untitled"}
         </p>
       </div>
-      <div className="flex items-center gap-2 shrink-0 transition-all duration-150 group-hover:opacity-0 group-hover:w-0 group-hover:overflow-hidden">
+      <div className="flex items-center gap-1.5 shrink-0 transition-all duration-150 group-hover:opacity-0 group-hover:w-0 group-hover:overflow-hidden">
         {isStreaming && (
           <IconLoader2
             size={14}
@@ -286,6 +298,23 @@ function ChatItem({
               isSelected ? "text-primary" : "text-muted-foreground/60",
             )}
           />
+        )}
+        {/* Local/Cloud indicator */}
+        {chat.isLocal !== undefined && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span className="shrink-0">
+                {chat.isLocal ? (
+                  <IconDeviceDesktop size={12} className="text-muted-foreground/50" />
+                ) : (
+                  <IconCloud size={12} className="text-blue-400/70" />
+                )}
+              </span>
+            </TooltipTrigger>
+            <TooltipContent side="top">
+              {chat.isLocal ? "Local storage" : "Cloud sync"}
+            </TooltipContent>
+          </Tooltip>
         )}
         <span className="text-[13px] text-muted-foreground font-medium tabular-nums">
           {formatRelativeTimeCompact(chat.updated_at)}
@@ -425,11 +454,15 @@ export function Sidebar() {
   const provider = useAtomValue(currentProviderAtom);
   const openSettingsPage = useOpenSettingsPage();
   const [sidebarOpen, setSidebarOpen] = useAtom(sidebarOpenAtom);
+  const [agentPanelOpen, setAgentPanelOpen] = useAtom(agentPanelOpenAtom);
+  const activeTab = useAtomValue(activeTabAtom);
   const setSelectedArtifact = useSetAtom(selectedArtifactAtom);
   const setArtifactPanelOpen = useSetAtom(artifactPanelOpenAtom);
   const setActiveTab = useSetAtom(activeTabAtom);
   const setCommandKOpen = useSetAtom(commandKOpenAtom);
   const showWindowsLogo = isWindows() && sidebarOpen;
+  const isAgentEnabled =
+    activeTab === "excel" || activeTab === "doc" || activeTab === "pdf";
   const [editingChatId, setEditingChatId] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState("");
 
@@ -456,6 +489,11 @@ export function Sidebar() {
   // Fetch session
   const { data: session } = trpc.auth.getSession.useQuery();
   const user = session?.user;
+
+  // Fetch all connected accounts (multi-account support)
+  const { data: accountsData } = trpc.auth.getAccounts.useQuery();
+  const accounts = accountsData?.accounts || [];
+  const hasMultipleAccounts = accounts.length > 1;
 
   // Fetch chats (includes pinned, ordered correctly)
   const {
@@ -645,8 +683,30 @@ export function Sidebar() {
     onSuccess: () => {
       window.desktopApi?.setSession(null);
       utils.auth.getSession.invalidate();
+      utils.auth.getAccounts.invalidate();
     },
   });
+
+  // Multi-account: switch to a different account
+  const switchAccount = trpc.auth.switchAccount.useMutation({
+    onSuccess: () => {
+      // Invalidate ALL user-specific caches when switching accounts
+      utils.auth.getSession.invalidate();
+      utils.auth.getUser.invalidate();
+      utils.auth.getAccounts.invalidate();
+      utils.chats.list.invalidate();
+      utils.chats.listArchived.invalidate();
+      utils.artifacts.list.invalidate();
+      utils.userFiles.list.invalidate();
+      // Clear selected chat to avoid showing data from previous account
+      setSelectedChatId(null);
+      toast.success("Switched account");
+    },
+  });
+
+  // Multi-account: add auth dialog control
+  const setAuthDialogOpen = useSetAtom(authDialogOpenAtom);
+  const setSettingsTab = useSetAtom(settingsActiveTabAtom);
 
   const handleNewChat = () => {
     setActiveTab("chat");
@@ -741,10 +801,40 @@ export function Sidebar() {
         <div className="flex w-full items-center justify-between">
           {showWindowsLogo ? (
             <div className="flex items-center gap-2 no-drag">
-              <Logo size={20} />
-              <span className="text-sm font-semibold text-foreground tracking-tight">
-                S-AGI
-              </span>
+              <HamburgerMenu />
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      isAgentEnabled && setAgentPanelOpen(!agentPanelOpen)
+                    }
+                    disabled={!isAgentEnabled}
+                    className={cn(
+                      "flex items-center gap-2 transition-all duration-200 no-drag pointer-events-auto",
+                      isAgentEnabled &&
+                        "hover:opacity-80 active:scale-95 cursor-pointer",
+                      !isAgentEnabled && "cursor-default",
+                      isAgentEnabled && agentPanelOpen && "text-primary",
+                    )}
+                  >
+                    <div className="relative">
+                      <Logo size={20} />
+                      {isAgentEnabled && agentPanelOpen && (
+                        <span className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-primary" />
+                      )}
+                    </div>
+                    <span className="text-sm font-semibold text-foreground tracking-tight">
+                      S-AGI
+                    </span>
+                  </button>
+                </TooltipTrigger>
+                {isAgentEnabled && (
+                  <TooltipContent side="bottom">
+                    {agentPanelOpen ? "Close Agent Panel" : "Open Agent Panel"}
+                  </TooltipContent>
+                )}
+              </Tooltip>
             </div>
           ) : (
             <div className="flex-1" />
@@ -962,26 +1052,96 @@ export function Sidebar() {
                 <IconDots size={14} className="opacity-40" />
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" side="top" className="w-56">
-              <DropdownMenuLabel className="flex items-center justify-between">
-                <span>My Account</span>
-                {isConnected && (
-                  <div className="flex items-center gap-1.5 bg-accent/50 px-2 py-0.5 rounded-full">
-                    {provider === "chatgpt-plus" ? (
-                      <IconBrandOpenai size={10} className="text-emerald-600" />
-                    ) : provider === "openai" ? (
-                      <IconBrandOpenai size={10} />
-                    ) : provider === "zai" ? (
-                      <ZaiIcon size={10} className="text-amber-500" />
-                    ) : null}
-                    {/* NOTE: gemini-advanced disabled */}
-                    <span className="text-[9px] font-bold tracking-tight uppercase">
-                      {provider === "chatgpt-plus" ? "Plus" : provider}
+            <DropdownMenuContent align="start" side="top" className="w-64">
+              {/* Account List Section */}
+              {accounts.length > 0 && (
+                <>
+                  <DropdownMenuLabel className="flex items-center justify-between">
+                    <span className="flex items-center gap-1.5">
+                      <IconUsers size={12} />
+                      Accounts
                     </span>
+                    {hasMultipleAccounts && (
+                      <span className="text-[9px] text-muted-foreground">
+                        {accounts.length} connected
+                      </span>
+                    )}
+                  </DropdownMenuLabel>
+                  <div className="max-h-40 overflow-y-auto">
+                    {accounts.map((account) => (
+                      <DropdownMenuItem
+                        key={account.id}
+                        onClick={() => {
+                          if (!account.isActive) {
+                            switchAccount.mutate({ accountId: account.id });
+                          }
+                        }}
+                        className={cn(
+                          "flex items-center gap-2 cursor-pointer",
+                          account.isActive && "bg-accent/50"
+                        )}
+                      >
+                        <div className="relative">
+                          <Avatar className="h-5 w-5">
+                            {account.avatarUrl ? (
+                              <AvatarImage src={account.avatarUrl} />
+                            ) : null}
+                            <AvatarFallback className="text-[10px] bg-primary/10">
+                              {account.isLocal ? (
+                                <IconDeviceDesktop size={12} />
+                              ) : (
+                                account.email?.charAt(0).toUpperCase() || "?"
+                              )}
+                            </AvatarFallback>
+                          </Avatar>
+                          {account.isActive && (
+                            <span className="absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full bg-green-500 border border-background" />
+                          )}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs font-medium truncate">
+                            {account.isLocal ? "Local Account" : account.email}
+                          </p>
+                          <p className="text-[10px] text-muted-foreground truncate">
+                            {account.isLocal ? "Offline mode" : account.provider || "Cloud"}
+                          </p>
+                        </div>
+                        {account.isActive && (
+                          <IconCheck size={14} className="text-green-500 shrink-0" />
+                        )}
+                      </DropdownMenuItem>
+                    ))}
                   </div>
-                )}
-              </DropdownMenuLabel>
+                  <DropdownMenuSeparator />
+                </>
+              )}
+
+              {/* Add Account */}
+              <DropdownMenuItem
+                onClick={() => setAuthDialogOpen(true)}
+                className="gap-2"
+              >
+                <IconPlus size={14} />
+                Add Account
+              </DropdownMenuItem>
+
+              {/* Manage Accounts (only show if multiple) */}
+              {hasMultipleAccounts && (
+                <DropdownMenuItem
+                  onClick={() => {
+                    setSettingsTab("account");
+                    openSettingsPage();
+                  }}
+                  className="gap-2"
+                >
+                  <IconUsers size={14} />
+                  Manage Accounts...
+                </DropdownMenuItem>
+              )}
+
               <DropdownMenuSeparator />
+
+              {/* Settings */}
               <DropdownMenuItem
                 onClick={() => openSettingsPage()}
                 className="justify-between"
@@ -996,12 +1156,14 @@ export function Sidebar() {
                     : "Ctrl+,"}
                 </kbd>
               </DropdownMenuItem>
+
+              {/* Sign out current account */}
               <DropdownMenuItem
                 variant="destructive"
                 onClick={() => signOut.mutate()}
               >
                 <IconLogout size={14} className="mr-2" />
-                Sign out
+                {hasMultipleAccounts ? "Sign out current" : "Sign out"}
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>

@@ -119,7 +119,7 @@ export function UniverCharts({ univerAPI }: { univerAPI: any }) {
         name: headerIndex === -1 ? `Fila ${rowIndex + 1}` : row[0]?.toString() || `Fila ${rowIndex + 1}`,
       }
 
-      columns.slice(1).forEach((col, colIndex) => {
+      columns.slice(1).forEach((col) => {
         const value = row[col.index + 1]
         point[col.label] = col.isNumeric ? parseFloat(value) || 0 : value
       })
@@ -236,8 +236,8 @@ export function UniverCharts({ univerAPI }: { univerAPI: any }) {
         return (
           <ResponsiveContainer width="100%" height={400}>
             <PieChart>
-              <Pie data={pieData} cx="50%" cy="50%" labelLine={false} label={({ name, percent }) => `${name}: ${(percent * 100).toFixed(0)}%`} outerRadius={120} fill="#8884d8">
-                {pieData.map((entry, index) => (
+              <Pie data={pieData} cx="50%" cy="50%" labelLine={false} label={({ name, percent }: any) => `${name || ''}: ${((percent ?? 0) * 100).toFixed(0)}%`} outerRadius={120} fill="#8884d8">
+                {pieData.map((_, index) => (
                   <Cell key={`cell-${index}`} fill={getChartColor(index)} />
                 ))}
               </Pie>

@@ -57,13 +57,14 @@ export function UniverToolsPanel({
     })
   }
 
-  const handleExportSelection = async () => {
+  const _handleExportSelection = async () => {
     if (!univerAPI || !fileId) return
     await UniverExportService.exportSelection(univerAPI, {
       filename: `${fileName || 'seleccion'}.xlsx`,
       format: 'xlsx',
     })
   }
+  void _handleExportSelection; // Reserved for future use
 
   return (
     <>

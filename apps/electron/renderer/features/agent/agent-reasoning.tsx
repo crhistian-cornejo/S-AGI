@@ -217,21 +217,22 @@ export function AgentReasoning({
 
   return (
     <div className={cn("", className)}>
-      {/* Header row with thinking toggle */}
-      <div className="flex items-center gap-3 flex-wrap">
+      {/* Header row with thinking toggle and sources */}
+      <div className="flex items-center gap-2 flex-wrap">
         {/* Thinking toggle button */}
         <button
           type="button"
           onClick={() => canToggle && setIsExpanded(!isExpanded)}
           className={cn(
-            "inline-flex items-center gap-1.5 text-xs text-muted-foreground/70",
+            "inline-flex items-center gap-1.5 text-xs",
+            isStreaming ? "text-foreground" : "text-muted-foreground/70",
             "hover:text-muted-foreground transition-colors",
             canToggle ? "cursor-pointer" : "cursor-default"
           )}
           disabled={!canToggle}
         >
           {isStreaming ? (
-            <IconSpinner className="w-3.5 h-3.5" />
+            <IconSpinner className="w-3.5 h-3.5 text-primary" />
           ) : (
             <BrainIcon className="w-3.5 h-3.5" />
           )}
@@ -240,12 +241,20 @@ export function AgentReasoning({
 
           {canToggle && (
             isExpanded ? (
-              <IconChevronDown size={12} className="ml-0.5" />
+              <IconChevronDown size={12} className="ml-0.5 opacity-60" />
             ) : (
-              <IconChevronRight size={12} className="ml-0.5" />
+              <IconChevronRight size={12} className="ml-0.5 opacity-60" />
             )
           )}
         </button>
+
+        {/* Sources badge inline (Perplexity style) */}
+        {totalSources > 0 && !isExpanded && (
+          <div className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-muted/50 text-[10px] text-muted-foreground">
+            <IconBookmark size={10} className="opacity-70" />
+            <span className="font-medium">{totalSources} sources</span>
+          </div>
+        )}
       </div>
 
       {(isExpanded || isStreaming) && (

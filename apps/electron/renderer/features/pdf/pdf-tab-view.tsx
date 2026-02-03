@@ -32,35 +32,19 @@ import { PdfIcon } from "@/features/agent/icons";
 /**
  * Main PDF Tab View Component
  *
- * Layout with collapsible sidebar:
- * - Container takes full height minus titlebar (36px)
- * - Sidebar collapses to icons, main content expands
- * - Clean border separation between sidebar and content
+ * Layout: sidebar is now in main-layout (like Excel, Doc, Ideas)
+ * This component only handles the main content area
  */
 export const PdfTabView = memo(function PdfTabView() {
   const [sidebarOpen, setSidebarOpen] = useAtom(pdfSidebarOpenAtom);
 
   return (
-    <div className="h-full flex overflow-hidden bg-background">
+    <div className="h-full flex flex-col overflow-hidden bg-background">
       {/* Global queue processor - runs for all PDFs */}
       <PdfQueueProcessor />
 
-      {/* Sidebar - collapses completely like chat sidebar */}
-      <div
-        className={cn(
-          "h-full bg-sidebar transition-all duration-300 ease-in-out overflow-hidden shrink-0",
-          sidebarOpen ? "w-72 border-r border-border/40" : "w-0 border-r-0"
-        )}
-      >
-        <div className="w-72 h-full">
-          <PdfSidebarContent />
-        </div>
-      </div>
-
       {/* Main content */}
-      <main className="flex-1 flex flex-col overflow-hidden pt-9">
-        <PdfMainContent sidebarOpen={sidebarOpen} onToggleSidebar={() => setSidebarOpen(!sidebarOpen)} />
-      </main>
+      <PdfMainContent sidebarOpen={sidebarOpen} onToggleSidebar={() => setSidebarOpen(!sidebarOpen)} />
     </div>
   );
 });
@@ -70,7 +54,7 @@ export const PdfTabView = memo(function PdfTabView() {
  * Shows list of PDFs grouped by source (local vs cloud)
  * Simple content without SidebarProvider - parent handles collapse
  */
-const PdfSidebarContent = memo(function PdfSidebarContent() {
+export const PdfSidebar = memo(function PdfSidebar() {
   const utils = trpc.useUtils();
   const [, setSidebarOpen] = useAtom(pdfSidebarOpenAtom);
   const mainSidebarOpen = useAtomValue(sidebarOpenAtom);

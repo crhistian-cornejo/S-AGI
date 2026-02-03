@@ -1,9 +1,58 @@
 import { z } from 'zod'
 import { router, protectedProcedure } from '../trpc'
-import { supabase } from '../../supabase/client'
+import { supabase, isSupabaseConfigured } from '../../supabase/client'
 import path from 'path'
 import { processBase64Image, isProcessableImage, getExtensionForFormat } from '../../ai'
 import log from 'electron-log'
+import { getStorageAdapter, getStorageMode } from '../../storage'
+
+/**
+ * Check if we should use local storage mode
+ * Defaults to local - cloud sync is a future premium feature
+ */
+function isLocalMode(): boolean {
+    const storageMode = getStorageMode()
+    const supabaseConfigured = isSupabaseConfigured()
+    log.debug('[Messages] isLocalMode check - storageMode:', storageMode, 'supabaseConfigured:', supabaseConfigured)
+
+    // Default to local mode - only use cloud if explicitly set
+    if (storageMode === 'local') {
+        return true
+    }
+    return !supabaseConfigured
+}
+
+/**
+ * Map local message (camelCase) to Supabase format (snake_case)
+ */
+function mapLocalMessageToSnakeCase(msg: {
+    id: string;
+    chatId: string;
+    userId: string;
+    role: string;
+    content: string;
+    attachments: unknown[] | null;
+    metadata: Record<string, unknown> | null;
+    modelId: string | null;
+    modelName: string | null;
+    createdAt: Date;
+    updatedAt: Date;
+}) {
+    return {
+        id: msg.id,
+        chat_id: msg.chatId,
+        user_id: msg.userId,
+        role: msg.role,
+        content: msg.content,
+        attachments: msg.attachments || [],
+        metadata: msg.metadata,
+        model_id: msg.modelId,
+        model_name: msg.modelName,
+        created_at: msg.createdAt.toISOString(),
+        updated_at: msg.updatedAt.toISOString(),
+        tool_calls: (msg.metadata as any)?.tool_calls || [],
+    };
+}
 
 // Signed URL TTL for attachments (24 hours - long enough for sessions, short enough for security)
 const ATTACHMENT_SIGNED_URL_TTL = 60 * 60 * 24
@@ -72,6 +121,20 @@ export const messagesRouter = router({
         .query(async ({ ctx, input }) => {
             // Server-side clamp for safety
             const safeLimit = Math.min(input.limit, 200)
+
+            // Use local storage adapter in local mode
+            // Following OpenCode pattern: no ownership verification needed in single-user local mode
+            if (isLocalMode()) {
+                log.info('[Messages] Local mode - listing messages for chatId:', input.chatId)
+                const adapter = await getStorageAdapter()
+
+                // In local mode, just list messages by chatId (like OpenCode does)
+                // No ownership verification - it's single-user
+                const messages = await adapter.messages.listByChatId!(input.chatId, safeLimit)
+                // Map to snake_case for frontend compatibility
+                return messages.map(mapLocalMessageToSnakeCase)
+            }
+
             // First verify the chat belongs to the user
             const { data: chat } = await supabase
                 .from('chats')
@@ -127,6 +190,45 @@ export const messagesRouter = router({
         .mutation(async ({ ctx, input }) => {
             console.log('[MessagesRouter] add message, userId:', ctx.userId, 'chatId:', input.chatId);
 
+            // Map content to string if it is an object (renderer sends {type: 'text', text: '...'})
+            let contentText = ''
+            if (typeof input.content === 'object') {
+                contentText = input.content.text || JSON.stringify(input.content)
+            } else {
+                contentText = String(input.content)
+            }
+
+            const metadataPayload = {
+                ...(input.metadata && typeof input.metadata === 'object' ? input.metadata : {}),
+                ...(input.toolCalls ? { tool_calls: input.toolCalls } : {})
+            }
+
+            // Use local storage adapter in local mode
+            // Following OpenCode pattern: no ownership verification needed in single-user local mode
+            if (isLocalMode()) {
+                log.info('[Messages] Local mode - adding message to chatId:', input.chatId)
+                const adapter = await getStorageAdapter()
+
+                // In local mode, just add the message directly (like OpenCode does)
+                // No ownership verification needed - it's single-user
+                const message = await adapter.messages.add({
+                    chatId: input.chatId,
+                    userId: 'local-user', // Always use local-user in local mode
+                    role: input.role,
+                    content: contentText,
+                    attachments: input.attachments || [],
+                    metadata: Object.keys(metadataPayload).length > 0 ? metadataPayload : undefined,
+                    modelId: input.modelId,
+                    modelName: input.modelName
+                })
+
+                // Update chat's updated_at timestamp using updateById (OpenCode pattern)
+                await adapter.chats.updateById!(input.chatId, {})
+
+                // Map to snake_case for frontend compatibility
+                return mapLocalMessageToSnakeCase(message)
+            }
+
             // Verify chat ownership
             const { data: chat, error: chatError } = await supabase
                 .from('chats')
@@ -140,19 +242,6 @@ export const messagesRouter = router({
             if (!chat) {
                 console.error('[MessagesRouter] Chat not found or access denied for user:', ctx.userId, 'chatId:', input.chatId);
                 throw new Error('Chat not found or access denied')
-            }
-
-            // Map content to string if it is an object (renderer sends {type: 'text', text: '...'})
-            let contentText = ''
-            if (typeof input.content === 'object') {
-                contentText = input.content.text || JSON.stringify(input.content)
-            } else {
-                contentText = String(input.content)
-            }
-
-            const metadataPayload = {
-                ...(input.metadata && typeof input.metadata === 'object' ? input.metadata : {}),
-                ...(input.toolCalls ? { tool_calls: input.toolCalls } : {})
             }
 
             const insertPayload: Record<string, unknown> = {
@@ -195,6 +284,26 @@ export const messagesRouter = router({
             attachments: z.array(attachmentSchema).optional()
         }))
         .mutation(async ({ ctx, input }) => {
+            // Use local storage adapter in local mode
+            // Following OpenCode pattern: no ownership verification in single-user local mode
+            if (isLocalMode()) {
+                log.debug('[Messages] Local mode - updating message:', input.id)
+                const adapter = await getStorageAdapter()
+
+                const { id, ...updates } = input
+                const updateData: Record<string, unknown> = {}
+
+                if (updates.content !== undefined) updateData.content = updates.content
+                if (updates.toolCalls !== undefined) {
+                    // Store tool_calls in metadata
+                    updateData.metadata = { tool_calls: updates.toolCalls }
+                }
+                if (updates.attachments !== undefined) updateData.attachments = updates.attachments
+
+                const message = await adapter.messages.update(id, 'local-user', updateData as any)
+                return mapLocalMessageToSnakeCase(message)
+            }
+
             // First get the message to verify ownership through chat
             const { data: message } = await supabase
                 .from('chat_messages')
@@ -240,6 +349,15 @@ export const messagesRouter = router({
     delete: protectedProcedure
         .input(z.object({ id: z.string().uuid() }))
         .mutation(async ({ ctx, input }) => {
+            // Use local storage adapter in local mode
+            // Following OpenCode pattern: no ownership verification in single-user local mode
+            if (isLocalMode()) {
+                log.debug('[Messages] Local mode - deleting message:', input.id)
+                const adapter = await getStorageAdapter()
+                await adapter.messages.delete(input.id, 'local-user')
+                return { success: true }
+            }
+
             // First get the message to verify ownership through chat
             const { data: message } = await supabase
                 .from('chat_messages')
@@ -289,13 +407,6 @@ export const messagesRouter = router({
             const startTime = Date.now()
             console.log('[MessagesRouter] Upload file:', input.fileName, 'for user:', ctx.userId);
 
-            // Verify session is active for storage RLS
-            const { data: { session }, error: sessionError } = await supabase.auth.getSession()
-            if (sessionError || !session) {
-                console.error('[MessagesRouter] No active session for storage upload:', sessionError);
-                throw new Error('Authentication required for file upload. Please sign in again.')
-            }
-
             let finalBuffer: Buffer
             let finalFileName = input.fileName
             let finalMimeType = input.fileType
@@ -317,7 +428,7 @@ export const messagesRouter = router({
                     finalBuffer = Buffer.from(processed.base64, 'base64')
                     finalMimeType = processed.mimeType
                     finalSize = processed.stats.processedSize
-                    
+
                     // Update filename to .webp
                     const baseName = path.basename(input.fileName, path.extname(input.fileName))
                     finalFileName = `${baseName}${getExtensionForFormat('webp')}`
@@ -343,6 +454,46 @@ export const messagesRouter = router({
             const timestamp = Date.now()
             const randomId = Math.random().toString(36).substring(2, 15)
             const storagePath = `${ctx.userId}/${timestamp}-${randomId}-${fileNameWithoutExt}${fileExt}`
+
+            // Use local storage adapter in local mode
+            if (isLocalMode()) {
+                log.debug('[Messages] Using local storage for uploadFile')
+                const adapter = await getStorageAdapter()
+
+                const result = await adapter.fileStorage.upload(
+                    'attachments',
+                    storagePath,
+                    finalBuffer,
+                    { contentType: finalMimeType }
+                )
+
+                if (!result.success) {
+                    throw new Error(`Upload failed: ${result.error}`)
+                }
+
+                // Get local file URL
+                const url = await adapter.fileStorage.getUrl('attachments', storagePath)
+
+                const totalTime = Date.now() - startTime
+                console.log(`[MessagesRouter] Local upload complete in ${totalTime}ms`)
+
+                return {
+                    id: randomId,
+                    name: finalFileName,
+                    size: finalSize,
+                    type: finalMimeType,
+                    url: url,
+                    storagePath: storagePath,
+                    compression: compressionInfo
+                }
+            }
+
+            // Verify session is active for storage RLS
+            const { data: { session }, error: sessionError } = await supabase.auth.getSession()
+            if (sessionError || !session) {
+                console.error('[MessagesRouter] No active session for storage upload:', sessionError);
+                throw new Error('Authentication required for file upload. Please sign in again.')
+            }
 
             // Upload to Supabase Storage
             const { error: uploadError } = await supabase.storage

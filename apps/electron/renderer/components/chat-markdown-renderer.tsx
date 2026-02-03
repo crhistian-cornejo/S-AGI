@@ -7,6 +7,7 @@ import {
   useRef,
   type ReactNode,
   Fragment,
+  isValidElement,
 } from "react";
 import * as HoverCard from "@radix-ui/react-hover-card";
 import katex from "katex";
@@ -34,8 +35,15 @@ const LATEX_LIKE =
   /\\(int|frac|sqrt|sum|infty|pi|alpha|beta|gamma|theta|sigma|omega|partial|lim|log|cdot|times|pm|leq|geq|neq|approx|rightarrow|leftarrow)\\b|\\^\\{|_\\{|∞|√|∫/;
 
 function getText(children: ReactNode): string {
+  if (children == null) return "";
   if (typeof children === "string") return children;
+  if (typeof children === "number") return String(children);
   if (Array.isArray(children)) return children.map(getText).join("");
+  // Handle React elements by extracting text from their children
+  if (isValidElement(children)) {
+    const props = children.props as { children?: ReactNode };
+    return getText(props.children);
+  }
   return "";
 }
 
@@ -680,9 +688,15 @@ export const ChatMarkdownRenderer = memo(function ChatMarkdownRenderer({
           // Lists
           ul: ({ children, ...props }: any) => <ul {...props}>{children}</ul>,
           ol: ({ children, ...props }: any) => <ol {...props}>{children}</ol>,
-          li: ({ children, ...props }: any) => (
-            <li {...props}>{wrapWithCitations(children)}</li>
-          ),
+          li: ({ children, ...props }: any) => {
+            // Safeguard: ensure children are rendered even if undefined
+            const content = children ?? '';
+            return (
+              <li {...props} className={cn(props.className, "text-foreground/90")}>
+                {wrapWithCitations(content)}
+              </li>
+            );
+          },
 
           // Links with preview
           a: ({ href, children, ...props }: any) => (

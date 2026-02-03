@@ -102,6 +102,27 @@ export const onboardingCompletedAtom = atomWithStorage(
   false
 )
 
+// === MULTI-ACCOUNT STATE ===
+
+/** Account info from the multi-account store */
+export interface AccountInfo {
+  id: string
+  userId: string
+  email: string
+  displayName: string
+  avatarUrl?: string
+  isLocal: boolean
+  provider?: string
+  connectedAt: number
+  isActive: boolean
+}
+
+/** UI state for account switcher popover */
+export const accountSwitcherOpenAtom = atom(false)
+
+/** Add account dialog mode - for adding new accounts */
+export const addAccountDialogOpenAtom = atom(false)
+
 // === SOUND EFFECTS ===
 
 export const chatSoundsEnabledAtom = atomWithStorage(
@@ -149,3 +170,44 @@ export const imageEditDialogAtom = atom<ImageEditDialogState>({
 
 export const excelSidebarOpenAtom = atomWithStorage('excel-sidebar-open', true)
 export const docSidebarOpenAtom = atomWithStorage('doc-sidebar-open', true)
+
+// === TYPOGRAPHY SETTINGS ===
+
+export type FontFamily = 'system' | 'inter' | 'geist' | 'jetbrains-mono' | 'fira-code' | 'roboto'
+
+export const FONT_FAMILY_OPTIONS: { value: FontFamily; label: string; fontFamily: string }[] = [
+  { value: 'system', label: 'System Default', fontFamily: 'system-ui, -apple-system, sans-serif' },
+  { value: 'inter', label: 'Inter', fontFamily: '"Inter", system-ui, sans-serif' },
+  { value: 'geist', label: 'Geist', fontFamily: '"Geist", system-ui, sans-serif' },
+  { value: 'roboto', label: 'Roboto', fontFamily: '"Roboto", system-ui, sans-serif' },
+  { value: 'jetbrains-mono', label: 'JetBrains Mono', fontFamily: '"JetBrains Mono", monospace' },
+  { value: 'fira-code', label: 'Fira Code', fontFamily: '"Fira Code", monospace' },
+]
+
+export type FontSize = 'xs' | 'sm' | 'md' | 'lg' | 'xl'
+
+export const FONT_SIZE_OPTIONS: { value: FontSize; label: string; size: string }[] = [
+  { value: 'xs', label: 'Extra Small', size: '13px' },
+  { value: 'sm', label: 'Small', size: '14px' },
+  { value: 'md', label: 'Medium (Default)', size: '15px' },
+  { value: 'lg', label: 'Large', size: '16px' },
+  { value: 'xl', label: 'Extra Large', size: '17px' },
+]
+
+/** UI Font Family */
+export const uiFontFamilyAtom = atomWithStorage<FontFamily>(
+  'preferences:ui-font-family',
+  'inter'
+)
+
+/** Primary/Body Font Size */
+export const primaryFontSizeAtom = atomWithStorage<FontSize>(
+  'preferences:primary-font-size',
+  'md'
+)
+
+/** Secondary/Muted Font Size (labels, hints, etc.) */
+export const secondaryFontSizeAtom = atomWithStorage<FontSize>(
+  'preferences:secondary-font-size',
+  'sm'
+)

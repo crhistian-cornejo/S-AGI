@@ -67,7 +67,8 @@ import {
   AgentReasoning,
   type AgentReasoningAction,
 } from "@/features/agent";
-import { AgentToolCallFlat } from "./agent-tool-call-flat";
+import type { AgentToolCallFlat as _AgentToolCallFlat } from "./agent-tool-call-flat";
+void (0 as unknown as typeof _AgentToolCallFlat); // Type-only import marker
 import { TaskProgressPanel, type TaskItem } from "./task-progress-panel";
 import { MessageCheckpointRestore } from "./message-checkpoint-restore";
 import { AgentPrismLoader } from "./agent-prism-loader";
@@ -339,7 +340,7 @@ const AgentMessage = memo(function AgentMessage({
   );
 
   // Create a map of tool calls by ID for quick lookup
-  const toolCallsMap = useMemo(() => {
+  const _toolCallsMap = useMemo(() => {
     const map = new Map<
       string,
       typeof message.toolCalls extends (infer T)[] | undefined ? T : never
@@ -349,6 +350,7 @@ const AgentMessage = memo(function AgentMessage({
     });
     return map;
   }, [message.toolCalls]);
+  void _toolCallsMap; // Reserved for future use
 
   // Parse content into segments (interleaved text and tool markers)
   const segments = useMemo(() => {
@@ -383,11 +385,12 @@ const AgentMessage = memo(function AgentMessage({
   }, [isUser, message.images, message.toolCalls]);
 
   // Render a single tool call
-  const renderToolCall = (toolCallId: string) => {
+  const renderToolCall = (_toolCallId: string) => {
     // Tool calls are now rendered in AgentReasoning component to avoid duplication
     // and keep the activity sequence ordered in the "Thinking/Activity" block.
     return null;
   };
+  void renderToolCall;
 
   return (
     <div

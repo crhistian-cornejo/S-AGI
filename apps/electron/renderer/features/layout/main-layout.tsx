@@ -80,45 +80,50 @@ import { VersionPreviewBanner } from "@/components/version-preview-banner";
 const ArtifactPanel = lazy(() =>
   import("@/features/artifacts/artifact-panel").then((m) => ({
     default: m.ArtifactPanel,
-  })),
+  }))
 );
 const UniverSpreadsheet = lazy(() =>
   import("@/features/univer/univer-spreadsheet").then((m) => ({
     default: m.UniverSpreadsheet,
-  })),
+  }))
 );
 const UniverDocument = lazy(() =>
   import("@/features/univer/univer-document").then((m) => ({
     default: m.UniverDocument,
-  })),
+  }))
 );
 const PdfTabView = lazy(() =>
   import("@/features/pdf/pdf-tab-view").then((m) => ({
     default: m.PdfTabView,
-  })),
+  }))
 );
 const IdeasView = lazy(() =>
-  import("@/features/ideas/ideas-view").then((m) => ({ default: m.IdeasView })),
+  import("@/features/ideas/ideas-view").then((m) => ({ default: m.IdeasView }))
 );
 const AgentPanel = lazy(() =>
   import("@/features/agent/agent-panel").then((m) => ({
     default: m.AgentPanel,
-  })),
+  }))
 );
 const FilesSidebar = lazy(() =>
   import("@/features/files/files-sidebar").then((m) => ({
     default: m.FilesSidebar,
-  })),
+  }))
 );
 const FileHeader = lazy(() =>
   import("@/features/files/file-header").then((m) => ({
     default: m.FileHeader,
-  })),
+  }))
 );
 const NotesSidebar = lazy(() =>
   import("@/features/notes/notes-sidebar").then((m) => ({
     default: m.NotesSidebar,
-  })),
+  }))
+);
+const PdfSidebar = lazy(() =>
+  import("@/features/pdf/pdf-tab-view").then((m) => ({
+    default: m.PdfSidebar,
+  }))
 );
 const settingsTabs: SettingsTab[] = [
   "account",
@@ -144,7 +149,7 @@ export function MainLayout() {
   const notesSidebarOpen = useAtomValue(notesSidebarOpenAtom);
   const [pdfSidebarOpen] = useAtom(pdfSidebarOpenAtom);
   const [artifactPanelOpen, setArtifactPanelOpen] = useAtom(
-    artifactPanelOpenAtom,
+    artifactPanelOpenAtom
   );
   const [agentPanelOpen, setAgentPanelOpen] = useAtom(agentPanelOpenAtom);
   const selectedArtifact = useAtomValue(selectedArtifactAtom);
@@ -179,25 +184,29 @@ export function MainLayout() {
   >("excel");
   // Version preview from atoms (managed by useFileVersions hook)
   const [, setPreviewVersionNumber] = useAtom(versionHistoryPreviewVersionAtom);
-  const [previewVersionData, setPreviewVersionData] = useAtom(versionPreviewDataAtom);
+  const [previewVersionData, setPreviewVersionData] = useAtom(
+    versionPreviewDataAtom
+  );
 
   // IMPORTANT: Only use preview data if it matches the current file
   // This prevents showing data from another file due to cached/stale queries
-  const validExcelPreviewData = previewVersionData?.fileId === currentExcelFileId
-    ? previewVersionData
-    : null;
-  const validDocPreviewData = previewVersionData?.fileId === currentDocFileId
-    ? previewVersionData
-    : null;
+  const validExcelPreviewData =
+    previewVersionData?.fileId === currentExcelFileId
+      ? previewVersionData
+      : null;
+  const validDocPreviewData =
+    previewVersionData?.fileId === currentDocFileId ? previewVersionData : null;
 
   // CRITICAL: Only use file data if it matches the current file ID
   // This prevents showing stale data from a previously selected file
-  const validExcelFileData = currentExcelFile?.id === currentExcelFileId
-    ? currentExcelFile?.univer_data
-    : null;
-  const validDocFileData = currentDocFile?.id === currentDocFileId
-    ? currentDocFile?.univer_data
-    : null;
+  const validExcelFileData =
+    currentExcelFile?.id === currentExcelFileId
+      ? currentExcelFile?.univer_data
+      : null;
+  const validDocFileData =
+    currentDocFile?.id === currentDocFileId
+      ? currentDocFile?.univer_data
+      : null;
 
   // Refs to Univer components for saving
   const univerSpreadsheetRef = useRef<any>(null);
@@ -241,19 +250,26 @@ export function MainLayout() {
             }));
             console.log(
               "[MainLayout] Saved Excel snapshot on tab switch:",
-              effectiveId,
+              effectiveId
             );
           }
         } catch (err) {
           console.error(
             "[MainLayout] Failed to save Excel snapshot on tab switch:",
-            err,
+            err
           );
         }
       }
     }
     previousTabRef.current = activeTab;
   }, [activeTab, currentExcelFileId, excelScratchId, setFileSnapshotCache]);
+
+  // Ensure agent panel is closed on Ideas (notes) tab
+  useEffect(() => {
+    if (activeTab === "ideas" && agentPanelOpen) {
+      setAgentPanelOpen(false);
+    }
+  }, [activeTab, agentPanelOpen, setAgentPanelOpen]);
 
   const createChat = trpc.chats.create.useMutation({
     onSuccess: (chat) => {
@@ -289,7 +305,7 @@ export function MainLayout() {
           : "New Chat";
       createChat.mutate({ title });
     },
-    [createChat],
+    [createChat]
   );
 
   const handleRenameExcel = useCallback(
@@ -297,7 +313,7 @@ export function MainLayout() {
       if (!currentExcelFileId) return;
       renameFileMutation.mutate({ id: currentExcelFileId, name: newName });
     },
-    [currentExcelFileId, renameFileMutation],
+    [currentExcelFileId, renameFileMutation]
   );
 
   const handleRenameDoc = useCallback(
@@ -305,9 +321,8 @@ export function MainLayout() {
       if (!currentDocFileId) return;
       renameFileMutation.mutate({ id: currentDocFileId, name: newName });
     },
-    [currentDocFileId, renameFileMutation],
+    [currentDocFileId, renameFileMutation]
   );
-
 
   // Handle version preview - clears atoms when panel closes
   // The actual fetching is done by the useFileVersions hook when selectVersionForPreview is called
@@ -321,7 +336,7 @@ export function MainLayout() {
       // When selecting a version, the hook's selectVersionForPreview updates the atom,
       // which triggers useQuery in the hook that fetches and syncs to versionPreviewDataAtom
     },
-    [setPreviewVersionNumber, setPreviewVersionData],
+    [setPreviewVersionNumber, setPreviewVersionData]
   );
 
   const arrayBufferToBase64 = useCallback((buffer: ArrayBuffer) => {
@@ -332,7 +347,7 @@ export function MainLayout() {
     for (let i = 0; i < uint8Array.length; i += chunkSize) {
       const chunk = uint8Array.subarray(
         i,
-        Math.min(i + chunkSize, uint8Array.length),
+        Math.min(i + chunkSize, uint8Array.length)
       );
       base64 += String.fromCharCode.apply(null, Array.from(chunk));
     }
@@ -424,7 +439,7 @@ export function MainLayout() {
           }) => {
             console.log(
               "[MainLayout] Opening local PDFs from tray:",
-              data.files.length,
+              data.files.length
             );
             for (const file of data.files) {
               const pdfSource = createPdfSourceFromLocalFile({
@@ -436,8 +451,8 @@ export function MainLayout() {
             }
             // Switch to PDF tab
             setActiveTab("pdf");
-          },
-        ),
+          }
+        )
       );
     }
 
@@ -483,7 +498,7 @@ export function MainLayout() {
         }) => {
           console.log(
             "[MainLayout] Opening PDFs from menu:",
-            data.files.length,
+            data.files.length
           );
           for (const file of data.files) {
             const pdfSource = createPdfSourceFromLocalFile({
@@ -494,7 +509,7 @@ export function MainLayout() {
             addLocalPdf(pdfSource);
           }
           setActiveTab("pdf");
-        },
+        }
       ),
       // View menu
       api.menu.onToggleSidebar(() => {
@@ -503,7 +518,7 @@ export function MainLayout() {
       api.menu.onShowShortcuts(() => {
         setShortcutsOpen((prev) => !prev);
       }),
-      api.menu.onShowAbout(() => {
+      (api.menu as any).onShowAbout?.(() => {
         setAboutOpen(true);
       }),
       // Go menu
@@ -527,9 +542,9 @@ export function MainLayout() {
         if (supportsReasoning) {
           setReasoningEffort(
             (prev) =>
-              ({ low: "medium", medium: "high", high: "low" })[
+              ({ low: "medium", medium: "high", high: "low" }[
                 prev
-              ] as ReasoningEffort,
+              ] as ReasoningEffort)
           );
         }
       }),
@@ -649,7 +664,7 @@ export function MainLayout() {
         api.onNavigateTab((data) => {
           console.log("[MainLayout] Agent navigating to tab:", data.tab);
           setActiveTab(data.tab);
-        }),
+        })
       );
     }
 
@@ -659,7 +674,7 @@ export function MainLayout() {
         api.onSelectArtifact(async (data) => {
           console.log(
             "[MainLayout] Agent selecting artifact:",
-            data.artifactId,
+            data.artifactId
           );
 
           // Fetch artifact data and set it
@@ -678,7 +693,7 @@ export function MainLayout() {
           } catch (err) {
             console.error("[MainLayout] Failed to fetch artifact:", err);
           }
-        }),
+        })
       );
     }
 
@@ -692,10 +707,14 @@ export function MainLayout() {
   // Global Shortcuts - disabled when Univer tabs are active to avoid input conflicts
   const isUniverTabActive = activeTab === "excel" || activeTab === "doc";
 
-  useHotkeys("meta+shift+/, ctrl+shift+/", () => setShortcutsOpen((prev) => !prev), {
-    preventDefault: true,
-    enabled: !isUniverTabActive,
-  });
+  useHotkeys(
+    "meta+shift+/, ctrl+shift+/",
+    () => setShortcutsOpen((prev) => !prev),
+    {
+      preventDefault: true,
+      enabled: !isUniverTabActive,
+    }
+  );
   useHotkeys("meta+\\", () => setSidebarOpen((prev) => !prev), {
     preventDefault: true,
     enabled: !isUniverTabActive,
@@ -710,7 +729,7 @@ export function MainLayout() {
       enableOnFormTags: true,
       preventDefault: true,
       enabled: !isUniverTabActive,
-    },
+    }
   );
   useHotkeys("meta+comma, ctrl+comma", () => openSettingsPage(), {
     preventDefault: true,
@@ -722,7 +741,7 @@ export function MainLayout() {
       e.preventDefault();
       setCommandKOpen(true);
     },
-    { preventDefault: true, enabled: !isUniverTabActive },
+    { preventDefault: true, enabled: !isUniverTabActive }
   );
   useHotkeys(
     "ctrl+tab",
@@ -731,16 +750,16 @@ export function MainLayout() {
       if (!supportsReasoning) return;
       setReasoningEffort(
         (prev) =>
-          ({ low: "medium", medium: "high", high: "low" })[
+          ({ low: "medium", medium: "high", high: "low" }[
             prev
-          ] as ReasoningEffort,
+          ] as ReasoningEffort)
       );
     },
     {
       preventDefault: true,
       enableOnFormTags: true,
       enabled: !isUniverTabActive,
-    },
+    }
   );
 
   return (
@@ -754,24 +773,24 @@ export function MainLayout() {
           (activeTab === "chat" || activeTab === "gallery") && sidebarOpen
             ? "left-72"
             : activeTab === "ideas" && sidebarOpen && notesSidebarOpen
-              ? "left-[36rem]"
-              : activeTab === "ideas" && (sidebarOpen || notesSidebarOpen)
-                ? "left-72"
-                : activeTab === "pdf" && sidebarOpen && pdfSidebarOpen
-                  ? "left-[36rem]"
-                  : activeTab === "pdf" && (sidebarOpen || pdfSidebarOpen)
-                    ? "left-72"
-                    : activeTab === "excel" && sidebarOpen && excelSidebarOpen
-                      ? "left-[36rem]"
-                      : activeTab === "excel" && (sidebarOpen || excelSidebarOpen)
-                        ? "left-72"
-                        : activeTab === "doc" && sidebarOpen && docSidebarOpen
-                          ? "left-[36rem]"
-                          : activeTab === "doc" && (sidebarOpen || docSidebarOpen)
-                            ? "left-72"
-                            : activeTab === "settings"
-                              ? "left-72"
-                              : "left-0",
+            ? "left-[36rem]"
+            : activeTab === "ideas" && (sidebarOpen || notesSidebarOpen)
+            ? "left-72"
+            : activeTab === "pdf" && sidebarOpen && pdfSidebarOpen
+            ? "left-[36rem]"
+            : activeTab === "pdf" && (sidebarOpen || pdfSidebarOpen)
+            ? "left-72"
+            : activeTab === "excel" && sidebarOpen && excelSidebarOpen
+            ? "left-[36rem]"
+            : activeTab === "excel" && (sidebarOpen || excelSidebarOpen)
+            ? "left-72"
+            : activeTab === "doc" && sidebarOpen && docSidebarOpen
+            ? "left-[36rem]"
+            : activeTab === "doc" && (sidebarOpen || docSidebarOpen)
+            ? "left-72"
+            : activeTab === "settings"
+            ? "left-72"
+            : "left-0"
         )}
         noTrafficLightSpace={
           ((activeTab === "chat" || activeTab === "gallery") && sidebarOpen) ||
@@ -797,7 +816,7 @@ export function MainLayout() {
                   ? activeTab === "chat"
                     ? "w-72"
                     : "w-72 border-r border-sidebar-border/40"
-                  : "w-0 border-r-0",
+                  : "w-0 border-r-0"
               )}
             >
               <div className="w-72 h-full">
@@ -813,7 +832,7 @@ export function MainLayout() {
                     <div
                       className={cn(
                         "absolute z-[60] flex items-center gap-2 animate-in fade-in slide-in-from-left-4 duration-500 no-drag",
-                        "top-0 h-9 pl-14 pr-2 left-4",
+                        "top-0 h-9 pl-14 pr-2 left-4"
                       )}
                     >
                       <Tooltip>
@@ -821,7 +840,7 @@ export function MainLayout() {
                           <Button
                             variant="ghost"
                             size="icon"
-                            className="h-8 w-8 rounded-xl bg-background/60 backdrop-blur-xl border border-border/50 shadow-sm hover:bg-accent hover:scale-110 transition-all active:scale-95 text-primary no-drag"
+                            className="h-8 w-8 rounded-md bg-background/60 backdrop-blur-xl border border-border/50 shadow-sm hover:bg-accent hover:scale-110 transition-all active:scale-95 text-primary no-drag"
                             onClick={() => setSidebarOpen(true)}
                           >
                             <IconLayoutSidebarLeftExpand size={18} />
@@ -846,7 +865,7 @@ export function MainLayout() {
                           <Button
                             variant="ghost"
                             size="icon"
-                            className="h-8 w-8 rounded-xl bg-background/60 backdrop-blur-xl border border-border/50 shadow-sm hover:bg-accent hover:scale-110 transition-all active:scale-95 no-drag"
+                            className="h-8 w-8 rounded-md bg-background/60 backdrop-blur-xl border border-border/50 shadow-sm hover:bg-accent hover:scale-110 transition-all active:scale-95 no-drag"
                             onClick={() => setActiveTab("gallery")}
                           >
                             <IconPhoto size={18} />
@@ -865,7 +884,7 @@ export function MainLayout() {
                           <Button
                             variant="outline"
                             size="icon"
-                            className="h-8 w-8 rounded-xl bg-background/60 backdrop-blur-xl border-border/50 shadow-sm hover:bg-accent hover:scale-110 transition-all active:scale-95 no-drag"
+                            className="h-8 w-8 rounded-md bg-background/60 backdrop-blur-xl border-border/50 shadow-sm hover:bg-accent hover:scale-110 transition-all active:scale-95 no-drag"
                             onClick={handleNewChat}
                             disabled={createChat.isPending}
                           >
@@ -891,7 +910,7 @@ export function MainLayout() {
                           <Button
                             variant="ghost"
                             size="icon"
-                            className="h-8 w-8 rounded-xl bg-background/60 backdrop-blur-xl border border-border/50 shadow-sm hover:bg-accent hover:scale-110 transition-all active:scale-95 no-drag"
+                            className="h-8 w-8 rounded-md bg-background/60 backdrop-blur-xl border border-border/50 shadow-sm hover:bg-accent hover:scale-110 transition-all active:scale-95 no-drag"
                             onClick={() => setCommandKOpen(true)}
                           >
                             <IconHistory
@@ -916,14 +935,18 @@ export function MainLayout() {
                     </div>
                   )}
 
+                  {/* Windows: vertical floating buttons inside chat area */}
                   {!isMacOS() && !sidebarOpen && activeTab === "chat" && (
-                    <div className="absolute left-4 top-12 z-[60] flex flex-col items-center gap-2 no-drag">
+                    <div
+                      className="absolute left-4 top-12 z-[200] flex flex-col items-center gap-2 no-drag pointer-events-auto"
+                      style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
+                    >
                       <Tooltip>
                         <TooltipTrigger asChild>
                           <Button
                             variant="ghost"
                             size="icon"
-                            className="h-8 w-8 rounded-xl bg-background/60 backdrop-blur-xl border border-border/50 shadow-sm hover:bg-accent hover:scale-110 transition-all active:scale-95 text-primary no-drag"
+                            className="h-8 w-8 rounded-md bg-background/60 backdrop-blur-xl border border-border/50 shadow-sm hover:bg-accent hover:scale-110 transition-all active:scale-95 text-primary"
                             onClick={() => setSidebarOpen(true)}
                           >
                             <IconLayoutSidebarLeftExpand size={18} />
@@ -945,7 +968,7 @@ export function MainLayout() {
                           <Button
                             variant="ghost"
                             size="icon"
-                            className="h-8 w-8 rounded-xl bg-background/60 backdrop-blur-xl border border-border/50 shadow-sm hover:bg-accent hover:scale-110 transition-all active:scale-95 no-drag"
+                            className="h-8 w-8 rounded-md bg-background/60 backdrop-blur-xl border border-border/50 shadow-sm hover:bg-accent hover:scale-110 transition-all active:scale-95"
                             onClick={() => setActiveTab("gallery")}
                           >
                             <IconPhoto size={18} />
@@ -964,7 +987,7 @@ export function MainLayout() {
                           <Button
                             variant="ghost"
                             size="icon"
-                            className="h-8 w-8 rounded-xl bg-background/60 backdrop-blur-xl border border-border/50 shadow-sm hover:bg-accent hover:scale-110 transition-all active:scale-95 no-drag"
+                            className="h-8 w-8 rounded-md bg-background/60 backdrop-blur-xl border border-border/50 shadow-sm hover:bg-accent hover:scale-110 transition-all active:scale-95"
                             onClick={handleNewChat}
                             disabled={createChat.isPending}
                           >
@@ -987,7 +1010,7 @@ export function MainLayout() {
                           <Button
                             variant="ghost"
                             size="icon"
-                            className="h-8 w-8 rounded-xl bg-background/60 backdrop-blur-xl border border-border/50 shadow-sm hover:bg-accent hover:scale-110 transition-all active:scale-95 no-drag"
+                            className="h-8 w-8 rounded-md bg-background/60 backdrop-blur-xl border border-border/50 shadow-sm hover:bg-accent hover:scale-110 transition-all active:scale-95"
                             onClick={() => setCommandKOpen(true)}
                           >
                             <IconHistory
@@ -1012,7 +1035,7 @@ export function MainLayout() {
               )}
 
               <div className="flex-1 flex flex-col min-w-0 overflow-hidden p-2">
-                <div className="flex-1 flex flex-col min-w-0 overflow-hidden rounded-[26px] border border-sidebar-border/40 bg-sidebar">
+                <div className="flex-1 flex flex-col min-w-0 overflow-hidden rounded-2xl border border-sidebar-border/40 bg-sidebar">
                   {activeTab === "chat" ? <ChatView /> : <GalleryView />}
                 </div>
               </div>
@@ -1022,10 +1045,10 @@ export function MainLayout() {
             {activeTab === "chat" && (
               <div
                 className={cn(
-                "h-full bg-sidebar transition-all duration-300 ease-in-out overflow-hidden shrink-0 pt-9",
+                  "h-full bg-sidebar transition-all duration-300 ease-in-out overflow-hidden shrink-0 pt-9",
                   selectedArtifact && artifactPanelOpen
                     ? "w-[600px]"
-                    : "w-0 border-l-0",
+                    : "w-0 border-l-0"
                 )}
               >
                 <div className="w-[600px] h-full">
@@ -1053,7 +1076,7 @@ export function MainLayout() {
                 "h-full bg-sidebar transition-all duration-300 ease-in-out overflow-hidden shrink-0",
                 sidebarOpen
                   ? "w-72 border-r border-sidebar-border/40"
-                  : "w-0 border-r-0",
+                  : "w-0 border-r-0"
               )}
             >
               <div className="w-72 h-full">
@@ -1067,7 +1090,7 @@ export function MainLayout() {
                 "h-full bg-sidebar transition-all duration-300 ease-in-out overflow-hidden shrink-0",
                 excelSidebarOpen
                   ? "w-72 border-r border-sidebar-border/40"
-                  : "w-0 border-r-0",
+                  : "w-0 border-r-0"
               )}
             >
               <div className="w-72 h-full">
@@ -1083,37 +1106,37 @@ export function MainLayout() {
             {/* Main content area */}
             <div className="flex-1 flex flex-col min-w-0 overflow-hidden relative pt-9 bg-sidebar animate-in fade-in zoom-in-95 duration-300">
               <div className="flex-1 flex flex-col min-w-0 overflow-hidden p-2">
-                <div className="flex-1 flex min-w-0 overflow-hidden rounded-[26px] border border-sidebar-border/40 bg-sidebar relative">
+                <div className="flex-1 flex min-w-0 overflow-hidden rounded-2xl border border-sidebar-border/40 bg-sidebar relative">
                   <div
                     className={cn(
-                      "flex-1 flex flex-col min-w-0 overflow-hidden",
-                      agentPanelOpen && "pr-[320px]",
+                      "flex-1 flex flex-col min-w-0 overflow-hidden"
                     )}
                   >
                     {/* File Header - shows when valid file is loaded (ID matches) */}
-                    {currentExcelFile && currentExcelFile.id === currentExcelFileId && (
-                      <Suspense fallback={null}>
-                        <FileHeader
-                          file={currentExcelFile}
-                          onRename={handleRenameExcel}
-                          onExport={handleExportExcel}
-                          onSave={async () => {
-                            if (univerSpreadsheetRef.current?.save) {
-                              await univerSpreadsheetRef.current.save();
-                              toast.success("Guardado");
-                            }
-                          }}
-                          storageKind="cloud"
-                          storageLabel="Nube (S-AGI)"
-                          storageTooltip="Guardado en la nube con historial de versiones"
-                          onOpenHistory={() => {
-                            setVersionHistoryFileId(currentExcelFileId);
-                            setVersionHistoryFileType("excel");
-                            setVersionHistoryOpen(true);
-                          }}
-                        />
-                      </Suspense>
-                    )}
+                    {currentExcelFile &&
+                      currentExcelFile.id === currentExcelFileId && (
+                        <Suspense fallback={null}>
+                          <FileHeader
+                            file={currentExcelFile}
+                            onRename={handleRenameExcel}
+                            onExport={handleExportExcel}
+                            onSave={async () => {
+                              if (univerSpreadsheetRef.current?.save) {
+                                await univerSpreadsheetRef.current.save();
+                                toast.success("Guardado");
+                              }
+                            }}
+                            storageKind="cloud"
+                            storageLabel="Nube (S-AGI)"
+                            storageTooltip="Guardado en la nube con historial de versiones"
+                            onOpenHistory={() => {
+                              setVersionHistoryFileId(currentExcelFileId);
+                              setVersionHistoryFileType("excel");
+                              setVersionHistoryOpen(true);
+                            }}
+                          />
+                        </Suspense>
+                      )}
                     {/* Loading header when file ID is set but data not yet loaded */}
                     {currentExcelFileId &&
                       (!currentExcelFile ||
@@ -1149,7 +1172,13 @@ export function MainLayout() {
                         <Suspense fallback={<PanelLoadingFallback />}>
                           <UniverSpreadsheet
                             ref={univerSpreadsheetRef}
-                            key={`spreadsheet-${currentExcelFileId || excelScratchId}-v${validExcelPreviewData?.versionNumber || "current"}-${validExcelPreviewData?.fileId || "none"}-vc${currentExcelFile?.version_count || 0}`}
+                            key={`spreadsheet-${
+                              currentExcelFileId || excelScratchId
+                            }-v${
+                              validExcelPreviewData?.versionNumber || "current"
+                            }-${validExcelPreviewData?.fileId || "none"}-vc${
+                              currentExcelFile?.version_count || 0
+                            }`}
                             fileId={
                               validExcelPreviewData
                                 ? undefined // Don't save when previewing
@@ -1179,24 +1208,6 @@ export function MainLayout() {
                       </div>
                     </div>
                   </div>
-                  {/* Agent Panel - GPU slide, no layout animation */}
-                  <div
-                    className={cn(
-                      "absolute right-0 top-0 h-full w-[320px] bg-sidebar border-l border-sidebar-border/40",
-                      "transition-transform transition-opacity duration-300 ease-in-out transform-gpu",
-                      agentPanelOpen
-                        ? "translate-x-0 opacity-100"
-                        : "translate-x-full opacity-0 pointer-events-none",
-                    )}
-                    inert={!agentPanelOpen || undefined}
-                    aria-hidden={!agentPanelOpen}
-                  >
-                    <div className="h-full w-[320px]">
-                      <Suspense fallback={<PanelLoadingFallback />}>
-                        <AgentPanel />
-                      </Suspense>
-                    </div>
-                  </div>
                 </div>
               </div>
             </div>
@@ -1215,7 +1226,7 @@ export function MainLayout() {
                 "h-full bg-sidebar transition-all duration-300 ease-in-out overflow-hidden shrink-0",
                 sidebarOpen
                   ? "w-72 border-r border-sidebar-border/40"
-                  : "w-0 border-r-0",
+                  : "w-0 border-r-0"
               )}
             >
               <div className="w-72 h-full">
@@ -1229,7 +1240,7 @@ export function MainLayout() {
                 "h-full bg-sidebar transition-all duration-300 ease-in-out overflow-hidden shrink-0",
                 docSidebarOpen
                   ? "w-72 border-r border-sidebar-border/40"
-                  : "w-0 border-r-0",
+                  : "w-0 border-r-0"
               )}
             >
               <div className="w-72 h-full">
@@ -1245,58 +1256,65 @@ export function MainLayout() {
             {/* Main content area */}
             <div className="flex-1 flex flex-col min-w-0 overflow-hidden relative pt-9 bg-sidebar animate-in fade-in zoom-in-95 duration-300">
               <div className="flex-1 flex flex-col min-w-0 overflow-hidden p-2">
-                <div className="flex-1 flex min-w-0 overflow-hidden rounded-[26px] border border-sidebar-border/40 bg-sidebar relative">
+                <div className="flex-1 flex min-w-0 overflow-hidden rounded-2xl border border-sidebar-border/40 bg-sidebar relative">
                   <div
                     className={cn(
                       "flex-1 flex flex-col min-w-0 overflow-hidden",
-                      agentPanelOpen && "pr-[320px]",
+                      agentPanelOpen && "pr-[320px]"
                     )}
                   >
-              {/* File Header - shows when valid file is loaded (ID matches) */}
-              {currentDocFile && currentDocFile.id === currentDocFileId && (
-                <Suspense fallback={null}>
-                  <FileHeader
-                    file={currentDocFile}
-                    onRename={handleRenameDoc}
-                    onSave={async () => {
-                      if (univerDocumentRef.current?.save) {
-                        await univerDocumentRef.current.save();
-                        toast.success("Guardado");
-                      }
-                    }}
-                    storageKind="cloud"
-                    storageLabel="Nube (S-AGI)"
-                    storageTooltip="Guardado en la nube con historial de versiones"
-                    onOpenHistory={() => {
-                      setVersionHistoryFileId(currentDocFileId);
-                      setVersionHistoryFileType("doc");
-                      setVersionHistoryOpen(true);
-                    }}
-                  />
-                </Suspense>
-              )}
-              {/* Loading header when file ID is set but data not yet loaded */}
-              {currentDocFileId && (!currentDocFile || currentDocFile.id !== currentDocFileId) && (
-                <div className="h-10 border-b border-border/50 bg-background/50 flex items-center px-4">
-                  <div className="w-4 h-4 border-2 border-primary border-t-transparent rounded-full animate-spin mr-2" />
-                  <span className="text-sm text-muted-foreground">Cargando documento...</span>
-                </div>
-              )}
-              {/* Scratch header when no file selected */}
-              {!currentDocFileId && (
-                <div className="h-10 border-b border-border/50 bg-background/50 flex items-center px-4">
-                  <IconFileText
-                    size={16}
-                    className="text-muted-foreground mr-2"
-                  />
-                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                    <span>Documento nuevo - Guarda para crear un archivo</span>
-                    <span className="text-xs text-muted-foreground/60">
-                      • Sin guardar (local temporal)
-                    </span>
-                  </div>
-                </div>
-              )}
+                    {/* File Header - shows when valid file is loaded (ID matches) */}
+                    {currentDocFile &&
+                      currentDocFile.id === currentDocFileId && (
+                        <Suspense fallback={null}>
+                          <FileHeader
+                            file={currentDocFile}
+                            onRename={handleRenameDoc}
+                            onSave={async () => {
+                              if (univerDocumentRef.current?.save) {
+                                await univerDocumentRef.current.save();
+                                toast.success("Guardado");
+                              }
+                            }}
+                            storageKind="cloud"
+                            storageLabel="Nube (S-AGI)"
+                            storageTooltip="Guardado en la nube con historial de versiones"
+                            onOpenHistory={() => {
+                              setVersionHistoryFileId(currentDocFileId);
+                              setVersionHistoryFileType("doc");
+                              setVersionHistoryOpen(true);
+                            }}
+                          />
+                        </Suspense>
+                      )}
+                    {/* Loading header when file ID is set but data not yet loaded */}
+                    {currentDocFileId &&
+                      (!currentDocFile ||
+                        currentDocFile.id !== currentDocFileId) && (
+                        <div className="h-10 border-b border-border/50 bg-background/50 flex items-center px-4">
+                          <div className="w-4 h-4 border-2 border-primary border-t-transparent rounded-full animate-spin mr-2" />
+                          <span className="text-sm text-muted-foreground">
+                            Cargando documento...
+                          </span>
+                        </div>
+                      )}
+                    {/* Scratch header when no file selected */}
+                    {!currentDocFileId && (
+                      <div className="h-10 border-b border-border/50 bg-background/50 flex items-center px-4">
+                        <IconFileText
+                          size={16}
+                          className="text-muted-foreground mr-2"
+                        />
+                        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                          <span>
+                            Documento nuevo - Guarda para crear un archivo
+                          </span>
+                          <span className="text-xs text-muted-foreground/60">
+                            • Sin guardar (local temporal)
+                          </span>
+                        </div>
+                      </div>
+                    )}
                     {/* Version Preview Banner for Docs */}
                     <VersionPreviewBanner fileId={currentDocFileId} />
 
@@ -1305,15 +1323,18 @@ export function MainLayout() {
                       <Suspense fallback={<PanelLoadingFallback />}>
                         <UniverDocument
                           ref={univerDocumentRef}
-                          key={`document-${currentDocFileId || docScratchId}-v${validDocPreviewData?.versionNumber || "current"}-${validDocPreviewData?.fileId || "none"}-vc${currentDocFile?.version_count || 0}`}
+                          key={`document-${currentDocFileId || docScratchId}-v${
+                            validDocPreviewData?.versionNumber || "current"
+                          }-${validDocPreviewData?.fileId || "none"}-vc${
+                            currentDocFile?.version_count || 0
+                          }`}
                           fileId={
                             validDocPreviewData
                               ? undefined
                               : currentDocFileId || undefined
                           }
                           fileData={
-                            validDocPreviewData?.univerData ||
-                            validDocFileData
+                            validDocPreviewData?.univerData || validDocFileData
                           }
                           artifactId={
                             !currentDocFileId
@@ -1341,7 +1362,7 @@ export function MainLayout() {
                       "transition-transform transition-opacity duration-300 ease-in-out transform-gpu",
                       agentPanelOpen
                         ? "translate-x-0 opacity-100"
-                        : "translate-x-full opacity-0 pointer-events-none",
+                        : "translate-x-full opacity-0 pointer-events-none"
                     )}
                     inert={!agentPanelOpen || undefined}
                     aria-hidden={!agentPanelOpen}
@@ -1360,7 +1381,7 @@ export function MainLayout() {
 
         {/*
          * PDF Tab - Unified PDF viewer hub.
-         * Same pattern as Excel: main Sidebar + PDF sidebar (inside PdfTabView) + Agent Panel
+         * Same pattern as Excel: main Sidebar + PDF sidebar + main content + Agent Panel
          */}
         {activeTab === "pdf" && (
           <>
@@ -1370,7 +1391,7 @@ export function MainLayout() {
                 "h-full bg-sidebar transition-all duration-300 ease-in-out overflow-hidden shrink-0",
                 sidebarOpen
                   ? "w-72 border-r border-sidebar-border/40"
-                  : "w-0 border-r-0",
+                  : "w-0 border-r-0"
               )}
             >
               <div className="w-72 h-full">
@@ -1378,14 +1399,30 @@ export function MainLayout() {
               </div>
             </div>
 
+            {/* PDF File Sidebar - second sidebar */}
+            <div
+              className={cn(
+                "h-full bg-sidebar transition-all duration-300 ease-in-out overflow-hidden shrink-0",
+                pdfSidebarOpen
+                  ? "w-72 border-r border-sidebar-border/40"
+                  : "w-0 border-r-0"
+              )}
+            >
+              <div className="w-72 h-full">
+                <Suspense fallback={<PanelLoadingFallback />}>
+                  <PdfSidebar />
+                </Suspense>
+              </div>
+            </div>
+
             {/* Main content area */}
             <div className="flex-1 flex flex-col min-w-0 overflow-hidden relative pt-9 bg-sidebar animate-in fade-in zoom-in-95 duration-300">
               <div className="flex-1 flex flex-col min-w-0 overflow-hidden p-2">
-                <div className="flex-1 flex min-w-0 overflow-hidden rounded-[26px] border border-sidebar-border/40 bg-sidebar relative">
+                <div className="flex-1 flex min-w-0 overflow-hidden rounded-2xl border border-sidebar-border/40 bg-sidebar relative">
                   <div
                     className={cn(
                       "flex-1 flex flex-col min-w-0 overflow-hidden",
-                      agentPanelOpen && "pr-[320px]",
+                      agentPanelOpen && "pr-[320px]"
                     )}
                   >
                     <Suspense fallback={<PanelLoadingFallback />}>
@@ -1399,7 +1436,7 @@ export function MainLayout() {
                       "transition-transform transition-opacity duration-300 ease-in-out transform-gpu",
                       agentPanelOpen
                         ? "translate-x-0 opacity-100"
-                        : "translate-x-full opacity-0 pointer-events-none",
+                        : "translate-x-full opacity-0 pointer-events-none"
                     )}
                     inert={!agentPanelOpen || undefined}
                     aria-hidden={!agentPanelOpen}
@@ -1417,8 +1454,7 @@ export function MainLayout() {
         )}
 
         {/*
-         * Ideas Tab - Notes with NotesSidebar + AgentPanel
-         * Same pattern as Excel tab: main Sidebar + page-specific sidebar + Agent Panel
+         * Ideas Tab - Notes with NotesSidebar (no Agent Panel)
          */}
         {activeTab === "ideas" && (
           <>
@@ -1428,7 +1464,7 @@ export function MainLayout() {
                 "h-full bg-sidebar transition-all duration-300 ease-in-out overflow-hidden shrink-0",
                 sidebarOpen
                   ? "w-72 border-r border-sidebar-border/40"
-                  : "w-0 border-r-0",
+                  : "w-0 border-r-0"
               )}
             >
               <div className="w-72 h-full">
@@ -1442,7 +1478,7 @@ export function MainLayout() {
                 "h-full bg-sidebar transition-all duration-300 ease-in-out overflow-hidden shrink-0",
                 notesSidebarOpen
                   ? "w-72 border-r border-sidebar-border/40"
-                  : "w-0 border-r-0",
+                  : "w-0 border-r-0"
               )}
             >
               <div className="w-72 h-full">
@@ -1455,11 +1491,11 @@ export function MainLayout() {
             {/* Main content area */}
             <div className="flex-1 flex flex-col min-w-0 overflow-hidden relative pt-9 bg-sidebar animate-in fade-in zoom-in-95 duration-300">
               <div className="flex-1 flex flex-col min-w-0 overflow-hidden p-2">
-                <div className="flex-1 flex min-w-0 overflow-hidden rounded-[26px] border border-sidebar-border/40 bg-sidebar relative">
+                <div className="flex-1 flex min-w-0 overflow-hidden rounded-2xl border border-sidebar-border/40 bg-sidebar relative">
                   <div
                     className={cn(
                       "flex-1 flex flex-col min-w-0 overflow-hidden",
-                      agentPanelOpen && "pr-[320px]",
+                      agentPanelOpen && "pr-[320px]"
                     )}
                   >
                     <Suspense fallback={<PanelLoadingFallback />}>
@@ -1473,7 +1509,7 @@ export function MainLayout() {
                       "transition-transform transition-opacity duration-300 ease-in-out transform-gpu",
                       agentPanelOpen
                         ? "translate-x-0 opacity-100"
-                        : "translate-x-full opacity-0 pointer-events-none",
+                        : "translate-x-full opacity-0 pointer-events-none"
                     )}
                     inert={!agentPanelOpen || undefined}
                     aria-hidden={!agentPanelOpen}

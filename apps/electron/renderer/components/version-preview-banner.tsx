@@ -2,7 +2,6 @@
  * Version Preview Banner
  * Shows a banner when viewing a historical version (read-only mode)
  */
-import * as React from "react";
 import { useAtomValue, useSetAtom } from "jotai";
 import {
   versionPreviewDataAtom,

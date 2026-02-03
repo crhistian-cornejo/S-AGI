@@ -329,8 +329,7 @@ const ToolCallItem = memo(function ToolCallItem({
       : [undefined, range];
 
     // Send IPC to highlight cells in spreadsheet
-    // @ts-expect-error - desktopApi extended in preload
-    window.desktopApi?.highlightCells?.({
+    (window as any).desktopApi?.highlightCells?.({
       range: cellPart,
       sheetName: sheetPart,
     });

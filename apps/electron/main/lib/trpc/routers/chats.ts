@@ -1,7 +1,52 @@
 import log from "electron-log";
 import { z } from "zod";
 import { router, protectedProcedure } from "../trpc";
-import { supabase } from "../../supabase/client";
+import { supabase, isSupabaseConfigured } from "../../supabase/client";
+import { getStorageAdapter, getStorageMode } from "../../storage";
+
+/**
+ * Check if we should use local storage mode
+ * Defaults to local - cloud sync is a future premium feature
+ */
+function isLocalMode(): boolean {
+  const mode = getStorageMode();
+  // Default to local mode - only use cloud if explicitly set
+  if (mode === "local") {
+    return true;
+  }
+  return !isSupabaseConfigured();
+}
+
+/**
+ * Map local chat (camelCase) to Supabase format (snake_case)
+ */
+function mapLocalChatToSnakeCase(chat: {
+  id: string;
+  userId: string;
+  title: string | null;
+  archived: boolean;
+  pinned: boolean;
+  sourceType?: string | null;
+  sourceId?: string | null;
+  openaiVectorStoreId?: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+  deletedAt?: Date | null;
+}) {
+  return {
+    id: chat.id,
+    user_id: chat.userId,
+    title: chat.title || "New Chat",
+    archived: chat.archived,
+    pinned: chat.pinned,
+    source_type: chat.sourceType || null,
+    source_id: chat.sourceId || null,
+    openai_vector_store_id: chat.openaiVectorStoreId || null,
+    created_at: chat.createdAt.toISOString(),
+    updated_at: chat.updatedAt.toISOString(),
+    deleted_at: chat.deletedAt?.toISOString() || null,
+  };
+}
 
 async function cleanupChatFiles(chatId: string, userId: string): Promise<void> {
   log.info("[Chats] Starting cleanup for chat:", chatId);
@@ -246,7 +291,31 @@ export const chatsRouter = router({
     )
     .query(async ({ ctx, input }) => {
       try {
-        // Intentar query con pinned primero
+        // Use local storage adapter in local mode
+        // Following OpenCode pattern: no user filter in single-user mode
+        if (isLocalMode()) {
+          log.info("[Chats] Local mode - listing all chats");
+          const adapter = await getStorageAdapter();
+          // Use listAll (no userId filter) - OpenCode pattern
+          const chats = await adapter.chats.listAll!({
+            includeArchived: input?.includeArchived,
+          });
+          // Map to snake_case and add empty meta for compatibility
+          // Add isLocal flag so frontend can show indicator
+          return chats.map((c: any) => ({
+            ...mapLocalChatToSnakeCase(c),
+            isLocal: true,
+            meta: {
+              spreadsheets: 0,
+              documents: 0,
+              hasCode: false,
+              hasImages: false,
+              messageCount: 0,
+            },
+          }));
+        }
+
+        // Cloud mode: use Supabase
         let query = supabase
           .from("chats")
           .select("*")
@@ -283,13 +352,15 @@ export const chatsRouter = router({
                 ? fallbackQuery
                 : fallbackQuery.eq("archived", false));
             if (fbError) throw new Error(fbError.message);
-            return enrichWithMeta(fbData || []);
+            const enriched = await enrichWithMeta(fbData || []);
+            return enriched.map(c => ({ ...c, isLocal: false }));
           }
 
           log.error("[Chats] List error:", error);
           throw new Error(error.message);
         }
-        return enrichWithMeta(data || []);
+        const enriched = await enrichWithMeta(data || []);
+        return enriched.map(c => ({ ...c, isLocal: false }));
       } catch (err) {
         log.error("[Chats] List exception:", err);
         return [];
@@ -299,6 +370,32 @@ export const chatsRouter = router({
   // List archived chats only
   listArchived: protectedProcedure.query(async ({ ctx }) => {
     try {
+      // Use local storage adapter in local mode
+      if (isLocalMode()) {
+        log.info("[Chats] Local mode - listing archived chats");
+        const adapter = await getStorageAdapter();
+        const chats = await adapter.chats.listAll!({
+          includeArchived: true,
+        });
+        // Filter to only archived chats and map to snake_case
+        // Add isLocal flag so frontend can show indicator
+        const archivedChats = chats
+          .filter((c: any) => c.archived)
+          .map((c: any) => ({
+            ...mapLocalChatToSnakeCase(c),
+            isLocal: true,
+            meta: {
+              spreadsheets: 0,
+              documents: 0,
+              hasCode: false,
+              hasImages: false,
+              messageCount: 0,
+            },
+          }));
+        return archivedChats;
+      }
+
+      // Cloud mode: use Supabase
       const { data, error } = await supabase
         .from("chats")
         .select("*")
@@ -311,7 +408,8 @@ export const chatsRouter = router({
         log.error("[Chats] List archived error:", error);
         throw new Error(error.message);
       }
-      return enrichWithMeta(data || []);
+      const enriched = await enrichWithMeta(data || []);
+      return enriched.map(c => ({ ...c, isLocal: false }));
     } catch (err) {
       log.error("[Chats] List archived exception:", err);
       return [];
@@ -322,6 +420,16 @@ export const chatsRouter = router({
   get: protectedProcedure
     .input(z.object({ id: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
+      // Use local storage adapter in local mode
+      // Following OpenCode pattern: no ownership verification in single-user local mode
+      if (isLocalMode()) {
+        log.debug("[Chats] Local mode - getting chat by id:", input.id);
+        const adapter = await getStorageAdapter();
+        // Use getById (no userId check) - OpenCode pattern
+        const chat = await adapter.chats.getById!(input.id);
+        return chat ? mapLocalChatToSnakeCase(chat) : null;
+      }
+
       const { data, error } = await supabase
         .from("chats")
         .select("*")
@@ -348,6 +456,32 @@ export const chatsRouter = router({
         "for user:",
         ctx.userId,
       );
+
+      // Ensure userId is never null
+      if (!ctx.userId) {
+        log.error("[Chats] ctx.userId is null/undefined! This should never happen.");
+        throw new Error("User ID is required to create a chat");
+      }
+
+      // Use local storage adapter in local mode
+      if (isLocalMode()) {
+        log.info("[Chats] Using local storage for create, getting adapter...");
+        log.info("[Chats] ctx.userId:", ctx.userId);
+        const adapter = await getStorageAdapter();
+        if (!adapter.isConnected) {
+          log.error("[Chats] Storage adapter not connected");
+          throw new Error("Database not available - please restart the app");
+        }
+        log.info("[Chats] Adapter connected, creating chat...");
+        const chat = await adapter.chats.create({
+          userId: ctx.userId,
+          title: input.title,
+        });
+        log.info("[Chats] Created local chat - id:", chat.id, "userId:", chat.userId);
+        const result = mapLocalChatToSnakeCase(chat);
+        log.info("[Chats] Returning mapped chat - id:", result.id, "user_id:", result.user_id);
+        return result;
+      }
 
       const { data, error } = await supabase
         .from("chats")
@@ -406,6 +540,17 @@ export const chatsRouter = router({
     )
     .mutation(async ({ ctx, input }) => {
       const { id, ...updates } = input;
+
+      // Use local storage adapter in local mode
+      // Following OpenCode pattern: no ownership verification in single-user local mode
+      if (isLocalMode()) {
+        log.debug("[Chats] Local mode - updating chat:", id);
+        const adapter = await getStorageAdapter();
+        // Use updateById (no userId check) - OpenCode pattern
+        const chat = await adapter.chats.updateById!(id, updates);
+        return mapLocalChatToSnakeCase(chat);
+      }
+
       const { data, error } = await supabase
         .from("chats")
         .update({
@@ -425,6 +570,21 @@ export const chatsRouter = router({
   togglePin: protectedProcedure
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
+      // Use local storage adapter in local mode
+      // Following OpenCode pattern: no ownership verification in single-user local mode
+      if (isLocalMode()) {
+        log.debug("[Chats] Local mode - togglePin for chat:", input.id);
+        const adapter = await getStorageAdapter();
+        // Use getById (no userId check) - OpenCode pattern
+        const chat = await adapter.chats.getById!(input.id);
+        if (!chat) throw new Error("Chat not found");
+        const updated = await adapter.chats.updateById!(input.id, {
+          pinned: !chat.pinned,
+        });
+        log.info("[Chats] Toggled pin for chat:", input.id, "→", !chat.pinned);
+        return mapLocalChatToSnakeCase(updated);
+      }
+
       // First get current pin status
       const { data: current, error: getError } = await supabase
         .from("chats")
@@ -456,6 +616,17 @@ export const chatsRouter = router({
   archive: protectedProcedure
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
+      // Use local storage adapter in local mode
+      // Following OpenCode pattern: no ownership verification in single-user local mode
+      if (isLocalMode()) {
+        log.debug("[Chats] Local mode - archiving chat:", input.id);
+        const adapter = await getStorageAdapter();
+        // Use archiveById (no userId check) - OpenCode pattern
+        const chat = await adapter.chats.archiveById!(input.id);
+        log.info("[Chats] Archived chat:", input.id);
+        return mapLocalChatToSnakeCase(chat);
+      }
+
       const { data, error } = await supabase
         .from("chats")
         .update({
@@ -477,6 +648,17 @@ export const chatsRouter = router({
   restore: protectedProcedure
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
+      // Use local storage adapter in local mode
+      // Following OpenCode pattern: no ownership verification in single-user local mode
+      if (isLocalMode()) {
+        log.debug("[Chats] Local mode - restoring chat:", input.id);
+        const adapter = await getStorageAdapter();
+        // Use restoreById (no userId check) - OpenCode pattern
+        const chat = await adapter.chats.restoreById!(input.id);
+        log.info("[Chats] Restored chat:", input.id);
+        return mapLocalChatToSnakeCase(chat);
+      }
+
       const { data, error } = await supabase
         .from("chats")
         .update({
@@ -497,6 +679,24 @@ export const chatsRouter = router({
   delete: protectedProcedure
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
+      // Use local storage adapter in local mode
+      // Following OpenCode pattern: no ownership verification in single-user local mode
+      if (isLocalMode()) {
+        log.debug("[Chats] Local mode - deleting chat:", input.id);
+        const adapter = await getStorageAdapter();
+        // Use getById (no userId check) - OpenCode pattern
+        const chat = await adapter.chats.getById!(input.id);
+        if (!chat) throw new Error("Chat not found");
+
+        // Delete related messages and files (use local-user for compatibility)
+        await adapter.chatFiles.deleteForChat(input.id, "local-user");
+
+        // Soft delete the chat using deleteById (no userId check)
+        await adapter.chats.deleteById!(input.id);
+        log.info("[Chats] Soft deleted local chat:", input.id);
+        return { success: true, deletedChat: mapLocalChatToSnakeCase(chat) };
+      }
+
       // Get chat data first for undo capability
       const { data: chatData, error: fetchError } = await supabase
         .from("chats")

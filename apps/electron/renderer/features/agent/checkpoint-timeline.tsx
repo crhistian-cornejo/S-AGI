@@ -131,7 +131,7 @@ export const CheckpointTimeline = memo(function CheckpointTimeline({
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
                     <span className="text-[10px] font-bold text-muted-foreground">
-                      v{cp.version_number}
+                      v{cp.versionNumber}
                     </span>
                     {cp.isCurrent && (
                       <span className="text-[9px] font-medium text-primary bg-primary/10 px-1.5 py-0.5 rounded">

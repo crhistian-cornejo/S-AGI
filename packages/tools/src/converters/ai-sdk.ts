@@ -48,19 +48,18 @@ export function toAISDKTool(
     definition: ToolDefinition,
     handler?: ToolHandler
 ): { name: string; tool: ReturnType<typeof tool> } {
+    const config = handler
+        ? {
+            description: definition.description,
+            parameters: definition.inputSchema,
+            execute: async (args: unknown) => handler(args as any),
+        }
+        : {
+            description: definition.description,
+            parameters: definition.inputSchema,
+        }
     return {
         name,
-        tool: (tool(
-            handler
-                ? {
-                    description: definition.description,
-                    parameters: definition.inputSchema,
-                    execute: async (args: unknown) => handler(args as any),
-                }
-                : {
-                    description: definition.description,
-                    parameters: definition.inputSchema,
-                }
-        ) as any) as ReturnType<typeof tool>
+        tool: tool(config as any) as ReturnType<typeof tool>
     }
 }

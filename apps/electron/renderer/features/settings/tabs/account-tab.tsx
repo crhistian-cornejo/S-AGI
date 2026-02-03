@@ -10,6 +10,7 @@ import { useSetAtom } from 'jotai'
 import { settingsModalOpenAtom } from '@/lib/atoms'
 import { Textarea } from '@/components/ui/textarea'
 import { AvatarEditorDialog, type AvatarUpdate } from '../components/avatar-editor-dialog'
+import { AccountsTab } from './accounts-tab'
 
 export function AccountTab() {
     const setSettingsOpen = useSetAtom(settingsModalOpenAtom)
@@ -364,6 +365,10 @@ export function AccountTab() {
                         Save
                     </Button>
                 </div>
+            </div>
+
+            <div className="pt-8 border-t border-border/40">
+                <AccountsTab variant="embedded" />
             </div>
 
             <div className="flex items-center justify-between gap-4 pt-4 border-t border-border/40">

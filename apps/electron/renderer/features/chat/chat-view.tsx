@@ -542,8 +542,9 @@ export function ChatView() {
 
       // Tavily key availability is checked in main process
 
-      if (isFirstMessage && apiKey) {
-        generateAutoTitle(chatIdForStream, userMessage, apiKey, provider);
+      // Auto-generate title for first message (backend handles API key)
+      if (isFirstMessage) {
+        generateAutoTitle(chatIdForStream, userMessage, provider);
       }
 
       // Get conversation history for context (including images from attachments)
@@ -1858,14 +1859,12 @@ const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 async function generateAutoTitle(
   chatId: string,
   userMessage: string,
-  apiKey: string,
   provider: string,
 ) {
   try {
     const result = await trpcClient.ai.generateTitle.mutate({
       prompt: userMessage,
-      provider: provider as "openai",
-      apiKey,
+      provider: provider as "openai" | "anthropic" | "zai" | "chatgpt-plus" | undefined,
       model: autoTitleModel,
     });
 

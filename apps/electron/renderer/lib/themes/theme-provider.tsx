@@ -23,6 +23,12 @@ import {
     systemLightThemeIdAtom,
     systemDarkThemeIdAtom,
     type VSCodeFullTheme,
+    // Typography
+    uiFontFamilyAtom,
+    primaryFontSizeAtom,
+    secondaryFontSizeAtom,
+    FONT_FAMILY_OPTIONS,
+    FONT_SIZE_OPTIONS,
 } from '../atoms'
 import {
     generateCSSVariables,
@@ -77,6 +83,11 @@ export function VSCodeThemeProvider({ children }: VSCodeThemeProviderProps) {
     const [fullThemeData, setFullThemeData] = useAtom(fullThemeDataAtom)
     const systemLightThemeId = useAtomValue(systemLightThemeIdAtom)
     const systemDarkThemeId = useAtomValue(systemDarkThemeIdAtom)
+
+    // Typography atoms
+    const uiFontFamily = useAtomValue(uiFontFamilyAtom)
+    const primaryFontSize = useAtomValue(primaryFontSizeAtom)
+    const secondaryFontSize = useAtomValue(secondaryFontSizeAtom)
 
     // Use builtin themes only
     const allThemes = BUILTIN_THEMES
@@ -140,6 +151,41 @@ export function VSCodeThemeProvider({ children }: VSCodeThemeProviderProps) {
             removeCSSVariables()
         }
     }, [fullThemeData, selectedThemeId, setNextTheme])
+
+    // Apply typography settings
+    useEffect(() => {
+        const root = document.documentElement
+
+        // Apply font family
+        const fontOption = FONT_FAMILY_OPTIONS.find(f => f.value === uiFontFamily)
+        if (fontOption) {
+            root.style.setProperty('--font-family', fontOption.fontFamily)
+            document.body.style.fontFamily = fontOption.fontFamily
+        }
+
+        // Apply primary font size - set on html (for rem-based Tailwind) and body
+        const primarySizeOption = FONT_SIZE_OPTIONS.find(f => f.value === primaryFontSize)
+        if (primarySizeOption) {
+            root.style.setProperty('--font-size-primary', primarySizeOption.size)
+            root.style.fontSize = primarySizeOption.size
+            document.body.style.fontSize = primarySizeOption.size
+        }
+
+        // Apply secondary font size
+        const secondarySizeOption = FONT_SIZE_OPTIONS.find(f => f.value === secondaryFontSize)
+        if (secondarySizeOption) {
+            root.style.setProperty('--font-size-secondary', secondarySizeOption.size)
+        }
+
+        return () => {
+            root.style.removeProperty('--font-family')
+            root.style.removeProperty('--font-size-primary')
+            root.style.removeProperty('--font-size-secondary')
+            root.style.fontSize = ''
+            document.body.style.fontFamily = ''
+            document.body.style.fontSize = ''
+        }
+    }, [uiFontFamily, primaryFontSize, secondaryFontSize])
 
     // Theme actions
     const setThemeById = useCallback((id: string | null) => {

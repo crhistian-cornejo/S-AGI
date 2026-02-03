@@ -10,7 +10,6 @@ import { cn } from "@/lib/utils";
 import {
   IconCheck,
   IconLoader2,
-  IconChevronUp,
   IconChevronDown,
   IconCircleDashed,
   IconArrowUpRight,

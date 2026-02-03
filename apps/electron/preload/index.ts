@@ -712,6 +712,45 @@ const desktopApi = {
     };
   },
 
+  // Power Monitor (Energy Efficiency)
+  power: {
+    onBatteryStatus: (callback: (data: { onBattery: boolean }) => void) => {
+      const handler = (_: any, data: any) => callback(data);
+      ipcRenderer.on("power:battery-status", handler);
+      return () => {
+        ipcRenderer.removeListener("power:battery-status", handler);
+      };
+    },
+    onSuspend: (callback: () => void) => {
+      const handler = () => callback();
+      ipcRenderer.on("power:suspend", handler);
+      return () => {
+        ipcRenderer.removeListener("power:suspend", handler);
+      };
+    },
+    onResume: (callback: () => void) => {
+      const handler = () => callback();
+      ipcRenderer.on("power:resume", handler);
+      return () => {
+        ipcRenderer.removeListener("power:resume", handler);
+      };
+    },
+    onLockScreen: (callback: () => void) => {
+      const handler = () => callback();
+      ipcRenderer.on("power:lock-screen", handler);
+      return () => {
+        ipcRenderer.removeListener("power:lock-screen", handler);
+      };
+    },
+    onUnlockScreen: (callback: () => void) => {
+      const handler = () => callback();
+      ipcRenderer.on("power:unlock-screen", handler);
+      return () => {
+        ipcRenderer.removeListener("power:unlock-screen", handler);
+      };
+    },
+  },
+
   preferences: {
     get: () => ipcRenderer.invoke("preferences:get"),
     set: (data: {

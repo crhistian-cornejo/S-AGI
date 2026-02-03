@@ -5,7 +5,6 @@ import {
   chatModeAtom,
   onboardingCompletedAtom,
 } from "@/lib/atoms";
-import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
@@ -17,7 +16,6 @@ import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
 import {
-  IconAdjustmentsHorizontal,
   IconBrain,
   IconRocket,
   IconRefresh,
@@ -25,6 +23,7 @@ import {
   IconMessage,
   IconDeviceDesktop,
   IconDeviceFloppy,
+  IconSettings,
 } from "@tabler/icons-react";
 
 export function AdvancedTab() {
@@ -88,31 +87,36 @@ export function AdvancedTab() {
   };
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="p-6 space-y-8">
+      {/* Header */}
+      <div className="flex flex-col space-y-1.5">
+        <div className="flex items-center gap-2">
+          <IconSettings size={18} className="text-blue-500" />
+          <h3 className="text-sm font-semibold text-foreground">Advanced Settings</h3>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          Configure AI behavior and system preferences
+        </p>
+      </div>
+
       {/* AI Behavior Section */}
       <div className="space-y-4">
         <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
           AI Behavior
         </h4>
 
-        <div className="space-y-6">
+        <div className="rounded-lg border border-border/50 bg-muted/20 divide-y divide-border/50">
           {/* Reasoning Effort */}
-          <div className="flex items-center justify-between">
-            <div className="flex-1">
-              <div className="flex items-center gap-2">
-                <IconBrain size={16} className="text-muted-foreground" />
-                <Label className="text-sm font-medium">Reasoning Effort</Label>
-              </div>
-              <p className="text-xs text-muted-foreground mt-1">
-                Controls how much "thinking" time reasoning models (like o1) use
-              </p>
-            </div>
-            <div className="flex-shrink-0 w-32">
+          <SettingsRow
+            icon={<IconBrain size={16} className="text-muted-foreground" />}
+            title="Reasoning Effort"
+            description="Controls how much thinking time reasoning models (like o1) use"
+            action={
               <Select
                 value={reasoningEffort}
                 onValueChange={(v: any) => setReasoningEffort(v)}
               >
-                <SelectTrigger className="h-8 text-xs">
+                <SelectTrigger className="h-8 w-28 text-xs">
                   <SelectValue placeholder="Select level" />
                 </SelectTrigger>
                 <SelectContent>
@@ -121,25 +125,19 @@ export function AdvancedTab() {
                   <SelectItem value="high">High</SelectItem>
                 </SelectContent>
               </Select>
-            </div>
-          </div>
+            }
+          />
 
           {/* Interaction Mode */}
-          <div className="flex items-center justify-between pt-4 border-t border-border/50">
-            <div className="flex-1">
-              <div className="flex items-center gap-2">
-                <IconRocket size={16} className="text-muted-foreground" />
-                <Label className="text-sm font-medium">
-                  Agent Interaction Mode
-                </Label>
-              </div>
-              <p className="text-xs text-muted-foreground mt-1">
-                {chatMode === "agent"
-                  ? "Autonomous: The AI executes tools automatically"
-                  : "Plan First: The AI proposes a plan for your approval first"}
-              </p>
-            </div>
-            <div className="flex-shrink-0">
+          <SettingsRow
+            icon={<IconRocket size={16} className="text-muted-foreground" />}
+            title="Agent Interaction Mode"
+            description={
+              chatMode === "agent"
+                ? "Autonomous: The AI executes tools automatically"
+                : "Plan First: The AI proposes a plan for your approval first"
+            }
+            action={
               <div className="flex items-center bg-muted rounded-md p-1">
                 <button
                   type="button"
@@ -164,8 +162,8 @@ export function AdvancedTab() {
                   Plan
                 </button>
               </div>
-            </div>
-          </div>
+            }
+          />
         </div>
       </div>
 
@@ -175,108 +173,89 @@ export function AdvancedTab() {
           System
         </h4>
 
-        <div className="space-y-4">
-          <div className="flex items-center justify-between gap-4">
-            <div className="flex-1">
-              <div className="flex items-center gap-2">
-                <IconDeviceDesktop size={16} className="text-muted-foreground" />
-                <p className="text-sm font-medium text-foreground">Tray Icon</p>
-              </div>
-              <p className="text-xs text-muted-foreground mt-1">
-                Show or hide the system tray popover
-              </p>
-            </div>
-            <Switch
-              checked={trayEnabled}
-              onCheckedChange={(checked) => {
-                setTrayEnabled(checked);
-                updatePreferences({ trayEnabled: checked });
-              }}
-              className="data-[state=checked]:bg-primary"
-              disabled={!preferencesAvailable}
-            />
-          </div>
-
-          <div className="flex items-center justify-between gap-4 pt-4 border-t border-border/50">
-            <div className="flex-1">
-              <div className="flex items-center gap-2">
-                <IconMessage size={16} className="text-muted-foreground" />
-                <p className="text-sm font-medium text-foreground">
-                  Quick Prompt
-                </p>
-              </div>
-              <p className="text-xs text-muted-foreground mt-1">
-                Enable the global quick prompt hotkey
-              </p>
-            </div>
-            <Switch
-              checked={quickPromptEnabled}
-              onCheckedChange={(checked) => {
-                setQuickPromptEnabled(checked);
-                updatePreferences({ quickPromptEnabled: checked });
-              }}
-              className="data-[state=checked]:bg-primary"
-              disabled={!preferencesAvailable}
-            />
-          </div>
-
-          <div className="flex items-center justify-between gap-4 pt-4 border-t border-border/50">
-            <div className="flex-1">
-              <div className="flex items-center gap-2">
-                <IconDeviceFloppy size={16} className="text-muted-foreground" />
-                <p className="text-sm font-medium text-foreground">
-                  Auto-guardado
-                </p>
-              </div>
-              <p className="text-xs text-muted-foreground mt-1">
-                Tiempo de espera antes de guardar automáticamente (solo si hay
-                cambios reales)
-              </p>
-            </div>
-            <div className="flex items-center gap-2">
-              <input
-                type="range"
-                min="30000"
-                max="600000"
-                step="30000"
-                value={autoSaveDelay}
-                onChange={(e) => {
-                  const value = parseInt(e.target.value, 10);
-                  setAutoSaveDelay(value);
-                  updatePreferences({ autoSaveDelay: value });
+        <div className="rounded-lg border border-border/50 bg-muted/20 divide-y divide-border/50">
+          {/* Tray Icon */}
+          <SettingsRow
+            icon={<IconDeviceDesktop size={16} className="text-muted-foreground" />}
+            title="Tray Icon"
+            description="Show or hide the system tray popover"
+            action={
+              <Switch
+                checked={trayEnabled}
+                onCheckedChange={(checked) => {
+                  setTrayEnabled(checked);
+                  updatePreferences({ trayEnabled: checked });
                 }}
-                className="w-32 h-2 bg-muted rounded-lg appearance-none cursor-pointer"
+                className="data-[state=checked]:bg-primary"
+                disabled={!preferencesAvailable}
               />
-              <span className="text-xs font-mono text-muted-foreground w-16 text-right">
-                {autoSaveDelay >= 60000
-                  ? `${Math.round(autoSaveDelay / 60000)}m`
-                  : `${Math.round(autoSaveDelay / 1000)}s`}
-              </span>
-            </div>
-          </div>
-        </div>
+            }
+          />
 
-        <div className="flex items-center justify-between gap-4 pt-4 border-t border-border/50">
-          <div className="flex-1">
-            <div className="flex items-center gap-2">
-              <IconRotate2 size={16} className="text-muted-foreground" />
-              <p className="text-sm font-medium text-foreground">
-                Reset Onboarding
-              </p>
-            </div>
-            <p className="text-xs text-muted-foreground mt-1">
-              Re-trigger the walkthrough guide and initial setup
-            </p>
-          </div>
-          <Button
-            variant="outline"
-            onClick={handleResetOnboarding}
-            size="sm"
-            className="h-8 text-xs"
-          >
-            <IconRefresh size={14} className="mr-2" />
-            Reset
-          </Button>
+          {/* Quick Prompt */}
+          <SettingsRow
+            icon={<IconMessage size={16} className="text-muted-foreground" />}
+            title="Quick Prompt"
+            description="Enable the global quick prompt hotkey"
+            action={
+              <Switch
+                checked={quickPromptEnabled}
+                onCheckedChange={(checked) => {
+                  setQuickPromptEnabled(checked);
+                  updatePreferences({ quickPromptEnabled: checked });
+                }}
+                className="data-[state=checked]:bg-primary"
+                disabled={!preferencesAvailable}
+              />
+            }
+          />
+
+          {/* Auto-save */}
+          <SettingsRow
+            icon={<IconDeviceFloppy size={16} className="text-muted-foreground" />}
+            title="Auto-save Delay"
+            description="Wait time before saving automatically (only if there are changes)"
+            action={
+              <div className="flex items-center gap-2">
+                <input
+                  type="range"
+                  min="30000"
+                  max="600000"
+                  step="30000"
+                  value={autoSaveDelay}
+                  onChange={(e) => {
+                    const value = parseInt(e.target.value, 10);
+                    setAutoSaveDelay(value);
+                    updatePreferences({ autoSaveDelay: value });
+                  }}
+                  className="w-24 h-2 bg-muted rounded-lg appearance-none cursor-pointer"
+                />
+                <span className="text-xs font-mono text-muted-foreground w-10 text-right">
+                  {autoSaveDelay >= 60000
+                    ? `${Math.round(autoSaveDelay / 60000)}m`
+                    : `${Math.round(autoSaveDelay / 1000)}s`}
+                </span>
+              </div>
+            }
+          />
+
+          {/* Reset Onboarding */}
+          <SettingsRow
+            icon={<IconRotate2 size={16} className="text-muted-foreground" />}
+            title="Reset Onboarding"
+            description="Re-trigger the walkthrough guide and initial setup"
+            action={
+              <Button
+                variant="outline"
+                onClick={handleResetOnboarding}
+                size="sm"
+                className="h-8 w-24 text-xs"
+              >
+                <IconRefresh size={14} className="mr-1.5" />
+                Reset
+              </Button>
+            }
+          />
         </div>
       </div>
 
@@ -286,6 +265,32 @@ export function AdvancedTab() {
           S-AGI v1.0.0 • Production Build
         </p>
       </div>
+    </div>
+  );
+}
+
+/** Reusable row component for settings */
+function SettingsRow({
+  icon,
+  title,
+  description,
+  action,
+}: {
+  icon?: React.ReactNode;
+  title: string;
+  description: string;
+  action: React.ReactNode;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-4 px-4 py-3">
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2">
+          {icon}
+          <p className="text-sm font-medium text-foreground">{title}</p>
+        </div>
+        <p className="text-xs text-muted-foreground mt-0.5 ml-6">{description}</p>
+      </div>
+      {action}
     </div>
   );
 }

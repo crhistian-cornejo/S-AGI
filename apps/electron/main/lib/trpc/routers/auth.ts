@@ -3,7 +3,7 @@ import { router, publicProcedure, protectedProcedure } from '../trpc'
 import { getClaudeCodeAuthManager, getChatGPTAuthManager, getZaiAuthManager, CHATGPT_CODEX_MODELS } from '../../auth'
 // NOTE: Gemini auth disabled - OAuth token incompatible with generativelanguage.googleapis.com
 // import { getClaudeCodeAuthManager, getChatGPTAuthManager, getZaiAuthManager, getGeminiAuthManager, CHATGPT_CODEX_MODELS } from '../../auth'
-import { supabase, authStorage } from '../../supabase/client'
+import { supabase, authStorage, isSupabaseConfigured } from '../../supabase/client'
 import { getMainWindow, sendToRenderer } from '../../window-manager'
 import { BrowserWindow, shell } from 'electron'
 import log from 'electron-log'
@@ -14,6 +14,58 @@ import {
     oauthRateLimiter,
     checkRateLimit
 } from '../../auth/rate-limiter'
+import { getStorageMode, LOCAL_USER_ID } from '../../storage'
+
+// ========== Local Mode Helpers ==========
+
+/**
+ * Check if app is running in local mode (no Supabase or local storage mode)
+ * Defaults to local - cloud sync is a future premium feature
+ */
+function isLocalMode(): boolean {
+    const mode = getStorageMode()
+    // Default to local mode - only use cloud if explicitly set
+    if (mode === 'local') {
+        return true
+    }
+    return !isSupabaseConfigured()
+}
+
+/**
+ * Create a fake session for local mode
+ */
+function createLocalSession() {
+    return {
+        access_token: 'local-access-token',
+        refresh_token: 'local-refresh-token',
+        token_type: 'bearer',
+        expires_in: 3600 * 24 * 365, // 1 year
+        expires_at: Math.floor(Date.now() / 1000) + 3600 * 24 * 365,
+        user: createLocalUser()
+    }
+}
+
+/**
+ * Create a fake user for local mode
+ */
+function createLocalUser() {
+    return {
+        id: LOCAL_USER_ID,
+        email: 'local@localhost',
+        app_metadata: {},
+        user_metadata: {
+            full_name: 'Local User',
+            avatar_url: null,
+            picture: null,
+            is_local: true
+        },
+        aud: 'authenticated',
+        role: 'authenticated',
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        is_local: true
+    }
+}
 
 function decodeImageDataUrl(dataUrl: string): { contentType: string; buffer: Buffer } {
     const match = /^data:(image\/[a-zA-Z0-9.+-]+);base64,(.*)$/.exec(dataUrl)
@@ -45,24 +97,65 @@ function parseOAuthTokensFromUrl(url: string): { access_token: string; refresh_t
 export const authRouter = router({
     // ========== Supabase User Auth ==========
 
+    // Check if running in local mode
+    isLocalMode: publicProcedure.query(() => {
+        return isLocalMode()
+    }),
+
+    // Enter local mode (skip authentication)
+    enterLocalMode: publicProcedure.mutation(() => {
+        log.info('[Auth] Entering local mode')
+
+        // Add local account to multi-account store
+        const accountId = authStorage.addAccount({
+            userId: LOCAL_USER_ID,
+            email: 'local@localhost',
+            displayName: 'Local User',
+            isLocal: true,
+            provider: 'local'
+        })
+        authStorage.setActiveAccount(accountId)
+
+        return {
+            session: createLocalSession(),
+            user: createLocalUser()
+        }
+    }),
+
     // Get current session/user
     getSession: publicProcedure.query(async () => {
+        // In local mode, return local session
+        if (isLocalMode()) {
+            log.debug('[Auth] getSession - local mode, returning local session')
+            return createLocalSession()
+        }
+
         const { data: { session }, error } = await supabase.auth.getSession()
         if (error) {
             log.error('[Auth] getSession error:', error)
-            return null
+            // Fallback to local session on error
+            log.info('[Auth] Falling back to local session due to error')
+            return createLocalSession()
         }
         return session
     }),
 
     // Get current user
     getUser: publicProcedure.query(async () => {
+        // In local mode, return local user
+        if (isLocalMode()) {
+            log.debug('[Auth] getUser - local mode, returning local user')
+            return createLocalUser()
+        }
+
         const { data: { user }, error } = await supabase.auth.getUser()
         if (error) {
             log.error('[Auth] getUser error:', error)
-            return null
+            // Fallback to local user on error
+            log.info('[Auth] Falling back to local user due to error')
+            return createLocalUser()
         }
-        if (!user) return null
+        if (!user) return createLocalUser() // Fallback to local user if no session
 
         const userMetadata: Record<string, unknown> = (user.user_metadata as Record<string, unknown>) ?? {}
         const avatarPath = typeof userMetadata.avatar_path === 'string' ? userMetadata.avatar_path : null
@@ -248,21 +341,130 @@ export const authRouter = router({
             }
         }),
 
-    // Sign out
+    // Sign out current account only
     signOut: publicProcedure.mutation(async () => {
-        log.info('[Auth] Signing out')
-        const { error } = await supabase.auth.signOut()
+        log.info('[Auth] Signing out current account')
 
-        if (error) {
-            log.error('[Auth] signOut error:', error)
-            throw new Error(error.message)
+        // Get active account before signing out
+        const activeAccount = authStorage.getActiveAccount()
+
+        // Sign out from Supabase (for cloud accounts)
+        if (activeAccount && !activeAccount.isLocal) {
+            const { error } = await supabase.auth.signOut()
+            if (error) {
+                log.error('[Auth] signOut error:', error)
+                // Continue anyway to remove account from store
+            }
         }
 
-        // Explicitly clear encrypted session storage
-        authStorage.clear()
+        // Remove current account from multi-account store
+        if (activeAccount) {
+            authStorage.removeAccount(activeAccount.id)
+        }
+
+        // Clear the active Supabase session
+        authStorage.clearSession()
 
         log.info('[Auth] Sign out successful')
         return { success: true }
+    }),
+
+    // ========== Multi-Account Management ==========
+
+    // Get all connected accounts
+    getAccounts: publicProcedure.query(() => {
+        const accounts = authStorage.getAccounts()
+        const activeId = authStorage.getActiveAccountId()
+        return {
+            accounts: accounts.map(acc => ({
+                id: acc.id,
+                userId: acc.userId,
+                email: acc.email,
+                displayName: acc.displayName,
+                avatarUrl: acc.avatarUrl,
+                isLocal: acc.isLocal,
+                provider: acc.provider,
+                connectedAt: acc.connectedAt,
+                isActive: acc.id === activeId
+            })),
+            activeAccountId: activeId
+        }
+    }),
+
+    // Switch to a different account
+    switchAccount: publicProcedure
+        .input(z.object({ accountId: z.string() }))
+        .mutation(async ({ input }) => {
+            log.info('[Auth] Switching to account:', input.accountId)
+
+            const account = authStorage.getAccounts().find(a => a.id === input.accountId)
+            if (!account) {
+                throw new Error('Account not found')
+            }
+
+            // Set as active account
+            authStorage.setActiveAccount(input.accountId)
+
+            // If it's a cloud account, we need to restore the Supabase session
+            // For now, we just switch the active account
+            // The frontend should reload/invalidate queries after switching
+
+            log.info('[Auth] Switched to account:', account.email)
+            return {
+                success: true,
+                account: {
+                    id: account.id,
+                    userId: account.userId,
+                    email: account.email,
+                    displayName: account.displayName,
+                    isLocal: account.isLocal
+                }
+            }
+        }),
+
+    // Remove a specific account (without affecting others)
+    removeAccount: publicProcedure
+        .input(z.object({ accountId: z.string() }))
+        .mutation(async ({ input }) => {
+            log.info('[Auth] Removing account:', input.accountId)
+
+            const account = authStorage.getAccounts().find(a => a.id === input.accountId)
+            if (!account) {
+                throw new Error('Account not found')
+            }
+
+            const wasActive = authStorage.getActiveAccountId() === input.accountId
+
+            // Remove from store
+            authStorage.removeAccount(input.accountId)
+
+            // If it was a cloud account and was active, sign out from Supabase
+            if (!account.isLocal && wasActive) {
+                await supabase.auth.signOut()
+                authStorage.clearSession()
+            }
+
+            log.info('[Auth] Account removed:', account.email)
+            return { success: true }
+        }),
+
+    // Sign out from all accounts
+    signOutAll: publicProcedure.mutation(async () => {
+        log.info('[Auth] Signing out from all accounts')
+
+        // Sign out from Supabase
+        await supabase.auth.signOut()
+
+        // Clear everything
+        authStorage.clear()
+
+        log.info('[Auth] All accounts signed out')
+        return { success: true }
+    }),
+
+    // Check if there are any accounts
+    hasAccounts: publicProcedure.query(() => {
+        return authStorage.hasAnyAccounts()
     }),
 
     // ========== Z.AI API Key ==========
@@ -429,7 +631,7 @@ export const authRouter = router({
         }))
         .mutation(async ({ input }) => {
             log.info('[Auth] Setting session from tokens...')
-            
+
             const { data, error } = await supabase.auth.setSession({
                 access_token: input.access_token,
                 refresh_token: input.refresh_token
@@ -441,11 +643,26 @@ export const authRouter = router({
             }
 
             log.info('[Auth] Session set successfully, user:', data.user?.id)
-            
+
+            // Add account to multi-account store
+            if (data.user) {
+                const userMeta = data.user.user_metadata as Record<string, unknown> || {}
+                const provider = data.user.app_metadata?.provider as string || 'email'
+                const accountId = authStorage.addAccount({
+                    userId: data.user.id,
+                    email: data.user.email || 'unknown',
+                    displayName: (userMeta.full_name as string) || (userMeta.name as string) || data.user.email || 'User',
+                    avatarUrl: (userMeta.avatar_url as string) || (userMeta.picture as string) || undefined,
+                    isLocal: false,
+                    provider
+                })
+                authStorage.setActiveAccount(accountId)
+            }
+
             // Verify session is retrievable
             const { data: { session: verifySession } } = await supabase.auth.getSession()
             log.info('[Auth] Verification after setSession - user:', verifySession?.user?.id)
-            
+
             return {
                 user: data.user,
                 session: data.session

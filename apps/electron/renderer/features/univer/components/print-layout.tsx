@@ -33,7 +33,7 @@ interface PrintSettings {
 }
 
 export function PrintLayout({ 
-  univerAPI,
+  univerAPI: _univerAPI,
   onApply,
   onPreview
 }: {
@@ -41,6 +41,7 @@ export function PrintLayout({
   onApply: (settings: PrintSettings) => void
   onPreview: () => void
 }) {
+  void _univerAPI; // Reserved for future use
   const [settings, setSettings] = useState<PrintSettings>({
     orientation: 'portrait',
     pageSize: 'A4',

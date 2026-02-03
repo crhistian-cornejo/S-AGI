@@ -1,12 +1,14 @@
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import { AnimatePresence, motion } from "motion/react";
 import { IconArrowLeft } from "@tabler/icons-react";
-import { cn } from "@/lib/utils";
+import { cn, isWindows } from "@/lib/utils";
 import {
   activeTabAtom,
   settingsActiveTabAtom,
   settingsReturnTabAtom,
 } from "@/lib/atoms";
+import { HamburgerMenu } from "@/features/layout/hamburger-menu";
+import { Logo } from "@/components/ui/logo";
 import {
   renderSettingsTabContent,
   SETTINGS_TABS,
@@ -32,7 +34,7 @@ function SettingsTabButton({ tab, isActive, onClick }: TabButtonProps) {
         "h-9 w-full justify-start gap-2 text-left px-3 py-2 rounded-lg text-sm",
         isActive
           ? "bg-foreground/10 text-foreground font-medium hover:bg-foreground/15"
-          : "text-muted-foreground hover:bg-foreground/5 hover:text-foreground font-medium",
+          : "text-muted-foreground hover:bg-foreground/5 hover:text-foreground font-medium"
       )}
     >
       <Icon size={16} className={cn(isActive ? "opacity-100" : "opacity-50")} />
@@ -42,14 +44,36 @@ function SettingsTabButton({ tab, isActive, onClick }: TabButtonProps) {
 }
 
 export function SettingsPage() {
-  const [activeSettingsTab, setActiveSettingsTab] =
-    useAtom(settingsActiveTabAtom);
+  const [activeSettingsTab, setActiveSettingsTab] = useAtom(
+    settingsActiveTabAtom
+  );
   const returnTab = useAtomValue(settingsReturnTabAtom);
   const setActiveTab = useSetAtom(activeTabAtom);
+  const isWindowsApp = isWindows();
 
   return (
-    <div className="flex h-full w-full overflow-hidden">
-      <aside className="w-72 shrink-0 border-r border-border bg-sidebar pt-9 pb-6">
+    <div className="flex h-full w-full overflow-hidden relative">
+      <aside
+        className={cn(
+          "w-72 shrink-0 border-r border-border bg-sidebar pb-6 pt-9 relative"
+        )}
+      >
+        {/* Windows: hamburger menu and logo in sidebar titlebar area */}
+        {isWindowsApp && (
+          <div
+            className="absolute top-0 left-0 right-0 h-9 flex items-center px-2 gap-2 z-50 drag-region bg-sidebar"
+            style={{ WebkitAppRegion: "drag" } as React.CSSProperties}
+          >
+            <div className="flex items-center gap-2 no-drag pointer-events-auto">
+              <HamburgerMenu />
+              <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+                <Logo size={18} />
+                <span>S-AGI</span>
+              </div>
+            </div>
+          </div>
+        )}
+
         <div className="px-4">
           <button
             type="button"
@@ -57,7 +81,7 @@ export function SettingsPage() {
             className={cn(
               "inline-flex items-center gap-2 text-sm font-medium",
               "text-muted-foreground hover:text-foreground transition-colors",
-              "rounded-lg px-2 py-1.5 hover:bg-foreground/5 w-full justify-start",
+              "rounded-lg px-2 py-1.5 hover:bg-foreground/5 w-full justify-start"
             )}
           >
             <IconArrowLeft size={16} className="opacity-70" />

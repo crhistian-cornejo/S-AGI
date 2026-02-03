@@ -33,7 +33,7 @@ export const SETTINGS_TABS: SettingsTabConfig[] = [
     id: "account",
     label: "Account",
     icon: IconUser,
-    description: "Manage your account settings",
+    description: "Profile and connected accounts",
   },
   {
     id: "api-keys",
@@ -97,4 +97,3 @@ export function renderSettingsTabContent(activeTab: SettingsTab) {
       return <AccountTab />;
   }
 }
-

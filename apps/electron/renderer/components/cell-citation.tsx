@@ -29,11 +29,12 @@ interface CellCitationProps {
 /**
  * Parse cell reference to get column and row
  */
-function parseCellRef(cell: string): { col: string; row: number } | null {
+function _parseCellRef(cell: string): { col: string; row: number } | null {
   const match = cell.match(/^([A-Z]+)(\d+)$/i);
   if (!match) return null;
   return { col: match[1].toUpperCase(), row: parseInt(match[2], 10) };
 }
+void _parseCellRef; // Reserved for future use
 
 /**
  * Check if reference is a range

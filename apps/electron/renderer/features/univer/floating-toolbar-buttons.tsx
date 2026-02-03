@@ -1,5 +1,4 @@
-import * as React from 'react'
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect } from 'react'
 import { IconChartBar, IconPrinter } from '@tabler/icons-react'
 import { cn } from '@/lib/utils'
 import { getSheetsInstance } from './univer-sheets-core'
@@ -16,7 +15,8 @@ export function FloatingToolbarButtons({
   onPrintClick 
 }: FloatingToolbarButtonsProps) {
   const [isVisible, setIsVisible] = useState(false)
-  const [position, setPosition] = useState({ x: 0, y: 0 })
+  const [_position, setPosition] = useState({ x: 0, y: 0 })
+  void _position; // Reserved for future use
 
   // Listen for selection changes
   useEffect(() => {

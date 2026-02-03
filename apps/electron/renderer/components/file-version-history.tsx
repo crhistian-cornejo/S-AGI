@@ -16,7 +16,6 @@ import {
   IconRestore,
   IconEye,
   IconGitCommit,
-  IconChevronRight,
   IconHighlight,
 } from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
@@ -37,13 +36,13 @@ export function FileVersionHistory({
 }: FileVersionHistoryProps) {
   const {
     versions,
-    isOpen,
+    isOpen: _isOpen,
     isLoadingVersions,
     previewVersion,
     previewVersionData,
     selectedVersions,
     comparisonData,
-    isLoadingComparison,
+    isLoadingComparison: _isLoadingComparison,
     isRestoring,
     selectVersionForPreview,
     selectVersionsForComparison,
@@ -54,6 +53,8 @@ export function FileVersionHistory({
     formatSize,
     groupVersionsByDate,
   } = useFileVersions(fileId);
+  void _isOpen;
+  void _isLoadingComparison;
 
   const [viewMode, setViewMode] = React.useState<
     "list" | "preview" | "compare"
@@ -76,7 +77,7 @@ export function FileVersionHistory({
   });
 
   const versionGroups = React.useMemo(() => {
-    return groupVersionsByDate(versions);
+    return groupVersionsByDate(versions as any);
   }, [versions, groupVersionsByDate]);
 
   // Auto-switch to preview when version selected
@@ -189,7 +190,7 @@ export function FileVersionHistory({
                 }
               }}
               disabled={
-                !comparisonData || viewMode !== "compare" || fileType === "note"
+                !comparisonData || viewMode !== "compare" || (fileType !== "excel" && fileType !== "doc")
               }
             >
               <IconHighlight size={16} className="mr-1" />

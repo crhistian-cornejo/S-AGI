@@ -29,7 +29,6 @@ import { diffWorkbooks } from "@/utils/univer-diff";
 import {
   formatTimeAgo,
   formatFullDateTime,
-  formatDateWithTime,
   getDateGroup,
 } from "@/utils/time-format";
 import {
@@ -61,11 +60,11 @@ export function FileVersionHistoryPanel({
     versions,
     isLoadingVersions,
     previewVersion,
-    previewVersionData,
+    previewVersionData: _previewVersionData,
     selectedVersions,
     comparisonData,
-    isLoadingComparison,
-    isRestoring,
+    isLoadingComparison: _isLoadingComparison,
+    isRestoring: _isRestoring,
     selectVersionForPreview,
     selectVersionsForComparison,
     clearComparison,
@@ -73,8 +72,12 @@ export function FileVersionHistoryPanel({
     getChangeTypeLabel,
     getChangeTypeIcon,
     formatSize,
-    groupVersionsByDate,
+    groupVersionsByDate: _groupVersionsByDate,
   } = useFileVersions(fileId);
+  void _previewVersionData;
+  void _isLoadingComparison;
+  void _isRestoring;
+  void _groupVersionsByDate;
 
   const [viewMode, setViewMode] = React.useState<
     "list" | "preview" | "compare"
@@ -265,7 +268,7 @@ export function FileVersionHistoryPanel({
                             version={version}
                             isSelected={
                               previewVersion === version.version_number ||
-                              selectedVersions?.includes(version.version_number)
+                              (selectedVersions?.includes(version.version_number) ?? false)
                             }
                             isPreview={
                               previewVersion === version.version_number

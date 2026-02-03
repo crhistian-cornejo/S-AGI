@@ -125,6 +125,10 @@ export {
   authDialogOpenAtom,
   authDialogModeAtom,
   onboardingCompletedAtom,
+  // Multi-Account
+  type AccountInfo,
+  accountSwitcherOpenAtom,
+  addAccountDialogOpenAtom,
   // Sound
   chatSoundsEnabledAtom,
   // Image Generation
@@ -138,6 +142,14 @@ export {
   // File Sidebars
   excelSidebarOpenAtom,
   docSidebarOpenAtom,
+  // Typography
+  type FontFamily,
+  FONT_FAMILY_OPTIONS,
+  type FontSize,
+  FONT_SIZE_OPTIONS,
+  uiFontFamilyAtom,
+  primaryFontSizeAtom,
+  secondaryFontSizeAtom,
 } from './ui'
 
 // === ARTIFACT STATE ===

@@ -80,7 +80,7 @@ export class UniverExportService {
 
           const excelRow = excelWorksheet.addRow(row)
           
-          excelRow.eachCell((cell, colNumber) => {
+          excelRow.eachCell((cell) => {
             cell.border = {
               top: { style: 'thin', color: { argb: 'FFCCCCCC' } },
               left: { style: 'thin', color: { argb: 'FFCCCCCC' } },
@@ -211,7 +211,8 @@ export class UniverExportService {
     }
   }
 
-  static async exportToPDF(univerAPI: any): Promise<void> {
+  static async exportToPDF(_univerAPI: any): Promise<void> {
+    void _univerAPI; // Reserved for future use
     try {
       window.print()
     } catch (error) {

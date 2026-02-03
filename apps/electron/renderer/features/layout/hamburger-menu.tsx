@@ -81,6 +81,8 @@ export function HamburgerMenu() {
   const [pdfSidebarOpen, setPdfSidebarOpen] = useAtom(pdfSidebarOpenAtom);
   const [excelSidebarOpen, setExcelSidebarOpen] = useAtom(excelSidebarOpenAtom);
   const [docSidebarOpen, setDocSidebarOpen] = useAtom(docSidebarOpenAtom);
+  const isAgentEnabled =
+    activeTab === "excel" || activeTab === "doc" || activeTab === "pdf";
 
   const handleNewChat = () => {
     // Siempre asegurar que estamos en el tab de chat
@@ -150,7 +152,7 @@ export function HamburgerMenu() {
           <IconMenu2 size={16} />
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="w-64 z-[100]">
+      <DropdownMenuContent align="start" className="w-64 z-[200]">
         {/* File Menu */}
         <DropdownMenuSub>
           <DropdownMenuSubTrigger>File</DropdownMenuSubTrigger>
@@ -350,18 +352,20 @@ export function HamburgerMenu() {
         </DropdownMenuSub>
 
         {/* Agent Menu */}
-        <DropdownMenuSub>
-          <DropdownMenuSubTrigger>Agent</DropdownMenuSubTrigger>
-          <DropdownMenuSubContent className="w-56">
-            <DropdownMenuItem
-              onClick={() => setAgentPanelOpen(!agentPanelOpen)}
-            >
-              Toggle Agent Panel
-              {formatHotkey("Ctrl+Shift+A")}
-            </DropdownMenuItem>
-            <DropdownMenuItem disabled>Clear Agent History</DropdownMenuItem>
-          </DropdownMenuSubContent>
-        </DropdownMenuSub>
+        {isAgentEnabled && (
+          <DropdownMenuSub>
+            <DropdownMenuSubTrigger>Agent</DropdownMenuSubTrigger>
+            <DropdownMenuSubContent className="w-56">
+              <DropdownMenuItem
+                onClick={() => setAgentPanelOpen(!agentPanelOpen)}
+              >
+                Toggle Agent Panel
+                {formatHotkey("Ctrl+Shift+A")}
+              </DropdownMenuItem>
+              <DropdownMenuItem disabled>Clear Agent History</DropdownMenuItem>
+            </DropdownMenuSubContent>
+          </DropdownMenuSub>
+        )}
 
         {/* Go Menu */}
         <DropdownMenuSub>
