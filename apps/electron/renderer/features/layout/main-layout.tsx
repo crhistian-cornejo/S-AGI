@@ -43,15 +43,13 @@ import {
   currentExcelFileAtom,
   currentDocFileIdAtom,
   currentDocFileAtom,
+  currentNoteFileAtom,
   fileSnapshotCacheAtom,
   versionHistoryPreviewVersionAtom,
   versionPreviewDataAtom,
-  versionPreviewLoadingAtom,
 } from "@/lib/atoms/user-files";
 import { excelSidebarOpenAtom, docSidebarOpenAtom } from "@/lib/atoms";
 import { Sidebar } from "@/features/sidebar/sidebar";
-import { NotesSidebar } from "@/features/notes/notes-sidebar";
-import { NotesPageTabs } from "@/features/notes/notes-page-tabs";
 import { ChatView } from "@/features/chat/chat-view";
 import { GalleryView } from "@/features/gallery/gallery-view";
 import { SettingsPage } from "@/features/settings/settings-page";
@@ -117,6 +115,11 @@ const FileHeader = lazy(() =>
     default: m.FileHeader,
   })),
 );
+const NotesSidebar = lazy(() =>
+  import("@/features/notes/notes-sidebar").then((m) => ({
+    default: m.NotesSidebar,
+  })),
+);
 const settingsTabs: SettingsTab[] = [
   "account",
   "appearance",
@@ -138,7 +141,7 @@ function PanelLoadingFallback() {
 
 export function MainLayout() {
   const [sidebarOpen, setSidebarOpen] = useAtom(sidebarOpenAtom);
-  const [notesSidebarOpen] = useAtom(notesSidebarOpenAtom);
+  const notesSidebarOpen = useAtomValue(notesSidebarOpenAtom);
   const [pdfSidebarOpen] = useAtom(pdfSidebarOpenAtom);
   const [artifactPanelOpen, setArtifactPanelOpen] = useAtom(
     artifactPanelOpenAtom,
@@ -162,6 +165,9 @@ export function MainLayout() {
   const currentDocFileId = useAtomValue(currentDocFileIdAtom);
   const currentDocFile = useAtomValue(currentDocFileAtom);
   const setCurrentDocFile = useSetAtom(currentDocFileAtom);
+
+  // Note file system atoms (for rename mutation callback only)
+  const setCurrentNoteFile = useSetAtom(currentNoteFileAtom);
 
   // Version history panel state
   const [versionHistoryOpen, setVersionHistoryOpen] = useState(false);
@@ -265,6 +271,9 @@ export function MainLayout() {
       if (updatedFile.type === "doc") {
         setCurrentDocFile(updatedFile);
       }
+      if (updatedFile.type === "note") {
+        setCurrentNoteFile(updatedFile);
+      }
       utils.userFiles.list.invalidate({ type: updatedFile.type });
     },
   });
@@ -298,6 +307,7 @@ export function MainLayout() {
     },
     [currentDocFileId, renameFileMutation],
   );
+
 
   // Handle version preview - clears atoms when panel closes
   // The actual fetching is done by the useFileVersions hook when selectVersionForPreview is called
@@ -743,26 +753,32 @@ export function MainLayout() {
           activeTab === "settings" ? "bg-background" : "bg-sidebar",
           (activeTab === "chat" || activeTab === "gallery") && sidebarOpen
             ? "left-72"
-            : activeTab === "ideas" && notesSidebarOpen
-              ? "left-72"
-              : activeTab === "pdf" && pdfSidebarOpen
+            : activeTab === "ideas" && sidebarOpen && notesSidebarOpen
+              ? "left-[36rem]"
+              : activeTab === "ideas" && (sidebarOpen || notesSidebarOpen)
                 ? "left-72"
-                : activeTab === "excel" && sidebarOpen && excelSidebarOpen
+                : activeTab === "pdf" && sidebarOpen && pdfSidebarOpen
                   ? "left-[36rem]"
-                  : activeTab === "excel" && (sidebarOpen || excelSidebarOpen)
+                  : activeTab === "pdf" && (sidebarOpen || pdfSidebarOpen)
                     ? "left-72"
-                  : activeTab === "doc" && docSidebarOpen
-                    ? "left-72"
-                    : activeTab === "settings"
-                      ? "left-72"
-                      : "left-0",
+                    : activeTab === "excel" && sidebarOpen && excelSidebarOpen
+                      ? "left-[36rem]"
+                      : activeTab === "excel" && (sidebarOpen || excelSidebarOpen)
+                        ? "left-72"
+                        : activeTab === "doc" && sidebarOpen && docSidebarOpen
+                          ? "left-[36rem]"
+                          : activeTab === "doc" && (sidebarOpen || docSidebarOpen)
+                            ? "left-72"
+                            : activeTab === "settings"
+                              ? "left-72"
+                              : "left-0",
         )}
         noTrafficLightSpace={
           ((activeTab === "chat" || activeTab === "gallery") && sidebarOpen) ||
-          (activeTab === "ideas" && notesSidebarOpen) ||
-          (activeTab === "pdf" && pdfSidebarOpen) ||
+          (activeTab === "ideas" && (sidebarOpen || notesSidebarOpen)) ||
+          (activeTab === "pdf" && (sidebarOpen || pdfSidebarOpen)) ||
           (activeTab === "excel" && (sidebarOpen || excelSidebarOpen)) ||
-          (activeTab === "doc" && docSidebarOpen) ||
+          (activeTab === "doc" && (sidebarOpen || docSidebarOpen)) ||
           activeTab === "settings"
         }
       />
@@ -1189,11 +1205,25 @@ export function MainLayout() {
 
         {/*
          * Doc Tab - Persistent file system with sidebar
-         * Sidebar outside content area (like chat) for consistent behavior
+         * Same pattern as Excel: main Sidebar + page-specific sidebar + Agent Panel
          */}
         {activeTab === "doc" && (
           <>
-            {/* Doc File Sidebar - full height like chat sidebar */}
+            {/* Primary Sidebar (Main) */}
+            <div
+              className={cn(
+                "h-full bg-sidebar transition-all duration-300 ease-in-out overflow-hidden shrink-0",
+                sidebarOpen
+                  ? "w-72 border-r border-sidebar-border/40"
+                  : "w-0 border-r-0",
+              )}
+            >
+              <div className="w-72 h-full">
+                <Sidebar />
+              </div>
+            </div>
+
+            {/* Doc File Sidebar - second sidebar */}
             <div
               className={cn(
                 "h-full bg-sidebar transition-all duration-300 ease-in-out overflow-hidden shrink-0",
@@ -1213,7 +1243,15 @@ export function MainLayout() {
             </div>
 
             {/* Main content area */}
-            <div className="flex-1 flex flex-col min-w-0 overflow-hidden pt-9 animate-in fade-in zoom-in-95 duration-300">
+            <div className="flex-1 flex flex-col min-w-0 overflow-hidden relative pt-9 bg-sidebar animate-in fade-in zoom-in-95 duration-300">
+              <div className="flex-1 flex flex-col min-w-0 overflow-hidden p-2">
+                <div className="flex-1 flex min-w-0 overflow-hidden rounded-[26px] border border-sidebar-border/40 bg-sidebar relative">
+                  <div
+                    className={cn(
+                      "flex-1 flex flex-col min-w-0 overflow-hidden",
+                      agentPanelOpen && "pr-[320px]",
+                    )}
+                  >
               {/* File Header - shows when valid file is loaded (ID matches) */}
               {currentDocFile && currentDocFile.id === currentDocFileId && (
                 <Suspense fallback={null}>
@@ -1259,64 +1297,60 @@ export function MainLayout() {
                   </div>
                 </div>
               )}
-              {/* Version Preview Banner for Docs */}
-              <VersionPreviewBanner fileId={currentDocFileId} />
+                    {/* Version Preview Banner for Docs */}
+                    <VersionPreviewBanner fileId={currentDocFileId} />
 
-              {/* Document */}
-              <div className="flex-1 flex overflow-hidden relative">
-                <div
-                  className={cn(
-                    "flex-1 flex flex-col min-w-0 overflow-hidden",
-                    agentPanelOpen && "pr-[320px]",
-                  )}
-                >
-                  <Suspense fallback={<PanelLoadingFallback />}>
-                    <UniverDocument
-                      ref={univerDocumentRef}
-                      key={`document-${currentDocFileId || docScratchId}-v${validDocPreviewData?.versionNumber || "current"}-${validDocPreviewData?.fileId || "none"}-vc${currentDocFile?.version_count || 0}`}
-                      fileId={
-                        validDocPreviewData
-                          ? undefined
-                          : currentDocFileId || undefined
-                      }
-                      fileData={
-                        validDocPreviewData?.univerData ||
-                        validDocFileData
-                      }
-                      artifactId={
-                        !currentDocFileId
-                          ? selectedArtifact?.type === "document"
-                            ? selectedArtifact.id
-                            : docScratchId
-                          : undefined
-                      }
-                      data={
-                        !currentDocFileId
-                          ? selectedArtifact?.type === "document"
-                            ? selectedArtifact.univer_data
-                            : undefined
-                          : undefined
-                      }
-                      isPreviewMode={!!validDocPreviewData}
-                    />
-                  </Suspense>
-                </div>
-                {/* Agent Panel - GPU slide, no layout animation */}
-                <div
-                  className={cn(
-                    "absolute right-0 top-0 h-full w-[320px] bg-sidebar border-l border-sidebar-border/40",
-                    "transition-transform transition-opacity duration-300 ease-in-out transform-gpu",
-                    agentPanelOpen
-                      ? "translate-x-0 opacity-100"
-                      : "translate-x-full opacity-0 pointer-events-none",
-                  )}
-                  inert={!agentPanelOpen || undefined}
-                  aria-hidden={!agentPanelOpen}
-                >
-                  <div className="h-full w-[320px]">
-                    <Suspense fallback={<PanelLoadingFallback />}>
-                      <AgentPanel />
-                    </Suspense>
+                    {/* Document */}
+                    <div className="flex-1 flex overflow-hidden">
+                      <Suspense fallback={<PanelLoadingFallback />}>
+                        <UniverDocument
+                          ref={univerDocumentRef}
+                          key={`document-${currentDocFileId || docScratchId}-v${validDocPreviewData?.versionNumber || "current"}-${validDocPreviewData?.fileId || "none"}-vc${currentDocFile?.version_count || 0}`}
+                          fileId={
+                            validDocPreviewData
+                              ? undefined
+                              : currentDocFileId || undefined
+                          }
+                          fileData={
+                            validDocPreviewData?.univerData ||
+                            validDocFileData
+                          }
+                          artifactId={
+                            !currentDocFileId
+                              ? selectedArtifact?.type === "document"
+                                ? selectedArtifact.id
+                                : docScratchId
+                              : undefined
+                          }
+                          data={
+                            !currentDocFileId
+                              ? selectedArtifact?.type === "document"
+                                ? selectedArtifact.univer_data
+                                : undefined
+                              : undefined
+                          }
+                          isPreviewMode={!!validDocPreviewData}
+                        />
+                      </Suspense>
+                    </div>
+                  </div>
+                  {/* Agent Panel - GPU slide, no layout animation */}
+                  <div
+                    className={cn(
+                      "absolute right-0 top-0 h-full w-[320px] bg-sidebar border-l border-sidebar-border/40",
+                      "transition-transform transition-opacity duration-300 ease-in-out transform-gpu",
+                      agentPanelOpen
+                        ? "translate-x-0 opacity-100"
+                        : "translate-x-full opacity-0 pointer-events-none",
+                    )}
+                    inert={!agentPanelOpen || undefined}
+                    aria-hidden={!agentPanelOpen}
+                  >
+                    <div className="h-full w-[320px]">
+                      <Suspense fallback={<PanelLoadingFallback />}>
+                        <AgentPanel />
+                      </Suspense>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -1326,63 +1360,131 @@ export function MainLayout() {
 
         {/*
          * PDF Tab - Unified PDF viewer hub.
-         * Shows PDFs from artifacts, knowledge documents, and citations.
-         * Includes AI-powered Q&A panel.
+         * Same pattern as Excel: main Sidebar + PDF sidebar (inside PdfTabView) + Agent Panel
          */}
         {activeTab === "pdf" && (
-          <div className="flex-1 flex animate-in fade-in zoom-in-95 duration-300 overflow-hidden relative">
-            {/* Main content */}
+          <>
+            {/* Primary Sidebar (Main) */}
             <div
               className={cn(
-                "flex-1 flex flex-col min-w-0 overflow-hidden",
-                agentPanelOpen && "pr-[320px]",
+                "h-full bg-sidebar transition-all duration-300 ease-in-out overflow-hidden shrink-0",
+                sidebarOpen
+                  ? "w-72 border-r border-sidebar-border/40"
+                  : "w-0 border-r-0",
               )}
             >
-              <Suspense fallback={<PanelLoadingFallback />}>
-                <PdfTabView />
-              </Suspense>
-            </div>
-            {/* Agent Panel - slides from right, pt-9 for titlebar safe area */}
-            <div
-              className={cn(
-                "absolute right-0 top-0 h-full w-[320px] bg-sidebar border-l border-sidebar-border/40 pt-9",
-                "transition-transform transition-opacity duration-300 ease-in-out transform-gpu",
-                agentPanelOpen
-                  ? "translate-x-0 opacity-100"
-                  : "translate-x-full opacity-0 pointer-events-none",
-              )}
-              inert={!agentPanelOpen || undefined}
-              aria-hidden={!agentPanelOpen}
-            >
-              <div className="w-[320px] h-full">
-                <Suspense fallback={<PanelLoadingFallback />}>
-                  <AgentPanel />
-                </Suspense>
+              <div className="w-72 h-full">
+                <Sidebar />
               </div>
             </div>
-          </div>
+
+            {/* Main content area */}
+            <div className="flex-1 flex flex-col min-w-0 overflow-hidden relative pt-9 bg-sidebar animate-in fade-in zoom-in-95 duration-300">
+              <div className="flex-1 flex flex-col min-w-0 overflow-hidden p-2">
+                <div className="flex-1 flex min-w-0 overflow-hidden rounded-[26px] border border-sidebar-border/40 bg-sidebar relative">
+                  <div
+                    className={cn(
+                      "flex-1 flex flex-col min-w-0 overflow-hidden",
+                      agentPanelOpen && "pr-[320px]",
+                    )}
+                  >
+                    <Suspense fallback={<PanelLoadingFallback />}>
+                      <PdfTabView />
+                    </Suspense>
+                  </div>
+                  {/* Agent Panel - GPU slide, no layout animation */}
+                  <div
+                    className={cn(
+                      "absolute right-0 top-0 h-full w-[320px] bg-sidebar border-l border-sidebar-border/40",
+                      "transition-transform transition-opacity duration-300 ease-in-out transform-gpu",
+                      agentPanelOpen
+                        ? "translate-x-0 opacity-100"
+                        : "translate-x-full opacity-0 pointer-events-none",
+                    )}
+                    inert={!agentPanelOpen || undefined}
+                    aria-hidden={!agentPanelOpen}
+                  >
+                    <div className="h-full w-[320px]">
+                      <Suspense fallback={<PanelLoadingFallback />}>
+                        <AgentPanel />
+                      </Suspense>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </>
         )}
 
         {/*
-         * Ideas Tab - Notes with BlockNote
+         * Ideas Tab - Notes with NotesSidebar + AgentPanel
+         * Same pattern as Excel tab: main Sidebar + page-specific sidebar + Agent Panel
          */}
         {activeTab === "ideas" && (
           <>
-            {/* Sidebar - always rendered, handles its own visibility */}
-            <NotesSidebar />
-
-            {/* Content area */}
-            <div className="flex-1 flex flex-col min-w-0 overflow-hidden relative pt-9">
-              {/* Page tabs - below titlebar */}
-              <div className="h-9 border-b border-border/50 bg-background flex items-center px-4 shrink-0">
-                <NotesPageTabs />
+            {/* Primary Sidebar (Main) */}
+            <div
+              className={cn(
+                "h-full bg-sidebar transition-all duration-300 ease-in-out overflow-hidden shrink-0",
+                sidebarOpen
+                  ? "w-72 border-r border-sidebar-border/40"
+                  : "w-0 border-r-0",
+              )}
+            >
+              <div className="w-72 h-full">
+                <Sidebar />
               </div>
+            </div>
 
-              {/* Editor content */}
-              <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+            {/* Notes Sidebar - second sidebar with Notion-like features */}
+            <div
+              className={cn(
+                "h-full bg-sidebar transition-all duration-300 ease-in-out overflow-hidden shrink-0",
+                notesSidebarOpen
+                  ? "w-72 border-r border-sidebar-border/40"
+                  : "w-0 border-r-0",
+              )}
+            >
+              <div className="w-72 h-full">
                 <Suspense fallback={<PanelLoadingFallback />}>
-                  <IdeasView />
+                  <NotesSidebar />
                 </Suspense>
+              </div>
+            </div>
+
+            {/* Main content area */}
+            <div className="flex-1 flex flex-col min-w-0 overflow-hidden relative pt-9 bg-sidebar animate-in fade-in zoom-in-95 duration-300">
+              <div className="flex-1 flex flex-col min-w-0 overflow-hidden p-2">
+                <div className="flex-1 flex min-w-0 overflow-hidden rounded-[26px] border border-sidebar-border/40 bg-sidebar relative">
+                  <div
+                    className={cn(
+                      "flex-1 flex flex-col min-w-0 overflow-hidden",
+                      agentPanelOpen && "pr-[320px]",
+                    )}
+                  >
+                    <Suspense fallback={<PanelLoadingFallback />}>
+                      <IdeasView />
+                    </Suspense>
+                  </div>
+                  {/* Agent Panel - GPU slide, no layout animation */}
+                  <div
+                    className={cn(
+                      "absolute right-0 top-0 h-full w-[320px] bg-sidebar border-l border-sidebar-border/40",
+                      "transition-transform transition-opacity duration-300 ease-in-out transform-gpu",
+                      agentPanelOpen
+                        ? "translate-x-0 opacity-100"
+                        : "translate-x-full opacity-0 pointer-events-none",
+                    )}
+                    inert={!agentPanelOpen || undefined}
+                    aria-hidden={!agentPanelOpen}
+                  >
+                    <div className="h-full w-[320px]">
+                      <Suspense fallback={<PanelLoadingFallback />}>
+                        <AgentPanel />
+                      </Suspense>
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
           </>

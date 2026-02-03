@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import {
   artifactPanelOpenAtom,
@@ -10,9 +10,6 @@ import {
   pdfSidebarOpenAtom,
   agentPanelOpenAtom,
   shortcutsDialogOpenAtom,
-  notesSelectedModelIdAtom,
-  notesEditorRefAtom,
-  notesIsExportingPdfAtom,
   excelSidebarOpenAtom,
   docSidebarOpenAtom,
   selectedChatIdAtom,
@@ -32,7 +29,6 @@ import {
   IconSettings,
   IconLogout,
   IconChevronDown,
-  IconFileTypePdf,
   IconLayoutSidebarLeftExpand,
   IconLayoutSidebarRightCollapse,
   IconArrowsDiagonalMinimize2,
@@ -50,10 +46,8 @@ import { Logo } from "@/components/ui/logo";
 import {
   ZaiIcon,
   OpenAIIcon,
-  ModelIcon,
   ClaudeIcon,
 } from "@/components/icons/model-icons";
-import type { AIProvider } from "@s-agi/core/types/ai";
 import {
   Tooltip,
   TooltipContent,
@@ -120,58 +114,9 @@ export function TitleBar({ className, noTrafficLightSpace }: TitleBarProps) {
     setSidebarOpen(true);
   }, [setSelectedChatId, setActiveTab, setSidebarOpen]);
 
-  // Notes editor controls (for titlebar)
-  const [selectedModelId, setSelectedModelId] = useAtom(
-    notesSelectedModelIdAtom,
-  );
-  const editorRef = useAtomValue(notesEditorRefAtom);
-  const [isExportingPdf] = useAtom(notesIsExportingPdfAtom);
-
-  // Available models for notes
-  const availableModels = useMemo(() => {
-    const models = {
-      openai: [
-        {
-          id: "gpt-5-mini",
-          name: "GPT-5 Mini",
-          description: "Fast & capable",
-          provider: "openai" as AIProvider,
-        },
-        {
-          id: "gpt-5-nano",
-          name: "GPT-5 Nano",
-          description: "Ultra fast",
-          provider: "openai" as AIProvider,
-        },
-      ],
-      zai: [
-        {
-          id: "GLM-4.7-Flash",
-          name: "GLM-4.7 Flash",
-          description: "Fast",
-          provider: "zai" as AIProvider,
-        },
-      ],
-    };
-    return provider === "zai" ? models.zai : models.openai;
-  }, [provider]);
-
-  const currentModel = useMemo(() => {
-    return (
-      availableModels.find((m) => m.id === selectedModelId) ||
-      availableModels[0]
-    );
-  }, [availableModels, selectedModelId]);
-
-  const handleExportPdf = useCallback(async () => {
-    if (editorRef?.exportPdf) {
-      await editorRef.exportPdf();
-    }
-  }, [editorRef]);
-
-  // Agent panel is available for excel, doc, pdf tabs
+  // Agent panel is available for excel, doc, pdf, ideas tabs
   const isAgentEnabled =
-    activeTab === "excel" || activeTab === "doc" || activeTab === "pdf";
+    activeTab === "excel" || activeTab === "doc" || activeTab === "pdf" || activeTab === "ideas";
 
   const isConnected =
     provider === "chatgpt-plus"
@@ -210,153 +155,15 @@ export function TitleBar({ className, noTrafficLightSpace }: TitleBarProps) {
         className,
       )}
     >
-      {/* Left side - Logo or Sidebar toggle with Notes controls based on active tab */}
-      {activeTab === "ideas" && !notesSidebarOpen && (
-        /* Only show in titlebar when sidebar is collapsed */
+      {/* Left side - Ideas tab with sidebar toggles (like Excel) */}
+      {activeTab === "ideas" && (!sidebarOpen || !notesSidebarOpen) && (
         <div
           className={cn(
-            "flex items-center gap-2 no-drag shrink-0 z-[100] relative pointer-events-auto",
-            showTrafficLights ? "ml-1" : "ml-2",
-          )}
-        >
-          {isWindows() && <HamburgerMenu />}
-          {/* App Logo - shown when sidebar is collapsed (only on Windows, macOS uses right-side logo) */}
-          {isWindows() && (
-            <>
-              <div className="flex items-center gap-2">
-                <Logo size={20} className="text-primary" />
-                <span className="text-sm font-semibold text-foreground tracking-tight">
-                  S-AGI
-                </span>
-              </div>
-
-              <div className="w-px h-4 bg-border" />
-            </>
-          )}
-
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                type="button"
-                onClick={() => setNotesSidebarOpen(true)}
-                className={cn(
-                  "flex items-center justify-center w-7 h-7 rounded-md transition-all duration-200",
-                  "hover:bg-accent/50 text-muted-foreground hover:text-foreground",
-                )}
-              >
-                <IconLayoutSidebarLeftExpand size={16} />
-              </button>
-            </TooltipTrigger>
-            <TooltipContent side="bottom">Show sidebar</TooltipContent>
-          </Tooltip>
-
-          {/* Model selector and PDF export - only when sidebar is collapsed */}
-          {currentModel && (
-            <>
-              <div className="w-px h-4 bg-border" />
-
-              {/* Model selector */}
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <button
-                        type="button"
-                        className={cn(
-                          "flex items-center gap-1.5 px-2 h-7 rounded-md text-xs transition-all duration-200",
-                          "hover:bg-accent/50 text-muted-foreground hover:text-foreground",
-                        )}
-                      >
-                        <ModelIcon
-                          provider={currentModel.provider || provider}
-                          size={14}
-                          className={
-                            currentModel.provider === "zai"
-                              ? "text-amber-500"
-                              : ""
-                          }
-                        />
-                        <span className="max-w-[80px] truncate text-xs">
-                          {currentModel.name}
-                        </span>
-                        <IconChevronDown size={12} className="opacity-50" />
-                      </button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="start" className="w-48">
-                      {availableModels.map((model) => (
-                        <DropdownMenuItem
-                          key={model.id}
-                          onClick={() => setSelectedModelId(model.id)}
-                          className={cn(
-                            "text-xs",
-                            model.id === selectedModelId && "bg-accent",
-                          )}
-                        >
-                          <div className="flex items-center gap-2 w-full">
-                            <ModelIcon
-                              provider={model.provider || provider}
-                              size={14}
-                              className={cn(
-                                "shrink-0",
-                                model.provider === "zai"
-                                  ? "text-amber-500"
-                                  : "",
-                              )}
-                            />
-                            <div className="flex flex-col min-w-0">
-                              <span className="font-medium">{model.name}</span>
-                              <span className="text-[10px] text-muted-foreground">
-                                {model.description}
-                              </span>
-                            </div>
-                          </div>
-                        </DropdownMenuItem>
-                      ))}
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                </TooltipTrigger>
-                <TooltipContent side="bottom">
-                  <p>AI Model</p>
-                </TooltipContent>
-              </Tooltip>
-
-              <div className="w-px h-4 bg-border" />
-
-              {/* PDF export button */}
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button
-                    type="button"
-                    onClick={handleExportPdf}
-                    disabled={isExportingPdf || !editorRef}
-                    className={cn(
-                      "flex items-center justify-center w-7 h-7 rounded-md transition-all duration-200",
-                      "hover:bg-accent/50 text-muted-foreground hover:text-foreground",
-                      (isExportingPdf || !editorRef) &&
-                        "opacity-50 cursor-not-allowed",
-                    )}
-                  >
-                    {isExportingPdf ? (
-                      <div className="w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin" />
-                    ) : (
-                      <IconFileTypePdf size={16} />
-                    )}
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent side="bottom">
-                  <p>Export to PDF</p>
-                </TooltipContent>
-              </Tooltip>
-            </>
-          )}
-        </div>
-      )}
-      {/* PDF tab - show sidebar toggle when collapsed */}
-      {activeTab === "pdf" && !pdfSidebarOpen && (
-        <div
-          className={cn(
-            "flex items-center gap-2 no-drag shrink-0 z-[100] relative pointer-events-auto",
-            showTrafficLights ? "ml-1" : "ml-2",
+            "flex items-center gap-1.5 shrink-0 z-[100]",
+            // Center buttons on macOS when main sidebar is collapsed, otherwise left-aligned
+            showTrafficLights && !sidebarOpen
+              ? "absolute left-1/2 -translate-x-1/2"
+              : showTrafficLights ? "ml-1" : "ml-2",
           )}
         >
           {isWindows() && <HamburgerMenu />}
@@ -386,7 +193,7 @@ export function TitleBar({ className, noTrafficLightSpace }: TitleBarProps) {
                   </button>
                 </TooltipTrigger>
                 <TooltipContent side="bottom">
-                  {agentPanelOpen ? "Close chat panel" : "Open chat panel"}
+                  {agentPanelOpen ? "Cerrar panel" : "Abrir panel AI"}
                 </TooltipContent>
               </Tooltip>
 
@@ -394,22 +201,148 @@ export function TitleBar({ className, noTrafficLightSpace }: TitleBarProps) {
             </>
           )}
 
-          {/* Sidebar toggle */}
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                type="button"
-                onClick={() => setPdfSidebarOpen(true)}
-                className={cn(
-                  "flex items-center justify-center w-7 h-7 rounded-md transition-all duration-200",
-                  "hover:bg-accent/50 text-muted-foreground hover:text-foreground",
-                )}
-              >
-                <IconLayoutSidebarLeftExpand size={16} />
-              </button>
-            </TooltipTrigger>
-            <TooltipContent side="bottom">Show sidebar</TooltipContent>
-          </Tooltip>
+          {/* Main sidebar toggle (chats) - when collapsed */}
+          {!sidebarOpen && (
+            <>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    onClick={() => setSidebarOpen(true)}
+                    className="no-drag pointer-events-auto flex items-center justify-center w-7 h-7 rounded-md transition-all duration-200 hover:bg-accent/50 text-muted-foreground hover:text-foreground"
+                  >
+                    <IconMessages size={16} />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">Mostrar chats</TooltipContent>
+              </Tooltip>
+
+              {/* New thread button */}
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    onClick={handleNewThread}
+                    className="no-drag pointer-events-auto flex items-center justify-center w-7 h-7 rounded-md transition-all duration-200 hover:bg-accent/50 text-muted-foreground hover:text-foreground"
+                  >
+                    <IconPlus size={16} />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">Nuevo hilo</TooltipContent>
+              </Tooltip>
+            </>
+          )}
+
+          {/* Notes sidebar toggle - when collapsed */}
+          {!notesSidebarOpen && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  onClick={() => setNotesSidebarOpen(true)}
+                  className="no-drag pointer-events-auto flex items-center justify-center w-7 h-7 rounded-md transition-all duration-200 hover:bg-accent/50 text-muted-foreground hover:text-foreground"
+                >
+                  <IconFileText size={16} />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">Mostrar notas</TooltipContent>
+            </Tooltip>
+          )}
+        </div>
+      )}
+      {/* PDF tab - show sidebar toggles when collapsed */}
+      {activeTab === "pdf" && (!sidebarOpen || !pdfSidebarOpen) && (
+        <div
+          className={cn(
+            "flex items-center gap-1.5 shrink-0 z-[100]",
+            // Center buttons on macOS when main sidebar is collapsed, otherwise left-aligned
+            showTrafficLights && !sidebarOpen
+              ? "absolute left-1/2 -translate-x-1/2"
+              : showTrafficLights ? "ml-1" : "ml-2",
+          )}
+        >
+          {isWindows() && <HamburgerMenu />}
+          {/* Logo - opens agent panel (only on Windows, macOS uses right-side logo) */}
+          {isWindows() && (
+            <>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    onClick={() => setAgentPanelOpen(!agentPanelOpen)}
+                    className={cn(
+                      "flex items-center gap-2 transition-all duration-200",
+                      "hover:opacity-80 active:scale-95 cursor-pointer",
+                      agentPanelOpen && "text-primary",
+                    )}
+                  >
+                    <div className="relative">
+                      <Logo size={20} />
+                      {agentPanelOpen && (
+                        <span className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-primary" />
+                      )}
+                    </div>
+                    <span className="text-sm font-semibold text-foreground tracking-tight">
+                      S-AGI
+                    </span>
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">
+                  {agentPanelOpen ? "Cerrar panel" : "Abrir panel AI"}
+                </TooltipContent>
+              </Tooltip>
+
+              <div className="w-px h-4 bg-border" />
+            </>
+          )}
+
+          {/* Main sidebar toggle (chats) - when collapsed */}
+          {!sidebarOpen && (
+            <>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    onClick={() => setSidebarOpen(true)}
+                    className="no-drag pointer-events-auto flex items-center justify-center w-7 h-7 rounded-md transition-all duration-200 hover:bg-accent/50 text-muted-foreground hover:text-foreground"
+                  >
+                    <IconMessages size={16} />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">Mostrar chats</TooltipContent>
+              </Tooltip>
+
+              {/* New thread button */}
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    onClick={handleNewThread}
+                    className="no-drag pointer-events-auto flex items-center justify-center w-7 h-7 rounded-md transition-all duration-200 hover:bg-accent/50 text-muted-foreground hover:text-foreground"
+                  >
+                    <IconPlus size={16} />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">Nuevo hilo</TooltipContent>
+              </Tooltip>
+            </>
+          )}
+
+          {/* PDF sidebar toggle - when collapsed */}
+          {!pdfSidebarOpen && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  onClick={() => setPdfSidebarOpen(true)}
+                  className="no-drag pointer-events-auto flex items-center justify-center w-7 h-7 rounded-md transition-all duration-200 hover:bg-accent/50 text-muted-foreground hover:text-foreground"
+                >
+                  <IconLayoutSidebarLeftExpand size={16} />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">Mostrar PDFs</TooltipContent>
+            </Tooltip>
+          )}
         </div>
       )}
       {/* Excel tab - show sidebar toggles when collapsed */}
@@ -585,19 +518,21 @@ export function TitleBar({ className, noTrafficLightSpace }: TitleBarProps) {
             </>
           )}
 
-          {/* Doc files sidebar toggle */}
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                type="button"
-                onClick={() => setDocSidebarOpen(true)}
-                className="no-drag pointer-events-auto flex items-center justify-center w-7 h-7 rounded-md transition-all duration-200 hover:bg-accent/50 text-muted-foreground hover:text-foreground"
-              >
-                <IconFileText size={16} />
-              </button>
-            </TooltipTrigger>
-            <TooltipContent side="bottom">Mostrar documentos</TooltipContent>
-          </Tooltip>
+          {/* Doc files sidebar toggle - when collapsed */}
+          {!docSidebarOpen && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  onClick={() => setDocSidebarOpen(true)}
+                  className="no-drag pointer-events-auto flex items-center justify-center w-7 h-7 rounded-md transition-all duration-200 hover:bg-accent/50 text-muted-foreground hover:text-foreground"
+                >
+                  <IconFileText size={16} />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">Mostrar documentos</TooltipContent>
+            </Tooltip>
+          )}
         </div>
       )}
       {/* Chat tab - show hamburger menu on Windows + sidebar toggle when collapsed */}

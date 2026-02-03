@@ -263,6 +263,7 @@ export {
   // Scratch session IDs
   excelScratchSessionIdAtom,
   docScratchSessionIdAtom,
+  noteScratchSessionIdAtom,
   // Saving state
   fileSavingAtom,
   isFileSavingAtom,

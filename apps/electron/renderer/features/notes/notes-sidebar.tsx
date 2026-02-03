@@ -39,6 +39,7 @@ import {
   currentProviderAtom,
   createNotePageActionAtom,
   notesPageUpdatedAtom,
+  sidebarOpenAtom,
 } from "@/lib/atoms";
 import {
   getAllPages,
@@ -71,14 +72,13 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { cn, isMac } from "@/lib/utils";
+import { cn, isMac, isElectron } from "@/lib/utils";
 import { toast } from "sonner";
 import { ModelIcon } from "@/components/icons/model-icons";
 import type { AIProvider } from "@s-agi/core/types/ai";
 import { IconPicker } from "@/components/ui/icon-picker";
 import { renderPageIcon } from "@/lib/notes-icon-utils";
-import { Logo } from "@/components/ui/logo";
-import { PageNav } from "@/features/sidebar/page-nav";
+import { NotesIcon } from "@/features/agent/icons";
 
 // ============================================================================
 // FadeScrollArea - Reuse from chat sidebar
@@ -554,7 +554,8 @@ function SpaceSection({
 // ============================================================================
 export function NotesSidebar() {
   const [selectedPageId, setSelectedPageId] = useAtom(selectedNotePageIdAtom);
-  const [sidebarOpen, setSidebarOpen] = useAtom(notesSidebarOpenAtom);
+  const [, setSidebarOpen] = useAtom(notesSidebarOpenAtom);
+  const mainSidebarOpen = useAtomValue(sidebarOpenAtom);
   const setOpenTabs = useSetAtom(openNoteTabsAtom);
   const [searchQuery, setSearchQuery] = useState("");
   const [editingPageId, setEditingPageId] = useState<string | null>(null);
@@ -887,186 +888,161 @@ export function NotesSidebar() {
     });
   }, []);
 
-  const isMacOS = isMac();
-
   return (
-    <div
-      className={cn(
-        "h-full bg-sidebar flex flex-col shrink-0 transition-all duration-300",
-        sidebarOpen
-          ? "w-72 border-r border-border/40"
-          : "w-0 overflow-hidden border-r-0",
-      )}
-    >
-      {sidebarOpen && (
-        <>
-          {/* Page Navigation */}
-          <div
-            className={cn(
-              "px-2 h-9 flex items-center",
-              isMacOS ? "pl-20" : "",
-            )}
-          >
-            <PageNav />
-          </div>
-          <div className="border-b border-border/50 mt-2" />
-
-          {/* Sidebar Header with Logo, Toggle and Controls */}
-          <div className="flex items-center gap-2 px-3 py-2 border-b border-border/50">
-            {/* App Logo - shown when expanded */}
-            {!isMacOS && (
-              <div className="flex items-center gap-2">
-                <Logo size={24} />
-                <span className="text-sm font-semibold text-foreground">
-                  S-AGI
-                </span>
-              </div>
-            )}
-            <div className="flex-1" />
-
-            {/* Model selector and PDF export - only when sidebar is expanded */}
-            {currentModel && (
-              <>
-                {/* Model selector - icon only */}
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <button
-                          type="button"
-                          className={cn(
-                            "flex items-center justify-center w-7 h-7 rounded-md transition-all duration-200",
-                            "hover:bg-accent/50 text-muted-foreground hover:text-foreground",
-                          )}
-                        >
-                          <ModelIcon
-                            provider={providerForIcon}
-                            size={16}
-                            className={
-                              providerForIcon === "zai" ? "text-amber-500" : ""
-                            }
-                          />
-                        </button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end" className="w-48">
-                        {availableModels.map((model) => (
-                          <DropdownMenuItem
-                            key={model.id}
-                            onClick={() => setSelectedModelId(model.id)}
-                            className={cn(
-                              "text-xs",
-                              model.id === selectedModelId && "bg-accent",
-                            )}
-                          >
-                            <div className="flex items-center gap-2 w-full">
-                              <ModelIcon
-                                provider={model.provider || providerForIcon}
-                                size={14}
-                                className={cn(
-                                  "shrink-0",
-                                  model.provider === "zai"
-                                    ? "text-amber-500"
-                                    : "",
-                                )}
-                              />
-                              <div className="flex flex-col min-w-0">
-                                <span className="font-medium">
-                                  {model.name}
-                                </span>
-                                <span className="text-[10px] text-muted-foreground">
-                                  {model.description}
-                                </span>
-                              </div>
-                            </div>
-                          </DropdownMenuItem>
-                        ))}
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </TooltipTrigger>
-                  <TooltipContent side="right">
-                    <p>{currentModel?.name || "AI Model"}</p>
-                  </TooltipContent>
-                </Tooltip>
-
-                <div className="w-px h-4 bg-border" />
-
-                {/* PDF export button */}
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <button
-                      type="button"
-                      onClick={handleExportPdf}
-                      disabled={isExportingPdf || !editorRef}
-                      className={cn(
-                        "flex items-center justify-center w-7 h-7 rounded-md transition-all duration-200",
-                        "hover:bg-accent/50 text-muted-foreground hover:text-foreground",
-                        (isExportingPdf || !editorRef) &&
-                          "opacity-50 cursor-not-allowed",
-                      )}
-                    >
-                      {isExportingPdf ? (
-                        <div className="w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin" />
-                      ) : (
-                        <IconFileTypePdf size={16} />
-                      )}
-                    </button>
-                  </TooltipTrigger>
-                  <TooltipContent side="right">
-                    <p>Export to PDF</p>
-                  </TooltipContent>
-                </Tooltip>
-
-                <div className="w-px h-4 bg-border" />
-              </>
-            )}
-
-            {/* Sidebar toggle button */}
+    <div className="h-full flex flex-col w-72">
+      {/* Header - matches FilesSidebar pattern */}
+      <div
+        className={cn(
+          "flex h-9 items-center justify-between px-3",
+          // Add left padding for traffic lights when main sidebar is collapsed on macOS
+          !mainSidebarOpen && isMac() && isElectron() && "pl-20",
+        )}
+      >
+        <div className="flex items-center gap-2">
+          <NotesIcon size={18} />
+          {/* Hide label when main sidebar collapsed on macOS to avoid traffic light overlap */}
+          {!(!mainSidebarOpen && isMac() && isElectron()) && (
+            <span className="text-sm font-semibold">Notas</span>
+          )}
+        </div>
+        <div className="flex items-center gap-1">
+          {/* Model selector */}
+          {currentModel && (
             <Tooltip>
               <TooltipTrigger asChild>
-                <button
-                  type="button"
-                  onClick={() => setSidebarOpen(false)}
-                  className="p-1.5 hover:bg-accent rounded transition-colors"
-                >
-                  <IconLayoutSidebarLeftCollapse
-                    size={16}
-                    className="text-muted-foreground"
-                  />
-                </button>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <button
+                      type="button"
+                      className="h-7 w-7 flex items-center justify-center hover:bg-accent/50 rounded-md transition-colors"
+                    >
+                      <ModelIcon
+                        provider={providerForIcon}
+                        size={16}
+                        className={
+                          providerForIcon === "zai" ? "text-amber-500" : ""
+                        }
+                      />
+                    </button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-48">
+                    {availableModels.map((model) => (
+                      <DropdownMenuItem
+                        key={model.id}
+                        onClick={() => setSelectedModelId(model.id)}
+                        className={cn(
+                          "text-xs",
+                          model.id === selectedModelId && "bg-accent",
+                        )}
+                      >
+                        <div className="flex items-center gap-2 w-full">
+                          <ModelIcon
+                            provider={model.provider || providerForIcon}
+                            size={14}
+                            className={cn(
+                              "shrink-0",
+                              model.provider === "zai" ? "text-amber-500" : "",
+                            )}
+                          />
+                          <div className="flex flex-col min-w-0">
+                            <span className="font-medium">{model.name}</span>
+                            <span className="text-[10px] text-muted-foreground">
+                              {model.description}
+                            </span>
+                          </div>
+                        </div>
+                      </DropdownMenuItem>
+                    ))}
+                  </DropdownMenuContent>
+                </DropdownMenu>
               </TooltipTrigger>
-              <TooltipContent side="right">Collapse sidebar</TooltipContent>
+              <TooltipContent>{currentModel?.name || "AI Model"}</TooltipContent>
             </Tooltip>
-          </div>
+          )}
 
-          {/* Search */}
-          <div className="px-3 py-2 border-b border-border/50">
-            <div className="relative">
-              <IconSearch
-                size={14}
-                className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground"
-              />
-              <Input
-                placeholder="Search notes..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="h-8 pl-8 text-sm bg-background/50 border-border/50"
-              />
-            </div>
-          </div>
+          {/* PDF export button */}
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                onClick={handleExportPdf}
+                disabled={isExportingPdf || !editorRef}
+                className={cn(
+                  "h-7 w-7 flex items-center justify-center hover:bg-accent/50 rounded-md transition-colors",
+                  (isExportingPdf || !editorRef) && "opacity-50 cursor-not-allowed",
+                )}
+              >
+                {isExportingPdf ? (
+                  <div className="w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin" />
+                ) : (
+                  <IconFileTypePdf size={16} />
+                )}
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>Exportar PDF</TooltipContent>
+          </Tooltip>
 
-          {/* Quick Navigation (Notion-style) */}
-          <div className="px-2 py-1.5 border-b border-border/50">
-            <button
-              type="button"
-              className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-sm text-foreground/80 hover:bg-accent/50 hover:text-foreground transition-colors"
-            >
-              <IconHome size={16} className="text-muted-foreground" />
-              <span>Home</span>
-            </button>
-          </div>
+          {/* New page button */}
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                onClick={() => handleCreatePage()}
+                className="h-7 w-7 flex items-center justify-center hover:bg-accent/50 rounded-md transition-colors"
+              >
+                <IconPlus size={16} />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>Nueva nota</TooltipContent>
+          </Tooltip>
 
-          {/* Content */}
-          <FadeScrollArea>
+          {/* Collapse button */}
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                onClick={() => setSidebarOpen(false)}
+                className="h-7 w-7 flex items-center justify-center hover:bg-accent/50 rounded-md transition-colors"
+              >
+                <IconLayoutSidebarLeftCollapse size={16} />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>Ocultar</TooltipContent>
+          </Tooltip>
+        </div>
+      </div>
+
+      {/* Content */}
+      <div className="flex-1 overflow-hidden flex flex-col">
+        {/* Search */}
+        <div className="px-3 py-2">
+          <div className="relative">
+            <IconSearch
+              size={14}
+              className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground"
+            />
+            <Input
+              placeholder="Buscar notas..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="h-8 pl-8 text-sm bg-background/50 border-border/50"
+            />
+          </div>
+        </div>
+
+        {/* Quick Navigation (Notion-style) */}
+        <div className="px-2 py-1.5 border-b border-border/50">
+          <button
+            type="button"
+            className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-sm text-foreground/80 hover:bg-accent/50 hover:text-foreground transition-colors"
+          >
+            <IconHome size={16} className="text-muted-foreground" />
+            <span>Inicio</span>
+          </button>
+        </div>
+
+        {/* Pages List */}
+        <FadeScrollArea>
             <div className="px-2 py-2 space-y-0.5">
               {/* Favorites */}
               {favorites.length > 0 && (
@@ -1287,28 +1263,12 @@ export function NotesSidebar() {
 
               {searchQuery && filteredPages.length === 0 && (
                 <div className="px-2 py-4 text-center text-sm text-muted-foreground">
-                  No pages found
+                  No se encontraron notas
                 </div>
               )}
             </div>
           </FadeScrollArea>
-
-          {/* Help/Support (Bottom) - Notion-style */}
-          <div className="mt-auto border-t border-border/50 px-2 py-2">
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  type="button"
-                  className="w-full flex items-center justify-center p-2 rounded-md hover:bg-accent/50 transition-colors"
-                >
-                  <IconDots size={16} className="text-muted-foreground" />
-                </button>
-              </TooltipTrigger>
-              <TooltipContent side="right">Help & Support</TooltipContent>
-            </Tooltip>
-          </div>
-        </>
-      )}
+        </div>
     </div>
   );
 }

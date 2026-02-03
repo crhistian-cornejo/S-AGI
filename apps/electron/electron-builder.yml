@@ -73,8 +73,9 @@ mac:
 
 dmg:
   artifactName: "S-AGI-${version}-macOS-${arch}.dmg"
-  background: apps/electron/build/dmg-background.png
-  icon: apps/electron/build/icon.icns
+  # Paths are relative to buildResources (apps/electron/build)
+  background: dmg-background.png
+  icon: icon.icns
   iconSize: 100
   window:
     width: 660
@@ -105,11 +106,14 @@ nsis:
   perMachine: false
   allowToChangeInstallationDirectory: true
   allowElevation: true
-  installerIcon: apps/electron/build/icon.ico
-  uninstallerIcon: apps/electron/build/icon.ico
-  installerHeaderIcon: apps/electron/build/icon.ico
-  installerSidebar: apps/electron/build/installer-sidebar.png
-  uninstallerSidebar: apps/electron/build/installer-sidebar.png
+  # Paths are relative to buildResources (apps/electron/build)
+  installerIcon: icon.ico
+  uninstallerIcon: icon.ico
+  installerHeaderIcon: icon.ico
+  installerHeader: installer-header.png
+  uninstallerHeader: installer-header.png
+  installerSidebar: installer-sidebar.png
+  uninstallerSidebar: installer-sidebar.png
   deleteAppDataOnUninstall: false
   createDesktopShortcut: true
   createStartMenuShortcut: true

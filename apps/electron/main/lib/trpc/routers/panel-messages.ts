@@ -9,7 +9,7 @@ export const panelMessagesRouter = router({
         .input(z.object({
             panelType: z.enum(['pdf_chat', 'agent_panel']),
             sourceId: z.string(),
-            tabType: z.enum(['excel', 'doc', 'pdf']).optional()
+            tabType: z.enum(['excel', 'doc', 'pdf', 'ideas']).optional()
         }))
         .query(async ({ ctx, input }) => {
             let query = supabase
@@ -40,7 +40,7 @@ export const panelMessagesRouter = router({
         .input(z.object({
             panelType: z.enum(['pdf_chat', 'agent_panel']),
             sourceId: z.string(),
-            tabType: z.enum(['excel', 'doc', 'pdf']).optional(),
+            tabType: z.enum(['excel', 'doc', 'pdf', 'ideas']).optional(),
             role: z.enum(['user', 'assistant']),
             content: z.string(),
             metadata: z.any().optional(),
@@ -153,7 +153,7 @@ export const panelMessagesRouter = router({
         .input(z.object({
             panelType: z.enum(['pdf_chat', 'agent_panel']),
             sourceId: z.string(),
-            tabType: z.enum(['excel', 'doc', 'pdf']).optional()
+            tabType: z.enum(['excel', 'doc', 'pdf', 'ideas']).optional()
         }))
         .mutation(async ({ ctx, input }) => {
             let query = supabase

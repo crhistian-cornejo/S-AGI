@@ -552,3 +552,32 @@ export function PdfIcon(props: IconProps & { size?: number }) {
     </svg>
   );
 }
+
+// Notes icon (Purple with notepad style)
+export function NotesIcon(props: IconProps & { size?: number }) {
+  const { size = 16, ...rest } = props;
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      width={size}
+      height={size}
+      fill="none"
+      aria-hidden="true"
+      {...rest}
+    >
+      <path
+        d="M14 2H6C4.89543 2 4 2.89543 4 4V20C4 21.1046 4.89543 22 6 22H18C19.1046 22 20 21.1046 20 20V8L14 2Z"
+        fill="#7C3AED"
+      />
+      <path d="M14 2V8H20L14 2Z" fill="#A78BFA" />
+      <path
+        d="M7 12H17M7 15H17M7 18H12"
+        stroke="white"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <circle cx="8" cy="9" r="1" fill="white" />
+    </svg>
+  );
+}

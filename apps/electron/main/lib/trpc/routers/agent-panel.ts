@@ -209,7 +209,7 @@ export const agentPanelRouter = router({
     .input(
       z.object({
         sessionId: z.string(),
-        tabType: z.enum(["excel", "doc", "pdf"]),
+        tabType: z.enum(["excel", "doc", "pdf", "ideas"]),
         prompt: z.string(),
         provider: z
           .enum(["openai", "chatgpt-plus", "zai", "claude"])

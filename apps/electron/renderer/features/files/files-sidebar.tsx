@@ -33,8 +33,11 @@ import {
   currentExcelFileAtom,
   currentDocFileIdAtom,
   currentDocFileAtom,
+  currentNoteFileIdAtom,
+  currentNoteFileAtom,
   excelScratchSessionIdAtom,
   docScratchSessionIdAtom,
+  noteScratchSessionIdAtom,
   fileSnapshotCacheAtom,
   type UserFile,
   type UserFileType,
@@ -68,7 +71,7 @@ import { toast } from "sonner";
 import { importFromExcel } from "@/features/univer/excel-exchange";
 import { formatTimeAgo } from "@/utils/time-format";
 import { FontWarningDialog } from "@/components/font-warning-dialog";
-import { ExcelIcon, DocIcon, PdfIcon } from "@/features/agent/icons";
+import { ExcelIcon, DocIcon, PdfIcon, NotesIcon } from "@/features/agent/icons";
 
 // ============================================================================
 // FadeScrollArea
@@ -175,8 +178,30 @@ function FileItem({
     }
   }, [isEditing]);
 
-  const isExcel = file.type === "excel";
   const ContainerTag = isEditing ? "div" : "button";
+
+  // Render file type icon
+  const renderFileIcon = () => {
+    if (file.icon) {
+      return <span className="text-base">{file.icon}</span>;
+    }
+    if (file.type === "excel") {
+      return <ExcelIcon size={16} />;
+    }
+    if (file.type === "note") {
+      return <NotesIcon size={16} />;
+    }
+    // Default to doc icon
+    return (
+      <IconFileText
+        size={16}
+        className={cn(
+          "transition-colors",
+          isSelected ? "text-primary" : "text-muted-foreground/60",
+        )}
+      />
+    );
+  };
 
   return (
     <ContainerTag
@@ -201,21 +226,7 @@ function FileItem({
         : {})}
     >
       {/* Icon */}
-      <div className="shrink-0">
-        {file.icon ? (
-          <span className="text-base">{file.icon}</span>
-        ) : isExcel ? (
-          <ExcelIcon size={16} />
-        ) : (
-          <IconFileText
-            size={16}
-            className={cn(
-              "transition-colors",
-              isSelected ? "text-primary" : "text-muted-foreground/60",
-            )}
-          />
-        )}
-      </div>
+      <div className="shrink-0">{renderFileIcon()}</div>
 
       {/* Name or input */}
       <div className="flex-1 min-w-0">
@@ -343,7 +354,12 @@ function ScratchItem({
   onSelect,
   onSaveAsNew,
 }: ScratchItemProps) {
-  const label = type === "excel" ? "Crear hoja nueva" : "Crear documento";
+  const label =
+    type === "excel"
+      ? "Crear hoja nueva"
+      : type === "doc"
+        ? "Crear documento"
+        : "Crear nota";
 
   return (
     <button
@@ -407,19 +423,41 @@ export function FilesSidebar({ type, onToggle }: FilesSidebarProps) {
   const setCurrentExcelFile = useSetAtom(currentExcelFileAtom);
   const [currentDocFileId, setCurrentDocFileId] = useAtom(currentDocFileIdAtom);
   const setCurrentDocFile = useSetAtom(currentDocFileAtom);
+  const [currentNoteFileId, setCurrentNoteFileId] = useAtom(
+    currentNoteFileIdAtom,
+  );
+  const setCurrentNoteFile = useSetAtom(currentNoteFileAtom);
 
   const excelScratchId = useAtomValue(excelScratchSessionIdAtom);
   const docScratchId = useAtomValue(docScratchSessionIdAtom);
+  const noteScratchId = useAtomValue(noteScratchSessionIdAtom);
   const fileSnapshotCache = useAtomValue(fileSnapshotCacheAtom);
 
   // Derived values based on type
   const currentFileId =
-    type === "excel" ? currentExcelFileId : currentDocFileId;
+    type === "excel"
+      ? currentExcelFileId
+      : type === "doc"
+        ? currentDocFileId
+        : currentNoteFileId;
   const setCurrentFileId =
-    type === "excel" ? setCurrentExcelFileId : setCurrentDocFileId;
+    type === "excel"
+      ? setCurrentExcelFileId
+      : type === "doc"
+        ? setCurrentDocFileId
+        : setCurrentNoteFileId;
   const setCurrentFile =
-    type === "excel" ? setCurrentExcelFile : setCurrentDocFile;
-  const scratchSessionId = type === "excel" ? excelScratchId : docScratchId;
+    type === "excel"
+      ? setCurrentExcelFile
+      : type === "doc"
+        ? setCurrentDocFile
+        : setCurrentNoteFile;
+  const scratchSessionId =
+    type === "excel"
+      ? excelScratchId
+      : type === "doc"
+        ? docScratchId
+        : noteScratchId;
 
   const [searchQuery, setSearchQuery] = useState("");
   const [editingFileId, setEditingFileId] = useState<string | null>(null);
@@ -428,7 +466,11 @@ export function FilesSidebar({ type, onToggle }: FilesSidebarProps) {
   const [fileToDelete, setFileToDelete] = useState<string | null>(null);
   const [saveAsDialogOpen, setSaveAsDialogOpen] = useState(false);
   const [newFileName, setNewFileName] = useState(
-    type === "excel" ? "Nuevo archivo" : "Nuevo documento",
+    type === "excel"
+      ? "Nuevo archivo"
+      : type === "doc"
+        ? "Nuevo documento"
+        : "Nueva nota",
   );
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -480,7 +522,13 @@ export function FilesSidebar({ type, onToggle }: FilesSidebarProps) {
       setCurrentFileId(file.id);
       setCurrentFile(file);
       utils.userFiles.list.invalidate();
-      toast.success(type === "excel" ? "Archivo creado" : "Documento creado");
+      toast.success(
+        type === "excel"
+          ? "Archivo creado"
+          : type === "doc"
+            ? "Documento creado"
+            : "Nota creada",
+      );
     },
   });
 
@@ -565,14 +613,24 @@ export function FilesSidebar({ type, onToggle }: FilesSidebarProps) {
     // Instead of just selecting scratch mode, create a new file
     createFileMutation.mutate({
       type,
-      name: type === "excel" ? "Nuevo archivo" : "Nuevo documento",
+      name:
+        type === "excel"
+          ? "Nuevo archivo"
+          : type === "doc"
+            ? "Nuevo documento"
+            : "Nueva nota",
     });
   }, [createFileMutation, type]);
 
   const handleCreateFile = useCallback(() => {
     createFileMutation.mutate({
       type,
-      name: type === "excel" ? "Nuevo archivo" : "Nuevo documento",
+      name:
+        type === "excel"
+          ? "Nuevo archivo"
+          : type === "doc"
+            ? "Nuevo documento"
+            : "Nueva nota",
     });
   }, [createFileMutation, type]);
 
@@ -585,11 +643,22 @@ export function FilesSidebar({ type, onToggle }: FilesSidebarProps) {
     createFileMutation.mutate({
       type,
       name:
-        newFileName || (type === "excel" ? "Nuevo archivo" : "Nuevo documento"),
+        newFileName ||
+        (type === "excel"
+          ? "Nuevo archivo"
+          : type === "doc"
+            ? "Nuevo documento"
+            : "Nueva nota"),
       univerData: scratchData,
     });
     setSaveAsDialogOpen(false);
-    setNewFileName(type === "excel" ? "Nuevo archivo" : "Nuevo documento");
+    setNewFileName(
+      type === "excel"
+        ? "Nuevo archivo"
+        : type === "doc"
+          ? "Nuevo documento"
+          : "Nueva nota",
+    );
   }, [
     createFileMutation,
     fileSnapshotCache,
@@ -690,7 +759,12 @@ export function FilesSidebar({ type, onToggle }: FilesSidebarProps) {
   // Check if scratch is selected (no file selected)
   const isScratchSelected = !currentFileId;
 
-  const typeLabel = type === "excel" ? "Hojas de cálculo" : "Documentos";
+  const typeLabel =
+    type === "excel"
+      ? "Hojas de cálculo"
+      : type === "doc"
+        ? "Documentos"
+        : "Notas";
 
   // Sidebar content is now rendered inside a container controlled by main-layout
   // This component just renders the inner content
@@ -719,6 +793,8 @@ export function FilesSidebar({ type, onToggle }: FilesSidebarProps) {
               <ExcelIcon size={18} />
             ) : type === "doc" ? (
               <DocIcon size={18} />
+            ) : type === "note" ? (
+              <NotesIcon size={18} />
             ) : (
               <PdfIcon size={18} />
             )}
@@ -756,7 +832,11 @@ export function FilesSidebar({ type, onToggle }: FilesSidebarProps) {
                 </Button>
               </TooltipTrigger>
               <TooltipContent>
-                {type === "excel" ? "Nuevo Excel" : "Nuevo documento"}
+                {type === "excel"
+                  ? "Nuevo Excel"
+                  : type === "doc"
+                    ? "Nuevo documento"
+                    : "Nueva nota"}
               </TooltipContent>
             </Tooltip>
             <Tooltip>

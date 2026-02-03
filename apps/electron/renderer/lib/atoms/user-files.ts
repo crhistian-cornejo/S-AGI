@@ -200,6 +200,12 @@ export const docScratchSessionIdAtom = atomWithStorage<string>(
   `scratch-doc-${Date.now()}`
 )
 
+// Stable session ID for Note tab when no file is selected
+export const noteScratchSessionIdAtom = atomWithStorage<string>(
+  'note-scratch-session-id',
+  `scratch-note-${Date.now()}`
+)
+
 // Helper atom to get/set individual file snapshots
 export const getFileSnapshotAtom = (fileId: string) =>
   atom(

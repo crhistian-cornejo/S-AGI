@@ -1,10 +1,10 @@
 import { useEffect, useCallback, memo } from "react";
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import {
-  IconFileTypePdf,
-  IconLayoutSidebar,
   IconRefresh,
   IconLayoutSidebarLeftCollapse,
+  IconFileTypePdf,
+  IconLayoutSidebar,
 } from "@tabler/icons-react";
 import { trpc } from "@/lib/trpc";
 import {
@@ -13,7 +13,7 @@ import {
   pdfNavigationRequestAtom,
   pdfCurrentPageAtom,
   selectedChatIdAtom,
-  agentPanelOpenAtom,
+  sidebarOpenAtom,
   type PdfSource,
 } from "@/lib/atoms";
 import { Button } from "@/components/ui/button";
@@ -22,12 +22,12 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { cn, isMacOS, isWindows } from "@/lib/utils";
+import { cn, isMacOS, isElectron } from "@/lib/utils";
 import { PdfDocumentList } from "./pdf-document-list";
 import { PdfViewerEnhanced } from "./pdf-viewer-enhanced";
 import { PdfQueueProcessor } from "./components/queue-processor";
 import { KnowledgeDropZone } from "./components/knowledge-drop-zone";
-import { PageNav } from "@/features/sidebar/page-nav";
+import { PdfIcon } from "@/features/agent/icons";
 
 /**
  * Main PDF Tab View Component
@@ -72,75 +72,28 @@ export const PdfTabView = memo(function PdfTabView() {
  */
 const PdfSidebarContent = memo(function PdfSidebarContent() {
   const utils = trpc.useUtils();
-  const [, setAgentPanelOpen] = useAtom(agentPanelOpenAtom);
   const [, setSidebarOpen] = useAtom(pdfSidebarOpenAtom);
-  const isWindowsPlatform = isWindows();
-  const isMacPlatform = isMacOS();
+  const mainSidebarOpen = useAtomValue(sidebarOpenAtom);
 
   const handleRefresh = useCallback(() => {
     utils.pdf.listAll.invalidate();
   }, [utils]);
 
-  // Count PDFs (all user's PDFs, not filtered by chat)
-  const { data: pdfList } = trpc.pdf.listAll.useQuery({
-    limit: 50,
-  });
-  const pdfCount = pdfList?.pdfs?.length || 0;
-
   return (
     <div className="h-full flex flex-col">
-      {/* Page navigation */}
+      {/* Header - matches FilesSidebar pattern */}
       <div
         className={cn(
-          "px-2 h-9 flex items-center",
-          isMacPlatform && "pl-20",
+          "flex h-9 items-center justify-between px-3",
+          // Add left padding for traffic lights when main sidebar is collapsed on macOS
+          !mainSidebarOpen && isMacOS() && isElectron() && "pl-20",
         )}
       >
-        <PageNav />
-      </div>
-      <div className="border-b border-sidebar-border/60 mt-2" />
-
-      {/* Header */}
-      <div
-        className={cn(
-          "border-b border-sidebar-border flex items-center justify-between px-2 h-10",
-        )}
-      >
-        <div className="flex items-center gap-2 min-w-0">
-          {isWindowsPlatform ? (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  type="button"
-                  onClick={() => setAgentPanelOpen(true)}
-                  className="flex items-center gap-2 min-w-0 hover:opacity-80 transition-opacity"
-                >
-                  <img src="/logo.svg" alt="S-AGI" className="h-5 w-5" />
-                  <div className="flex flex-col leading-tight min-w-0">
-                    <span className="text-xs font-semibold text-foreground truncate">
-                      S-AGI
-                    </span>
-                    <span className="text-[11px] text-muted-foreground truncate">
-                      PDFs
-                    </span>
-                  </div>
-                </button>
-              </TooltipTrigger>
-              <TooltipContent side="bottom">Open chat panel</TooltipContent>
-            </Tooltip>
-          ) : (
-            <div className="flex items-center gap-2 min-w-0">
-              <IconFileTypePdf
-                size={16}
-                className="text-red-500 shrink-0"
-              />
-              <span className="text-sm font-semibold">Documents</span>
-            </div>
-          )}
-          {pdfCount > 0 && (
-            <span className="text-[10px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded-full font-medium">
-              {pdfCount}
-            </span>
+        <div className="flex items-center gap-2">
+          <PdfIcon size={18} />
+          {/* Hide label when main sidebar collapsed on macOS to avoid traffic light overlap */}
+          {!(!mainSidebarOpen && isMacOS() && isElectron()) && (
+            <span className="text-sm font-semibold">PDFs</span>
           )}
         </div>
         <div className="flex items-center gap-1">
@@ -149,26 +102,26 @@ const PdfSidebarContent = memo(function PdfSidebarContent() {
               <Button
                 variant="ghost"
                 size="icon"
-                className="h-6 w-6"
+                className="h-7 w-7"
                 onClick={handleRefresh}
               >
-                <IconRefresh size={14} />
+                <IconRefresh size={16} />
               </Button>
             </TooltipTrigger>
-            <TooltipContent side="bottom">Refresh</TooltipContent>
+            <TooltipContent>Actualizar</TooltipContent>
           </Tooltip>
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
                 variant="ghost"
                 size="icon"
-                className="h-6 w-6"
+                className="h-7 w-7"
                 onClick={() => setSidebarOpen(false)}
               >
-                <IconLayoutSidebarLeftCollapse size={14} />
+                <IconLayoutSidebarLeftCollapse size={16} />
               </Button>
             </TooltipTrigger>
-            <TooltipContent side="bottom">Collapse sidebar</TooltipContent>
+            <TooltipContent>Ocultar</TooltipContent>
           </Tooltip>
         </div>
       </div>

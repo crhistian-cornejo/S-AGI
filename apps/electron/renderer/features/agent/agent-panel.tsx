@@ -41,6 +41,10 @@ import {
   IconBookmark,
   IconHighlight,
   IconCornerDownRight,
+  IconBulb,
+  IconListDetails,
+  IconPencil,
+  IconNotes,
 } from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -92,6 +96,8 @@ import {
   currentExcelFileAtom,
   currentDocFileIdAtom,
   currentDocFileAtom,
+  currentNoteFileIdAtom,
+  currentNoteFileAtom,
 } from "@/lib/atoms";
 import { AI_MODELS, getModelsByProvider } from "@s-agi/core/types/ai";
 import type { AIProvider } from "@s-agi/core/types/ai";
@@ -200,6 +206,20 @@ const SUGGESTED_PROMPTS = {
       text: "Extract important data in table format",
     },
   ],
+  ideas: [
+    {
+      icon: IconBulb,
+      text: "Brainstorm ideas about this topic",
+    },
+    {
+      icon: IconListDetails,
+      text: "Organize and structure these notes",
+    },
+    {
+      icon: IconPencil,
+      text: "Expand and elaborate on this content",
+    },
+  ],
 } as const;
 
 /*
@@ -251,6 +271,13 @@ const AGENT_CONTEXTS = {
     subtitle: "Document Analyst",
     placeholder: "Search, summarize, ask about the PDF...",
     color: "amber",
+  },
+  ideas: {
+    icon: IconNotes,
+    title: "Notes Agent",
+    subtitle: "Writing Assistant",
+    placeholder: "Brainstorm ideas, expand notes, organize content...",
+    color: "purple",
   },
 } as const;
 
@@ -747,6 +774,8 @@ export function AgentPanel() {
   const currentExcelFile = useAtomValue(currentExcelFileAtom);
   const currentDocFileId = useAtomValue(currentDocFileIdAtom);
   const currentDocFile = useAtomValue(currentDocFileAtom);
+  const currentNoteFileId = useAtomValue(currentNoteFileIdAtom);
+  const currentNoteFile = useAtomValue(currentNoteFileAtom);
 
   const [input, setInput] = useState("");
   const [historyDialogOpen, setHistoryDialogOpen] = useState(false);
@@ -812,6 +841,9 @@ export function AgentPanel() {
     if (activeTab === "doc" && currentDocFileId) {
       return `${activeTab}-file-${currentDocFileId}`;
     }
+    if (activeTab === "ideas" && currentNoteFileId) {
+      return `${activeTab}-file-${currentNoteFileId}`;
+    }
     if (selectedArtifact) {
       return `${activeTab}-${selectedArtifact.id}`;
     }
@@ -821,6 +853,7 @@ export function AgentPanel() {
     selectedPdf,
     currentExcelFileId,
     currentDocFileId,
+    currentNoteFileId,
     selectedArtifact,
   ]);
 
@@ -1238,14 +1271,16 @@ export function AgentPanel() {
       promptContent = `${contextParts.join("\n\n")}\n\n${promptContent}`;
     }
 
-    // Create checkpoint before AI operation (for Excel/Doc files)
+    // Create checkpoint before AI operation (for Excel/Doc/Note files)
     let checkpointVersion: number | undefined;
     const fileIdForCheckpoint =
       activeTab === "excel"
         ? currentExcelFileId
         : activeTab === "doc"
           ? currentDocFileId
-          : null;
+          : activeTab === "ideas"
+            ? currentNoteFileId
+            : null;
 
     if (fileIdForCheckpoint) {
       try {
@@ -1406,11 +1441,19 @@ export function AgentPanel() {
             wordCount: p.wordCount || p.content.split(/\s+/).length,
           })),
         };
+      } else if (activeTab === "ideas") {
+        // Use note file system for ideas/notes
+        if (currentNoteFileId && currentNoteFile) {
+          context = {
+            fileId: currentNoteFileId,
+            fileName: currentNoteFile.name,
+          };
+        }
       }
 
       await chatMutation.mutateAsync({
         sessionId,
-        tabType: activeTab as "excel" | "doc" | "pdf",
+        tabType: activeTab as "excel" | "doc" | "pdf" | "ideas",
         prompt: promptContent, // Include cell context in prompt
         provider: config.provider,
         modelId: config.modelId,
