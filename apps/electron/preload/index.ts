@@ -733,6 +733,75 @@ const desktopApi = {
       };
     },
   },
+
+  // Auto-update API
+  update: {
+    checkForUpdates: () => ipcRenderer.invoke("update:check"),
+    downloadUpdate: () => ipcRenderer.invoke("update:download"),
+    installUpdate: () => ipcRenderer.invoke("update:install"),
+    getVersion: () => ipcRenderer.invoke("update:get-version") as Promise<string>,
+    onChecking: (callback: () => void) => {
+      const handler = () => callback();
+      ipcRenderer.on("update:checking", handler);
+      return () => {
+        ipcRenderer.removeListener("update:checking", handler);
+      };
+    },
+    onAvailable: (
+      callback: (data: {
+        version: string;
+        releaseDate?: string;
+        releaseNotes?: string | { version: string; note: string }[];
+      }) => void,
+    ) => {
+      const handler = (_: any, data: any) => callback(data);
+      ipcRenderer.on("update:available", handler);
+      return () => {
+        ipcRenderer.removeListener("update:available", handler);
+      };
+    },
+    onNotAvailable: (callback: (data: { version: string }) => void) => {
+      const handler = (_: any, data: any) => callback(data);
+      ipcRenderer.on("update:not-available", handler);
+      return () => {
+        ipcRenderer.removeListener("update:not-available", handler);
+      };
+    },
+    onDownloadProgress: (
+      callback: (data: {
+        percent: number;
+        transferred: number;
+        total: number;
+        bytesPerSecond: number;
+      }) => void,
+    ) => {
+      const handler = (_: any, data: any) => callback(data);
+      ipcRenderer.on("update:download-progress", handler);
+      return () => {
+        ipcRenderer.removeListener("update:download-progress", handler);
+      };
+    },
+    onDownloaded: (
+      callback: (data: {
+        version: string;
+        releaseDate?: string;
+        releaseNotes?: string | { version: string; note: string }[];
+      }) => void,
+    ) => {
+      const handler = (_: any, data: any) => callback(data);
+      ipcRenderer.on("update:downloaded", handler);
+      return () => {
+        ipcRenderer.removeListener("update:downloaded", handler);
+      };
+    },
+    onError: (callback: (data: { message: string }) => void) => {
+      const handler = (_: any, data: any) => callback(data);
+      ipcRenderer.on("update:error", handler);
+      return () => {
+        ipcRenderer.removeListener("update:error", handler);
+      };
+    },
+  },
 };
 
 // Expose to renderer process

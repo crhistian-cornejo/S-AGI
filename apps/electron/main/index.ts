@@ -26,6 +26,7 @@ import { getFileManager } from "./lib/file-manager/file-manager";
 import { lockSensitiveNow } from "./lib/security/sensitive-lock";
 import { getPreferencesStore } from "./lib/preferences-store";
 import { startAIServer, stopAIServer, waitForAIServerReady } from "./lib/ai";
+import { initAutoUpdater } from "./lib/auto-updater";
 import log from "electron-log";
 
 const appDisplayName = "S-AGI";
@@ -1174,7 +1175,7 @@ function registerContentSecurityPolicy(): void {
  */
 function registerPermissionRequestHandler(): void {
   session.defaultSession.setPermissionRequestHandler(
-    (webContents, permission, callback) => {
+    (webContents, permission, callback, details) => {
       const url = webContents.getURL();
 
       // Only allow permissions for local content (file://) or trusted dev origins
@@ -1189,6 +1190,24 @@ function registerPermissionRequestHandler(): void {
           `[Security] Permission request denied for untrusted origin: ${url}`,
         );
         return callback(false);
+      }
+
+      // Allow camera/microphone access for trusted origins
+      if (
+        (permission === "media" ||
+          permission === "mediaVideoCapture" ||
+          permission === "mediaAudioCapture" ||
+          permission === "camera" ||
+          permission === "microphone") &&
+        (isLocal || isTrustedOrigin)
+      ) {
+        const mediaTypes = details?.mediaTypes ?? [];
+        const mediaLabel =
+          mediaTypes.length > 0 ? mediaTypes.join(", ") : "unknown";
+        log.info(
+          `[Security] Allowing media permission '${permission}' (${mediaLabel}) for: ${url}`,
+        );
+        return callback(true);
       }
 
       // Allow notifications for trusted origins
@@ -1212,6 +1231,51 @@ function registerPermissionRequestHandler(): void {
       // Deny all other permissions by default
       log.warn(`[Security] Permission '${permission}' denied for: ${url}`);
       callback(false);
+    },
+  );
+
+  session.defaultSession.setPermissionCheckHandler(
+    (webContents, permission, _requestingOrigin, details) => {
+      const url = webContents.getURL();
+      const rendererOrigins = getRendererOrigins();
+      const isLocal = url.startsWith("file://");
+      const isTrustedOrigin = rendererOrigins.some((origin) =>
+        url.startsWith(origin),
+      );
+
+      if (!isLocal && !isTrustedOrigin) {
+        log.warn(
+          `[Security] Permission check denied for untrusted origin: ${url}`,
+        );
+        return false;
+      }
+
+      if (
+        permission === "media" ||
+        permission === "mediaVideoCapture" ||
+        permission === "mediaAudioCapture" ||
+        permission === "camera" ||
+        permission === "microphone"
+      ) {
+        const mediaTypes = details?.mediaTypes ?? [];
+        const mediaLabel =
+          mediaTypes.length > 0 ? mediaTypes.join(", ") : "unknown";
+        log.info(
+          `[Security] Permission check allowed '${permission}' (${mediaLabel}) for: ${url}`,
+        );
+        return true;
+      }
+
+      if (permission === "notifications") return true;
+
+      if (
+        permission === "clipboard-sanitized-write" ||
+        permission === "clipboard-read"
+      ) {
+        return true;
+      }
+
+      return false;
     },
   );
 }
@@ -1383,6 +1447,10 @@ function createWindow(): void {
     mainWindow?.show();
     // Ensure menu is set after window is ready
     updateApplicationMenu();
+    // Initialize auto-updater (only in production)
+    if (!is.dev && mainWindow) {
+      initAutoUpdater(mainWindow);
+    }
   });
 
   // Notify renderer when maximized/unmaximized (for title-bar icon)

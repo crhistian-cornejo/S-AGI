@@ -47,6 +47,7 @@ export function AvatarEditorDialog({
         startOffsetY: 0
     })
     const [cameraActive, setCameraActive] = useState(false)
+    const [cameraError, setCameraError] = useState<string | null>(null)
 
     const displayedUrl = useMemo(() => {
         if (value?.mode === 'upload') return value.dataUrl
@@ -80,12 +81,19 @@ export function AvatarEditorDialog({
             stream.getTracks().forEach((t) => t.stop())
             cameraStreamRef.current = null
         }
+        if (videoRef.current) {
+            videoRef.current.srcObject = null
+        }
         setCameraActive(false)
     }
 
     const startCamera = async () => {
         setIsBusy(true)
+        setCameraError(null)
         try {
+            if (!navigator.mediaDevices?.getUserMedia) {
+                throw new Error('Camera not available')
+            }
             const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' }, audio: false })
             cameraStreamRef.current = stream
             if (videoRef.current) {
@@ -93,6 +101,10 @@ export function AvatarEditorDialog({
                 await videoRef.current.play()
             }
             setCameraActive(true)
+        } catch (error) {
+            const message = error instanceof Error ? error.message : 'Unable to access camera'
+            setCameraError(message)
+            stopCamera()
         } finally {
             setIsBusy(false)
         }
@@ -197,6 +209,7 @@ export function AvatarEditorDialog({
     useEffect(() => {
         if (!open) {
             stopCamera()
+            setCameraError(null)
             setEditorImage(null)
             setScale(1)
             setOffset({ x: 0, y: 0 })
@@ -365,6 +378,11 @@ export function AvatarEditorDialog({
                                 Remove
                             </Button>
                         </div>
+                        {cameraError && (
+                            <div className="text-xs text-destructive">
+                                {cameraError}
+                            </div>
+                        )}
 
                         {cameraActive && (
                             <div className="rounded-xl border border-border overflow-hidden bg-muted">

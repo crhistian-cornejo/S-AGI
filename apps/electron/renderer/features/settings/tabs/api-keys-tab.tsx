@@ -228,12 +228,12 @@ export function ApiKeysTab() {
       </div>
 
       {/* Selector */}
-      <div className="border border-border rounded-lg p-6 space-y-4 bg-card/30">
+      <div className="space-y-4">
         <div className="flex items-center gap-2 mb-2">
           <IconBolt size={18} />
           <h4 className="font-medium">Primary Provider</h4>
         </div>
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="space-y-2">
             <Label>Provider</Label>
             <Select
@@ -287,8 +287,8 @@ export function ApiKeysTab() {
           <div className="space-y-2">
             <Label>Model</Label>
             <Select value={selectedModel} onValueChange={setSelectedModel}>
-              <SelectTrigger className="max-w-[220px] [&>span]:min-w-0 [&>span]:truncate">
-                <span className="truncate">
+            <SelectTrigger className="w-full [&>span]:min-w-0 [&>span]:truncate">
+              <span className="truncate">
                   {availableModels.find((m) => m.id === selectedModel)?.name ??
                     selectedModel ??
                     "Model"}
@@ -323,94 +323,100 @@ export function ApiKeysTab() {
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {/* ChatGPT */}
-          <div
-            className={`border rounded-lg p-6 space-y-4 bg-card/50 ${chatGPTStatus?.isConnected ? "border-primary/50" : ""}`}
-          >
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <ChatGPTPlusIcon size={20} />
-                <h4 className="font-semibold">ChatGPT Plus</h4>
-              </div>
-              {chatGPTStatus?.isConnected && (
-                <Badge variant="default">Connected</Badge>
-              )}
-            </div>
-            <p className="text-xs text-muted-foreground">
-              Use ChatGPT Plus/Pro subscription via Codex.
-            </p>
-            {chatGPTStatus?.isConnected ? (
-              <div className="space-y-2">
-                <p className="text-xs font-medium">{chatGPTStatus.email}</p>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="w-full text-red-500"
-                  onClick={() => disconnectChatGPTMutation.mutate()}
-                >
-                  Disconnect
-                </Button>
-              </div>
-            ) : (
-              <Button
-                className="w-full"
-                onClick={() => connectChatGPTMutation.mutate()}
-                disabled={connectChatGPTMutation.isPending}
-              >
-                {connectChatGPTMutation.isPending ? (
-                  <IconLoader2 className="animate-spin" size={16} />
-                ) : (
-                  <ChatGPTPlusIcon className="mr-2" size={16} />
+          <div className="h-full rounded-lg border border-border bg-muted/20 p-4">
+            <div className="flex h-full flex-col gap-4">
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <ChatGPTPlusIcon size={20} />
+                  <h4 className="font-semibold">ChatGPT Plus</h4>
+                </div>
+                {chatGPTStatus?.isConnected && (
+                  <Badge variant="default">Connected</Badge>
                 )}
-                Connect Plus
-              </Button>
-            )}
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Use ChatGPT Plus/Pro subscription via Codex.
+              </p>
+              <div className="mt-auto space-y-2">
+                {chatGPTStatus?.isConnected ? (
+                  <>
+                    <p className="text-xs font-medium">{chatGPTStatus.email}</p>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="w-full text-red-500"
+                      onClick={() => disconnectChatGPTMutation.mutate()}
+                    >
+                      Disconnect
+                    </Button>
+                  </>
+                ) : (
+                  <Button
+                    className="w-full"
+                    onClick={() => connectChatGPTMutation.mutate()}
+                    disabled={connectChatGPTMutation.isPending}
+                  >
+                    {connectChatGPTMutation.isPending ? (
+                      <IconLoader2 className="animate-spin" size={16} />
+                    ) : (
+                      <ChatGPTPlusIcon className="mr-2" size={16} />
+                    )}
+                    Connect Plus
+                  </Button>
+                )}
+              </div>
+            </div>
           </div>
 
           {/* Claude Code */}
-          <div
-            className={`border rounded-lg p-6 space-y-4 bg-card/50 ${claudeCodeStatus?.isConnected ? "border-primary/50" : ""}`}
-          >
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <ClaudeIcon size={20} />
-                <h4 className="font-semibold">Claude Code</h4>
-              </div>
-              {claudeCodeStatus?.isConnected && (
-                <Badge variant="default">Connected</Badge>
-              )}
-            </div>
-            <p className="text-xs text-muted-foreground">
-              Use Claude Pro/Max subscription for AI features.
-            </p>
-            {claudeCodeStatus?.isConnected ? (
-              <div className="space-y-2">
-                <p className="text-xs font-medium text-muted-foreground">
-                  Connected{" "}
-                  {claudeCodeStatus.source === "cli_import" ? "(from CLI)" : ""}
-                </p>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="w-full text-red-500"
-                  onClick={() => disconnectClaudeCodeMutation.mutate()}
-                >
-                  Disconnect
-                </Button>
-              </div>
-            ) : (
-              <Button
-                className="w-full"
-                onClick={() => connectClaudeCodeMutation.mutate()}
-                disabled={connectClaudeCodeMutation.isPending}
-              >
-                {connectClaudeCodeMutation.isPending ? (
-                  <IconLoader2 className="animate-spin" size={16} />
-                ) : (
-                  <ClaudeIcon className="mr-2" size={16} />
+          <div className="h-full rounded-lg border border-border bg-muted/20 p-4">
+            <div className="flex h-full flex-col gap-4">
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <ClaudeIcon size={20} />
+                  <h4 className="font-semibold">Claude Code</h4>
+                </div>
+                {claudeCodeStatus?.isConnected && (
+                  <Badge variant="default">Connected</Badge>
                 )}
-                Connect Claude
-              </Button>
-            )}
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Use Claude Pro/Max subscription for AI features.
+              </p>
+              <div className="mt-auto space-y-2">
+                {claudeCodeStatus?.isConnected ? (
+                  <>
+                    <p className="text-xs font-medium text-muted-foreground">
+                      Connected{" "}
+                      {claudeCodeStatus.source === "cli_import"
+                        ? "(from CLI)"
+                        : ""}
+                    </p>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="w-full text-red-500"
+                      onClick={() => disconnectClaudeCodeMutation.mutate()}
+                    >
+                      Disconnect
+                    </Button>
+                  </>
+                ) : (
+                  <Button
+                    className="w-full"
+                    onClick={() => connectClaudeCodeMutation.mutate()}
+                    disabled={connectClaudeCodeMutation.isPending}
+                  >
+                    {connectClaudeCodeMutation.isPending ? (
+                      <IconLoader2 className="animate-spin" size={16} />
+                    ) : (
+                      <ClaudeIcon className="mr-2" size={16} />
+                    )}
+                    Connect Claude
+                  </Button>
+                )}
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -428,54 +434,56 @@ export function ApiKeysTab() {
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {/* OpenAI API */}
-            <div className="border border-border rounded-lg p-6 space-y-4 bg-card/50">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <OpenAIIcon size={18} />
-                  <h4 className="font-medium">OpenAI API</h4>
+            <div className="h-full rounded-lg border border-border bg-muted/20 p-4">
+              <div className="flex h-full flex-col gap-4">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <OpenAIIcon size={18} />
+                    <h4 className="font-medium">OpenAI API</h4>
+                  </div>
+                  {keyStatus?.hasOpenAI && (
+                    <Badge variant="secondary">Configured</Badge>
+                  )}
                 </div>
-                {keyStatus?.hasOpenAI && (
-                  <Badge variant="secondary">Configured</Badge>
-                )}
-              </div>
-              <div className="flex gap-2">
-                <div className="relative flex-1">
-                  <Input
-                    type={showOpenaiKey ? "text" : "password"}
-                    placeholder="sk-..."
-                    value={openaiKey}
-                    onChange={(e) => setOpenaiKey(e.target.value)}
-                    className="pr-10"
-                  />
+                <div className="grid grid-cols-[1fr_auto] gap-2">
+                  <div className="relative">
+                    <Input
+                      type={showOpenaiKey ? "text" : "password"}
+                      placeholder="sk-..."
+                      value={openaiKey}
+                      onChange={(e) => setOpenaiKey(e.target.value)}
+                      className="pr-10"
+                    />
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="absolute right-0 top-0 h-full hover:bg-transparent"
+                      onClick={() => setShowOpenaiKey(!showOpenaiKey)}
+                    >
+                      {showOpenaiKey ? (
+                        <IconEyeOff size={16} />
+                      ) : (
+                        <IconEye size={16} />
+                      )}
+                    </Button>
+                  </div>
                   <Button
-                    variant="ghost"
-                    size="icon"
-                    className="absolute right-0 top-0 h-full hover:bg-transparent"
-                    onClick={() => setShowOpenaiKey(!showOpenaiKey)}
+                    variant="default"
+                    className="px-6 font-semibold"
+                    onClick={() =>
+                      setOpenAIKeyMutation.mutate({
+                        key: openaiKey.trim() || null,
+                      })
+                    }
+                    disabled={setOpenAIKeyMutation.isPending}
                   >
-                    {showOpenaiKey ? (
-                      <IconEyeOff size={16} />
+                    {setOpenAIKeyMutation.isPending ? (
+                      <IconLoader2 className="animate-spin" size={16} />
                     ) : (
-                      <IconEye size={16} />
+                      "Save"
                     )}
                   </Button>
                 </div>
-                <Button
-                  variant="default"
-                  className="px-6 font-semibold"
-                  onClick={() =>
-                    setOpenAIKeyMutation.mutate({
-                      key: openaiKey.trim() || null,
-                    })
-                  }
-                  disabled={setOpenAIKeyMutation.isPending}
-                >
-                  {setOpenAIKeyMutation.isPending ? (
-                    <IconLoader2 className="animate-spin" size={16} />
-                  ) : (
-                    "Save"
-                  )}
-                </Button>
               </div>
             </div>
           </div>
@@ -492,56 +500,60 @@ export function ApiKeysTab() {
 
           <div className="grid grid-cols-1 gap-4">
             {/* Z.AI Key */}
-            <div className="border border-border rounded-lg p-6 space-y-4 bg-card/50">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <ZaiIcon size={18} />
-                  <div>
-                    <h4 className="font-medium">Z.AI Subscription</h4>
-                    <p className="text-[11px] text-muted-foreground">
-                      Provides unlimited access to models via Subscription API
-                      Key.
-                    </p>
+            <div className="h-full rounded-lg border border-border bg-muted/20 p-4">
+              <div className="flex h-full flex-col gap-4">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <ZaiIcon size={18} />
+                    <div>
+                      <h4 className="font-medium">Z.AI Subscription</h4>
+                      <p className="text-[11px] text-muted-foreground">
+                        Provides unlimited access to models via Subscription API
+                        Key.
+                      </p>
+                    </div>
                   </div>
+                  {keyStatus?.hasZai && (
+                    <Badge variant="secondary">Active</Badge>
+                  )}
                 </div>
-                {keyStatus?.hasZai && <Badge variant="secondary">Active</Badge>}
-              </div>
-              <div className="flex gap-2">
-                <div className="relative flex-1">
-                  <Input
-                    type={showZaiKey ? "text" : "password"}
-                    placeholder="zai-..."
-                    value={zaiKey}
-                    onChange={(e) => setZaiKey(e.target.value)}
-                    className="pr-10"
-                  />
+                <div className="grid grid-cols-[1fr_auto] gap-2">
+                  <div className="relative">
+                    <Input
+                      type={showZaiKey ? "text" : "password"}
+                      placeholder="zai-..."
+                      value={zaiKey}
+                      onChange={(e) => setZaiKey(e.target.value)}
+                      className="pr-10"
+                    />
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="absolute right-0 top-0 h-full hover:bg-transparent"
+                      onClick={() => setShowZaiKey(!showZaiKey)}
+                    >
+                      {showZaiKey ? (
+                        <IconEyeOff size={16} />
+                      ) : (
+                        <IconEye size={16} />
+                      )}
+                    </Button>
+                  </div>
                   <Button
-                    variant="ghost"
-                    size="icon"
-                    className="absolute right-0 top-0 h-full hover:bg-transparent"
-                    onClick={() => setShowZaiKey(!showZaiKey)}
+                    variant="default"
+                    className="px-6 font-semibold"
+                    onClick={() =>
+                      setZaiKeyMutation.mutate({ key: zaiKey.trim() || null })
+                    }
+                    disabled={setZaiKeyMutation.isPending}
                   >
-                    {showZaiKey ? (
-                      <IconEyeOff size={16} />
+                    {setZaiKeyMutation.isPending ? (
+                      <IconLoader2 className="animate-spin" size={16} />
                     ) : (
-                      <IconEye size={16} />
+                      "Save"
                     )}
                   </Button>
                 </div>
-                <Button
-                  variant="default"
-                  className="px-6 font-semibold"
-                  onClick={() =>
-                    setZaiKeyMutation.mutate({ key: zaiKey.trim() || null })
-                  }
-                  disabled={setZaiKeyMutation.isPending}
-                >
-                  {setZaiKeyMutation.isPending ? (
-                    <IconLoader2 className="animate-spin" size={16} />
-                  ) : (
-                    "Save"
-                  )}
-                </Button>
               </div>
             </div>
           </div>

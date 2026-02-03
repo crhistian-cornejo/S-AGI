@@ -27,7 +27,7 @@ export function MinimalTitleBar() {
   return (
     <div
       className={cn(
-        "h-10 flex items-center bg-transparent drag-region shrink-0 absolute top-0 left-0 right-0 z-50",
+        "h-9 flex items-center bg-transparent drag-region shrink-0 absolute top-0 left-0 right-0 z-50",
         isMac ? "pl-20 pr-4" : "pl-0 pr-0",
       )}
     >
@@ -54,7 +54,7 @@ export function MinimalTitleBar() {
         <div className="flex items-center no-drag h-full">
           <Button
             variant="ghost"
-            className="h-10 w-12 rounded-none hover:bg-white/10 text-white/80 hover:text-white transition-colors"
+            className="h-9 w-10 rounded-none hover:bg-white/10 text-white/80 hover:text-white transition-colors"
             onClick={handleMinimize}
           >
             <IconMinus size={16} />
@@ -62,7 +62,7 @@ export function MinimalTitleBar() {
           <Button
             variant="ghost"
             size="icon"
-            className="h-10 w-12 rounded-none hover:bg-white/10 text-white/80 hover:text-white transition-colors"
+            className="h-9 w-10 rounded-none hover:bg-white/10 text-white/80 hover:text-white transition-colors"
             onClick={handleMaximize}
           >
             {isMaximized ? (
@@ -74,7 +74,7 @@ export function MinimalTitleBar() {
           <Button
             variant="ghost"
             size="icon"
-            className="h-10 w-12 rounded-none hover:bg-destructive hover:text-white text-white/80 transition-colors"
+            className="h-9 w-10 rounded-none hover:bg-destructive hover:text-white text-white/80 transition-colors"
             onClick={handleClose}
           >
             <IconX size={16} />

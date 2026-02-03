@@ -39,6 +39,7 @@ import {
   type UserFile,
   type UserFileType,
 } from "@/lib/atoms/user-files";
+import { sidebarOpenAtom } from "@/lib/atoms";
 import { trpc } from "@/lib/trpc";
 import {
   Tooltip,
@@ -62,7 +63,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import { cn, isMacOS } from "@/lib/utils";
+import { cn, isMacOS, isElectron } from "@/lib/utils";
 import { toast } from "sonner";
 import { importFromExcel } from "@/features/univer/excel-exchange";
 import { formatTimeAgo } from "@/utils/time-format";
@@ -396,6 +397,9 @@ interface FilesSidebarProps {
 }
 
 export function FilesSidebar({ type, onToggle }: FilesSidebarProps) {
+  // Main sidebar state - to check if we need padding for traffic lights
+  const mainSidebarOpen = useAtomValue(sidebarOpenAtom);
+
   // File atoms based on type
   const [currentExcelFileId, setCurrentExcelFileId] = useAtom(
     currentExcelFileIdAtom,
@@ -702,11 +706,12 @@ export function FilesSidebar({ type, onToggle }: FilesSidebarProps) {
         />
       )}
       <div className="h-full flex flex-col">
-        {/* Header with traffic lights space on macOS */}
+        {/* Header - add padding for macOS traffic lights when main sidebar is collapsed */}
         <div
           className={cn(
-            "flex items-center justify-between px-3 py-2 border-b border-border/50",
-            isMacOS() && "pt-8",
+            "flex h-9 items-center justify-between px-3",
+            // Add left padding for traffic lights when main sidebar is collapsed on macOS
+            !mainSidebarOpen && isMacOS() && isElectron() && "pl-20",
           )}
         >
           <div className="flex items-center gap-2">
@@ -717,7 +722,10 @@ export function FilesSidebar({ type, onToggle }: FilesSidebarProps) {
             ) : (
               <PdfIcon size={18} />
             )}
-            <span className="text-sm font-semibold">{typeLabel}</span>
+            {/* Hide label when main sidebar collapsed on macOS to avoid traffic light overlap */}
+            {!((!mainSidebarOpen && isMacOS() && isElectron())) && (
+              <span className="text-sm font-semibold">{typeLabel}</span>
+            )}
           </div>
           <div className="flex items-center gap-1">
             {type === "excel" && (
@@ -747,7 +755,9 @@ export function FilesSidebar({ type, onToggle }: FilesSidebarProps) {
                   <IconPlus size={16} />
                 </Button>
               </TooltipTrigger>
-              <TooltipContent>Nuevo</TooltipContent>
+              <TooltipContent>
+                {type === "excel" ? "Nuevo Excel" : "Nuevo documento"}
+              </TooltipContent>
             </Tooltip>
             <Tooltip>
               <TooltipTrigger asChild>
@@ -766,7 +776,7 @@ export function FilesSidebar({ type, onToggle }: FilesSidebarProps) {
         </div>
 
         {/* Search */}
-        <div className="px-3 py-2 border-b border-border/50">
+        <div className="px-3 py-2">
           <div className="relative">
             <IconSearch
               size={14}

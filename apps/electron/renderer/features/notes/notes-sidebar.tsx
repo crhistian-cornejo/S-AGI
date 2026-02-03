@@ -78,6 +78,7 @@ import type { AIProvider } from "@s-agi/core/types/ai";
 import { IconPicker } from "@/components/ui/icon-picker";
 import { renderPageIcon } from "@/lib/notes-icon-utils";
 import { Logo } from "@/components/ui/logo";
+import { PageNav } from "@/features/sidebar/page-nav";
 
 // ============================================================================
 // FadeScrollArea - Reuse from chat sidebar
@@ -891,12 +892,25 @@ export function NotesSidebar() {
   return (
     <div
       className={cn(
-        "h-full border-r border-border bg-sidebar flex flex-col shrink-0 transition-all duration-300",
-        sidebarOpen ? "w-72" : "w-0 border-r-0 overflow-hidden",
+        "h-full bg-sidebar flex flex-col shrink-0 transition-all duration-300",
+        sidebarOpen
+          ? "w-72 border-r border-border/40"
+          : "w-0 overflow-hidden border-r-0",
       )}
     >
       {sidebarOpen && (
         <>
+          {/* Page Navigation */}
+          <div
+            className={cn(
+              "px-2 h-9 flex items-center",
+              isMacOS ? "pl-20" : "",
+            )}
+          >
+            <PageNav />
+          </div>
+          <div className="border-b border-border/50 mt-2" />
+
           {/* Sidebar Header with Logo, Toggle and Controls */}
           <div className="flex items-center gap-2 px-3 py-2 border-b border-border/50">
             {/* App Logo - shown when expanded */}

@@ -20,8 +20,18 @@ export const sidebarWidthAtom = atomWithStorage('sidebar-width', 280)
 
 // === TAB SYSTEM ===
 
-export type AppTab = 'chat' | 'excel' | 'doc' | 'gallery' | 'pdf' | 'ideas'
+export type AppTab =
+  | 'chat'
+  | 'excel'
+  | 'doc'
+  | 'gallery'
+  | 'pdf'
+  | 'ideas'
+  | 'settings'
 export const activeTabAtom = atomWithStorage<AppTab>('active-tab', 'chat')
+
+/** When navigating into Settings, store where to return. */
+export const settingsReturnTabAtom = atom<AppTab>('chat')
 
 // === THEME STATE ===
 

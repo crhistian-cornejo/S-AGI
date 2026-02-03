@@ -27,12 +27,13 @@ import { PdfDocumentList } from "./pdf-document-list";
 import { PdfViewerEnhanced } from "./pdf-viewer-enhanced";
 import { PdfQueueProcessor } from "./components/queue-processor";
 import { KnowledgeDropZone } from "./components/knowledge-drop-zone";
+import { PageNav } from "@/features/sidebar/page-nav";
 
 /**
  * Main PDF Tab View Component
  *
  * Layout with collapsible sidebar:
- * - Container takes full height minus titlebar (48px)
+ * - Container takes full height minus titlebar (36px)
  * - Sidebar collapses to icons, main content expands
  * - Clean border separation between sidebar and content
  */
@@ -47,8 +48,8 @@ export const PdfTabView = memo(function PdfTabView() {
       {/* Sidebar - collapses completely like chat sidebar */}
       <div
         className={cn(
-          "h-full border-r border-border bg-sidebar transition-all duration-300 ease-in-out overflow-hidden shrink-0",
-          sidebarOpen ? "w-72" : "w-0 border-r-0"
+          "h-full bg-sidebar transition-all duration-300 ease-in-out overflow-hidden shrink-0",
+          sidebarOpen ? "w-72 border-r border-border/40" : "w-0 border-r-0"
         )}
       >
         <div className="w-72 h-full">
@@ -57,7 +58,7 @@ export const PdfTabView = memo(function PdfTabView() {
       </div>
 
       {/* Main content */}
-      <main className="flex-1 flex flex-col overflow-hidden pt-10">
+      <main className="flex-1 flex flex-col overflow-hidden pt-9">
         <PdfMainContent sidebarOpen={sidebarOpen} onToggleSidebar={() => setSidebarOpen(!sidebarOpen)} />
       </main>
     </div>
@@ -88,11 +89,21 @@ const PdfSidebarContent = memo(function PdfSidebarContent() {
 
   return (
     <div className="h-full flex flex-col">
+      {/* Page navigation */}
+      <div
+        className={cn(
+          "px-2 h-9 flex items-center",
+          isMacPlatform && "pl-20",
+        )}
+      >
+        <PageNav />
+      </div>
+      <div className="border-b border-sidebar-border/60 mt-2" />
+
       {/* Header */}
       <div
         className={cn(
-          "border-b border-sidebar-border flex items-center justify-between px-2",
-          isMacPlatform ? "pt-8 pb-2" : "h-10",
+          "border-b border-sidebar-border flex items-center justify-between px-2 h-10",
         )}
       >
         <div className="flex items-center gap-2 min-w-0">

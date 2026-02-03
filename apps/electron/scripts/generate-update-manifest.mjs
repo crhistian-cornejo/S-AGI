@@ -73,12 +73,12 @@ function findFile(pattern, extension) {
  * Generate macOS manifest for a specific architecture
  */
 function generateMacManifest(arch) {
-  // S-AGI naming: S-AGI-{arch}.zip
-  const pattern = arch === "arm64" ? "arm64" : "x64"
+  // S-AGI naming: S-AGI-{version}-macOS-{arch}.zip
+  const pattern = `macOS-${arch}`
   const zipPath = findFile(pattern, ".zip")
 
   if (!zipPath) {
-    console.warn(`Warning: ZIP file not found for ${arch}`)
+    console.warn(`Warning: ZIP file not found for macOS ${arch}`)
     return null
   }
 
@@ -115,8 +115,8 @@ function generateMacManifest(arch) {
  * Generate Windows manifest
  */
 function generateWinManifest() {
-  // Find NSIS installer
-  const exePath = findFile("Setup", ".exe") || findFile("", ".exe")
+  // S-AGI naming: S-AGI-{version}-Windows-{arch}.exe
+  const exePath = findFile("Windows", ".exe")
 
   if (!exePath) {
     console.warn(`Warning: Windows installer not found`)

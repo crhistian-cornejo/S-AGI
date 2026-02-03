@@ -132,110 +132,106 @@ export function DebugTab() {
             </div>
 
             {/* Debug Actions */}
-            <div className="bg-background rounded-lg border border-border overflow-hidden">
-                <div className="p-4 space-y-4">
-                    {/* Clear Local Storage */}
-                    <div className="flex items-center justify-between gap-4">
-                        <div className="flex-1">
-                            <p className="text-sm font-medium text-foreground">
-                                Clear Local Storage
-                            </p>
-                            <p className="text-xs text-muted-foreground">
-                                Remove all locally stored preferences
-                            </p>
-                        </div>
-                        <Button
-                            variant="outline"
-                            onClick={handleClearLocalStorage}
-                            size="sm"
-                            className="text-xs h-8"
-                        >
-                            <IconTrash size={14} className="mr-2" />
-                            Clear
-                        </Button>
+            <div className="space-y-4">
+                {/* Clear Local Storage */}
+                <div className="flex items-center justify-between gap-4">
+                    <div className="flex-1">
+                        <p className="text-sm font-medium text-foreground">
+                            Clear Local Storage
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                            Remove all locally stored preferences
+                        </p>
                     </div>
+                    <Button
+                        variant="outline"
+                        onClick={handleClearLocalStorage}
+                        size="sm"
+                        className="text-xs h-8"
+                    >
+                        <IconTrash size={14} className="mr-2" />
+                        Clear
+                    </Button>
+                </div>
 
-                    {/* Reset Onboarding */}
-                    <div className="flex items-center justify-between gap-4 pt-3 border-t border-border/50">
-                        <div className="flex-1">
-                            <p className="text-sm font-medium text-foreground">
-                                Reset Onboarding
-                            </p>
-                            <p className="text-xs text-muted-foreground">
-                                Show the welcome guide again
-                            </p>
-                        </div>
-                        <Button
-                            variant="outline"
-                            onClick={handleResetOnboarding}
-                            size="sm"
-                            className="text-xs h-8"
-                        >
-                            <IconRefresh size={14} className="mr-2" />
-                            Reset
-                        </Button>
+                {/* Reset Onboarding */}
+                <div className="flex items-center justify-between gap-4 pt-3 border-t border-border/50">
+                    <div className="flex-1">
+                        <p className="text-sm font-medium text-foreground">
+                            Reset Onboarding
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                            Show the welcome guide again
+                        </p>
                     </div>
+                    <Button
+                        variant="outline"
+                        onClick={handleResetOnboarding}
+                        size="sm"
+                        className="text-xs h-8"
+                    >
+                        <IconRefresh size={14} className="mr-2" />
+                        Reset
+                    </Button>
+                </div>
 
-                    {/* Clear Chats Cache */}
-                    <div className="flex items-center justify-between gap-4 pt-3 border-t border-border/50">
-                        <div className="flex-1">
-                            <p className="text-sm font-medium text-foreground">
-                                Clear Chats Cache
-                            </p>
-                            <p className="text-xs text-muted-foreground">
-                                Refresh all chat list data
-                            </p>
-                        </div>
-                        <Button
-                            variant="outline"
-                            onClick={handleClearAllChats}
-                            disabled={isClearing}
-                            size="sm"
-                            className="text-xs h-8"
-                        >
-                            <IconTrash size={14} className="mr-2" />
-                            Clear
-                        </Button>
+                {/* Clear Chats Cache */}
+                <div className="flex items-center justify-between gap-4 pt-3 border-t border-border/50">
+                    <div className="flex-1">
+                        <p className="text-sm font-medium text-foreground">
+                            Clear Chats Cache
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                            Refresh all chat list data
+                        </p>
                     </div>
+                    <Button
+                        variant="outline"
+                        onClick={handleClearAllChats}
+                        disabled={isClearing}
+                        size="sm"
+                        className="text-xs h-8"
+                    >
+                        <IconTrash size={14} className="mr-2" />
+                        Clear
+                    </Button>
+                </div>
 
-                    {/* Refresh Session */}
-                    <div className="flex items-center justify-between gap-4 pt-3 border-t border-border/50">
-                        <div className="flex-1">
-                            <p className="text-sm font-medium text-foreground">
-                                Refresh Session
-                            </p>
-                            <p className="text-xs text-muted-foreground">
-                                Re-fetch auth session
-                            </p>
-                        </div>
-                        <Button
-                            variant="outline"
-                            onClick={handleRefreshSession}
-                            size="sm"
-                            className="text-xs h-8"
-                        >
-                            <IconRefresh size={14} className="mr-2" />
-                            Refresh
-                        </Button>
+                {/* Refresh Session */}
+                <div className="flex items-center justify-between gap-4 pt-3 border-t border-border/50">
+                    <div className="flex-1">
+                        <p className="text-sm font-medium text-foreground">
+                            Refresh Session
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                            Re-fetch auth session
+                        </p>
                     </div>
+                    <Button
+                        variant="outline"
+                        onClick={handleRefreshSession}
+                        size="sm"
+                        className="text-xs h-8"
+                    >
+                        <IconRefresh size={14} className="mr-2" />
+                        Refresh
+                    </Button>
                 </div>
             </div>
 
             {/* Environment Info */}
-            <div className="bg-background rounded-lg border border-border overflow-hidden">
-                <div className="p-4">
-                    <div className="flex items-center gap-2 mb-3">
-                        <IconCpu size={16} className="text-muted-foreground" />
-                        <h4 className="text-sm font-medium text-foreground">Environment Info</h4>
-                    </div>
-                    <div className="space-y-2 text-[11px] font-mono">
-                        <InfoRow label="App Version" value={systemInfo?.version} />
-                        <InfoRow label="Electron" value={systemInfo?.electron} />
-                        <InfoRow label="Chrome" value={systemInfo?.chrome} />
-                        <InfoRow label="Node" value={systemInfo?.node} />
-                        <InfoRow label="Platform" value={`${systemInfo?.platform} (${systemInfo?.arch})`} />
-                        <InfoRow label="Memory" value={`${systemInfo?.freeMem}GB / ${systemInfo?.totalMem}GB free`} />
-                    </div>
+            <div>
+                <div className="flex items-center gap-2 mb-3">
+                    <IconCpu size={16} className="text-muted-foreground" />
+                    <h4 className="text-sm font-medium text-foreground">Environment Info</h4>
+                </div>
+                <div className="space-y-2 text-[11px] font-mono">
+                    <InfoRow label="App Version" value={systemInfo?.version} />
+                    <InfoRow label="Electron" value={systemInfo?.electron} />
+                    <InfoRow label="Chrome" value={systemInfo?.chrome} />
+                    <InfoRow label="Node" value={systemInfo?.node} />
+                    <InfoRow label="Platform" value={`${systemInfo?.platform} (${systemInfo?.arch})`} />
+                    <InfoRow label="Memory" value={`${systemInfo?.freeMem}GB / ${systemInfo?.totalMem}GB free`} />
                 </div>
             </div>
         </div>
@@ -244,7 +240,7 @@ export function DebugTab() {
 
 function HealthCard({ label, status, icon, loading }: { label: string, status?: boolean, icon: React.ReactNode, loading?: boolean }) {
     return (
-        <div className="bg-background rounded-xl border border-border p-3 flex items-center gap-3">
+        <div className="flex items-center gap-3">
             <div className={cn(
                 "w-8 h-8 rounded-lg flex items-center justify-center shrink-0",
                 status === true ? "bg-green-500/10 text-green-500" : 

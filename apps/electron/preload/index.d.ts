@@ -155,6 +155,38 @@ export interface DesktopApi {
       autoSaveDelay: number;
     }>;
   };
+  // Auto-update API
+  update: {
+    checkForUpdates: () => Promise<{ success: boolean }>;
+    downloadUpdate: () => Promise<{ success: boolean }>;
+    installUpdate: () => Promise<{ success: boolean }>;
+    getVersion: () => Promise<string>;
+    onChecking: (callback: () => void) => () => void;
+    onAvailable: (
+      callback: (data: {
+        version: string;
+        releaseDate?: string;
+        releaseNotes?: string | { version: string; note: string }[];
+      }) => void,
+    ) => () => void;
+    onNotAvailable: (callback: (data: { version: string }) => void) => () => void;
+    onDownloadProgress: (
+      callback: (data: {
+        percent: number;
+        transferred: number;
+        total: number;
+        bytesPerSecond: number;
+      }) => void,
+    ) => () => void;
+    onDownloaded: (
+      callback: (data: {
+        version: string;
+        releaseDate?: string;
+        releaseNotes?: string | { version: string; note: string }[];
+      }) => void,
+    ) => () => void;
+    onError: (callback: (data: { message: string }) => void) => () => void;
+  };
   // Menu API (for native macOS menu bar actions)
   menu: {
     onNewChat: (callback: () => void) => () => void;
