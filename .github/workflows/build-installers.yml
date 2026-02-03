@@ -39,7 +39,7 @@ jobs:
         run: rm -rf apps/electron/release
 
       - name: Build and package macOS
-        run: bun run electron:dist:mac
+        run: bun run build && electron-builder --config apps/electron/electron-builder.yml --mac --publish never
         env:
           USE_HARD_LINKS: false
 
@@ -83,7 +83,7 @@ jobs:
         shell: pwsh
 
       - name: Build and package Windows
-        run: bun run electron:dist:win
+        run: bun run build && electron-builder --config apps/electron/electron-builder.yml --win --publish never
         env:
           USE_HARD_LINKS: false
 
