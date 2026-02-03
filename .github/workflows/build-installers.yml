@@ -38,6 +38,34 @@ jobs:
       - name: Clean release directory
         run: rm -rf apps/electron/release
 
+      - name: Import Code Signing Certificate
+        env:
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+        run: |
+          # Create variables
+          CERTIFICATE_PATH=$RUNNER_TEMP/build_certificate.p12
+          KEYCHAIN_PATH=$RUNNER_TEMP/app-signing.keychain-db
+          KEYCHAIN_PASSWORD=$(openssl rand -base64 32)
+
+          # Decode certificate from base64
+          echo "$CSC_LINK" | base64 --decode > $CERTIFICATE_PATH
+
+          # Create temporary keychain
+          security create-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+          security set-keychain-settings -lut 21600 $KEYCHAIN_PATH
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+
+          # Import certificate to keychain
+          security import $CERTIFICATE_PATH -P "$CSC_KEY_PASSWORD" -A -t cert -f pkcs12 -k $KEYCHAIN_PATH
+          security set-key-partition-list -S apple-tool:,apple: -k "$KEYCHAIN_PASSWORD" $KEYCHAIN_PATH
+
+          # Add keychain to search list
+          security list-keychain -d user -s $KEYCHAIN_PATH login.keychain
+
+          # Verify certificate was imported
+          security find-identity -v -p codesigning $KEYCHAIN_PATH
+
       - name: Build and package macOS
         run: bun run build && npx electron-builder --config apps/electron/electron-builder.yml --mac --publish never
         env:
@@ -54,6 +82,11 @@ jobs:
             apps/electron/release/*.dmg
             apps/electron/release/*.zip
             apps/electron/release/latest-mac*.yml
+
+      - name: Cleanup keychain
+        if: always()
+        run: |
+          security delete-keychain $RUNNER_TEMP/app-signing.keychain-db || true
 
   build-windows:
     name: Build Windows

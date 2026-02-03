@@ -63,7 +63,6 @@ mac:
   gatekeeperAssess: false
   entitlements: apps/electron/build/entitlements.mac.plist
   entitlementsInherit: apps/electron/build/entitlements.mac.plist
-  identity: "${env.APPLE_IDENTITY}"
   notarize:
     teamId: "${env.APPLE_TEAM_ID}"
   artifactName: "S-AGI-${version}-macOS-${arch}.${ext}"
