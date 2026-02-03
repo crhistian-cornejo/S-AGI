@@ -14,14 +14,14 @@ import { isElectron } from "@/lib/utils";
 
 export function AboutDialog() {
   const [isOpen, setIsOpen] = useAtom(aboutDialogOpenAtom);
-  const [version, setVersion] = useState<string>("0.1.0");
+  const [version, setVersion] = useState<string>("0.2.0");
 
   useEffect(() => {
     if (isOpen && isElectron() && window.desktopApi?.getVersion) {
       window.desktopApi
         .getVersion()
-        .then((v) => setVersion(v || "0.1.0"))
-        .catch(() => setVersion("0.1.0"));
+        .then((v) => setVersion(v || "0.2.0"))
+        .catch(() => setVersion("0.2.0"));
     }
   }, [isOpen]);
 

@@ -181,7 +181,7 @@
     },
     "apps/electron": {
       "name": "@s-agi/electron",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "dependencies": {
         "@s-agi/core": "workspace:*",
         "@s-agi/tools": "workspace:*",
@@ -189,14 +189,14 @@
     },
     "packages/core": {
       "name": "@s-agi/core",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "peerDependencies": {
         "zod": ">=3.0.0",
       },
     },
     "packages/tools": {
       "name": "@s-agi/tools",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "devDependencies": {
         "@types/node": "^22.0.0",
         "typescript": "^5.4.0",
