@@ -111,7 +111,6 @@ nsis:
   uninstallerIcon: icon.ico
   installerHeaderIcon: icon.ico
   installerHeader: installer-header.png
-  uninstallerHeader: installer-header.png
   installerSidebar: installer-sidebar.png
   uninstallerSidebar: installer-sidebar.png
   deleteAppDataOnUninstall: false
