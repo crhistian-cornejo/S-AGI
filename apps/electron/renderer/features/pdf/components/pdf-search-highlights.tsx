@@ -55,10 +55,11 @@ export const SearchHighlights = memo(function SearchHighlights({
 
                 // Each result can have multiple rectangles (for text wrapping)
                 return result.rects.map((rect, rectIdx) => {
-                    // Use rect coordinates directly - they are already in the correct coordinate system
-                    // Scale them to match the current zoom level
+                    // PDF coordinates have origin at bottom-left, CSS has origin at top-left
+                    // We need to flip the Y coordinate: y_css = pageHeight - y_pdf - height
                     const x = rect.x * scale
-                    const y = rect.y * scale
+                    const flippedY = pageHeight - rect.y - rect.height
+                    const y = flippedY * scale
                     const width = rect.width * scale
                     const height = rect.height * scale
 

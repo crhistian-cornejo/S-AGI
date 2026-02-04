@@ -79,10 +79,12 @@ import {
   IconCloudCheck,
   IconCloudUpload,
   IconCloudX,
+  IconDeviceFloppy,
   IconInfoCircle,
   IconBookmark,
   IconFilesOff,
   IconPaperclip,
+  IconFolder,
 } from "@tabler/icons-react";
 import type { TrackedAnnotation } from "@embedpdf/plugin-annotation";
 import { useSelectionCapability } from "@embedpdf/plugin-selection/react";
@@ -182,8 +184,10 @@ export const PdfViewerEnhanced = memo(function PdfViewerEnhanced({
         );
         // Don't return - let it fall through to IPC loading
       } else {
-        // Validate the blob URL is still accessible
-        fetch(source.url, { method: "HEAD" })
+        // Validate the blob URL is still accessible.
+        // Some Chromium/Electron builds don't support HEAD for blob: URLs
+        // and throw ERR_METHOD_NOT_SUPPORTED, so we use GET.
+        fetch(source.url, { method: "GET" })
           .then(() => {
             console.log(
               "[PDF Local] Using existing blob URL from source:",
@@ -890,6 +894,8 @@ const PdfViewerContent = memo(function PdfViewerContent({
         isThumbnailsOpen={thumbnailsPanelOpen}
         saveStatus={saveStatus}
         pdfName={source?.name}
+        isLocal={source?.type === "local"}
+        localPath={source?.metadata?.localPath}
       />
 
       {/* Search Panel - collapsible at top */}
@@ -1854,24 +1860,27 @@ const TextSelectionToolbar = memo(function TextSelectionToolbar({
 /**
  * Save Status Indicator Component
  * Shows the current save status of PDF annotations
+ * Displays "Saved locally" for local PDFs, "Saved to cloud" for cloud PDFs
  */
 const SaveStatusIndicator = memo(function SaveStatusIndicator({
   status,
+  isLocal = false,
 }: {
   status: "idle" | "saving" | "saved" | "error";
+  isLocal?: boolean;
 }) {
   if (status === "idle") return null;
 
   const statusConfig = {
     saving: {
-      icon: IconCloudUpload,
-      text: "Saving...",
+      icon: isLocal ? IconDeviceFloppy : IconCloudUpload,
+      text: isLocal ? "Saving..." : "Saving...",
       color: "text-blue-500",
       bgColor: "bg-blue-500/10",
     },
     saved: {
-      icon: IconCloudCheck,
-      text: "Saved to cloud",
+      icon: isLocal ? IconDeviceFloppy : IconCloudCheck,
+      text: isLocal ? "Saved locally" : "Saved to cloud",
       color: "text-green-500",
       bgColor: "bg-green-500/10",
     },
@@ -1907,6 +1916,8 @@ interface AnnotationToolbarProps {
   isThumbnailsOpen: boolean;
   saveStatus: "idle" | "saving" | "saved" | "error";
   pdfName?: string;
+  isLocal?: boolean;
+  localPath?: string;
 }
 
 /**
@@ -1919,6 +1930,8 @@ const AnnotationToolbar = memo(function AnnotationToolbar({
   isThumbnailsOpen,
   saveStatus,
   pdfName: _pdfName,
+  isLocal = false,
+  localPath,
 }: AnnotationToolbarProps) {
   const { registry } = useRegistry();
   const { provides: annotationApi } = useAnnotationCapability();
@@ -2329,7 +2342,7 @@ const AnnotationToolbar = memo(function AnnotationToolbar({
       <div className="flex-1" />
 
       {/* Right-side controls */}
-      <SaveStatusIndicator status={saveStatus} />
+      <SaveStatusIndicator status={saveStatus} isLocal={isLocal} />
 
       {showThumbnails && (
         <ToolButton
@@ -2430,6 +2443,29 @@ const AnnotationToolbar = memo(function AnnotationToolbar({
               <>
                 <Separator className="my-1" />
                 <DownloadButton />
+                {isLocal && localPath && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="justify-start h-8"
+                    onClick={async () => {
+                      try {
+                        await navigator.clipboard.writeText(localPath);
+                        console.log("[PDF] Copied local path:", localPath);
+                        // Show feedback via toast if available
+                        const { toast } = await import("sonner");
+                        toast.success("Path copied to clipboard", {
+                          description: localPath,
+                        });
+                      } catch (err) {
+                        console.error("[PDF] Failed to copy path:", err);
+                      }
+                    }}
+                  >
+                    <IconFolder size={14} className="mr-2" />
+                    Copy Local Path
+                  </Button>
+                )}
               </>
             )}
           </div>

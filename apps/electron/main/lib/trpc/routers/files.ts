@@ -15,6 +15,14 @@ import {
     type PageContent
 } from '../../documents/document-processor'
 import { getCredentialManager } from '../../shared/credentials'
+import {
+    writeBinaryFileToLocal,
+    getLocalUserFilesDir,
+    ensureLocalUserFilesDir
+} from '../../storage/local-user-files'
+import { getStorageAdapter, isLocalStorageMode, LOCAL_USER_ID } from '../../storage'
+import { randomUUID } from 'crypto'
+import { readFile } from 'fs/promises'
 
 // Supported file types for OpenAI file search
 const SUPPORTED_FILE_TYPES = [
@@ -1294,6 +1302,145 @@ export const filesRouter = router({
                 content: page.content,
                 wordCount: page.wordCount,
                 citation: formatCitation(data.filename, page.pageNumber, 'bracket')
+            }
+        }),
+
+    /**
+     * Copy a PDF to the local S-AGI Documents folder
+     * This allows PDFs to be stored persistently in the user's documents
+     * and available across sessions
+     */
+    copyPdfToLocal: protectedProcedure
+        .input(z.object({
+            /** Original file path (from file picker) */
+            sourcePath: z.string(),
+            /** Display name for the file */
+            fileName: z.string(),
+            /** Optional: process the PDF for text extraction */
+            process: z.boolean().default(false)
+        }))
+        .mutation(async ({ ctx, input }) => {
+            try {
+                log.info('[FilesRouter] copyPdfToLocal called:', {
+                    sourcePath: input.sourcePath,
+                    fileName: input.fileName,
+                    userId: ctx.userId
+                })
+
+                // Read the source file
+                const fileData = await readFile(input.sourcePath)
+                const fileSize = fileData.length
+
+                // Generate a unique ID for this PDF
+                const id = randomUUID()
+
+                // Write to local S-AGI folder
+                const localPath = await writeBinaryFileToLocal({
+                    data: fileData,
+                    id,
+                    name: input.fileName.replace(/\.pdf$/i, ''), // Remove .pdf extension as it's added by the function
+                    type: 'pdf'
+                })
+
+                log.info('[FilesRouter] PDF copied to local folder:', { id, localPath })
+
+                // If in local storage mode, also register in SQLite
+                if (isLocalStorageMode()) {
+                    try {
+                        const adapter = await getStorageAdapter()
+
+                        // Create a chat_file record for the PDF
+                        await adapter.chatFiles.create({
+                            chatId: '00000000-0000-0000-0000-000000000000', // Special "no-chat" ID for standalone PDFs
+                            userId: ctx.userId || LOCAL_USER_ID,
+                            filename: input.fileName,
+                            storagePath: localPath,
+                            fileSize,
+                            contentType: 'application/pdf'
+                        })
+
+                        log.info('[FilesRouter] PDF registered in local database')
+                    } catch (dbErr) {
+                        log.warn('[FilesRouter] Failed to register PDF in database:', dbErr)
+                        // Continue anyway - the file is saved
+                    }
+                }
+
+                // Optionally process for text extraction
+                let pages: PageContent[] | null = null
+                let pageCount = 0
+
+                if (input.process) {
+                    try {
+                        const result = await processDocument(fileData, input.fileName, 'application/pdf')
+                        if (result.success && result.pages) {
+                            pages = result.pages
+                            pageCount = result.pageCount || pages.length
+                        }
+                    } catch (processErr) {
+                        log.warn('[FilesRouter] Failed to process PDF:', processErr)
+                        // Continue anyway - processing is optional
+                    }
+                }
+
+                return {
+                    success: true,
+                    id,
+                    localPath,
+                    fileSize,
+                    pageCount,
+                    pages,
+                    // Return file:// URL for the PDF viewer
+                    url: `file://${localPath.replace(/\\/g, '/')}`
+                }
+            } catch (error) {
+                log.error('[FilesRouter] copyPdfToLocal error:', error)
+                throw new Error(error instanceof Error ? error.message : 'Failed to copy PDF to local folder')
+            }
+        }),
+
+    /**
+     * List all locally stored PDFs
+     * Returns PDFs from the S-AGI/PDFs folder
+     */
+    listLocalPdfs: protectedProcedure
+        .query(async ({ ctx }) => {
+            try {
+                // Ensure the PDFs directory exists
+                const pdfDir = await ensureLocalUserFilesDir('pdf')
+
+                log.info('[FilesRouter] Listing local PDFs from:', pdfDir)
+
+                // In local mode, query from SQLite
+                if (isLocalStorageMode()) {
+                    const adapter = await getStorageAdapter()
+
+                    // Get PDFs from chat_files table where contentType is PDF
+                    // Use the standalone PDFs chat ID
+                    const files = await adapter.chatFiles.list(
+                        '00000000-0000-0000-0000-000000000000', // Standalone PDFs chat ID
+                        ctx.userId || LOCAL_USER_ID
+                    )
+
+                    const pdfs = files
+                        .filter(f => f.contentType === 'application/pdf')
+                        .map(f => ({
+                            id: f.id,
+                            name: f.filename,
+                            localPath: f.storagePath,
+                            url: `file://${f.storagePath.replace(/\\/g, '/')}`,
+                            fileSize: f.fileSize || 0,
+                            createdAt: f.createdAt.toISOString()
+                        }))
+
+                    return { pdfs, pdfDir }
+                }
+
+                // Fallback: return empty list for cloud mode
+                return { pdfs: [], pdfDir }
+            } catch (error) {
+                log.error('[FilesRouter] listLocalPdfs error:', error)
+                return { pdfs: [], pdfDir: '', error: error instanceof Error ? error.message : 'Unknown error' }
             }
         })
 })

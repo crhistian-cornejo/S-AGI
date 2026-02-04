@@ -822,15 +822,11 @@ export function MainLayout() {
         {/* Sidebar & Main Content (Chat / Gallery) */}
         {(activeTab === "chat" || activeTab === "gallery") && (
           <>
-            {/* Sidebar */}
+            {/* Sidebar - no border when alone (next to content) */}
             <div
               className={cn(
-                "h-full bg-sidebar transition-all duration-300 ease-in-out overflow-hidden shrink-0",
-                sidebarOpen
-                  ? activeTab === "chat"
-                    ? "w-72"
-                    : "w-72 border-r border-sidebar-border/40"
-                  : "w-0 border-r-0"
+                "h-full bg-sidebar transition-all duration-300 ease-in-out overflow-hidden shrink-0 min-w-0",
+                sidebarOpen ? "w-72" : "w-0 border-r-0"
               )}
             >
               <div className="w-72 h-full">
@@ -977,12 +973,14 @@ export function MainLayout() {
          */}
         {activeTab === "excel" && (
           <>
-            {/* Primary Sidebar (Chat) */}
+            {/* Primary Sidebar - border only when both open (line between main and page sidebar) */}
             <div
               className={cn(
-                "h-full bg-sidebar transition-all duration-300 ease-in-out overflow-hidden shrink-0",
+                "h-full bg-sidebar transition-all duration-300 ease-in-out overflow-hidden shrink-0 min-w-0",
                 sidebarOpen
-                  ? "w-72 border-r border-sidebar-border/40"
+                  ? excelSidebarOpen
+                    ? "w-72 border-r border-sidebar-border/40"
+                    : "w-72"
                   : "w-0 border-r-0"
               )}
             >
@@ -991,13 +989,11 @@ export function MainLayout() {
               </div>
             </div>
 
-            {/* Excel File Sidebar - second sidebar */}
+            {/* Excel File Sidebar - no border (next to content / inside) */}
             <div
               className={cn(
-                "h-full bg-sidebar transition-all duration-300 ease-in-out overflow-hidden shrink-0",
-                excelSidebarOpen
-                  ? "w-72 border-r border-sidebar-border/40"
-                  : "w-0 border-r-0"
+                "h-full bg-sidebar transition-all duration-300 ease-in-out overflow-hidden shrink-0 min-w-0",
+                excelSidebarOpen ? "w-72" : "w-0 border-r-0"
               )}
             >
               <div className="w-72 h-full">
@@ -1156,12 +1152,14 @@ export function MainLayout() {
          */}
         {activeTab === "doc" && (
           <>
-            {/* Primary Sidebar (Main) */}
+            {/* Primary Sidebar - border only when both open */}
             <div
               className={cn(
-                "h-full bg-sidebar transition-all duration-300 ease-in-out overflow-hidden shrink-0",
+                "h-full bg-sidebar transition-all duration-300 ease-in-out overflow-hidden shrink-0 min-w-0",
                 sidebarOpen
-                  ? "w-72 border-r border-sidebar-border/40"
+                  ? docSidebarOpen
+                    ? "w-72 border-r border-sidebar-border/40"
+                    : "w-72"
                   : "w-0 border-r-0"
               )}
             >
@@ -1170,13 +1168,11 @@ export function MainLayout() {
               </div>
             </div>
 
-            {/* Doc File Sidebar - second sidebar */}
+            {/* Doc File Sidebar - no border (next to content) */}
             <div
               className={cn(
-                "h-full bg-sidebar transition-all duration-300 ease-in-out overflow-hidden shrink-0",
-                docSidebarOpen
-                  ? "w-72 border-r border-sidebar-border/40"
-                  : "w-0 border-r-0"
+                "h-full bg-sidebar transition-all duration-300 ease-in-out overflow-hidden shrink-0 min-w-0",
+                docSidebarOpen ? "w-72" : "w-0 border-r-0"
               )}
             >
               <div className="w-72 h-full">
@@ -1331,12 +1327,14 @@ export function MainLayout() {
          */}
         {activeTab === "pdf" && (
           <>
-            {/* Primary Sidebar (Main) */}
+            {/* Primary Sidebar - border only when both open */}
             <div
               className={cn(
-                "h-full bg-sidebar transition-all duration-300 ease-in-out overflow-hidden shrink-0",
+                "h-full bg-sidebar transition-all duration-300 ease-in-out overflow-hidden shrink-0 min-w-0",
                 sidebarOpen
-                  ? "w-72 border-r border-sidebar-border/40"
+                  ? pdfSidebarOpen
+                    ? "w-72 border-r border-sidebar-border/40"
+                    : "w-72"
                   : "w-0 border-r-0"
               )}
             >
@@ -1345,13 +1343,11 @@ export function MainLayout() {
               </div>
             </div>
 
-            {/* PDF File Sidebar - second sidebar */}
+            {/* PDF File Sidebar - no border (next to content) */}
             <div
               className={cn(
-                "h-full bg-sidebar transition-all duration-300 ease-in-out overflow-hidden shrink-0",
-                pdfSidebarOpen
-                  ? "w-72 border-r border-sidebar-border/40"
-                  : "w-0 border-r-0"
+                "h-full bg-sidebar transition-all duration-300 ease-in-out overflow-hidden shrink-0 min-w-0",
+                pdfSidebarOpen ? "w-72" : "w-0 border-r-0"
               )}
             >
               <div className="w-72 h-full">
@@ -1404,12 +1400,14 @@ export function MainLayout() {
          */}
         {activeTab === "ideas" && (
           <>
-            {/* Primary Sidebar (Main) */}
+            {/* Primary Sidebar - border only when both open */}
             <div
               className={cn(
-                "h-full bg-sidebar transition-all duration-300 ease-in-out overflow-hidden shrink-0",
+                "h-full bg-sidebar transition-all duration-300 ease-in-out overflow-hidden shrink-0 min-w-0",
                 sidebarOpen
-                  ? "w-72 border-r border-sidebar-border/40"
+                  ? notesSidebarOpen
+                    ? "w-72 border-r border-sidebar-border/40"
+                    : "w-72"
                   : "w-0 border-r-0"
               )}
             >
@@ -1418,13 +1416,11 @@ export function MainLayout() {
               </div>
             </div>
 
-            {/* Notes Sidebar - second sidebar with Notion-like features */}
+            {/* Notes Sidebar - no border (next to content) */}
             <div
               className={cn(
-                "h-full bg-sidebar transition-all duration-300 ease-in-out overflow-hidden shrink-0",
-                notesSidebarOpen
-                  ? "w-72 border-r border-sidebar-border/40"
-                  : "w-0 border-r-0"
+                "h-full bg-sidebar transition-all duration-300 ease-in-out overflow-hidden shrink-0 min-w-0",
+                notesSidebarOpen ? "w-72" : "w-0 border-r-0"
               )}
             >
               <div className="w-72 h-full">

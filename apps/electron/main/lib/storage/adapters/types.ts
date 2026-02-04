@@ -5,7 +5,7 @@
 
 // ============ ENUMS ============
 export type StorageMode = "local" | "cloud";
-export type FileType = "excel" | "doc" | "note";
+export type FileType = "excel" | "doc" | "note" | "pdf";
 export type PanelType = "pdf_chat" | "agent_panel";
 export type BucketType = "attachments" | "images";
 export type ChangeType =

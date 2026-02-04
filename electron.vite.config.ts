@@ -4,6 +4,7 @@ import react from '@vitejs/plugin-react'
 import { copyFileSync, existsSync, mkdirSync } from 'fs'
 
 const __dirname = import.meta.dirname
+const isDev = process.env.NODE_ENV !== 'production'
 
 // Plugin to copy icons to output directory
 function copyTrayIcons() {
@@ -151,7 +152,13 @@ export default defineConfig({
             include: ['@wendellhu/redi', 'xlsx'],
             force: true,
         },
-        plugins: [react()],
+        plugins: [
+            react({
+                // In dev mode, use WDYR as JSX import source to track ALL component re-renders
+                // See apps/electron/renderer/DEBUG-WDYR.md for usage
+                jsxImportSource: isDev ? '@welldone-software/why-did-you-render' : undefined,
+            }),
+        ],
         build: {
             // Optimize chunk size warnings
             chunkSizeWarningLimit: 1500,

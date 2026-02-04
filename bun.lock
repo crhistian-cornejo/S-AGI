@@ -174,6 +174,7 @@
         "@types/react-syntax-highlighter": "^15.5.13",
         "@types/sharp": "^0.32.0",
         "@vitejs/plugin-react": "^4.3.4",
+        "@welldone-software/why-did-you-render": "^10.0.1",
         "autoprefixer": "^10.4.20",
         "dotenv-cli": "^11.0.0",
         "drizzle-kit": "^0.30.4",
@@ -1163,6 +1164,8 @@
     "@vue/reactivity": ["@vue/reactivity@3.5.27", "", { "dependencies": { "@vue/shared": "3.5.27" } }, "sha512-vvorxn2KXfJ0nBEnj4GYshSgsyMNFnIQah/wczXlsNXt+ijhugmW+PpJ2cNPe4V6jpnBcs0MhCODKllWG+nvoQ=="],
 
     "@vue/shared": ["@vue/shared@3.5.27", "", {}, "sha512-dXr/3CgqXsJkZ0n9F3I4elY8wM9jMJpP3pvRG52r6m0tu/MsAFIe6JpXVGeNMd/D9F4hQynWT8Rfuj0bdm9kFQ=="],
+
+    "@welldone-software/why-did-you-render": ["@welldone-software/why-did-you-render@10.0.1", "", { "dependencies": { "lodash": "^4" }, "peerDependencies": { "react": "^19" } }, "sha512-tMgGkt30iVYeLMUKExNmtm019QgyjLtA7lwB0QAizYNEuihlCG2eoAWBBaz/bDeI7LeqAJ9msC6hY3vX+JB97g=="],
 
     "@wendellhu/redi": ["@wendellhu/redi@1.1.1", "", { "peerDependencies": { "react": ">=16.8.0" } }, ""],
 

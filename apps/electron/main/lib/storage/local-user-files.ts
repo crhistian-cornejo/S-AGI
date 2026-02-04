@@ -12,12 +12,14 @@ const TYPE_DIR: Record<FileType, string> = {
   excel: "Spreadsheets",
   doc: "Documents",
   note: "Notes",
+  pdf: "PDFs",
 };
 
 const TYPE_EXT: Record<FileType, string> = {
   excel: "sagi.json",
   doc: "sagi.json",
   note: "sagi.json",
+  pdf: "pdf", // PDFs are stored as actual .pdf files, not JSON
 };
 
 export interface LocalUserFilePayload {
@@ -112,4 +114,58 @@ export function buildLocalPayload(params: {
     content: params.content,
     updatedAt: new Date().toISOString(),
   };
+}
+
+/**
+ * Copy a binary file (like PDF) to the local user files directory
+ * Returns the new file path
+ */
+export async function copyBinaryFileToLocal(params: {
+  sourcePath: string;
+  id: string;
+  name: string;
+  type: FileType;
+}): Promise<string> {
+  const { sourcePath, id, name, type } = params;
+
+  const dir = await ensureLocalUserFilesDir(type);
+  const destPath = buildLocalUserFilePath({ dir, id, name, type });
+
+  // Copy the file
+  const sourceData = await readFile(sourcePath);
+  await mkdir(dirname(destPath), { recursive: true });
+  await writeFile(destPath, sourceData);
+
+  log.info(`[LocalUserFiles] Copied binary file to: ${destPath}`);
+  return destPath;
+}
+
+/**
+ * Write binary data directly to the local user files directory
+ * Returns the new file path
+ */
+export async function writeBinaryFileToLocal(params: {
+  data: Buffer;
+  id: string;
+  name: string;
+  type: FileType;
+}): Promise<string> {
+  const { data, id, name, type } = params;
+
+  const dir = await ensureLocalUserFilesDir(type);
+  const destPath = buildLocalUserFilePath({ dir, id, name, type });
+
+  await mkdir(dirname(destPath), { recursive: true });
+  await writeFile(destPath, data);
+
+  log.info(`[LocalUserFiles] Wrote binary file to: ${destPath}`);
+  return destPath;
+}
+
+/**
+ * Get the directory path for a specific file type
+ */
+export function getLocalUserFilesDir(type: FileType): string {
+  const root = getLocalUserFilesRoot();
+  return join(root, TYPE_DIR[type]);
 }

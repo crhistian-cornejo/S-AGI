@@ -85,11 +85,14 @@ export const SourceHighlightLayer = memo(function SourceHighlightLayer({
 
         // Calculate scaled coordinates
         // Convert from PDF coordinates to screen coordinates
+        // PDF coordinates have origin at bottom-left, CSS has origin at top-left
         const scaleX = pageWidth / highlight.pageWidth;
         const scaleY = pageHeight / highlight.pageHeight;
 
         const x = highlight.boundingBox.x * scaleX * scale;
-        const y = highlight.boundingBox.y * scaleY * scale;
+        // Flip Y coordinate: y_css = pageHeight - y_pdf - height
+        const flippedY = highlight.pageHeight - highlight.boundingBox.y - highlight.boundingBox.height;
+        const y = flippedY * scaleY * scale;
         const width = highlight.boundingBox.width * scaleX * scale;
         const height = highlight.boundingBox.height * scaleY * scale;
 

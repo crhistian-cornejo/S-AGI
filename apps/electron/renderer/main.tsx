@@ -1,3 +1,7 @@
+// Why Did You Render - MUST be first import (before React)
+// See DEBUG-WDYR.md for usage instructions
+import './wdyr'
+
 // Buffer polyfill for browser (if needed by other modules)
 // Note: SheetJS (xlsx) doesn't require Buffer polyfill, but keeping for compatibility
 import './buffer-shim'

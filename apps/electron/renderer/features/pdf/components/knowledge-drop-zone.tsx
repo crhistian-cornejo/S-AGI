@@ -88,6 +88,9 @@ export function KnowledgeDropZone({
     },
   });
 
+  // Mutation for copying PDFs to local S-AGI folder
+  const copyToLocalMutation = trpc.files.copyPdfToLocal.useMutation();
+
   const handleDragEnter = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
@@ -170,7 +173,7 @@ export function KnowledgeDropZone({
 
         // Success handled by mutation callbacks
       } else {
-        // Local upload - use proper local file handling
+        // Local upload - copy PDF to S-AGI/PDFs folder for persistence
 
         // Check if it's a PDF file
         if (selectedFile.type !== "application/pdf" && !selectedFile.name.toLowerCase().endsWith(".pdf")) {
@@ -184,20 +187,51 @@ export function KnowledgeDropZone({
         const filePath = (selectedFile as File & { path?: string }).path;
 
         if (isElectron() && filePath) {
-          // Use the existing local file system which loads via IPC
-          const pdfSource = createPdfSourceFromLocalFile({
-            path: filePath,
-            name: selectedFile.name,
-            size: selectedFile.size,
-          });
+          try {
+            // Copy PDF to S-AGI/PDFs folder for persistence
+            const result = await copyToLocalMutation.mutateAsync({
+              sourcePath: filePath,
+              fileName: selectedFile.name,
+              process: false, // Don't process for now, can be enabled later
+            });
 
-          // Add to local PDFs list
-          addLocalPdf(pdfSource);
+            if (result.success) {
+              // Create a PdfSource with the new local path
+              const pdfSource: PdfSource = {
+                type: "local",
+                id: result.id,
+                name: selectedFile.name,
+                url: result.url,
+                metadata: {
+                  localPath: result.localPath,
+                  fileSize: result.fileSize,
+                  createdAt: new Date().toISOString(),
+                },
+              };
 
-          // Set as selected PDF to display it immediately
-          setSelectedPdf(pdfSource);
+              // Add to local PDFs list
+              addLocalPdf(pdfSource);
 
-          toast.success(`Added "${selectedFile.name}" to local knowledge`);
+              // Set as selected PDF to display it immediately
+              setSelectedPdf(pdfSource);
+
+              toast.success(`Saved "${selectedFile.name}" to Documents/S-AGI/PDFs`);
+            } else {
+              throw new Error("Failed to copy PDF");
+            }
+          } catch (copyError) {
+            console.error("Copy to local error:", copyError);
+            // Fallback: use original file path
+            const pdfSource = createPdfSourceFromLocalFile({
+              path: filePath,
+              name: selectedFile.name,
+              size: selectedFile.size,
+            });
+
+            addLocalPdf(pdfSource);
+            setSelectedPdf(pdfSource);
+            toast.success(`Added "${selectedFile.name}" (original location)`);
+          }
         } else {
           // In browser (non-Electron), blob URLs don't persist across page reloads
           // Create a blob URL for the current session only
@@ -235,7 +269,7 @@ export function KnowledgeDropZone({
       );
       setIsUploading(false);
     }
-  }, [selectedFile, uploadType, hasApiKey, uploadMutation, addLocalPdf, setSelectedPdf, onUploadComplete]);
+  }, [selectedFile, uploadType, hasApiKey, uploadMutation, copyToLocalMutation, addLocalPdf, setSelectedPdf, onUploadComplete]);
 
   const handleCancel = useCallback(() => {
     setShowDialog(false);
@@ -353,9 +387,9 @@ export function KnowledgeDropZone({
                 }
               />
               <div className="text-center">
-                <p className="text-sm font-medium">Local Only</p>
+                <p className="text-sm font-medium">Local Storage</p>
                 <p className="text-xs text-muted-foreground mt-1">
-                  Store locally for this device
+                  Save to Documents/S-AGI/PDFs
                 </p>
               </div>
             </button>
