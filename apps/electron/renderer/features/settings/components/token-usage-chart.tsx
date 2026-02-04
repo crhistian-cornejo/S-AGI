@@ -199,7 +199,6 @@ export function TokenUsageChart() {
             <span className="font-mono font-semibold text-foreground text-sm">
               {formatTokenCount(totals.selectedMonth)}
             </span>
-            {/* Badge is now just a label since we don't have comparison data yet */}
             <Badge className="bg-primary/10 text-primary border-primary/20 px-1.5 py-0 h-5">
               TOKENS
             </Badge>
@@ -244,7 +243,7 @@ export function TokenUsageChart() {
                       "transition-all duration-300",
                       entry.tokens === maxTokens
                         ? "opacity-100"
-                        : "opacity-70 hover:opacity-100",
+                        : "opacity-70 hover:opacity-100"
                     )}
                   />
                 ))}
@@ -260,15 +259,15 @@ export function TokenUsageChart() {
 function TotalCard({ label, value }: { label: string; value: number }) {
   return (
     <div className="rounded-lg border border-border bg-card p-4 flex flex-col justify-between hover:bg-accent/5 transition-colors">
-        <span className="text-[10px] uppercase tracking-wider text-foreground/70 font-medium">
-          {label}
+      <span className="text-[10px] uppercase tracking-wider text-foreground/70 font-medium">
+        {label}
+      </span>
+      <div className="mt-2 flex items-baseline gap-1">
+        <span className="text-2xl font-bold tracking-tight">
+          {formatTokenCount(value)}
         </span>
-        <div className="mt-2 flex items-baseline gap-1">
-          <span className="text-2xl font-bold tracking-tight">
-            {formatTokenCount(value)}
-          </span>
-          <span className="text-[10px] text-foreground/60">tks</span>
-        </div>
+        <span className="text-[10px] text-foreground/60">tks</span>
       </div>
+    </div>
   );
 }

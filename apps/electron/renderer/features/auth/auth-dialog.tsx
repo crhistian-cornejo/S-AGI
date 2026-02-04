@@ -18,11 +18,40 @@ export function AuthDialog() {
 
     const utils = trpc.useUtils()
 
-    // Listen for OAuth callback
+    // Reset loading states when dialog opens
+    // This fixes the bug where isGoogleLoading stays true if user closes OAuth window without completing
     useEffect(() => {
-        const cleanup = window.desktopApi?.onAuthCallback?.((data) => {
-            if (data.code) {
-                handleOAuthCallback(data.code)
+        if (open) {
+            setIsGoogleLoading(false)
+            setIsLocalLoading(false)
+        }
+    }, [open])
+
+    // Mutation to set session from OAuth tokens
+    const setSession = trpc.auth.setSession.useMutation({
+        onSuccess: () => {
+            toast.success('Sesión iniciada con Google')
+            setOpen(false)
+            setIsGoogleLoading(false)
+            utils.auth.getSession.invalidate()
+            utils.auth.getUser.invalidate()
+            utils.auth.getAccounts.invalidate()
+            utils.chats.list.invalidate()
+        },
+        onError: (error) => {
+            toast.error(error.message || 'Error al completar inicio de sesión')
+            setIsGoogleLoading(false)
+        }
+    })
+
+    // Listen for OAuth tokens from the OAuth window
+    useEffect(() => {
+        const cleanup = window.desktopApi?.onOAuthTokens?.((data) => {
+            if (data.access_token && data.refresh_token) {
+                setSession.mutate({
+                    access_token: data.access_token,
+                    refresh_token: data.refresh_token
+                })
             }
         })
 
@@ -30,15 +59,6 @@ export function AuthDialog() {
             cleanup?.()
         }
     }, [])
-
-    const handleOAuthCallback = async (code: string) => {
-        setIsGoogleLoading(true)
-        try {
-            await exchangeCode.mutateAsync({ code })
-        } catch (error) {
-            // Error handled in mutation
-        }
-    }
 
     const signInWithOAuth = trpc.auth.signInWithOAuth.useMutation({
         onSuccess: () => {
@@ -48,21 +68,6 @@ export function AuthDialog() {
             toast.error(error.message || 'Error al iniciar sesión con Google')
             setIsGoogleLoading(false)
         }
-    })
-
-    const exchangeCode = trpc.auth.exchangeCodeForSession.useMutation({
-        onSuccess: async () => {
-            toast.success('Sesión iniciada con Google')
-            setOpen(false)
-            utils.auth.getSession.invalidate()
-            utils.auth.getUser.invalidate()
-            utils.auth.getAccounts.invalidate()
-            utils.chats.list.invalidate()
-        },
-        onError: (error) => {
-            toast.error(error.message || 'Error al completar inicio de sesión')
-        },
-        onSettled: () => setIsGoogleLoading(false)
     })
 
     const enterLocalMode = trpc.auth.enterLocalMode.useMutation({

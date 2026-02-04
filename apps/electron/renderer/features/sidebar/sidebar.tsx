@@ -653,7 +653,7 @@ function ProjectFolder({
         </div>
         <button
           type="button"
-          className="flex-1 flex items-center gap-1.5 px-1.5 py-1 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors rounded-md hover:bg-muted/30"
+          className="flex-1 min-w-0 flex items-center gap-1.5 px-1.5 py-1 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors rounded-md hover:bg-muted/30"
           onClick={onToggleCollapse}
           aria-expanded={!project.is_collapsed}
         >
@@ -662,9 +662,9 @@ function ProjectFolder({
           ) : (
             <IconChevronDown size={12} />
           )}
-          <span className="text-sm">{project.icon}</span>
-          <span className="truncate flex-1 text-left text-[13px]">{project.name}</span>
-          <span className="text-[10px] bg-muted/50 px-1.5 py-0.5 rounded-full tabular-nums">
+          <span className="text-sm shrink-0">{project.icon}</span>
+          <span className="truncate flex-1 min-w-0 text-left text-[13px]">{project.name}</span>
+          <span className="text-[10px] bg-muted/50 px-1.5 py-0.5 rounded-full tabular-nums shrink-0">
             {chats.length}
           </span>
         </button>

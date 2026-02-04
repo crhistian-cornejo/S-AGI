@@ -940,7 +940,7 @@ export function MainLayout() {
                 </>
               )}
 
-              <div className="flex-1 flex flex-col min-w-0 overflow-hidden p-2">
+              <div className="flex-1 flex flex-col min-w-0 overflow-hidden px-2 pb-2">
                 <div className="flex-1 flex flex-col min-w-0 overflow-hidden rounded-2xl border border-sidebar-border/40 bg-sidebar">
                   {activeTab === "chat" ? <ChatView /> : <GalleryView />}
                 </div>
@@ -1011,7 +1011,7 @@ export function MainLayout() {
 
             {/* Main content area */}
             <div className="flex-1 flex flex-col min-w-0 overflow-hidden relative pt-9 bg-sidebar animate-in fade-in zoom-in-95 duration-300">
-              <div className="flex-1 flex flex-col min-w-0 overflow-hidden p-2">
+              <div className="flex-1 flex flex-col min-w-0 overflow-hidden px-2 pb-2">
                 <div className="flex-1 flex min-w-0 overflow-hidden rounded-2xl border border-sidebar-border/40 bg-sidebar relative">
                   <div
                     className={cn(
@@ -1039,7 +1039,9 @@ export function MainLayout() {
                             storageTooltip={
                               isLocalStorageMode
                                 ? getLocalPath(currentExcelFile)
-                                  ? `Guardado en ${getLocalPath(currentExcelFile)}`
+                                  ? `Guardado en ${getLocalPath(
+                                      currentExcelFile
+                                    )}`
                                   : "Guardado en este dispositivo"
                                 : "Guardado en la nube con historial de versiones"
                             }
@@ -1169,7 +1171,7 @@ export function MainLayout() {
 
             {/* Main content area */}
             <div className="flex-1 flex flex-col min-w-0 overflow-hidden relative pt-9 bg-sidebar animate-in fade-in zoom-in-95 duration-300">
-              <div className="flex-1 flex flex-col min-w-0 overflow-hidden p-2">
+              <div className="flex-1 flex flex-col min-w-0 overflow-hidden px-2 pb-2">
                 <div className="flex-1 flex min-w-0 overflow-hidden rounded-2xl border border-sidebar-border/40 bg-sidebar relative">
                   <div
                     className={cn(
@@ -1197,7 +1199,9 @@ export function MainLayout() {
                             storageTooltip={
                               isLocalStorageMode
                                 ? getLocalPath(currentDocFile)
-                                  ? `Guardado en ${getLocalPath(currentDocFile)}`
+                                  ? `Guardado en ${getLocalPath(
+                                      currentDocFile
+                                    )}`
                                   : "Guardado en este dispositivo"
                                 : "Guardado en la nube con historial de versiones"
                             }
@@ -1339,7 +1343,7 @@ export function MainLayout() {
 
             {/* Main content area */}
             <div className="flex-1 flex flex-col min-w-0 overflow-hidden relative pt-9 bg-sidebar animate-in fade-in zoom-in-95 duration-300">
-              <div className="flex-1 flex flex-col min-w-0 overflow-hidden p-2">
+              <div className="flex-1 flex flex-col min-w-0 overflow-hidden px-2 pb-2">
                 <div className="flex-1 flex min-w-0 overflow-hidden rounded-2xl border border-sidebar-border/40 bg-sidebar relative">
                   <div
                     className={cn(
@@ -1412,7 +1416,7 @@ export function MainLayout() {
 
             {/* Main content area */}
             <div className="flex-1 flex flex-col min-w-0 overflow-hidden relative pt-9 bg-sidebar animate-in fade-in zoom-in-95 duration-300">
-              <div className="flex-1 flex flex-col min-w-0 overflow-hidden p-2">
+              <div className="flex-1 flex flex-col min-w-0 overflow-hidden px-2 pb-2">
                 <div className="flex-1 flex min-w-0 overflow-hidden rounded-2xl border border-sidebar-border/40 bg-sidebar relative">
                   <div
                     className={cn(

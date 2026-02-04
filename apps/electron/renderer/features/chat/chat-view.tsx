@@ -114,13 +114,13 @@ export function ChatView() {
   const setStreamingAnnotations = useSetAtom(streamingAnnotationsAtom);
   // Document citations state (for local RAG with non-OpenAI providers)
   const streamingDocumentCitations = useAtomValue(
-    streamingDocumentCitationsAtom,
+    streamingDocumentCitationsAtom
   );
   const setStreamingDocumentCitations = useSetAtom(
-    streamingDocumentCitationsAtom,
+    streamingDocumentCitationsAtom
   );
   const [streamingSuggestions, setStreamingSuggestions] = useAtom(
-    streamingSuggestionsAtom,
+    streamingSuggestionsAtom
   );
 
   // Settings state
@@ -139,13 +139,13 @@ export function ChatView() {
   const addToQueue = useMessageQueueStore((state) => state.addToQueue);
   const getQueue = useMessageQueueStore((state) => state.getQueue);
   const registerCallback = useSendCallbackStore(
-    (state) => state.registerCallback,
+    (state) => state.registerCallback
   );
   const unregisterCallback = useSendCallbackStore(
-    (state) => state.unregisterCallback,
+    (state) => state.unregisterCallback
   );
   const setStreamingStatus = useStreamingStatusStore(
-    (state) => state.setStatus,
+    (state) => state.setStatus
   );
 
   // Get current queue for this chat
@@ -184,12 +184,12 @@ export function ChatView() {
     provider === "openai"
       ? keyStatus?.hasOpenAI
       : provider === "chatgpt-plus"
-        ? keyStatus?.hasChatGPTPlus
-        : provider === "zai"
-          ? keyStatus?.hasZai
-          : provider === "claude"
-            ? keyStatus?.hasClaudeCode
-            : keyStatus?.hasAnthropic;
+      ? keyStatus?.hasChatGPTPlus
+      : provider === "zai"
+      ? keyStatus?.hasZai
+      : provider === "claude"
+      ? keyStatus?.hasClaudeCode
+      : keyStatus?.hasAnthropic;
 
   // Fetch messages for selected chat
   const {
@@ -203,7 +203,7 @@ export function ChatView() {
       retry: false,
       staleTime: 15_000,
       gcTime: 1000 * 60 * 30,
-    },
+    }
   );
 
   // Plan mode state - only use write atom
@@ -236,7 +236,7 @@ export function ChatView() {
       // If assistant message with ExitPlanMode tool call, we found an unapproved plan
       if (msg.role === "assistant" && msg.tool_calls) {
         const exitPlanCall = msg.tool_calls.find(
-          (tc: any) => tc.name === "ExitPlanMode" || tc.name === "exitplanmode",
+          (tc: any) => tc.name === "ExitPlanMode" || tc.name === "exitplanmode"
         );
         if (exitPlanCall?.result?.plan) {
           return true;
@@ -264,7 +264,7 @@ export function ChatView() {
       ) {
         console.warn(
           "[ChatView] Chat not found or access denied, clearing stale selection:",
-          selectedChatId,
+          selectedChatId
         );
         setSelectedChatId(null);
       }
@@ -294,7 +294,7 @@ export function ChatView() {
     documents?: File[],
     targetDocument?: { id: string; filename: string } | null,
     messageOverride?: string,
-    options?: { generateImage?: boolean; imageSize?: string },
+    options?: { generateImage?: boolean; imageSize?: string }
   ) => {
     const messageToSend = messageOverride ?? input.trim();
     if ((!messageToSend && !images?.length) || !selectedChatId) return;
@@ -334,7 +334,7 @@ export function ChatView() {
             : undefined,
           generateImage: shouldGenerateImage,
           imageSize,
-        },
+        }
       );
       addToQueue(chatId, queuedItem);
       setInput("");
@@ -373,7 +373,7 @@ export function ChatView() {
             console.log(
               "[ChatView] Uploading",
               documents.length,
-              "documents to OpenAI Vector Store...",
+              "documents to OpenAI Vector Store..."
             );
             try {
               await documentUpload.uploadDocuments(documents);
@@ -393,7 +393,7 @@ export function ChatView() {
                 throw new Error(errorMessage);
               }
               toast.warning(
-                "Some documents failed to upload. Continuing without them.",
+                "Some documents failed to upload. Continuing without them."
               );
             }
           })()
@@ -405,7 +405,7 @@ export function ChatView() {
             console.log(
               "[ChatView] Uploading",
               images.length,
-              "images to storage...",
+              "images to storage..."
             );
             const uploadedAttachments: Array<{
               id: string;
@@ -441,13 +441,13 @@ export function ChatView() {
                   "[ChatView] Uploaded image:",
                   uploaded.name,
                   "→",
-                  uploaded.storagePath,
+                  uploaded.storagePath
                 );
               } catch (uploadError) {
                 console.error(
                   "[ChatView] Failed to upload image:",
                   img.filename,
-                  uploadError,
+                  uploadError
                 );
               }
             }
@@ -458,7 +458,7 @@ export function ChatView() {
 
     const sendWithChatId = async (
       chatId: string,
-      historySource: typeof messages | undefined,
+      historySource: typeof messages | undefined
     ) => {
       const chatIdForStream = chatId;
       const isFirstMessage = !historySource || historySource.length === 0;
@@ -485,7 +485,7 @@ export function ChatView() {
         const chatGPTStatus = await trpcClient.auth.getChatGPTStatus.query();
         if (!chatGPTStatus.isConnected) {
           setStreamingError(
-            "ChatGPT Plus not connected. Please connect in Settings.",
+            "ChatGPT Plus not connected. Please connect in Settings."
           );
           setIsStreaming(false);
           setStreamingStatus(chatId, "error");
@@ -533,7 +533,7 @@ export function ChatView() {
         const status = await trpcClient.settings.getApiKeyStatus.query();
         if (!status.hasClaudeCode) {
           setStreamingError(
-            "Claude Code not connected. Please connect in Settings.",
+            "Claude Code not connected. Please connect in Settings."
           );
           setIsStreaming(false);
           setStreamingStatus(chatId, "error");
@@ -673,8 +673,8 @@ export function ChatView() {
                           domains: event.domains ?? ws.domains,
                           url: event.url ?? ws.url,
                         }
-                      : ws,
-                  ),
+                      : ws
+                  )
                 );
                 break;
               }
@@ -692,8 +692,8 @@ export function ChatView() {
                           domains: event.domains ?? ws.domains,
                           url: event.url ?? ws.url,
                         }
-                      : ws,
-                  ),
+                      : ws
+                  )
                 );
                 break;
               }
@@ -711,7 +711,7 @@ export function ChatView() {
                       title: a.title,
                       startIndex: a.startIndex,
                       endIndex: a.endIndex,
-                    }),
+                    })
                   );
 
                 const fileCitations = (event.annotations || [])
@@ -722,7 +722,7 @@ export function ChatView() {
                       fileId: a.fileId,
                       filename: a.filename,
                       index: a.index,
-                    }),
+                    })
                   );
 
                 const allCitations: Annotation[] = [
@@ -768,7 +768,7 @@ export function ChatView() {
               case "suggestions": {
                 console.log(
                   "[ChatView] Suggestions event received:",
-                  event.suggestions,
+                  event.suggestions
                 );
                 if (event.suggestions && Array.isArray(event.suggestions)) {
                   // Store in local variable for persistence
@@ -778,7 +778,7 @@ export function ChatView() {
                 } else {
                   console.warn(
                     "[ChatView] Received invalid suggestions format:",
-                    event,
+                    event
                   );
                 }
                 break;
@@ -801,8 +801,8 @@ export function ChatView() {
                   prev.map((fs) =>
                     fs.searchId === event.searchId
                       ? { ...fs, status: "searching" as const }
-                      : fs,
-                  ),
+                      : fs
+                  )
                 );
                 break;
               }
@@ -813,8 +813,8 @@ export function ChatView() {
                   prev.map((fs) =>
                     fs.searchId === event.searchId
                       ? { ...fs, status: "done" as const }
-                      : fs,
-                  ),
+                      : fs
+                  )
                 );
                 break;
               }
@@ -823,7 +823,7 @@ export function ChatView() {
                 // Store document citations for inline rendering with hover tooltips
                 console.log(
                   "[ChatView] Document citations received:",
-                  event.citations?.length || 0,
+                  event.citations?.length || 0
                 );
                 if (event.citations && event.citations.length > 0) {
                   collectedDocumentCitations = event.citations.map(
@@ -833,7 +833,7 @@ export function ChatView() {
                       pageNumber: c.pageNumber,
                       text: c.text,
                       marker: c.marker,
-                    }),
+                    })
                   );
                   setStreamingDocumentCitations(collectedDocumentCitations);
                 }
@@ -857,7 +857,7 @@ export function ChatView() {
                   Array.from(toolCalls.values()).map((tc) => ({
                     ...tc,
                     status: "streaming" as const,
-                  })),
+                  }))
                 );
                 break;
               }
@@ -870,7 +870,7 @@ export function ChatView() {
                     Array.from(toolCalls.values()).map((t) => ({
                       ...t,
                       status: "streaming" as const,
-                    })),
+                    }))
                   );
                 }
                 break;
@@ -894,8 +894,8 @@ export function ChatView() {
                           status: "executing" as const,
                           args: JSON.stringify(event.args),
                         }
-                      : t,
-                  ),
+                      : t
+                  )
                 );
                 break;
               }
@@ -920,8 +920,8 @@ export function ChatView() {
                             : ("error" as const),
                           result: event.result,
                         }
-                      : t,
-                  ),
+                      : t
+                  )
                 );
 
                 // Play tool error sound if tool failed
@@ -968,7 +968,7 @@ export function ChatView() {
                   } catch (err) {
                     console.warn(
                       "[ChatView] Failed to navigate to artifact:",
-                      err,
+                      err
                     );
                   }
                 }
@@ -1030,7 +1030,7 @@ export function ChatView() {
                           args: null,
                         };
                       }
-                    },
+                    }
                   );
 
                   const modelName =
@@ -1083,7 +1083,7 @@ export function ChatView() {
 
                   console.log(
                     "[ChatView] Saving message with tool calls:",
-                    JSON.stringify(toolCallsArray, null, 2),
+                    JSON.stringify(toolCallsArray, null, 2)
                   );
 
                   await addMessage.mutateAsync({
@@ -1157,7 +1157,7 @@ export function ChatView() {
                 break;
               }
             }
-          },
+          }
         );
 
         // Store abort function to remove listener and cancel stream
@@ -1266,7 +1266,7 @@ export function ChatView() {
 
       if (isChatAccessError(errorMessage)) {
         console.warn(
-          "[ChatView] Chat not found, creating a new chat and retrying",
+          "[ChatView] Chat not found, creating a new chat and retrying"
         );
 
         try {
@@ -1277,7 +1277,7 @@ export function ChatView() {
         } catch (retryError) {
           console.error(
             "[ChatView] Failed to recover from chat access error:",
-            retryError,
+            retryError
           );
           setSelectedChatId(null);
           setStreamingError("Chat not found. Please create a new chat.");
@@ -1324,7 +1324,7 @@ export function ChatView() {
         {
           generateImage: item.generateImage,
           imageSize: item.imageSize,
-        },
+        }
       );
     };
 
@@ -1338,14 +1338,14 @@ export function ChatView() {
   // === QUICK PROMPT AUTO-SEND ===
   // Watch for pending messages from Quick Prompt and auto-send them
   const [pendingMessage, setPendingMessage] = useAtom(
-    pendingQuickPromptMessageAtom,
+    pendingQuickPromptMessageAtom
   );
 
   useEffect(() => {
     if (pendingMessage && selectedChatId && handleSendRef.current) {
       console.log(
         "[ChatView] Auto-sending pending Quick Prompt message:",
-        pendingMessage.substring(0, 50) + "...",
+        pendingMessage.substring(0, 50) + "..."
       );
 
       // Clear the pending message first to prevent re-triggering
@@ -1411,7 +1411,7 @@ export function ChatView() {
     const root = scrollContainerRef.current;
     if (!root) return null;
     return root.querySelector(
-      "[data-radix-scroll-area-viewport]",
+      "[data-radix-scroll-area-viewport]"
     ) as HTMLDivElement | null;
   }, []);
 
@@ -1450,7 +1450,7 @@ export function ChatView() {
         console.error("Failed to open artifact:", error);
       }
     },
-    [setSelectedArtifact, setArtifactPanelOpen],
+    [setSelectedArtifact, setArtifactPanelOpen]
   );
 
   useEffect(() => {
@@ -1506,7 +1506,7 @@ export function ChatView() {
         root: viewport,
         threshold: 0.1,
         rootMargin: "-10% 0px -70% 0px", // Detect near top
-      },
+      }
     );
 
     const userMessages = messages.filter((m) => m.role === "user");
@@ -1534,7 +1534,7 @@ export function ChatView() {
       if (Array.isArray(savedSuggestions) && savedSuggestions.length > 0) {
         console.log(
           "[ChatView] Loading suggestions from last message:",
-          savedSuggestions,
+          savedSuggestions
         );
         setStreamingSuggestions(savedSuggestions);
       }
@@ -1596,8 +1596,8 @@ export function ChatView() {
                 {provider === "openai"
                   ? "OpenAI"
                   : provider === "zai"
-                    ? "Z.AI"
-                    : "Anthropic"}{" "}
+                  ? "Z.AI"
+                  : "Anthropic"}{" "}
                 API key to start chatting
               </p>
               <Button
@@ -1687,8 +1687,8 @@ export function ChatView() {
         <div className="absolute top-0 left-0 right-0 h-12 bg-gradient-to-b from-[hsl(var(--chat-background))] via-[hsl(var(--chat-background)/0.8)] to-transparent pointer-events-none z-10" />
 
         <ScrollArea className="h-full w-full" ref={scrollContainerRef}>
-          <div className="pt-2 pb-16 w-full overflow-hidden">
-            {/* Safe area is now handled by MainLayout, keeping small padding for air */}
+          <div className="pb-16 w-full overflow-hidden">
+            {/* Safe area is now handled by MainLayout */}
             <MessageList
               messages={messages || []}
               isLoading={isStreaming}
@@ -1875,12 +1875,17 @@ const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 async function generateAutoTitle(
   chatId: string,
   userMessage: string,
-  provider: string,
+  provider: string
 ) {
   try {
     const result = await trpcClient.ai.generateTitle.mutate({
       prompt: userMessage,
-      provider: provider as "openai" | "anthropic" | "zai" | "chatgpt-plus" | undefined,
+      provider: provider as
+        | "openai"
+        | "anthropic"
+        | "zai"
+        | "chatgpt-plus"
+        | undefined,
       model: autoTitleModel,
     });
 
@@ -1908,7 +1913,7 @@ async function generateAutoTitle(
         if (attempt === autoTitleRetryDelays.length - 1) {
           console.error(
             "[ChatView] Failed to apply auto title after retries:",
-            error,
+            error
           );
         }
       }

@@ -49,12 +49,15 @@ DropdownMenuSubTrigger.displayName =
 const DropdownMenuSubContent = React.forwardRef<
     React.ElementRef<typeof DropdownMenuPrimitive.SubContent>,
     React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.SubContent>
->(({ className, ...props }, ref) => (
-    <DropdownMenuPrimitive.SubContent
-        ref={ref}
-        className={cn(overlayContent, "min-w-[8rem] py-1", className)}
-        {...props}
-    />
+>(({ className, sideOffset = 2, ...props }, ref) => (
+    <DropdownMenuPrimitive.Portal>
+        <DropdownMenuPrimitive.SubContent
+            ref={ref}
+            sideOffset={sideOffset}
+            className={cn(overlayContent, "min-w-[8rem] py-1", className)}
+            {...props}
+        />
+    </DropdownMenuPrimitive.Portal>
 ))
 DropdownMenuSubContent.displayName =
     DropdownMenuPrimitive.SubContent.displayName

@@ -157,9 +157,7 @@
     @apply bg-background text-foreground;
     font-family: var(--font-family);
     font-size: var(--font-size-primary);
-    font-feature-settings:
-      "rlig" 1,
-      "calt" 1;
+    font-feature-settings: "rlig" 1, "calt" 1;
   }
 
   /* Secondary text size utility */
@@ -549,7 +547,7 @@
 [data-popper-placement],
 .univer-tooltip,
 [class*="univer-tooltip"] {
-    z-index: 1101 !important;
+  z-index: 1101 !important;
 }
 
 /* Dark: dropdowns – explicit high-contrast bg + text (guarantees visibility) */
@@ -577,9 +575,7 @@
 .univer-dark [data-slot="dropdown-menu-content"] {
   background-color: #262626 !important;
   border: 1px solid rgba(255, 255, 255, 0.12) !important;
-  box-shadow:
-    0 4px 12px rgba(0, 0, 0, 0.5),
-    0 0 0 1px rgba(255, 255, 255, 0.08) !important;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.08) !important;
   color: #fafafa !important;
 }
 
@@ -613,9 +609,7 @@
 .univer-dark .rc-select-dropdown {
   background-color: #262626 !important;
   border: 1px solid rgba(255, 255, 255, 0.12) !important;
-  box-shadow:
-    0 4px 12px rgba(0, 0, 0, 0.5),
-    0 0 0 1px rgba(255, 255, 255, 0.08) !important;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.08) !important;
   color: #fafafa !important;
 }
 
@@ -955,6 +949,46 @@
   z-index: 1199 !important;
 }
 
+/* Radix UI Tooltips - must be above all sidebar elements and buttons */
+/* Target the actual tooltip content element - all possible states */
+[data-radix-tooltip-content],
+[role="tooltip"],
+[role="tooltip"][data-state="delayed-open"],
+[role="tooltip"][data-state="instant-open"],
+[role="tooltip"][data-state="closed"] {
+  z-index: 10000 !important;
+  position: fixed !important;
+}
+
+/* Radix UI Tooltip portal container - ensure portal itself has high z-index */
+[data-radix-portal] {
+  z-index: 10000 !important;
+}
+
+/* Radix UI Tooltip portal container content - use descendant selector for flexibility */
+[data-radix-portal] [data-radix-tooltip-content],
+[data-radix-portal] [role="tooltip"] {
+  z-index: 10000 !important;
+  position: fixed !important;
+}
+
+/* Ensure tooltips are not clipped by overflow containers */
+[data-radix-tooltip-content],
+[role="tooltip"] {
+  pointer-events: none !important;
+}
+
+/* Override any z-index from sidebar containers - highest specificity */
+[data-sagi-app] [data-radix-tooltip-content],
+[data-sagi-app] [role="tooltip"],
+body [data-radix-tooltip-content],
+body [role="tooltip"],
+html [data-radix-tooltip-content],
+html [role="tooltip"] {
+  z-index: 10000 !important;
+  position: fixed !important;
+}
+
 /* Toasts/notifications - highest priority */
 [data-sonner-toaster] {
   z-index: 1300 !important;
@@ -1003,9 +1037,8 @@ pre code.shiki {
   overflow-x: auto;
   line-height: 1.6;
   font-size: 0.8125rem;
-  font-family:
-    ui-monospace, SFMono-Regular, "SF Mono", Menlo, Monaco, "Cascadia Code",
-    "Liberation Mono", Consolas, monospace;
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Monaco,
+    "Cascadia Code", "Liberation Mono", Consolas, monospace;
 }
 
 /* Shiki uses inline styles - don't override them */
@@ -1283,8 +1316,7 @@ input[type="checkbox"].task-list-item-checkbox:checked {
 /* PDF Page wrapper */
 .react-pdf__Page {
   position: relative;
-  box-shadow:
-    0 2px 4px -1px hsl(var(--foreground) / 0.06),
+  box-shadow: 0 2px 4px -1px hsl(var(--foreground) / 0.06),
     0 4px 6px -1px hsl(var(--foreground) / 0.08),
     0 10px 20px -5px hsl(var(--foreground) / 0.08);
   border-radius: 2px;
@@ -1351,10 +1383,8 @@ input[type="checkbox"].task-list-item-checkbox:checked {
   /* Keep PDF pages white even in dark mode for readability */
   background-color: white;
   /* Add subtle border in dark mode */
-  box-shadow:
-    0 0 0 1px hsl(var(--border) / 0.5),
-    0 2px 4px -1px hsl(0 0% 0% / 0.2),
-    0 4px 6px -1px hsl(0 0% 0% / 0.25),
+  box-shadow: 0 0 0 1px hsl(var(--border) / 0.5),
+    0 2px 4px -1px hsl(0 0% 0% / 0.2), 0 4px 6px -1px hsl(0 0% 0% / 0.25),
     0 10px 20px -5px hsl(0 0% 0% / 0.3);
 }
 

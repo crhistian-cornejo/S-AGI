@@ -26,6 +26,7 @@ import { ChatMarkdownRenderer } from "@/components/chat-markdown-renderer";
 import { CitationsFooter } from "@/components/inline-citation";
 import { MessageAttachments } from "@/components/message-attachments";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { Logo } from "@/components/ui/logo";
 import {
   Tooltip,
@@ -55,6 +56,25 @@ import {
 
 // Default context window for calculations (256k for GPT-5)
 const DEFAULT_CONTEXT_WINDOW = 256000;
+
+/** Badge component that shows local/cloud usage status */
+function UsageBadge() {
+  // Use tRPC query to get the correct local mode status from main process
+  const { data: isLocal = false } = trpc.auth.isLocalMode.useQuery();
+
+  return (
+    <Badge
+      className={cn(
+        "px-1.5 py-0 h-4 text-[9px]",
+        isLocal
+          ? "bg-blue-500/10 text-blue-500 border-blue-500/20"
+          : "bg-green-500/10 text-green-500 border-green-500/20"
+      )}
+    >
+      {isLocal ? "LOCAL" : "CLOUD"}
+    </Badge>
+  );
+}
 
 // Pricing per 1M tokens (USD) — from official APIs
 // OpenAI: https://platform.openai.com/docs/pricing | https://openai.com/api/pricing/
@@ -97,14 +117,14 @@ function calculateCost(
   modelId: string,
   inputTokens: number,
   outputTokens: number,
-  reasoningTokens?: number,
+  reasoningTokens?: number
 ): number {
   // Check if model is included in subscription (free to use)
   const modelDef = getModelById(modelId);
   if (modelDef?.includedInSubscription) {
     return 0; // Free - included in subscription
   }
-  
+
   const pricing = MODEL_PRICING[modelId];
   if (!pricing) return 0;
   const inputCost = (inputTokens / 1_000_000) * pricing.input;
@@ -268,7 +288,7 @@ function normalizePlanStatus(status?: string): PlanStep["status"] {
 }
 
 function normalizePlanSteps(
-  steps: Array<Record<string, unknown>> = [],
+  steps: Array<Record<string, unknown>> = []
 ): PlanStep[] {
   return steps.map((step, index) => ({
     id: String(step.id ?? index),
@@ -276,7 +296,7 @@ function normalizePlanSteps(
     description:
       typeof step.description === "string" ? step.description : undefined,
     status: normalizePlanStatus(
-      typeof step.status === "string" ? step.status : undefined,
+      typeof step.status === "string" ? step.status : undefined
     ),
   }));
 }
@@ -305,8 +325,8 @@ function toToolPart(toolCall: ToolCall): ToolPart {
   const output = isRecord(toolCall.result)
     ? toolCall.result
     : toolCall.result !== undefined
-      ? { output: toolCall.result }
-      : {};
+    ? { output: toolCall.result }
+    : {};
 
   return {
     type: normalizeToolType(toolCall.name),
@@ -323,14 +343,14 @@ function toEditArgs(input: Record<string, unknown>) {
       typeof input.oldString === "string"
         ? input.oldString
         : typeof input.old_string === "string"
-          ? input.old_string
-          : undefined,
+        ? input.old_string
+        : undefined,
     newString:
       typeof input.newString === "string"
         ? input.newString
         : typeof input.new_string === "string"
-          ? input.new_string
-          : undefined,
+        ? input.new_string
+        : undefined,
     replaceAll: Boolean(input.replaceAll ?? input.replace_all ?? false),
   };
 }
@@ -386,7 +406,7 @@ function isSpecialTool(toolName: string): boolean {
 
 /** Separate tool calls into special (individual rendering) and simple (grouped) */
 function separateToolCalls<T extends { name: string }>(
-  toolCalls: T[],
+  toolCalls: T[]
 ): { special: T[]; simple: T[] } {
   const special: T[] = [];
   const simple: T[] = [];
@@ -730,7 +750,7 @@ const MessageItem = memo(function MessageItem({
   const content = parseContent(message.content);
   const [copied, setCopied] = useState(false);
   const [ttsState, setTtsState] = useState<"idle" | "loading" | "playing">(
-    "idle",
+    "idle"
   );
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const textToSpeech = trpc.ai.textToSpeech.useMutation();
@@ -754,7 +774,7 @@ const MessageItem = memo(function MessageItem({
     modelIdForCost,
     inputTokens,
     outputTokens,
-    reasoningTokens,
+    reasoningTokens
   );
   const modelId = message.model_id ?? message.metadata?.model_id;
   const modelName =
@@ -1079,6 +1099,10 @@ const MessageItem = memo(function MessageItem({
                         {formatCost(cost)}
                       </span>
                     </div>
+                    <div className="flex justify-between items-center gap-4 pt-1 border-t border-border/50">
+                      <span className="text-muted-foreground">Usage:</span>
+                      <UsageBadge />
+                    </div>
                   </div>
                 </TooltipContent>
               </Tooltip>
@@ -1150,22 +1174,22 @@ const AgentToolRenderer = memo(function AgentToolRenderer({
       isRecord(output.plan)
         ? output.plan
         : isRecord(input.plan)
-          ? input.plan
-          : null
+        ? input.plan
+        : null
     ) as Record<string, unknown> | null;
     const steps =
       planPayload && Array.isArray(planPayload.steps)
         ? normalizePlanSteps(
-            planPayload.steps as Array<Record<string, unknown>>,
+            planPayload.steps as Array<Record<string, unknown>>
           )
         : [];
     const currentStepIndex =
       typeof planPayload?.currentStepIndex === "number"
         ? planPayload.currentStepIndex
         : typeof (planPayload as { current_step_index?: number })
-              ?.current_step_index === "number"
-          ? (planPayload as { current_step_index: number }).current_step_index
-          : undefined;
+            ?.current_step_index === "number"
+        ? (planPayload as { current_step_index: number }).current_step_index
+        : undefined;
     const title =
       typeof planPayload?.title === "string" ? planPayload.title : undefined;
 
@@ -1193,8 +1217,8 @@ const AgentToolRenderer = memo(function AgentToolRenderer({
             newTodos: Array.isArray(output.newTodos)
               ? output.newTodos
               : Array.isArray(input.todos)
-                ? input.todos
-                : [],
+              ? input.todos
+              : [],
             success: output.success as boolean | undefined,
           },
         }}
@@ -1238,8 +1262,8 @@ const AgentToolRenderer = memo(function AgentToolRenderer({
       isComplete && imageUrl
         ? "complete"
         : isComplete && !imageUrl
-          ? "error"
-          : "generating";
+        ? "error"
+        : "generating";
 
     return (
       <AgentImageGeneration
@@ -1403,10 +1427,10 @@ const SourcesIndicator = memo(function SourcesIndicator({
 
   // Separate URL and file citations
   const urlCitations = annotations.filter(
-    (a): a is UrlCitationData => a.type === "url_citation",
+    (a): a is UrlCitationData => a.type === "url_citation"
   );
   const fileCitations = annotations.filter(
-    (a): a is FileCitationData => a.type === "file_citation",
+    (a): a is FileCitationData => a.type === "file_citation"
   );
 
   // Deduplicate URL citations by URL
@@ -1499,7 +1523,7 @@ const SourcesIndicator = memo(function SourcesIndicator({
                             parent.classList.add(
                               "flex",
                               "items-center",
-                              "justify-center",
+                              "justify-center"
                             );
                             parent.innerHTML =
                               '<span class="text-[8px]">🌐</span>';
@@ -1556,7 +1580,7 @@ const SourcesIndicator = memo(function SourcesIndicator({
                         size={14}
                         className={cn(
                           "shrink-0",
-                          getFileExtensionColor(file.filename),
+                          getFileExtensionColor(file.filename)
                         )}
                       />
                       <span className="text-xs text-muted-foreground group-hover:text-foreground truncate flex-1">
