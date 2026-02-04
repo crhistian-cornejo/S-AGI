@@ -1,22 +1,20 @@
 import { z } from "zod";
 import { router, protectedProcedure } from "../trpc";
-import { supabase, isSupabaseConfigured } from "../../supabase/client";
+import { supabase } from "../../supabase/client";
 import log from "electron-log";
 import { cleanupFile } from "./user-files-cleanup";
-import { getStorageAdapter, getStorageMode } from "../../storage";
-
-/**
- * Check if we should use local storage mode
- * Defaults to local - cloud sync is a future premium feature
- */
-function isLocalMode(): boolean {
-  const mode = getStorageMode();
-  // Default to local mode - only use cloud if explicitly set
-  if (mode === "local") {
-    return true;
-  }
-  return !isSupabaseConfigured();
-}
+import { getStorageAdapter, isLocalStorageMode } from "../../storage";
+import {
+  buildLocalPayload,
+  buildLocalUserFilePath,
+  ensureLocalUserFilesDir,
+  readLocalUserFile,
+  writeLocalUserFile,
+  renameLocalUserFile,
+  deleteLocalUserFile,
+} from "../../storage/local-user-files";
+import type { IStorageAdapter } from "../../storage";
+import type { FileType } from "../../storage/adapters/types";
 
 // Cleanup threshold - when version count exceeds this, trigger cleanup
 const CLEANUP_THRESHOLD = 100;
@@ -80,6 +78,78 @@ async function shouldCreateSnapshot(
   return shouldSnapshot;
 }
 
+async function shouldCreateSnapshotLocal(
+  adapter: IStorageAdapter,
+  fileId: string,
+  changeType: string
+): Promise<boolean> {
+  if (STRONG_VERSION_EVENTS.includes(changeType)) {
+    log.debug(`[SmartVersioning] Creating version for strong event: ${changeType}`);
+    return true;
+  }
+
+  const versions = await adapter.userFiles.listVersions(fileId, "local-user", {
+    limit: 1,
+  });
+
+  if (!versions || versions.length === 0) {
+    log.debug(`[SmartVersioning] Creating first version for file: ${fileId}`);
+    return true;
+  }
+
+  const lastSnapshotTime = versions[0]?.createdAt?.getTime?.() ?? 0;
+  const elapsed = Date.now() - lastSnapshotTime;
+  const shouldSnapshot = elapsed >= SNAPSHOT_INTERVAL_MS;
+
+  if (shouldSnapshot) {
+    log.debug(
+      `[SmartVersioning] Creating version after ${Math.round(elapsed / 60000)} min for file: ${fileId}`
+    );
+  } else {
+    log.debug(
+      `[SmartVersioning] Skipping version (${Math.round(elapsed / 60000)} min < 10 min threshold) for file: ${fileId}`
+    );
+  }
+
+  return shouldSnapshot;
+}
+
+function getLocalPathFromMetadata(metadata: unknown): string | null {
+  if (!metadata || typeof metadata !== "object") return null;
+  const record = metadata as Record<string, unknown>;
+  const localPath = record.localPath;
+  return typeof localPath === "string" ? localPath : null;
+}
+
+async function ensureLocalFilePath(params: {
+  adapter: IStorageAdapter;
+  fileId: string;
+  name: string;
+  type: FileType;
+  metadata: Record<string, unknown> | null;
+}): Promise<{ localPath: string; metadata: Record<string, unknown> }> {
+  const existing = getLocalPathFromMetadata(params.metadata);
+  if (existing) {
+    return { localPath: existing, metadata: params.metadata || {} };
+  }
+
+  const dir = await ensureLocalUserFilesDir(params.type);
+  const localPath = buildLocalUserFilePath({
+    dir,
+    id: params.fileId,
+    name: params.name,
+    type: params.type,
+  });
+  const nextMetadata = { ...(params.metadata || {}), localPath };
+
+  await params.adapter.userFiles.update(params.fileId, "local-user", {
+    metadata: nextMetadata,
+    folderPath: dir,
+  });
+
+  return { localPath, metadata: nextMetadata };
+}
+
 // Schemas
 const fileTypeSchema = z.enum(["excel", "doc", "note"]);
 const changeTypeSchema = z.enum([
@@ -116,7 +186,7 @@ export const userFilesRouter = router({
     )
     .query(async ({ ctx, input }) => {
       // Use local storage adapter in local mode
-      if (isLocalMode()) {
+      if (isLocalStorageMode()) {
         log.debug("[UserFilesRouter] Using local storage for list");
         const adapter = await getStorageAdapter();
         const files = await adapter.userFiles.list(ctx.userId, input.type, {
@@ -173,12 +243,23 @@ export const userFilesRouter = router({
     .input(z.object({ id: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
       // Use local storage adapter in local mode
-      if (isLocalMode()) {
+      if (isLocalStorageMode()) {
         log.debug("[UserFilesRouter] Using local storage for get");
         const adapter = await getStorageAdapter();
         const file = await adapter.userFiles.get(input.id, ctx.userId);
         if (!file) {
           throw new Error("File not found");
+        }
+        const localPath = getLocalPathFromMetadata(file.metadata);
+        let univerData = file.univerData;
+        let content = file.content;
+
+        if (localPath) {
+          const localPayload = await readLocalUserFile(localPath);
+          if (localPayload) {
+            univerData = localPayload.univerData ?? univerData;
+            content = localPayload.content ?? content;
+          }
         }
         // Map to Supabase-like format
         return {
@@ -187,8 +268,8 @@ export const userFilesRouter = router({
           name: file.name,
           type: file.type,
           description: file.description,
-          univer_data: file.univerData,
-          content: file.content,
+          univer_data: univerData,
+          content,
           metadata: file.metadata,
           icon: file.icon,
           color: file.color,
@@ -224,6 +305,41 @@ export const userFilesRouter = router({
   getLastOpened: protectedProcedure
     .input(z.object({ type: fileTypeSchema }))
     .query(async ({ ctx, input }) => {
+      if (isLocalStorageMode()) {
+        log.debug("[UserFilesRouter] Using local storage for getLastOpened");
+        const adapter = await getStorageAdapter();
+        const files = await adapter.userFiles.list(ctx.userId, input.type, {
+          includeArchived: false,
+          limit: 1,
+          sortBy: "lastOpenedAt",
+          sortOrder: "desc",
+        });
+        const file = files[0];
+        if (!file) return null;
+        return {
+          id: file.id,
+          user_id: file.userId,
+          name: file.name,
+          type: file.type,
+          description: file.description,
+          univer_data: file.univerData,
+          content: file.content,
+          metadata: file.metadata,
+          icon: file.icon,
+          color: file.color,
+          is_pinned: file.isPinned,
+          is_archived: file.isArchived,
+          version_count: file.versionCount,
+          total_edits: file.totalEdits,
+          folder_path: file.folderPath,
+          tags: file.tags,
+          created_at: file.createdAt.toISOString(),
+          updated_at: file.updatedAt.toISOString(),
+          last_opened_at: file.lastOpenedAt?.toISOString() || null,
+          deleted_at: file.deletedAt?.toISOString() || null,
+        };
+      }
+
       const { data, error } = await supabase
         .from("user_files")
         .select("*")
@@ -259,7 +375,7 @@ export const userFilesRouter = router({
     )
     .mutation(async ({ ctx, input }) => {
       // Use local storage adapter in local mode
-      if (isLocalMode()) {
+      if (isLocalStorageMode()) {
         log.debug("[UserFilesRouter] Using local storage for create");
         const adapter = await getStorageAdapter();
 
@@ -271,6 +387,25 @@ export const userFilesRouter = router({
           content: input.content,
           description: input.description,
         });
+
+        const { localPath, metadata } = await ensureLocalFilePath({
+          adapter,
+          fileId: file.id,
+          name: file.name,
+          type: file.type,
+          metadata: file.metadata,
+        });
+
+        await writeLocalUserFile(
+          localPath,
+          buildLocalPayload({
+            id: file.id,
+            type: file.type,
+            name: file.name,
+            univerData: input.univerData,
+            content: input.content,
+          })
+        );
 
         // Create initial version
         const changeType = input.aiModel ? "ai_create" : "created";
@@ -290,25 +425,28 @@ export const userFilesRouter = router({
 
         log.info("[UserFilesRouter] Created local file:", file.id, file.name);
 
+        const latestFile =
+          (await adapter.userFiles.get(file.id, ctx.userId)) || file;
+
         // Return in Supabase-like format
         return {
-          id: file.id,
-          user_id: file.userId,
-          name: file.name,
-          type: file.type,
-          description: file.description,
-          univer_data: file.univerData,
-          content: file.content,
-          metadata: file.metadata,
-          icon: file.icon,
-          color: file.color,
-          is_pinned: file.isPinned,
-          is_archived: file.isArchived,
-          version_count: file.versionCount,
-          total_edits: file.totalEdits,
-          created_at: file.createdAt.toISOString(),
-          updated_at: file.updatedAt.toISOString(),
-          last_opened_at: file.lastOpenedAt?.toISOString() || null,
+          id: latestFile.id,
+          user_id: latestFile.userId,
+          name: latestFile.name,
+          type: latestFile.type,
+          description: latestFile.description,
+          univer_data: latestFile.univerData,
+          content: latestFile.content,
+          metadata: metadata ?? latestFile.metadata,
+          icon: latestFile.icon,
+          color: latestFile.color,
+          is_pinned: latestFile.isPinned,
+          is_archived: latestFile.isArchived,
+          version_count: latestFile.versionCount,
+          total_edits: latestFile.totalEdits,
+          created_at: latestFile.createdAt.toISOString(),
+          updated_at: latestFile.updatedAt.toISOString(),
+          last_opened_at: latestFile.lastOpenedAt?.toISOString() || null,
         };
       }
 
@@ -394,6 +532,135 @@ export const userFilesRouter = router({
         commitOptions,
         ...updates
       } = input;
+
+      if (isLocalStorageMode()) {
+        log.debug("[UserFilesRouter] Using local storage for update");
+        const adapter = await getStorageAdapter();
+        const currentFile = await adapter.userFiles.get(id, ctx.userId);
+        if (!currentFile) {
+          throw new Error("File not found");
+        }
+
+        const hasDataChanges =
+          updates.univerData !== undefined || updates.content !== undefined;
+
+        let metadata: Record<string, unknown> | null = currentFile.metadata
+          ? { ...currentFile.metadata }
+          : null;
+        if (updates.metadata) {
+          metadata = { ...(metadata || {}), ...(updates.metadata as object) };
+        }
+
+        let localPath = getLocalPathFromMetadata(metadata);
+        if (!localPath && hasDataChanges) {
+          const ensured = await ensureLocalFilePath({
+            adapter,
+            fileId: currentFile.id,
+            name: updates.name ?? currentFile.name,
+            type: currentFile.type,
+            metadata,
+          });
+          localPath = ensured.localPath;
+          metadata = ensured.metadata;
+        }
+
+        if (updates.name && localPath) {
+          const dir = await ensureLocalUserFilesDir(currentFile.type);
+          const nextPath = buildLocalUserFilePath({
+            dir,
+            id: currentFile.id,
+            name: updates.name,
+            type: currentFile.type,
+          });
+          if (nextPath !== localPath) {
+            try {
+              await renameLocalUserFile(localPath, nextPath);
+              localPath = nextPath;
+              metadata = { ...(metadata || {}), localPath };
+            } catch (error) {
+              log.warn("[UserFilesRouter] Failed to rename local file:", error);
+            }
+          }
+        }
+
+        const updateData: Record<string, unknown> = {};
+        if (updates.name !== undefined) updateData.name = updates.name;
+        if (updates.univerData !== undefined)
+          updateData.univerData = updates.univerData;
+        if (updates.content !== undefined) updateData.content = updates.content;
+        if (updates.description !== undefined)
+          updateData.description = updates.description;
+        if (metadata) updateData.metadata = metadata;
+
+        const updatedFile = await adapter.userFiles.update(
+          id,
+          ctx.userId,
+          updateData
+        );
+
+        if (hasDataChanges && localPath) {
+          await writeLocalUserFile(
+            localPath,
+            buildLocalPayload({
+              id: updatedFile.id,
+              type: updatedFile.type,
+              name: updatedFile.name,
+              univerData: updates.univerData ?? updatedFile.univerData ?? undefined,
+              content: updates.content ?? updatedFile.content ?? undefined,
+            })
+          );
+        }
+
+        const shouldSnapshot = hasDataChanges && !skipVersion
+          ? await shouldCreateSnapshotLocal(adapter, id, changeType)
+          : false;
+
+        if (shouldSnapshot) {
+          const newVersionNumber = (currentFile.versionCount || 0) + 1;
+          await adapter.userFiles.createVersion({
+            fileId: id,
+            versionNumber: newVersionNumber,
+            univerData: updates.univerData,
+            content: updates.content,
+            changeType,
+            changeDescription:
+              changeDescription || `Versión ${newVersionNumber}`,
+            createdBy: ctx.userId,
+            aiModel,
+            aiPrompt,
+            toolName,
+            sizeBytes: JSON.stringify(
+              updates.univerData || updates.content || "",
+            ).length,
+            commitId: commitOptions?.commitId,
+            commitMessage: commitOptions?.commitMessage,
+            commitParentId: commitOptions?.commitParentId,
+          });
+        }
+
+        const latestFile =
+          (await adapter.userFiles.get(id, ctx.userId)) || updatedFile;
+
+        return {
+          id: latestFile.id,
+          user_id: latestFile.userId,
+          name: latestFile.name,
+          type: latestFile.type,
+          description: latestFile.description,
+          univer_data: latestFile.univerData,
+          content: latestFile.content,
+          metadata: latestFile.metadata,
+          icon: latestFile.icon,
+          color: latestFile.color,
+          is_pinned: latestFile.isPinned,
+          is_archived: latestFile.isArchived,
+          version_count: latestFile.versionCount,
+          total_edits: latestFile.totalEdits,
+          created_at: latestFile.createdAt.toISOString(),
+          updated_at: latestFile.updatedAt.toISOString(),
+          last_opened_at: latestFile.lastOpenedAt?.toISOString() || null,
+        };
+      }
 
       // Get current file for version count and previous version data
       const { data: currentFile, error: fetchError } = await supabase
@@ -548,7 +815,7 @@ export const userFilesRouter = router({
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
       // Use local storage adapter in local mode
-      if (isLocalMode()) {
+      if (isLocalStorageMode()) {
         log.debug("[UserFilesRouter] Using local storage for markOpened");
         const adapter = await getStorageAdapter();
         await adapter.userFiles.updateLastOpened(input.id, ctx.userId);
@@ -576,9 +843,18 @@ export const userFilesRouter = router({
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
       // Use local storage adapter in local mode
-      if (isLocalMode()) {
+      if (isLocalStorageMode()) {
         log.debug("[UserFilesRouter] Using local storage for delete");
         const adapter = await getStorageAdapter();
+        const file = await adapter.userFiles.get(input.id, ctx.userId);
+        const localPath = getLocalPathFromMetadata(file?.metadata);
+        if (localPath) {
+          try {
+            await deleteLocalUserFile(localPath);
+          } catch (error) {
+            log.warn("[UserFilesRouter] Failed to delete local file:", error);
+          }
+        }
         await adapter.userFiles.delete(input.id, ctx.userId);
         log.info("[UserFilesRouter] Deleted local file:", input.id);
         return { success: true };
@@ -603,6 +879,35 @@ export const userFilesRouter = router({
   togglePin: protectedProcedure
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
+      if (isLocalStorageMode()) {
+        log.debug("[UserFilesRouter] Using local storage for togglePin");
+        const adapter = await getStorageAdapter();
+        const current = await adapter.userFiles.get(input.id, ctx.userId);
+        if (!current) throw new Error("File not found");
+        const updated = await adapter.userFiles.update(input.id, ctx.userId, {
+          isPinned: !current.isPinned,
+        });
+        return {
+          id: updated.id,
+          user_id: updated.userId,
+          name: updated.name,
+          type: updated.type,
+          description: updated.description,
+          univer_data: updated.univerData,
+          content: updated.content,
+          metadata: updated.metadata,
+          icon: updated.icon,
+          color: updated.color,
+          is_pinned: updated.isPinned,
+          is_archived: updated.isArchived,
+          version_count: updated.versionCount,
+          total_edits: updated.totalEdits,
+          created_at: updated.createdAt.toISOString(),
+          updated_at: updated.updatedAt.toISOString(),
+          last_opened_at: updated.lastOpenedAt?.toISOString() || null,
+        };
+      }
+
       const { data: current } = await supabase
         .from("user_files")
         .select("is_pinned")
@@ -629,6 +934,35 @@ export const userFilesRouter = router({
   toggleArchive: protectedProcedure
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
+      if (isLocalStorageMode()) {
+        log.debug("[UserFilesRouter] Using local storage for toggleArchive");
+        const adapter = await getStorageAdapter();
+        const current = await adapter.userFiles.get(input.id, ctx.userId);
+        if (!current) throw new Error("File not found");
+        const updated = await adapter.userFiles.update(input.id, ctx.userId, {
+          isArchived: !current.isArchived,
+        });
+        return {
+          id: updated.id,
+          user_id: updated.userId,
+          name: updated.name,
+          type: updated.type,
+          description: updated.description,
+          univer_data: updated.univerData,
+          content: updated.content,
+          metadata: updated.metadata,
+          icon: updated.icon,
+          color: updated.color,
+          is_pinned: updated.isPinned,
+          is_archived: updated.isArchived,
+          version_count: updated.versionCount,
+          total_edits: updated.totalEdits,
+          created_at: updated.createdAt.toISOString(),
+          updated_at: updated.updatedAt.toISOString(),
+          last_opened_at: updated.lastOpenedAt?.toISOString() || null,
+        };
+      }
+
       const { data: current } = await supabase
         .from("user_files")
         .select("is_archived")
@@ -660,6 +994,61 @@ export const userFilesRouter = router({
       }),
     )
     .mutation(async ({ ctx, input }) => {
+      if (isLocalStorageMode()) {
+        log.debug("[UserFilesRouter] Using local storage for rename");
+        const adapter = await getStorageAdapter();
+        const current = await adapter.userFiles.get(input.id, ctx.userId);
+        if (!current) throw new Error("File not found");
+
+        let metadata: Record<string, unknown> | null = current.metadata
+          ? { ...current.metadata }
+          : null;
+        const localPath = getLocalPathFromMetadata(metadata);
+
+        if (localPath) {
+          const dir = await ensureLocalUserFilesDir(current.type);
+          const nextPath = buildLocalUserFilePath({
+            dir,
+            id: current.id,
+            name: input.name,
+            type: current.type,
+          });
+          if (nextPath !== localPath) {
+            try {
+              await renameLocalUserFile(localPath, nextPath);
+              metadata = { ...(metadata || {}), localPath: nextPath };
+            } catch (error) {
+              log.warn("[UserFilesRouter] Failed to rename local file:", error);
+            }
+          }
+        }
+
+        const updated = await adapter.userFiles.update(input.id, ctx.userId, {
+          name: input.name,
+          metadata: metadata || undefined,
+        });
+
+        return {
+          id: updated.id,
+          user_id: updated.userId,
+          name: updated.name,
+          type: updated.type,
+          description: updated.description,
+          univer_data: updated.univerData,
+          content: updated.content,
+          metadata: updated.metadata,
+          icon: updated.icon,
+          color: updated.color,
+          is_pinned: updated.isPinned,
+          is_archived: updated.isArchived,
+          version_count: updated.versionCount,
+          total_edits: updated.totalEdits,
+          created_at: updated.createdAt.toISOString(),
+          updated_at: updated.updatedAt.toISOString(),
+          last_opened_at: updated.lastOpenedAt?.toISOString() || null,
+        };
+      }
+
       const { data, error } = await supabase
         .from("user_files")
         .update({ name: input.name })

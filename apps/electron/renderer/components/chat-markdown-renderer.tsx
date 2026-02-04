@@ -1,4 +1,4 @@
-import {
+import React, {
   memo,
   useState,
   useCallback,
@@ -16,14 +16,51 @@ import { code } from "@streamdown/code";
 import { createMathPlugin } from "@streamdown/math";
 // Mermaid is optional - if lodash-es fails to install, mermaid won't be available
 // We'll load it dynamically inside the component to handle gracefully
-import { IconCopy, IconCheck, IconExternalLink } from "@tabler/icons-react";
+import {
+  IconCopy,
+  IconCheck,
+  IconExternalLink,
+  IconBrandJavascript,
+  IconBrandTypescript,
+  IconBrandReact,
+  IconBrandPython,
+  IconBrandGolang,
+  IconBrandRust,
+  IconBrandHtml5,
+  IconBrandCss3,
+  IconBrandDocker,
+  IconBrandGraphql,
+  IconBrandCpp,
+  IconBrandCSharp,
+  IconBrandKotlin,
+  IconBrandSwift,
+  IconBrandPhp,
+  IconBraces,
+  IconBrackets,
+  IconCode,
+  IconDatabase,
+  IconFileDiff,
+  IconMarkdown,
+  IconMathFunction,
+  IconTerminal2,
+  IconLetterC,
+  IconCoffee,
+  IconDiamond,
+  IconSettingsCode,
+} from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
 import {
   InlineCitation,
   type CitationData,
 } from "@/components/inline-citation";
 import { useCitationNavigation } from "@/hooks";
-import { highlightCode } from "@/lib/shiki";
+import { highlightCode, type HighlightOptions } from "@/lib/shiki";
+import {
+  getLanguageLabel,
+  inferLanguageFromCode,
+  languageMatchesCode,
+  normalizeLanguageId,
+} from "@/lib/code-language";
 
 import "katex/dist/katex.min.css";
 
@@ -32,7 +69,7 @@ import "katex/dist/katex.min.css";
 // ============================================================================
 
 const LATEX_LIKE =
-  /\\(int|frac|sqrt|sum|infty|pi|alpha|beta|gamma|theta|sigma|omega|partial|lim|log|cdot|times|pm|leq|geq|neq|approx|rightarrow|leftarrow)\\b|\\^\\{|_\\{|∞|√|∫/;
+  /\\(int|frac|sqrt|sum|infty|pi|alpha|beta|gamma|theta|sigma|omega|partial|lim|log|ln|exp|sin|cos|tan|sec|csc|cot|arcsin|arccos|arctan|sinh|cosh|tanh|det|min|max|sup|inf|gcd|lcm|binom|prod|coprod|bigcup|bigcap|cdot|times|pm|mp|leq|geq|neq|approx|equiv|sim|simeq|cong|propto|subset|supset|subseteq|supseteq|in|notin|exists|forall|nabla|rightarrow|leftarrow|Rightarrow|Leftarrow|leftrightarrow|mapsto|to)\\b|\\^\\{|_\\{|∞|√|∫|∑|∏|∂|∇|∈|∉|⊂|⊃|⊆|⊇|∀|∃|≤|≥|≠|≈|≡|→|←|⇒|⇐|↔/;
 
 function getText(children: ReactNode): string {
   if (children == null) return "";
@@ -62,14 +99,17 @@ function normalizeLatex(s: string): string {
     .replace(/^f_\{/, "\\int_{");
 }
 
-function tryRenderLatex(text: string): string | null {
-  if (!text || text.length > 280) return null;
+function tryRenderLatex(text: string, isDisplayMode = false): string | null {
+  if (!text || text.length > 2000) return null; // Increased limit for complex equations
   if (!LATEX_LIKE.test(text)) return null;
   const normalized = normalizeLatex(text);
   try {
     return katex.renderToString(normalized, {
       throwOnError: false,
-      displayMode: false,
+      displayMode: isDisplayMode,
+      output: "htmlAndMathml", // Better accessibility
+      strict: false, // Allow minor LaTeX inconsistencies from AI
+      trust: false, // Security: don't allow \url, \href, etc.
     });
   } catch {
     return null;
@@ -80,10 +120,51 @@ function tryRenderLatex(text: string): string | null {
 // Code Block Component
 // ============================================================================
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type LanguageIconComponent = React.ComponentType<any>;
+
+const LANGUAGE_ICONS: Record<string, LanguageIconComponent> = {
+  javascript: IconBrandJavascript,
+  typescript: IconBrandTypescript,
+  tsx: IconBrandReact,
+  jsx: IconBrandReact,
+  python: IconBrandPython,
+  go: IconBrandGolang,
+  rust: IconBrandRust,
+  html: IconBrandHtml5,
+  css: IconBrandCss3,
+  json: IconBraces,
+  markdown: IconMarkdown,
+  yaml: IconBrackets,
+  sql: IconDatabase,
+  diff: IconFileDiff,
+  shellscript: IconTerminal2,
+  latex: IconMathFunction,
+  dockerfile: IconBrandDocker,
+  toml: IconSettingsCode,
+  xml: IconCode,
+  graphql: IconBrandGraphql,
+  c: IconLetterC,
+  cpp: IconBrandCpp,
+  csharp: IconBrandCSharp,
+  java: IconCoffee,
+  kotlin: IconBrandKotlin,
+  swift: IconBrandSwift,
+  php: IconBrandPhp,
+  ruby: IconDiamond,
+};
+
+function getLanguageIcon(language?: string | null): LanguageIconComponent | null {
+  const normalized = normalizeLanguageId(language);
+  if (!normalized) return null;
+  return LANGUAGE_ICONS[normalized] ?? null;
+}
+
 function CodeBlock({ children }: { children: React.ReactNode }) {
   const preRef = useRef<HTMLPreElement>(null);
   const [codeText, setCodeText] = useState("");
-  const [language, setLanguage] = useState<string | null>(null);
+  const [rawLanguage, setRawLanguage] = useState<string | null>(null);
+  const [resolvedLanguage, setResolvedLanguage] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [highlightedCode, setHighlightedCode] = useState<string | null>(null);
   const [isDark, setIsDark] = useState(false);
@@ -109,13 +190,31 @@ function CodeBlock({ children }: { children: React.ReactNode }) {
         const text = (codeElement.textContent || "").trim();
         setCodeText(text);
         const className = codeElement.className || "";
-        const match = /language-(\w+)/.exec(className);
-        const detectedLanguage = match ? match[1] : null;
-        setLanguage(detectedLanguage);
+        const match = /(?:^|\s)language-([^\s]+)/.exec(className);
+        const explicitLanguage = match ? match[1] : null;
+        setRawLanguage(explicitLanguage);
+
+        const normalizedExplicit = normalizeLanguageId(explicitLanguage);
+        const inferredLanguage = inferLanguageFromCode(text);
+        const explicitMatches = normalizedExplicit
+          ? languageMatchesCode(text, normalizedExplicit)
+          : false;
+        const finalLanguage =
+          normalizedExplicit && explicitMatches
+            ? normalizedExplicit
+            : inferredLanguage ?? normalizedExplicit;
+        setResolvedLanguage(finalLanguage);
 
         // Apply syntax highlighting if language is detected
-        if (detectedLanguage && text && detectedLanguage !== "plaintext") {
-          highlightCode(text, detectedLanguage, isDark ? "dark" : "light")
+        if (finalLanguage && text) {
+          // Count lines to determine if we should show line numbers
+          const lineCount = text.split('\n').length;
+          const options: HighlightOptions = {
+            // Show line numbers for code blocks with 5+ lines
+            lineNumbers: lineCount >= 5,
+          };
+
+          highlightCode(text, finalLanguage, isDark ? "dark" : "light", options)
             .then((highlighted) => {
               setHighlightedCode(highlighted);
             })
@@ -137,12 +236,25 @@ function CodeBlock({ children }: { children: React.ReactNode }) {
     setTimeout(() => setCopied(false), 2000);
   }, [codeText]);
 
+  const displayLanguage = useMemo(() => {
+    const languageForLabel = resolvedLanguage ?? rawLanguage;
+    return getLanguageLabel(languageForLabel);
+  }, [rawLanguage, resolvedLanguage]);
+
+  const LanguageIcon = useMemo(
+    () => getLanguageIcon(resolvedLanguage ?? rawLanguage),
+    [rawLanguage, resolvedLanguage],
+  );
+
   return (
     <div className="not-prose my-4 rounded-xl overflow-hidden border border-border/50 bg-muted/30 dark:bg-zinc-950 shadow-lg">
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-2.5 bg-muted/50 dark:bg-zinc-900/80 border-b border-border/30">
-        <span className="text-[11px] font-medium text-muted-foreground dark:text-zinc-400 uppercase tracking-wider">
-          {language || "code"}
+        <span className="inline-flex items-center gap-2 text-[11px] font-medium text-muted-foreground dark:text-zinc-400 uppercase tracking-wider">
+          {LanguageIcon ? (
+            <LanguageIcon size={14} className="text-muted-foreground/80" />
+          ) : null}
+          {displayLanguage}
         </span>
         <button
           type="button"
@@ -171,13 +283,16 @@ function CodeBlock({ children }: { children: React.ReactNode }) {
       >
         {highlightedCode ? (
           <code
-            className={cn(language ? `language-${language}` : "", "shiki")}
+            className={cn(
+              resolvedLanguage ? `language-${resolvedLanguage}` : "",
+              "shiki",
+            )}
             dangerouslySetInnerHTML={{ __html: highlightedCode }}
           />
         ) : (
           <code
             className={cn(
-              language ? `language-${language}` : "",
+              resolvedLanguage ? `language-${resolvedLanguage}` : "",
               "text-foreground",
             )}
           >
@@ -549,8 +664,433 @@ interface ChatMarkdownRendererProps {
   documentCitations?: CitationData[];
 }
 
+/**
+ * Preprocess LaTeX: wrap raw LaTeX blocks and inline math with delimiters
+ * so the math plugin can recognize them
+ */
+function preprocessLatex(content: string): string {
+  let result = content;
+
+  // 1. Wrap display math environments (align, equation, gather, etc.)
+  // Match environments that span multiple lines
+  result = result.replace(
+    /\\begin\{(align|equation|gather|multline|alignat|flalign|eqnarray|array|matrix|pmatrix|bmatrix|vmatrix|cases)\*?\}[\s\S]*?\\end\{\1\*?\}/g,
+    (match) => {
+      // Check if already wrapped
+      const idx = result.indexOf(match);
+      const before = result.slice(Math.max(0, idx - 2), idx);
+      if (before.endsWith('$$')) return match;
+      return `\n\n$$\n${match}\n$$\n\n`;
+    }
+  );
+
+  // 2. Wrap standalone \[ ... \] display math (already standard LaTeX)
+  result = result.replace(
+    /\\\[([\s\S]*?)\\\]/g,
+    (_, inner) => `\n\n$$${inner.trim()}$$\n\n`
+  );
+
+  // 3. Wrap inline \( ... \) math
+  result = result.replace(
+    /\\\(([\s\S]*?)\\\)/g,
+    (_, inner) => `$${inner}$`
+  );
+
+  // 3.5. Detect and wrap raw LaTeX command sequences (AI often outputs these without delimiters)
+  // This catches patterns like: \nabla u \cdot \nabla v = 0, \delta E = \int..., etc.
+  {
+    // Common LaTeX commands that indicate math content
+    const latexCommands = [
+      'nabla', 'partial', 'delta', 'Delta', 'alpha', 'beta', 'gamma', 'Gamma',
+      'theta', 'Theta', 'lambda', 'Lambda', 'mu', 'nu', 'xi', 'Xi', 'pi', 'Pi',
+      'sigma', 'Sigma', 'tau', 'phi', 'Phi', 'psi', 'Psi', 'omega', 'Omega',
+      'epsilon', 'varepsilon', 'zeta', 'eta', 'kappa', 'rho', 'chi', 'upsilon',
+      'int', 'iint', 'iiint', 'oint', 'sum', 'prod', 'lim', 'infty',
+      'frac', 'sqrt', 'cdot', 'times', 'div', 'pm', 'mp',
+      'leq', 'geq', 'neq', 'approx', 'equiv', 'sim', 'simeq', 'cong', 'propto',
+      'subset', 'supset', 'subseteq', 'supseteq', 'in', 'notin', 'ni',
+      'forall', 'exists', 'nexists', 'emptyset', 'varnothing',
+      'rightarrow', 'leftarrow', 'Rightarrow', 'Leftarrow', 'leftrightarrow', 'to', 'mapsto',
+      'sin', 'cos', 'tan', 'sec', 'csc', 'cot', 'arcsin', 'arccos', 'arctan',
+      'sinh', 'cosh', 'tanh', 'ln', 'log', 'exp', 'det', 'dim', 'ker', 'deg',
+      'min', 'max', 'sup', 'inf', 'gcd', 'lcm', 'binom', 'choose',
+      'vec', 'hat', 'bar', 'dot', 'ddot', 'tilde', 'overline', 'underline',
+      'overbrace', 'underbrace', 'overset', 'underset',
+      'left', 'right', 'big', 'Big', 'bigg', 'Bigg',
+      'quad', 'qquad', 'text', 'mathrm', 'mathbf', 'mathit', 'mathcal', 'mathbb',
+    ].join('|');
+
+    // Split by code blocks to avoid processing them
+    const codeParts = result.split(/(```[\s\S]*?```)/g);
+
+    // Create regex for detecting LaTeX commands
+    const latexCommandRegex = new RegExp(`\\\\(${latexCommands})(?![a-zA-Z])`, 'g');
+
+    result = codeParts.map((part) => {
+      if (part.startsWith('```')) return part;
+
+      // Process each line separately
+      return part.split('\n').map((line) => {
+        // Skip lines that already have math delimiters
+        if (/(?<!\\)\$/.test(line)) return line;
+
+        // Skip lines that contain markdown links to avoid corrupting them
+        // Matches [text](url) pattern
+        if (/\[[^\]]*\]\([^)]+\)/.test(line)) return line;
+
+        // Check if line contains raw LaTeX commands
+        if (!latexCommandRegex.test(line)) {
+          latexCommandRegex.lastIndex = 0; // Reset regex state
+          return line;
+        }
+        latexCommandRegex.lastIndex = 0; // Reset regex state
+
+        // Strategy: Find sequences that contain LaTeX commands and wrap them
+        // Split line into segments by common delimiters (colons, periods followed by space, etc.)
+        // but keep the delimiters
+
+        let processed = '';
+        let lastIndex = 0;
+
+        // Find all LaTeX command sequences and their surrounding math context
+        // Match pattern: optional prefix (like "E = ") + LaTeX commands + math content
+        const mathExprRegex = new RegExp(
+          `(` +
+            // Optional variable/identifier prefix before = or :
+            `(?:[a-zA-Z][a-zA-Z0-9']*\\s*(?:[=:<>]|:=)\\s*)?` +
+            // Main LaTeX expression with commands
+            `(?:` +
+              `(?:[-+]?\\s*)?` + // Optional sign
+              `(?:` +
+                `\\\\(?:${latexCommands})` + // LaTeX command
+                `(?:\\s*[_^]\\s*(?:\\{[^{}]*\\}|[a-zA-Z0-9]))?` + // Optional sub/superscript
+                `(?:\\s*\\{[^{}]*\\})*` + // Optional arguments
+              `|` +
+                `[a-zA-Z][a-zA-Z0-9']*` + // Variable name
+              `|` +
+                `[0-9]+(?:\\.[0-9]+)?` + // Number
+              `|` +
+                `[=+\\-*/^_{}()\\[\\]|<>·,]` + // Operators and delimiters
+              `|` +
+                `\\s+` + // Whitespace
+              `)+` +
+            `)` +
+          `)`,
+          'g'
+        );
+
+        let match;
+        while ((match = mathExprRegex.exec(line)) !== null) {
+          const expr = match[1];
+          const startIdx = match.index;
+
+          // Check if this expression contains LaTeX commands
+          latexCommandRegex.lastIndex = 0;
+          if (!latexCommandRegex.test(expr)) {
+            continue;
+          }
+          latexCommandRegex.lastIndex = 0;
+
+          // Add text before this match
+          if (startIdx > lastIndex) {
+            processed += line.slice(lastIndex, startIdx);
+          }
+
+          // Check if already wrapped
+          const beforeChar = startIdx > 0 ? line[startIdx - 1] : '';
+          const afterChar = startIdx + expr.length < line.length ? line[startIdx + expr.length] : '';
+
+          if (beforeChar === '$' || afterChar === '$') {
+            processed += expr;
+          } else {
+            // Wrap in $ delimiters
+            const trimmedExpr = expr.trim();
+            const leadingWs = expr.match(/^\s*/)?.[0] || '';
+            const trailingWs = expr.match(/\s*$/)?.[0] || '';
+            processed += `${leadingWs}$${trimmedExpr}$${trailingWs}`;
+          }
+
+          lastIndex = startIdx + expr.length;
+        }
+
+        // Add remaining text
+        if (lastIndex < line.length) {
+          processed += line.slice(lastIndex);
+        }
+
+        return processed || line;
+      }).join('\n');
+    }).join('');
+  }
+
+  // 4. Normalize math runs and add delimiters where missing.
+  {
+    const parts = result.split(/(```[\s\S]*?```)/g);
+
+    const greekOrSymbol =
+      /[α-ωΑ-ΩφΦπΠλΛμΜθΘσΣγΓβΒΔδρΡ∇∞∑∏∫∮∯∬∭≈≠≤≥±×÷·→←↔⇒⇔≡∂]/;
+    const operator = /[=<>^_+*/|]/;
+    const digit = /\d/;
+    const backslash = /\\/;
+    const stripPunctuation = (token: string) =>
+      token.replace(/^[\s"'\[{(]+|[\s"'\]})\.,;:!?]+$/g, "");
+
+    const classifyToken = (token: string): "strong" | "weak" | "none" => {
+      const stripped = stripPunctuation(token);
+      if (!stripped) return "none";
+      const hasBackslash = backslash.test(stripped);
+      const hasGreek = greekOrSymbol.test(stripped);
+      const hasOperator = operator.test(stripped);
+      const hasDigit = digit.test(stripped);
+      const hasBracket = /[()[\]|]/.test(stripped);
+      const hasLetter = /[A-Za-z]/.test(stripped);
+
+      if (hasBackslash || hasGreek) return "strong";
+      if (hasOperator) return "strong";
+      if (hasDigit && (hasOperator || hasBracket)) return "strong";
+
+      if (/^[a-zA-Z]$/.test(stripped)) return "weak";
+      if (/^d[xyztruvw]$/i.test(stripped)) return "weak"; // dx, dy, dt
+      if (/^[a-zA-Z]['′]+$/.test(stripped)) return "weak"; // X'', f'
+      if (/^[a-zA-Z]\w*\([^)]*\)$/.test(stripped)) return "weak"; // f(x)
+      if (hasBracket && hasLetter) return "weak";
+      return "none";
+    };
+
+    const splitByDollar = (line: string) => {
+      const segments: Array<{ text: string; inMath: boolean }> = [];
+      let buf = "";
+      let inMath = false;
+      let delim: "$" | "$$" | null = null;
+      let i = 0;
+      while (i < line.length) {
+        const ch = line[i];
+        if (ch === "\\" && line[i + 1] === "$") {
+          buf += "$";
+          i += 2;
+          continue;
+        }
+        if (!inMath && ch === "$") {
+          const isBlock = line[i + 1] === "$";
+          segments.push({ text: buf, inMath: false });
+          buf = isBlock ? "$$" : "$";
+          inMath = true;
+          delim = isBlock ? "$$" : "$";
+          i += isBlock ? 2 : 1;
+          continue;
+        }
+        if (inMath && ch === "$") {
+          if (delim === "$$" && line[i + 1] === "$") {
+            buf += "$$";
+            segments.push({ text: buf, inMath: true });
+            buf = "";
+            inMath = false;
+            delim = null;
+            i += 2;
+            continue;
+          }
+          if (delim === "$") {
+            buf += "$";
+            segments.push({ text: buf, inMath: true });
+            buf = "";
+            inMath = false;
+            delim = null;
+            i += 1;
+            continue;
+          }
+        }
+        buf += ch;
+        i += 1;
+      }
+      if (buf.length > 0) segments.push({ text: buf, inMath });
+      return segments;
+    };
+
+    const normalizeUnicodeMath = (text: string) =>
+      text
+        .replace(/∇/g, "\\nabla ")
+        .replace(/∂/g, "\\partial ")
+        .replace(/∫/g, "\\int ")
+        .replace(/∮/g, "\\oint ")
+        .replace(/∯|∬/g, "\\iint ")
+        .replace(/∭/g, "\\iiint ")
+        .replace(/∑/g, "\\sum ")
+        .replace(/∏/g, "\\prod ")
+        .replace(/≤/g, "\\leq ")
+        .replace(/≥/g, "\\geq ")
+        .replace(/≠/g, "\\neq ")
+        .replace(/≈/g, "\\approx ")
+        .replace(/±/g, "\\pm ")
+        .replace(/×/g, "\\times ")
+        .replace(/÷/g, "\\div ")
+        .replace(/·/g, "\\cdot ")
+        .replace(/→/g, "\\to ")
+        .replace(/←/g, "\\leftarrow ")
+        .replace(/↔/g, "\\leftrightarrow ")
+        .replace(/⇒/g, "\\Rightarrow ")
+        .replace(/⇔/g, "\\Leftrightarrow ")
+        .replace(/α/g, "\\alpha ")
+        .replace(/β/g, "\\beta ")
+        .replace(/γ/g, "\\gamma ")
+        .replace(/δ/g, "\\delta ")
+        .replace(/ε/g, "\\epsilon ")
+        .replace(/ζ/g, "\\zeta ")
+        .replace(/η/g, "\\eta ")
+        .replace(/θ/g, "\\theta ")
+        .replace(/ι/g, "\\iota ")
+        .replace(/κ/g, "\\kappa ")
+        .replace(/λ/g, "\\lambda ")
+        .replace(/μ/g, "\\mu ")
+        .replace(/ν/g, "\\nu ")
+        .replace(/ξ/g, "\\xi ")
+        .replace(/ο/g, "o")
+        .replace(/ρ/g, "\\rho ")
+        .replace(/σ/g, "\\sigma ")
+        .replace(/τ/g, "\\tau ")
+        .replace(/υ/g, "\\upsilon ")
+        .replace(/χ/g, "\\chi ")
+        .replace(/ψ/g, "\\psi ")
+        .replace(/ω/g, "\\omega ")
+        .replace(/Α/g, "A")
+        .replace(/Β/g, "B")
+        .replace(/Γ/g, "\\Gamma ")
+        .replace(/Δ/g, "\\Delta ")
+        .replace(/Ε/g, "E")
+        .replace(/Ζ/g, "Z")
+        .replace(/Η/g, "H")
+        .replace(/Θ/g, "\\Theta ")
+        .replace(/Ι/g, "I")
+        .replace(/Κ/g, "K")
+        .replace(/Λ/g, "\\Lambda ")
+        .replace(/Μ/g, "M")
+        .replace(/Ν/g, "N")
+        .replace(/Ξ/g, "\\Xi ")
+        .replace(/Ο/g, "O")
+        .replace(/Π/g, "\\Pi ")
+        .replace(/Ρ/g, "P")
+        .replace(/Σ/g, "\\Sigma ")
+        .replace(/Τ/g, "T")
+        .replace(/Υ/g, "\\Upsilon ")
+        .replace(/Φ/g, "\\Phi ")
+        .replace(/Χ/g, "X")
+        .replace(/Ψ/g, "\\Psi ")
+        .replace(/Ω/g, "\\Omega ")
+        .replace(/φ/g, "\\phi ")
+        .replace(/π/g, "\\pi ");
+
+    const wrapInlineMath = (line: string) => {
+      const tokens = line.split(/(\s+)/);
+      const types = tokens.map((t) => (/^\s+$/.test(t) ? "space" : classifyToken(t)));
+      let out = "";
+      let i = 0;
+      while (i < tokens.length) {
+        if (types[i] === "space" || types[i] === "none") {
+          out += tokens[i];
+          i += 1;
+          continue;
+        }
+        let j = i;
+        let hasStrong = false;
+        let span = "";
+        while (j < tokens.length && (types[j] === "space" || types[j] !== "none")) {
+          if (types[j] === "strong") hasStrong = true;
+          span += tokens[j];
+          j += 1;
+        }
+        if (hasStrong) {
+          const leading = span.match(/^\s+/)?.[0] ?? "";
+          const trailing = span.match(/\s+$/)?.[0] ?? "";
+          const core = span.slice(leading.length, span.length - trailing.length);
+          out += `${leading}$${normalizeUnicodeMath(core)}$${trailing}`;
+        } else {
+          out += span;
+        }
+        i = j;
+      }
+      return out;
+    };
+
+    const isMathLine = (line: string) => {
+      const trimmed = line.trim();
+      if (!trimmed) return false;
+      const tokens = trimmed.split(/\s+/);
+      let strongCount = 0;
+      let mathCount = 0;
+      let wordCount = 0;
+      for (const token of tokens) {
+        const type = classifyToken(token);
+        if (type === "strong") strongCount += 1;
+        if (type !== "none") mathCount += 1;
+        if (/^[A-Za-zÀ-ÖØ-öø-ÿ]+$/.test(token)) wordCount += 1;
+      }
+      if (wordCount >= 2) return false;
+      const ratio = mathCount / Math.max(1, tokens.length);
+      return strongCount >= 2 && mathCount >= 3 && ratio >= 0.65;
+    };
+
+    const isMathContinuation = (line: string) => {
+      const trimmed = line.trim();
+      if (!trimmed) return false;
+      return /^[=+\-]/.test(trimmed) || greekOrSymbol.test(trimmed) || operator.test(trimmed);
+    };
+
+    // Regex to detect markdown links: [text](url)
+    const markdownLinkRegex = /\[[^\]]*\]\([^)]+\)/;
+
+    result = parts
+      .map((part) => {
+        if (part.startsWith("```")) return part;
+        const lines = part.split("\n");
+        const out: string[] = [];
+        for (let i = 0; i < lines.length; i += 1) {
+          const line = lines[i];
+
+          // Skip lines containing markdown links to avoid corrupting them
+          if (markdownLinkRegex.test(line)) {
+            out.push(line);
+            continue;
+          }
+
+          const hasDelim = /(?<!\\)\$/.test(line);
+          if (!hasDelim && isMathLine(line)) {
+            const block = [line];
+            let j = i + 1;
+            while (j < lines.length && isMathContinuation(lines[j])) {
+              block.push(lines[j]);
+              j += 1;
+            }
+            const normalizedBlock = block.map((l) => normalizeUnicodeMath(l));
+            out.push(`$$\n${normalizedBlock.join("\n")}\n$$`);
+            i = j - 1;
+            continue;
+          }
+          if (hasDelim) {
+            const segments = splitByDollar(line);
+            const processed = segments
+              .map((seg) =>
+                seg.inMath
+                  ? normalizeUnicodeMath(seg.text)
+                  : wrapInlineMath(seg.text),
+              )
+              .join("");
+            out.push(processed);
+          } else {
+            out.push(wrapInlineMath(line));
+          }
+        }
+        return out.join("\n");
+      })
+      .join("");
+  }
+
+  return result;
+}
+
 function sanitizeMarkdown(content: string): string {
-  return content
+  // First preprocess LaTeX
+  const withLatex = preprocessLatex(content);
+
+  return withLatex
     .replace(/^[\t ]*[-*+][\t ]*$/gm, "")
     .replace(/^[\t ]*[-*+][\t ]+(?:\s|\u200B|\u200C|\u200D|\uFEFF)*$/gm, "")
     .replace(/^[\t ]*\d+\.[\t ]*$/gm, "")
@@ -576,12 +1116,33 @@ export const ChatMarkdownRenderer = memo(function ChatMarkdownRenderer({
   const sanitizedContent = useMemo(() => sanitizeMarkdown(content), [content]);
   const { navigateToCitation } = useCitationNavigation();
   const [mermaidPlugin, setMermaidPlugin] = useState<any>(null);
+  const [isDark, setIsDark] = useState(false);
+
+  // Detect theme for Mermaid
+  useEffect(() => {
+    const checkTheme = () => {
+      setIsDark(document.documentElement.classList.contains("dark"));
+    };
+    checkTheme();
+    const observer = new MutationObserver(checkTheme);
+    observer.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["class"],
+    });
+    return () => observer.disconnect();
+  }, []);
 
   // Try to load mermaid plugin dynamically (may fail if lodash-es is not installed)
   useEffect(() => {
     import("@streamdown/mermaid")
       .then((module) => {
-        setMermaidPlugin(() => module.mermaid);
+        // Use the default mermaid export - config is passed via Streamdown's mermaid prop
+        if (module.mermaid) {
+          setMermaidPlugin(() => module.mermaid);
+        } else if (module.createMermaidPlugin) {
+          // Fallback to creating a plugin with no config
+          setMermaidPlugin(() => module.createMermaidPlugin());
+        }
       })
       .catch(() => {
         // Mermaid not available - this is OK, diagrams just won't render
@@ -595,7 +1156,10 @@ export const ChatMarkdownRenderer = memo(function ChatMarkdownRenderer({
   const plugins = useMemo(() => {
     const basePlugins: any = {
       code,
-      math: createMathPlugin({ singleDollarTextMath: true }),
+      math: createMathPlugin({
+        singleDollarTextMath: true, // Enable $...$ inline math syntax
+        errorColor: "var(--destructive)", // Show errors in theme's destructive color
+      }),
     };
     // Only include mermaid if it's available (may fail if lodash-es didn't install)
     if (mermaidPlugin) {
@@ -603,6 +1167,54 @@ export const ChatMarkdownRenderer = memo(function ChatMarkdownRenderer({
     }
     return basePlugins;
   }, [mermaidPlugin]);
+
+  // Mermaid config for Streamdown's mermaid prop
+  const mermaidConfig = useMemo(() => ({
+    config: {
+      theme: isDark ? "dark" : "default",
+      fontFamily: "ui-sans-serif, system-ui, sans-serif",
+      securityLevel: "strict",
+      startOnLoad: false, // We handle rendering manually
+      flowchart: {
+        htmlLabels: true,
+        curve: "basis",
+        nodeSpacing: 50,
+        rankSpacing: 50,
+      },
+      sequence: {
+        actorMargin: 50,
+        boxMargin: 10,
+        useMaxWidth: true,
+      },
+      themeVariables: isDark ? {
+        primaryColor: "#3b82f6",
+        primaryTextColor: "#f8fafc",
+        primaryBorderColor: "#1e40af",
+        lineColor: "#64748b",
+        secondaryColor: "#1e293b",
+        tertiaryColor: "#0f172a",
+        background: "#020617",
+        mainBkg: "#1e293b",
+        nodeBorder: "#334155",
+        clusterBkg: "#1e293b",
+        titleColor: "#f8fafc",
+        edgeLabelBackground: "#1e293b",
+      } : {
+        primaryColor: "#3b82f6",
+        primaryTextColor: "#0f172a",
+        primaryBorderColor: "#1d4ed8",
+        lineColor: "#64748b",
+        secondaryColor: "#f1f5f9",
+        tertiaryColor: "#e2e8f0",
+        background: "#ffffff",
+        mainBkg: "#f8fafc",
+        nodeBorder: "#cbd5e1",
+        clusterBkg: "#f1f5f9",
+        titleColor: "#0f172a",
+        edgeLabelBackground: "#ffffff",
+      },
+    },
+  } as const), [isDark]);
 
   const wrapWithCitations = useCallback(
     (children: ReactNode) => {
@@ -657,6 +1269,7 @@ export const ChatMarkdownRenderer = memo(function ChatMarkdownRenderer({
     >
       <Streamdown
         plugins={plugins}
+        mermaid={mermaidPlugin ? mermaidConfig : undefined}
         isAnimating={isAnimating}
         caret={isAnimating ? "block" : undefined}
         components={{

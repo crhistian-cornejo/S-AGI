@@ -9,7 +9,8 @@ import {
 import { getChatGPTAuthManager, getClaudeCodeAuthManager } from "../../auth";
 import { supabase } from "../../supabase/client";
 import os from "os";
-import { app } from "electron";
+import { app, shell } from "electron";
+import { ensureDir, getStoragePaths } from "../../storage/paths";
 
 /**
  * Settings router for secure API key management and OAuth status
@@ -58,6 +59,7 @@ export const settingsRouter = router({
 
   // Get system and app info for debug
   getSystemInfo: publicProcedure.query(() => {
+    const { userData } = getStoragePaths();
     return {
       platform: os.platform(),
       arch: os.arch(),
@@ -70,6 +72,7 @@ export const settingsRouter = router({
       electron: process.versions.electron,
       node: process.versions.node,
       v8: process.versions.v8,
+      userData,
     };
   }),
 
@@ -151,5 +154,15 @@ export const settingsRouter = router({
   getZaiKey: publicProcedure.query(async () => {
     const manager = getCredentialManager();
     return await manager.getZaiKey();
+  }),
+
+  openLocalFolder: publicProcedure.mutation(async () => {
+    const { userData } = getStoragePaths();
+    await ensureDir(userData);
+    const result = await shell.openPath(userData);
+    if (result) {
+      throw new Error(result);
+    }
+    return { success: true };
   }),
 });

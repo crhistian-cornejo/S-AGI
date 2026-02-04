@@ -153,13 +153,46 @@ export default defineConfig({
         },
         plugins: [react()],
         build: {
+            // Optimize chunk size warnings
+            chunkSizeWarningLimit: 1500,
             rollupOptions: {
                 input: {
                     index: resolve(__dirname, 'apps/electron/renderer/index.html'),
                     'tray-popover': resolve(__dirname, 'apps/electron/renderer/tray-popover.html'),
                     'quick-prompt': resolve(__dirname, 'apps/electron/renderer/quick-prompt.html')
+                },
+                output: {
+                    // Dynamic code splitting based on module paths
+                    manualChunks(id) {
+                        // Split large vendor libraries into separate chunks
+                        if (id.includes('node_modules')) {
+                            // React ecosystem
+                            if (id.includes('react') || id.includes('react-dom') || id.includes('scheduler')) {
+                                return 'vendor-react';
+                            }
+                            // Radix UI
+                            if (id.includes('@radix-ui')) {
+                                return 'vendor-radix';
+                            }
+                            // Charts (recharts is heavy)
+                            if (id.includes('recharts') || id.includes('d3-')) {
+                                return 'vendor-charts';
+                            }
+                            // Shiki (syntax highlighting)
+                            if (id.includes('shiki') || id.includes('@shikijs')) {
+                                return 'vendor-shiki';
+                            }
+                            // Univer (spreadsheets)
+                            if (id.includes('@univerjs')) {
+                                return 'vendor-univer';
+                            }
+                        }
+                    }
                 }
-            }
+            },
+            // Minification optimizations
+            minify: 'esbuild',
+            target: 'esnext',
         }
     }
 })

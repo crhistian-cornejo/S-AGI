@@ -31,6 +31,8 @@ interface ChartConfigInput {
         showLegend?: boolean
         currency?: string
         locale?: string
+        xAxisTitle?: string
+        yAxisTitle?: string
     }
 }
 

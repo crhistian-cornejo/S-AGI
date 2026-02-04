@@ -1,21 +1,9 @@
 import { z } from 'zod'
 import { router, protectedProcedure } from '../trpc'
-import { supabase, isSupabaseConfigured } from '../../supabase/client'
+import { supabase } from '../../supabase/client'
 import { ArtifactTypeSchema } from '@s-agi/core/types'
-import { getStorageAdapter, getStorageMode } from '../../storage'
+import { getStorageAdapter, isLocalStorageMode } from '../../storage'
 import log from 'electron-log'
-
-/**
- * Check if we should use local storage mode
- * Defaults to local - cloud sync is a future premium feature
- */
-function isLocalMode(): boolean {
-    const mode = getStorageMode()
-    if (mode === 'local') {
-        return true
-    }
-    return !isSupabaseConfigured()
-}
 
 /**
  * Map local artifact (camelCase) to Supabase format (snake_case)
@@ -43,7 +31,7 @@ export const artifactsRouter = router({
         }))
         .query(async ({ ctx, input }) => {
             // Use local storage in local mode
-            if (isLocalMode()) {
+            if (isLocalStorageMode()) {
                 log.debug('[Artifacts] Local mode - listing artifacts for chatId:', input.chatId)
                 const adapter = await getStorageAdapter()
                 const artifacts = await adapter.artifacts.list(input.chatId, 'local-user')
@@ -79,7 +67,7 @@ export const artifactsRouter = router({
         }).optional())
         .query(async ({ ctx, input }) => {
             // Use local storage in local mode
-            if (isLocalMode()) {
+            if (isLocalStorageMode()) {
                 log.debug('[Artifacts] Local mode - listing standalone artifacts')
                 const adapter = await getStorageAdapter()
                 const artifacts = await adapter.artifacts.listStandalone('local-user')
@@ -115,7 +103,7 @@ export const artifactsRouter = router({
         }).optional())
         .query(async ({ ctx, input }) => {
             // Use local storage in local mode
-            if (isLocalMode()) {
+            if (isLocalStorageMode()) {
                 log.debug('[Artifacts] Local mode - listing all artifacts')
                 const adapter = await getStorageAdapter()
                 let artifacts = await adapter.artifacts.listAll('local-user')
@@ -155,7 +143,7 @@ export const artifactsRouter = router({
         .input(z.object({ id: z.string().uuid() }))
         .query(async ({ ctx, input }) => {
             // Use local storage in local mode
-            if (isLocalMode()) {
+            if (isLocalStorageMode()) {
                 log.debug('[Artifacts] Local mode - getting artifact:', input.id)
                 const adapter = await getStorageAdapter()
                 const artifact = await adapter.artifacts.get(input.id, 'local-user')
@@ -196,7 +184,7 @@ export const artifactsRouter = router({
         }))
         .mutation(async ({ ctx, input }) => {
             // Use local storage in local mode
-            if (isLocalMode()) {
+            if (isLocalStorageMode()) {
                 log.debug('[Artifacts] Local mode - creating artifact:', input.name)
                 const adapter = await getStorageAdapter()
                 const artifact = await adapter.artifacts.create({
@@ -253,7 +241,7 @@ export const artifactsRouter = router({
         }))
         .mutation(async ({ ctx, input }) => {
             // Use local storage in local mode
-            if (isLocalMode()) {
+            if (isLocalStorageMode()) {
                 log.debug('[Artifacts] Local mode - updating artifact:', input.id)
                 const adapter = await getStorageAdapter()
                 const { id, ...updates } = input
@@ -306,7 +294,7 @@ export const artifactsRouter = router({
         .input(z.object({ id: z.string().uuid() }))
         .mutation(async ({ ctx, input }) => {
             // Use local storage in local mode
-            if (isLocalMode()) {
+            if (isLocalStorageMode()) {
                 log.debug('[Artifacts] Local mode - deleting artifact:', input.id)
                 const adapter = await getStorageAdapter()
                 await adapter.artifacts.delete(input.id, 'local-user')
@@ -350,7 +338,7 @@ export const artifactsRouter = router({
         }))
         .mutation(async ({ ctx, input }) => {
             // Use local storage in local mode
-            if (isLocalMode()) {
+            if (isLocalStorageMode()) {
                 log.debug('[Artifacts] Local mode - saving Univer snapshot:', input.id)
                 const adapter = await getStorageAdapter()
                 const artifact = await adapter.artifacts.update(input.id, 'local-user', {

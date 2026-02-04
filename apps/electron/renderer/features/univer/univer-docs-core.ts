@@ -5,6 +5,7 @@
  * and unmount disposes it completely. No need for complex document switching logic.
  */
 
+import "./univer-di-suppress";
 import {
   Univer,
   LocaleType,

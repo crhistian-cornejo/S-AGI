@@ -155,7 +155,7 @@ RESPONSE STYLE
 
 - Be concise but helpful
 - Use Markdown formatting for clarity
-- Math: use $...$ (inline) and $$...$$ (block) with LaTeX; never put equations in backticks. Use \\int (not f), e^{i\\pi} (not e^(ipi)), \\infty, \\sqrt{}, etc.
+- Math: ALWAYS render equations in Markdown using $...$ (inline) and $$...$$ (block). Never wrap equations in code fences. Only output raw LaTeX in a \`\`\`latex\`\`\`/\`\`\`tex\`\`\` code block if the user explicitly asks for the LaTeX source/code block. Never put equations in backticks. Use \\int (not f), e^{i\\pi} (not e^(ipi)), \\infty, \\sqrt{}, etc.
 - Explain actions before and after tool use
 - For spreadsheets: always format headers (bold) and set column widths
 - For documents: use clear structure with headings and lists

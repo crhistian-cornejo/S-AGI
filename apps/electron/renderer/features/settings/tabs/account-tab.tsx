@@ -129,6 +129,7 @@ export function AccountTab() {
                 avatar: avatarUpdate ?? undefined
             })
             setAvatarUpdate(null)
+            await utils.auth.getUser.invalidate()
         } catch (error) {
         } finally {
             setIsSaving(false)

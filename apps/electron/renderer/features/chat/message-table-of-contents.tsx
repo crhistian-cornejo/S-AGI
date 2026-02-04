@@ -120,7 +120,10 @@ export const MessageTableOfContents = memo(function MessageTableOfContents({
         side={tooltipSide}
         align="start"
         sideOffset={8}
-        className={cn(overlayContent, 'w-[280px] p-1')}
+        className={cn(
+          overlayContent,
+          'w-[280px] p-1 bg-sidebar text-sidebar-foreground border-sidebar-border'
+        )}
         onMouseEnter={handleMouseEnter}
         onMouseLeave={handleMouseLeave}
       >
@@ -129,7 +132,13 @@ export const MessageTableOfContents = memo(function MessageTableOfContents({
             <button
               key={id}
               type="button"
-              className={cn(overlayItem, 'w-full text-left')}
+              className={cn(
+                overlayItem,
+                'w-full text-left',
+                'hover:bg-sidebar-accent hover:text-sidebar-accent-foreground',
+                'focus:bg-sidebar-accent focus:text-sidebar-accent-foreground',
+                'data-[highlighted]:bg-sidebar-accent data-[highlighted]:text-sidebar-accent-foreground'
+              )}
               onClick={() => {
                 onScrollToMessage?.(id)
                 setOpen(false)

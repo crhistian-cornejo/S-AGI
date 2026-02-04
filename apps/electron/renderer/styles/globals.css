@@ -30,6 +30,9 @@
     --plan-mode: 33 83% 67%;
     --plan-mode-foreground: 0 0% 8%;
 
+    /* Chat content area - #F9F9FA */
+    --chat-background: 240 14% 98%;
+
     /* Sidebar */
     --sidebar-background: 0 0% 98.8%;
     --sidebar-foreground: 240 5.3% 26.1%;
@@ -68,6 +71,9 @@
     --plan-mode: 33 83% 67%;
     --plan-mode-foreground: 0 0% 8%;
 
+    /* Chat content area - dark equivalent */
+    --chat-background: 240 6% 10%;
+
     /* Sidebar */
     --sidebar-background: 0 0% 12.2%;
     --sidebar-foreground: 240 4.8% 85%;
@@ -84,6 +90,56 @@
 @layer base {
   * {
     @apply border-border;
+  }
+
+  /* Performance: Enable GPU acceleration and smooth animations globally */
+  html {
+    /* Enable smooth scrolling with GPU acceleration */
+    scroll-behavior: smooth;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    /* Prevent layout thrashing */
+    text-size-adjust: 100%;
+  }
+
+  /* Optimize animations for GPU */
+  *,
+  *::before,
+  *::after {
+    /* Use GPU for transforms and opacity changes */
+    transform: translateZ(0);
+    backface-visibility: hidden;
+  }
+
+  /* Reset transform for elements that don't need GPU layer */
+  body,
+  main,
+  article,
+  section,
+  p,
+  span,
+  a {
+    transform: none;
+    backface-visibility: visible;
+  }
+
+  /* Optimize scrollable containers */
+  [data-radix-scroll-area-viewport],
+  .overflow-auto,
+  .overflow-y-auto,
+  .overflow-x-auto {
+    will-change: scroll-position;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* Optimize commonly animated elements */
+  button,
+  [role="button"],
+  [data-state],
+  .transition,
+  .animate-in,
+  .animate-out {
+    will-change: transform, opacity;
   }
 
   :root {
@@ -952,14 +1008,162 @@ pre code.shiki {
     "Liberation Mono", Consolas, monospace;
 }
 
-/* Light/dark theme handling for shiki */
-html.dark .shiki span {
-  color: var(--shiki-dark, inherit) !important;
+/* Shiki uses inline styles - don't override them */
+
+/* ============================================================================
+   SHIKI TRANSFORMERS - Full Feature Support
+   ============================================================================ */
+
+/* Line numbers */
+.shiki .line {
+  display: block;
+  width: 100%;
 }
 
-html:not(.dark) .shiki span {
-  color: var(--shiki-light, inherit) !important;
+/* CSS-based line numbers using data-line attribute */
+.shiki .line[data-line]::before {
+  content: attr(data-line);
+  display: inline-block;
+  width: 3ch;
+  margin-right: 1.5ch;
+  text-align: right;
+  color: hsl(var(--muted-foreground) / 0.4);
+  user-select: none;
+  font-size: 0.85em;
+  border-right: 1px solid hsl(var(--border) / 0.2);
+  padding-right: 1ch;
 }
+
+/* Diff highlighting - added lines */
+.shiki .line.diff.add {
+  background-color: rgba(46, 160, 67, 0.15);
+}
+
+.shiki .line.diff.add::before {
+  content: "+";
+  position: absolute;
+  left: 0.5rem;
+  color: #3fb950;
+  font-weight: bold;
+}
+
+/* Diff highlighting - removed lines */
+.shiki .line.diff.remove {
+  background-color: rgba(248, 81, 73, 0.15);
+}
+
+.shiki .line.diff.remove::before {
+  content: "-";
+  position: absolute;
+  left: 0.5rem;
+  color: #f85149;
+  font-weight: bold;
+}
+
+/* Has diff indicator on pre */
+.shiki.has-diff .line {
+  padding-left: 1.5rem;
+  position: relative;
+}
+
+/* Line highlighting */
+.shiki .line.highlighted {
+  background-color: hsl(var(--primary) / 0.1);
+  border-left: 3px solid hsl(var(--primary));
+  padding-left: calc(1rem - 3px);
+  margin-left: -1rem;
+  margin-right: -1rem;
+  padding-right: 1rem;
+}
+
+/* Word highlighting */
+.shiki .highlighted-word {
+  background-color: hsl(var(--primary) / 0.25);
+  border-radius: 3px;
+  padding: 1px 3px;
+  margin: -1px -3px;
+}
+
+/* Focus mode - dim non-focused lines */
+.shiki.has-focused .line:not(.focused) {
+  opacity: 0.4;
+  filter: blur(0.5px);
+  transition: opacity 0.3s, filter 0.3s;
+}
+
+.shiki.has-focused:hover .line:not(.focused) {
+  opacity: 0.7;
+  filter: none;
+}
+
+.shiki .line.focused {
+  background-color: hsl(var(--primary) / 0.08);
+}
+
+/* Error level highlighting */
+.shiki .line.highlighted.error {
+  background-color: rgba(248, 81, 73, 0.15);
+  border-left-color: #f85149;
+}
+
+.shiki .line.highlighted.warning {
+  background-color: rgba(210, 153, 34, 0.15);
+  border-left-color: #d29922;
+}
+
+/* Whitespace rendering */
+.shiki .tab,
+.shiki .space {
+  position: relative;
+}
+
+.shiki .tab::before {
+  content: "→";
+  position: absolute;
+  color: hsl(var(--muted-foreground) / 0.3);
+}
+
+.shiki .space::before {
+  content: "·";
+  position: absolute;
+  color: hsl(var(--muted-foreground) / 0.3);
+}
+
+/* Code block hover effects */
+.shiki .line {
+  transition: background-color 0.15s ease;
+}
+
+.shiki:hover .line:hover {
+  background-color: hsl(var(--muted) / 0.3);
+}
+
+/* Selection styling */
+.shiki ::selection {
+  background-color: hsl(var(--primary) / 0.3);
+}
+
+/* Smooth scrollbar for code blocks */
+pre::-webkit-scrollbar {
+  height: 8px;
+}
+
+pre::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+pre::-webkit-scrollbar-thumb {
+  background: hsl(var(--muted-foreground) / 0.2);
+  border-radius: 4px;
+}
+
+pre::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--muted-foreground) / 0.4);
+}
+
+/* ============================================================================
+   END SHIKI TRANSFORMERS
+   ============================================================================ */
 
 /* Streamdown caret animation */
 @keyframes caret-blink {

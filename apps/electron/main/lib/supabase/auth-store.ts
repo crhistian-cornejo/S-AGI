@@ -6,6 +6,7 @@ import { randomUUID } from 'crypto'
 
 const STORE_FILE = 'supabase-auth.encrypted'
 const MULTI_ACCOUNT_STORE_FILE = 'accounts.encrypted'
+const MULTI_ACCOUNT_STORE_FALLBACK_FILE = 'accounts.json'
 
 /**
  * Stored account information for multi-account support
@@ -16,6 +17,17 @@ export interface StoredAccount {
     email: string
     displayName: string
     avatarUrl?: string
+    profile?: {
+        fullName?: string | null
+        username?: string | null
+        pronouns?: string | null
+        bio?: string | null
+        website?: string | null
+        location?: string | null
+        timezone?: string | null
+        avatarProviderUrl?: string | null
+        avatarPath?: string | null
+    }
     isLocal: boolean            // true for local/offline account
     provider?: string           // 'google', 'github', 'email', 'local'
     connectedAt: number         // Unix timestamp
@@ -41,6 +53,7 @@ export interface AuthStoreData {
 export class SupabaseAuthStore {
     private storePath: string
     private multiAccountStorePath: string
+    private multiAccountStoreFallbackPath: string
     private cache: Record<string, string> = {}      // Supabase session cache (for active account)
     private accountsData: AuthStoreData = {         // Multi-account data
         accounts: [],
@@ -57,6 +70,7 @@ export class SupabaseAuthStore {
 
         this.storePath = join(secureDir, STORE_FILE)
         this.multiAccountStorePath = join(secureDir, MULTI_ACCOUNT_STORE_FILE)
+        this.multiAccountStoreFallbackPath = join(secureDir, MULTI_ACCOUNT_STORE_FALLBACK_FILE)
         this.load()
         this.loadAccounts()
     }
@@ -212,15 +226,31 @@ export class SupabaseAuthStore {
 
     private loadAccounts(): void {
         try {
-            if (existsSync(this.multiAccountStorePath)) {
+            const encryptedExists = existsSync(this.multiAccountStorePath)
+            const fallbackExists = existsSync(this.multiAccountStoreFallbackPath)
+            const encryptionAvailable = safeStorage.isEncryptionAvailable()
+
+            if (encryptedExists && encryptionAvailable) {
                 const encryptedData = readFileSync(this.multiAccountStorePath)
-                if (safeStorage.isEncryptionAvailable()) {
-                    const decrypted = safeStorage.decryptString(encryptedData)
-                    this.accountsData = JSON.parse(decrypted)
-                    log.info(`[SupabaseAuthStore] Loaded ${this.accountsData.accounts.length} accounts`)
-                } else {
-                    log.warn('[SupabaseAuthStore] Encryption not available for accounts')
+                const decrypted = safeStorage.decryptString(encryptedData)
+                this.accountsData = JSON.parse(decrypted)
+                log.info(`[SupabaseAuthStore] Loaded ${this.accountsData.accounts.length} accounts`)
+                return
+            }
+
+            if (fallbackExists) {
+                const raw = readFileSync(this.multiAccountStoreFallbackPath, 'utf-8')
+                this.accountsData = JSON.parse(raw)
+                log.warn('[SupabaseAuthStore] Loaded accounts from fallback storage')
+
+                if (encryptionAvailable) {
+                    this.saveAccounts()
                 }
+                return
+            }
+
+            if (encryptedExists && !encryptionAvailable) {
+                log.warn('[SupabaseAuthStore] Encryption not available for accounts; using fallback if present')
             }
         } catch (error) {
             log.error('[SupabaseAuthStore] Failed to load accounts:', error)
@@ -235,8 +265,13 @@ export class SupabaseAuthStore {
                 const encrypted = safeStorage.encryptString(data)
                 writeFileSync(this.multiAccountStorePath, encrypted)
                 log.debug('[SupabaseAuthStore] Saved accounts data')
+                if (existsSync(this.multiAccountStoreFallbackPath)) {
+                    unlinkSync(this.multiAccountStoreFallbackPath)
+                }
             } else {
-                log.warn('[SupabaseAuthStore] Cannot save accounts - encryption not available')
+                const data = JSON.stringify(this.accountsData)
+                writeFileSync(this.multiAccountStoreFallbackPath, data)
+                log.warn('[SupabaseAuthStore] Saved accounts in fallback storage (unencrypted)')
             }
         } catch (error) {
             log.error('[SupabaseAuthStore] Failed to save accounts:', error)

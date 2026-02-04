@@ -3,8 +3,8 @@ import { z } from "zod";
 import { router, protectedProcedure } from "../trpc";
 import log from "electron-log";
 import { sendToRenderer } from "../../window-manager";
-import { supabase, isSupabaseConfigured } from "../../supabase/client";
-import { getStorageAdapter, getStorageMode } from "../../storage";
+import { supabase } from "../../supabase/client";
+import { getStorageAdapter, isLocalStorageMode } from "../../storage";
 import { getSecureApiKeyStore } from "../../auth/api-key-store";
 import { getChatGPTAuthManager, getClaudeCodeAuthManager } from "../../auth";
 import { getCredentialManager } from "../../shared/credentials";
@@ -89,26 +89,6 @@ const activeStreams = new Map<string, AbortController>();
 
 const AUTO_TITLE_MAX_LENGTH = 25;
 
-/**
- * Check if we should use local storage mode
- * Following OpenCode pattern for local-first storage
- * Always defaults to local mode - cloud sync is a future premium feature
- */
-function isLocalMode(): boolean {
-  const mode = getStorageMode();
-  const supabaseConfigured = isSupabaseConfigured();
-
-  log.debug("[AI] isLocalMode check - storageMode:", mode, "supabaseConfigured:", supabaseConfigured);
-
-  // Default to local mode - only use cloud if BOTH conditions are met:
-  // 1. Storage mode is explicitly "cloud"
-  // 2. Supabase is properly configured
-  if (mode === "local") {
-    return true;
-  }
-
-  return !supabaseConfigured;
-}
 
 function getFallbackTitle(prompt: string) {
   const trimmed = prompt.trim();
@@ -474,7 +454,13 @@ RESPONSE STYLE
 
 - Be concise but helpful
 - Use Markdown formatting for clarity
-- Math: use $...$ (inline) and $$...$$ (block) with LaTeX; never put equations in backticks. Use \\int (not f), e^{i\\pi} (not e^(iπ)), \\infty, \\sqrt{}, etc.
+- Math: ALWAYS wrap ALL mathematical expressions in proper delimiters:
+  * Inline math: $...$ (e.g., "where $\\nabla^2 u = 0$")
+  * Block/display math: $$...$$ on its own line
+  * NEVER write raw LaTeX commands without $ delimiters (WRONG: "\\nabla u = 0", RIGHT: "$\\nabla u = 0$")
+  * NEVER put math in backticks or code fences unless user asks for source code
+  * Use proper LaTeX: \\int (not f), \\frac{a}{b}, e^{i\\pi}, \\infty, \\sqrt{}, \\partial, \\nabla, etc.
+  * For equations with text: use $$...$$ blocks, e.g., $$E = mc^2$$
 - Explain actions before and after tool use
 - For spreadsheets: always format headers (bold) and set column widths
 - For documents: use clear structure with headings and lists
@@ -1444,7 +1430,7 @@ export const aiRouter = router({
     .mutation(async ({ ctx, input }) => {
       // Validate user has access to this chat
       // Following OpenCode pattern: use local storage in local mode
-      if (isLocalMode()) {
+      if (isLocalStorageMode()) {
         log.info("[AI] Local mode - verifying chat access via SQLite");
         const adapter = await getStorageAdapter();
         const chat = await adapter.chats.getById!(input.chatId);
@@ -2039,7 +2025,7 @@ Time: ${now.toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit", ti
             let chatVectorStoreId: string | null = null;
 
             // Get vector store ID from appropriate storage
-            if (isLocalMode()) {
+            if (isLocalStorageMode()) {
               const adapter = await getStorageAdapter();
               const chatData = await adapter.chats.getById!(input.chatId);
               chatVectorStoreId = chatData?.openaiVectorStoreId || null;
@@ -2060,7 +2046,7 @@ Time: ${now.toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit", ti
               // Get list of uploaded files FIRST to inform both isDocumentQuery and system prompt
               let chatFiles: Array<{ filename: string; file_size?: number; content_type?: string; openai_file_id?: string }> | null = null;
 
-              if (isLocalMode()) {
+              if (isLocalStorageMode()) {
                 const adapter = await getStorageAdapter();
                 const localFiles = await adapter.chatFiles.list(input.chatId, "local-user");
                 chatFiles = localFiles.map(f => ({

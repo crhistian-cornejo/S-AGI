@@ -160,6 +160,22 @@ export function ChatView() {
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
   const [activeMessageId, setActiveMessageId] = useState<string | null>(null);
 
+  // Reset streaming state when chat changes
+  useEffect(() => {
+    // Clear all streaming-related state when switching to a new chat
+    setLastReasoning("");
+    setStreamingReasoning("");
+    setIsReasoning(false);
+    setStreamingToolCalls([]);
+    setStreamingError(null);
+    setStreamingWebSearches([]);
+    setStreamingFileSearches([]);
+    setStreamingAnnotations([]);
+    setStreamingDocumentCitations([]);
+    setStreamingSuggestions([]);
+    smoothStream.reset();
+  }, [selectedChatId]);
+
   // Get key status from main process (persisted in safeStorage)
   const { data: keyStatus } = trpc.settings.getApiKeyStatus.useQuery();
 
@@ -1535,7 +1551,7 @@ export function ChatView() {
       messagesError.message?.includes("access denied");
     if (isNotFound) {
       return (
-        <div className="flex-1 flex flex-col items-center justify-center p-8">
+        <div className="flex-1 flex flex-col items-center justify-center p-8 bg-[hsl(var(--chat-background))]">
           <div className="max-w-md text-center space-y-4">
             <div className="w-16 h-16 rounded-2xl bg-red-500/10 flex items-center justify-center mx-auto">
               <IconSparkles size={32} className="text-red-500" />
@@ -1558,7 +1574,7 @@ export function ChatView() {
   // Empty state - no chat selected
   if (!selectedChatId) {
     return (
-      <div className="flex-1 flex flex-col items-center justify-center p-8">
+      <div className="flex-1 flex flex-col items-center justify-center p-8 bg-[hsl(var(--chat-background))]">
         <div className="max-w-md text-center space-y-4">
           <div className="w-16 h-16 rounded-2xl bg-primary/10 flex items-center justify-center mx-auto">
             <IconSparkles size={32} className="text-primary" />
@@ -1617,7 +1633,7 @@ export function ChatView() {
   // Empty chat state - centered welcome + input
   if (isEmptyChat) {
     return (
-      <div className="flex-1 flex flex-col items-center justify-center overflow-hidden relative px-4">
+      <div className="flex-1 flex flex-col items-center justify-center overflow-hidden relative px-4 bg-[hsl(var(--chat-background))]">
         <div className="w-full max-w-[740px] flex flex-col items-center">
           {/* Welcome message */}
           <div className="flex flex-col items-center text-muted-foreground mb-8 animate-in fade-in duration-700">
@@ -1664,11 +1680,11 @@ export function ChatView() {
   }
 
   return (
-    <div className="flex-1 flex flex-col overflow-hidden relative">
+    <div className="flex-1 flex flex-col overflow-hidden relative bg-[hsl(var(--chat-background))]">
       {/* Messages area */}
       <div className="flex-1 relative overflow-hidden">
         {/* Top Fade Overlay */}
-        <div className="absolute top-0 left-0 right-0 h-12 bg-gradient-to-b from-sidebar via-sidebar/80 to-transparent pointer-events-none z-10" />
+        <div className="absolute top-0 left-0 right-0 h-12 bg-gradient-to-b from-[hsl(var(--chat-background))] via-[hsl(var(--chat-background)/0.8)] to-transparent pointer-events-none z-10" />
 
         <ScrollArea className="h-full w-full" ref={scrollContainerRef}>
           <div className="pt-2 pb-16 w-full overflow-hidden">
@@ -1714,7 +1730,7 @@ export function ChatView() {
         )}
 
         {/* Bottom Fade Overlay */}
-        <div className="absolute bottom-0 left-0 right-0 h-16 bg-gradient-to-t from-sidebar to-transparent pointer-events-none z-10" />
+        <div className="absolute bottom-0 left-0 right-0 h-16 bg-gradient-to-t from-[hsl(var(--chat-background))] to-transparent pointer-events-none z-10" />
 
         {/* Floating ToC - right side, horizontal lines, length by prompt */}
         <div className="absolute right-2 top-10 bottom-16 w-12 flex flex-col items-end justify-start pt-2 z-[8] pointer-events-none overflow-hidden">

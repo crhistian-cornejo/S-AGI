@@ -1,10 +1,10 @@
 "use client"
 
-import { useState } from "react"
+import { useState, type CSSProperties } from "react"
 import { useSetAtom, useAtom } from "jotai"
 import { useTheme } from "next-themes"
 import { motion, AnimatePresence } from "motion/react"
-import { IconRocket, IconCheck, IconKey, IconArrowRight, IconShieldCheck, IconLoader2, IconEye, IconEyeOff, IconPalette, IconMoon, IconSun, IconDeviceDesktop } from "@tabler/icons-react"
+import { IconRocket, IconCheck, IconKey, IconArrowRight, IconShieldCheck, IconLoader2, IconEye, IconEyeOff, IconPalette, IconMoon, IconSun, IconDeviceDesktop, IconBraces, IconFunction, IconTable, IconFileTypePdf, IconFileText, IconNotes } from "@tabler/icons-react"
 import { Logo } from "@/components/ui/logo"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -44,11 +44,16 @@ export function OnboardingPage() {
         {/* Draggable title bar area */}
         <div
             className="fixed top-0 left-0 right-0 h-10 z-50"
-            style={{ WebkitAppRegion: "drag" } as React.CSSProperties}
+            style={{ WebkitAppRegion: "drag" } as CSSProperties}
         />
 
         {/* Steps Content */}
-        <div className="w-full max-w-[500px] px-8 relative z-10">
+        <div
+            className={cn(
+                "w-full px-6 relative z-10",
+                step === "welcome" ? "max-w-6xl" : "max-w-[500px]"
+            )}
+        >
             <AnimatePresence mode="wait" custom={direction}>
                 {step === "welcome" && (
                     <WelcomeStep key="welcome" onNext={handleNext} />
@@ -81,67 +86,269 @@ function WelcomeStep({ onNext }: { onNext: () => void }) {
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -20 }}
             transition={{ duration: 0.5 }}
-            className="space-y-8 text-center"
+            className="grid gap-8 lg:grid-cols-[1.08fr_0.92fr] lg:gap-10 items-center"
         >
-            <div className="space-y-6">
-                <motion.div 
-                    initial={{ scale: 0.8, opacity: 0 }}
-                    animate={{ scale: 1, opacity: 1 }}
-                    transition={{ delay: 0.2, duration: 0.5 }}
-                    className="flex items-center justify-center gap-4 mx-auto w-max"
+            <div className="space-y-8">
+                <motion.div
+                    initial={{ opacity: 0, y: 12 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: 0.15, duration: 0.45 }}
+                    className="inline-flex items-center gap-3 rounded-full border border-border/60 bg-background/70 px-4 py-2 text-xs text-muted-foreground shadow-sm backdrop-blur-xl"
                 >
-                    <div className="w-20 h-20 rounded-3xl bg-primary/10 flex items-center justify-center border border-primary/20 shadow-xl backdrop-blur-sm">
-                        <Logo className="w-10 h-10 text-primary" />
-                    </div>
+                    <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-primary/10 text-primary">
+                        <Logo className="h-4 w-4" />
+                    </span>
+                    Bienvenido, vamos a configurar tu espacio
                 </motion.div>
-            
-                <div className="space-y-2">
-                    <h1 className="text-3xl font-bold tracking-tight bg-gradient-to-br from-foreground to-foreground/70 bg-clip-text text-transparent">
-                        Welcome to S-AGI
-                    </h1>
-                    <p className="text-muted-foreground text-lg max-w-sm mx-auto leading-relaxed">
-                        Your intelligent workspace for spreadsheets and documents.
-                    </p>
-                </div>
-            </div>
 
-            <div className="space-y-3 py-4 text-left max-w-sm mx-auto">
-                {[
-                    "AI-powered spreadsheet data analysis",
-                    "Intelligent document writing assistance",
-                    "Seamless integration with your workflow"
-                ].map((feature, i) => (
-                    <motion.div 
-                        key={feature}
-                        initial={{ opacity: 0, x: -10 }}
-                        animate={{ opacity: 1, x: 0 }}
-                        transition={{ delay: 0.4 + (i * 0.1) }}
-                        className="flex items-center gap-3 text-sm text-foreground/80 bg-secondary/50 p-3 rounded-xl border border-border/50 backdrop-blur-sm"
+                <div className="space-y-4">
+                    <TextRevealLine
+                        delay={0.25}
+                        text="Escribe en lenguaje natural y S-AGI hace el resto."
+                        className="text-4xl font-semibold tracking-tight text-foreground lg:text-5xl"
+                    />
+                    <TextRevealLine
+                        delay={0.6}
+                        text="Genera fórmulas, código, análisis de datos y contenido técnico en un solo flujo."
+                        className="max-w-2xl text-lg leading-relaxed text-muted-foreground"
+                    />
+                </div>
+
+                <div className="space-y-3 rounded-2xl border border-border/60 bg-background/60 p-5 backdrop-blur-xl">
+                    <TextRevealLine
+                        delay={0.85}
+                        text="1. Cuéntale lo que necesitas."
+                        className="text-sm text-foreground/90"
+                    />
+                    <TextRevealLine
+                        delay={1}
+                        text="2. Revisa la respuesta en paneles vivos: código, KaTeX y spreadsheet."
+                        className="text-sm text-foreground/90"
+                    />
+                    <TextRevealLine
+                        delay={1.15}
+                        text="3. Itera con prompts cortos hasta dejarlo listo para producción."
+                        className="text-sm text-foreground/90"
+                    />
+                </div>
+
+                <motion.div
+                    initial={{ opacity: 0, y: 8 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: 1.2, duration: 0.4 }}
+                    className="flex flex-wrap gap-2"
+                >
+                    <FeaturePill icon={<IconBraces size={14} />} label="Code" />
+                    <FeaturePill icon={<IconFunction size={14} />} label="KaTeX" />
+                    <FeaturePill icon={<IconTable size={14} />} label="Spreadsheet" />
+                    <FeaturePill icon={<IconFileTypePdf size={14} />} label="PDF" />
+                    <FeaturePill icon={<IconFileText size={14} />} label="Docs" />
+                    <FeaturePill icon={<IconNotes size={14} />} label="Notas" />
+                </motion.div>
+
+                <motion.div
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    transition={{ delay: 1.3 }}
+                    className="pt-2"
+                >
+                    <Button
+                        onClick={onNext}
+                        size="lg"
+                        className="h-12 min-w-[220px] text-base font-medium shadow-lg hover:shadow-primary/20 transition-all duration-300 group"
                     >
-                        <div className="w-6 h-6 rounded-full bg-green-500/10 flex items-center justify-center shrink-0">
-                            <IconCheck className="w-3.5 h-3.5 text-green-500" />
-                        </div>
-                        {feature}
-                    </motion.div>
-                ))}
+                        <span className="mr-2">Empezar</span>
+                        <IconArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
+                    </Button>
+                </motion.div>
             </div>
 
             <motion.div
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                transition={{ delay: 0.8 }}
-                className="pt-4"
+                initial={{ opacity: 0, x: 24 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ delay: 0.5, duration: 0.5 }}
+                className="relative"
             >
-                <Button
-                    onClick={onNext}
-                    size="lg"
-                    className="w-full h-12 text-base font-medium shadow-lg hover:shadow-primary/20 transition-all duration-300 group"
-                >
-                    <span className="mr-2">Get Started</span>
-                    <IconArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
-                </Button>
+                <div className="pointer-events-none absolute -inset-5 rounded-[2rem] bg-gradient-to-br from-primary/10 via-transparent to-blue-500/10 blur-xl" />
+                <div className="relative space-y-4 rounded-[1.4rem] border border-border/60 bg-background/70 p-4 shadow-2xl backdrop-blur-xl">
+                    <SvgShowcaseCard
+                        title="Code Assistant"
+                        subtitle="Genera snippets listos para ejecutar"
+                        icon={<IconBraces size={16} />}
+                        delay={0.65}
+                    >
+                        <CodePreviewSvg />
+                    </SvgShowcaseCard>
+
+                    <SvgShowcaseCard
+                        title="Math & KaTeX"
+                        subtitle="Explica fórmulas y notación en contexto"
+                        icon={<IconFunction size={16} />}
+                        delay={0.82}
+                    >
+                        <KatexPreviewSvg />
+                    </SvgShowcaseCard>
+
+                    <SvgShowcaseCard
+                        title="Spreadsheet AI"
+                        subtitle="Analiza, proyecta y estructura tablas"
+                        icon={<IconTable size={16} />}
+                        delay={0.98}
+                    >
+                        <SheetPreviewSvg />
+                    </SvgShowcaseCard>
+                </div>
             </motion.div>
         </motion.div>
+    )
+}
+
+function TextRevealLine({
+    text,
+    delay,
+    className,
+}: {
+    text: string
+    delay: number
+    className?: string
+}) {
+    const words = text.split(" ")
+
+    return (
+        <motion.p
+            initial="hidden"
+            animate="visible"
+            variants={{
+                hidden: {},
+                visible: {
+                    transition: {
+                        staggerChildren: 0.035,
+                        delayChildren: delay,
+                    },
+                },
+            }}
+            className={className}
+        >
+            {words.map((word, index) => (
+                <motion.span
+                    key={`${word}-${index}`}
+                    variants={{
+                        hidden: { opacity: 0, y: 12, filter: "blur(4px)" },
+                        visible: { opacity: 1, y: 0, filter: "blur(0px)" },
+                    }}
+                    transition={{ duration: 0.35, ease: "easeOut" }}
+                    className="inline-block"
+                >
+                    {word}
+                    {index < words.length - 1 ? "\u00A0" : ""}
+                </motion.span>
+            ))}
+        </motion.p>
+    )
+}
+
+function FeaturePill({ icon, label }: { icon: React.ReactNode; label: string }) {
+    return (
+        <div className="inline-flex items-center gap-2 rounded-full border border-border/60 bg-secondary/40 px-3 py-1.5 text-xs text-foreground/90">
+            <span className="text-primary">{icon}</span>
+            {label}
+        </div>
+    )
+}
+
+function SvgShowcaseCard({
+    title,
+    subtitle,
+    icon,
+    children,
+    delay,
+}: {
+    title: string
+    subtitle: string
+    icon: React.ReactNode
+    children: React.ReactNode
+    delay: number
+}) {
+    return (
+        <motion.div
+            initial={{ opacity: 0, y: 14 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay, duration: 0.38 }}
+            className="rounded-xl border border-border/60 bg-background/85 p-3"
+        >
+            <div className="mb-2 flex items-center justify-between">
+                <div className="flex items-center gap-2 text-xs text-foreground/90">
+                    <span className="text-primary">{icon}</span>
+                    <span className="font-medium">{title}</span>
+                </div>
+                <span className="text-[11px] text-muted-foreground">{subtitle}</span>
+            </div>
+            {children}
+        </motion.div>
+    )
+}
+
+function CodePreviewSvg() {
+    return (
+        <svg viewBox="0 0 420 125" className="h-[125px] w-full">
+            <rect x="1" y="1" width="418" height="123" rx="10" fill="hsl(var(--secondary) / 0.4)" stroke="hsl(var(--border))" />
+            <rect x="16" y="20" width="88" height="8" rx="4" fill="hsl(var(--muted-foreground) / 0.28)" />
+            <rect x="16" y="44" width="132" height="8" rx="4" fill="#8b5cf6" opacity="0.7" />
+            <rect x="155" y="44" width="94" height="8" rx="4" fill="#22c55e" opacity="0.72" />
+            <rect x="256" y="44" width="112" height="8" rx="4" fill="#38bdf8" opacity="0.7" />
+            <rect x="16" y="66" width="58" height="8" rx="4" fill="hsl(var(--muted-foreground) / 0.45)" />
+            <rect x="80" y="66" width="168" height="8" rx="4" fill="#f97316" opacity="0.72" />
+            <rect x="16" y="88" width="210" height="8" rx="4" fill="hsl(var(--foreground) / 0.35)" />
+            <circle cx="378" cy="22" r="4" fill="#22c55e" />
+            <text x="390" y="26" fontSize="11" fill="hsl(var(--muted-foreground))">ready</text>
+        </svg>
+    )
+}
+
+function KatexPreviewSvg() {
+    return (
+        <svg viewBox="0 0 420 125" className="h-[125px] w-full">
+            <rect x="1" y="1" width="418" height="123" rx="10" fill="hsl(var(--secondary) / 0.4)" stroke="hsl(var(--border))" />
+            <text x="20" y="32" fontSize="14" fill="hsl(var(--muted-foreground))">f(x) =</text>
+            <text x="74" y="32" fontSize="24" fill="hsl(var(--foreground))">Σ</text>
+            <text x="95" y="26" fontSize="10" fill="hsl(var(--muted-foreground))">n</text>
+            <text x="96" y="38" fontSize="10" fill="hsl(var(--muted-foreground))">i=1</text>
+            <text x="116" y="32" fontSize="16" fill="hsl(var(--foreground))">xᵢ² / √(1 + xᵢ)</text>
+            <path d="M20 52 H388" stroke="hsl(var(--border))" strokeWidth="1.5" />
+            <rect x="20" y="66" width="112" height="8" rx="4" fill="#38bdf8" opacity="0.68" />
+            <rect x="138" y="66" width="88" height="8" rx="4" fill="#8b5cf6" opacity="0.7" />
+            <rect x="232" y="66" width="156" height="8" rx="4" fill="#22c55e" opacity="0.65" />
+            <rect x="20" y="88" width="78" height="8" rx="4" fill="hsl(var(--muted-foreground) / 0.35)" />
+            <rect x="104" y="88" width="144" height="8" rx="4" fill="hsl(var(--foreground) / 0.25)" />
+        </svg>
+    )
+}
+
+function SheetPreviewSvg() {
+    const columns = [70, 128, 186, 244, 302]
+    const rows = [36, 58, 80, 102]
+
+    return (
+        <svg viewBox="0 0 420 125" className="h-[125px] w-full">
+            <rect x="1" y="1" width="418" height="123" rx="10" fill="hsl(var(--secondary) / 0.4)" stroke="hsl(var(--border))" />
+            <rect x="18" y="16" width="384" height="95" rx="8" fill="hsl(var(--background))" opacity="0.65" />
+            {columns.map((x) => (
+                <path key={`column-${x}`} d={`M${x} 16 V111`} stroke="hsl(var(--border))" strokeWidth="1" opacity="0.8" />
+            ))}
+            {rows.map((y) => (
+                <path key={`row-${y}`} d={`M18 ${y} H402`} stroke="hsl(var(--border))" strokeWidth="1" opacity="0.8" />
+            ))}
+            <rect x="20" y="18" width="50" height="16" rx="4" fill="hsl(var(--secondary))" />
+            <rect x="72" y="18" width="56" height="16" rx="4" fill="#38bdf8" opacity="0.25" />
+            <rect x="130" y="18" width="56" height="16" rx="4" fill="#22c55e" opacity="0.25" />
+            <rect x="188" y="18" width="56" height="16" rx="4" fill="#8b5cf6" opacity="0.25" />
+            <rect x="246" y="18" width="56" height="16" rx="4" fill="#f97316" opacity="0.25" />
+            <rect x="304" y="18" width="96" height="16" rx="4" fill="#facc15" opacity="0.25" />
+            <rect x="133" y="61" width="52" height="16" rx="4" fill="#22c55e" opacity="0.24" />
+            <rect x="249" y="83" width="52" height="16" rx="4" fill="#38bdf8" opacity="0.28" />
+            <polyline points="306,94 322,88 338,96 354,70 370,74 386,58" fill="none" stroke="#f97316" strokeWidth="2.2" />
+            <circle cx="386" cy="58" r="3" fill="#f97316" />
+        </svg>
     )
 }
 

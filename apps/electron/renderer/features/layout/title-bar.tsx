@@ -6,6 +6,7 @@ import {
   activeTabAtom,
   currentProviderAtom,
   sidebarOpenAtom,
+  commandKOpenAtom,
   notesSidebarOpenAtom,
   pdfSidebarOpenAtom,
   agentPanelOpenAtom,
@@ -37,6 +38,8 @@ import {
   IconX,
   IconCommand,
   IconMessages,
+  IconPhoto,
+  IconSearch,
   IconTable,
   IconFileText,
   IconPlus,
@@ -68,11 +71,20 @@ export function TitleBar({ className, noTrafficLightSpace }: TitleBarProps) {
   const [activeTab, setActiveTab] = useAtom(activeTabAtom);
   const openSettingsPage = useOpenSettingsPage();
   const setShortcutsOpen = useSetAtom(shortcutsDialogOpenAtom);
+  const setCommandKOpen = useSetAtom(commandKOpenAtom);
   const selectedArtifact = useAtomValue(selectedArtifactAtom);
   const isDesktop = isElectron();
   const showTrafficLights = isMacOS() && isDesktop;
 
   const utils = trpc.useUtils();
+  const setSelectedChatId = useSetAtom(selectedChatIdAtom);
+  const createChat = trpc.chats.create.useMutation({
+    onSuccess: (chat) => {
+      setSelectedChatId(chat.id);
+      setActiveTab("chat");
+      utils.chats.list.invalidate();
+    },
+  });
   const { data: session } = trpc.auth.getSession.useQuery();
   const user = session?.user;
   const userDisplayName =
@@ -104,7 +116,6 @@ export function TitleBar({ className, noTrafficLightSpace }: TitleBarProps) {
   const [agentPanelOpen, setAgentPanelOpen] = useAtom(agentPanelOpenAtom);
   const [excelSidebarOpen, setExcelSidebarOpen] = useAtom(excelSidebarOpenAtom);
   const [docSidebarOpen, setDocSidebarOpen] = useAtom(docSidebarOpenAtom);
-  const setSelectedChatId = useSetAtom(selectedChatIdAtom);
   const { data: keyStatus } = trpc.settings.getApiKeyStatus.useQuery();
 
   const isWindowsApp = isWindows();
@@ -123,6 +134,11 @@ export function TitleBar({ className, noTrafficLightSpace }: TitleBarProps) {
     setActiveTab("chat");
     setSidebarOpen(true);
   }, [setSelectedChatId, setActiveTab, setSidebarOpen]);
+
+  const handleNewChat = useCallback(() => {
+    setActiveTab("chat");
+    createChat.mutate({ title: "New Chat" });
+  }, [createChat, setActiveTab]);
 
   // Agent panel is available for excel, doc, pdf tabs (not notes/ideas)
   const isAgentEnabled =
@@ -560,42 +576,106 @@ export function TitleBar({ className, noTrafficLightSpace }: TitleBarProps) {
         </div>
       )}
       {/* Chat/Gallery tab - show hamburger menu and logo on Windows, sidebar toggle on macOS */}
-      {(activeTab === "chat" || activeTab === "gallery") && !sidebarOpen && (
-        <div
-          className={cn(
-            "flex items-center gap-1.5 shrink-0 z-[200] no-drag pointer-events-auto",
-            showTrafficLights ? "absolute left-1/2 -translate-x-1/2" : "ml-2"
-          )}
-          style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
-        >
-          {/* Windows: only hamburger + logo in titlebar */}
-          {isWindowsApp && <HamburgerMenu />}
-          {isWindowsApp && (
-            <div className="flex items-center gap-2">
-              <Logo size={16} />
-              <span className="text-sm font-semibold text-foreground tracking-tight">
-                S-AGI
-              </span>
-            </div>
-          )}
+      {(activeTab === "chat" || activeTab === "gallery") &&
+        !sidebarOpen &&
+        (showTrafficLights || isWindowsApp) && (
+          <div
+            className={cn(
+              "flex items-center gap-0.5 shrink-0 z-[200] no-drag pointer-events-auto",
+              showTrafficLights ? "ml-1" : "ml-2"
+            )}
+            style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
+          >
+            {/* Windows: only hamburger + logo in titlebar */}
+            {isWindowsApp && <HamburgerMenu />}
+            {isWindowsApp && (
+              <div className="flex items-center gap-2">
+                <Logo size={16} />
+                <span className="text-sm font-semibold text-foreground tracking-tight">
+                  S-AGI
+                </span>
+              </div>
+            )}
 
-          {/* Sidebar toggle - only on macOS when collapsed */}
-          {showTrafficLights && (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  type="button"
-                  onClick={() => setSidebarOpen(true)}
-                  className="flex items-center justify-center w-7 h-7 rounded-md transition-all duration-200 hover:bg-accent/50 text-muted-foreground hover:text-foreground"
-                >
-                  <IconLayoutSidebarLeftExpand size={16} />
-                </button>
-              </TooltipTrigger>
-              <TooltipContent side="bottom">Mostrar sidebar</TooltipContent>
-            </Tooltip>
-          )}
-        </div>
-      )}
+            {/* macOS: chat controls beside traffic lights */}
+            {showTrafficLights && (
+              <>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7 text-muted-foreground hover:text-foreground hover:bg-accent/50 rounded-md no-drag"
+                      onClick={() => setActiveTab("gallery")}
+                      aria-label="Open gallery"
+                    >
+                      <IconPhoto size={16} />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom">Gallery</TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7 text-muted-foreground hover:text-foreground hover:bg-accent/50 rounded-md no-drag"
+                      onClick={handleNewChat}
+                      aria-label="New chat"
+                      disabled={createChat.isPending}
+                    >
+                      <IconPlus size={16} />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom">
+                    New Chat
+                    <kbd className="ml-2 pointer-events-none inline-flex h-4 select-none items-center rounded border bg-muted px-1 font-mono text-[10px] font-medium text-muted-foreground">
+                      {isMacOS() ? "⌘" : "Ctrl"}N
+                    </kbd>
+                  </TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7 text-muted-foreground hover:text-foreground hover:bg-accent/50 rounded-md no-drag"
+                      onClick={() => setCommandKOpen(true)}
+                      aria-label="Search chats"
+                    >
+                      <IconSearch size={16} />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom">
+                    Search
+                    <kbd className="ml-2 pointer-events-none inline-flex h-4 select-none items-center rounded border bg-muted px-1 font-mono text-[10px] font-medium text-muted-foreground">
+                      {isMacOS() ? "⌘" : "Ctrl"}K
+                    </kbd>
+                  </TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7 text-muted-foreground hover:text-foreground hover:bg-accent/50 rounded-md no-drag"
+                      onClick={() => setSidebarOpen(true)}
+                      aria-label="Open sidebar"
+                    >
+                      <IconLayoutSidebarLeftExpand size={16} />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom">
+                    Mostrar sidebar
+                    <kbd className="ml-2 pointer-events-none inline-flex h-4 select-none items-center rounded border bg-muted px-1 font-mono text-[10px] font-medium text-muted-foreground">
+                      {isMacOS() ? "⌘" : "Ctrl"}\
+                    </kbd>
+                  </TooltipContent>
+                </Tooltip>
+              </>
+            )}
+          </div>
+        )}
       {activeTab !== "ideas" &&
         activeTab !== "chat" &&
         activeTab !== "settings" &&

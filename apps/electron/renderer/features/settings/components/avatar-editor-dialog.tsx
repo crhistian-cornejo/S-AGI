@@ -60,7 +60,9 @@ export function AvatarEditorDialog({
 
     const loadImage = async (src: string) => {
         const img = new Image()
-        img.crossOrigin = 'anonymous'
+        if (/^https?:\/\//.test(src)) {
+            img.crossOrigin = 'anonymous'
+        }
         await new Promise<void>((resolve, reject) => {
             img.onload = () => resolve()
             img.onerror = () => reject(new Error('Failed to load image'))
@@ -96,10 +98,6 @@ export function AvatarEditorDialog({
             }
             const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' }, audio: false })
             cameraStreamRef.current = stream
-            if (videoRef.current) {
-                videoRef.current.srcObject = stream
-                await videoRef.current.play()
-            }
             setCameraActive(true)
         } catch (error) {
             const message = error instanceof Error ? error.message : 'Unable to access camera'
@@ -109,6 +107,17 @@ export function AvatarEditorDialog({
             setIsBusy(false)
         }
     }
+
+    // Connect stream to video element when camera becomes active
+    useEffect(() => {
+        if (cameraActive && cameraStreamRef.current && videoRef.current) {
+            videoRef.current.srcObject = cameraStreamRef.current
+            videoRef.current.play().catch(() => {
+                setCameraError('Failed to play video stream')
+                stopCamera()
+            })
+        }
+    }, [cameraActive])
 
     const captureFromCamera = async () => {
         if (!videoRef.current) return

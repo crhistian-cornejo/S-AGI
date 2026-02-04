@@ -4,6 +4,7 @@ import { getClaudeCodeAuthManager, getChatGPTAuthManager, getZaiAuthManager, CHA
 // NOTE: Gemini auth disabled - OAuth token incompatible with generativelanguage.googleapis.com
 // import { getClaudeCodeAuthManager, getChatGPTAuthManager, getZaiAuthManager, getGeminiAuthManager, CHATGPT_CODEX_MODELS } from '../../auth'
 import { supabase, authStorage, isSupabaseConfigured } from '../../supabase/client'
+import type { StoredAccount } from '../../supabase/auth-store'
 import { getMainWindow, sendToRenderer } from '../../window-manager'
 import { BrowserWindow, shell } from 'electron'
 import log from 'electron-log'
@@ -14,7 +15,7 @@ import {
     oauthRateLimiter,
     checkRateLimit
 } from '../../auth/rate-limiter'
-import { getStorageMode, LOCAL_USER_ID } from '../../storage'
+import { getStorageMode, getLocalFileStorage, LOCAL_USER_ID } from '../../storage'
 
 // ========== Local Mode Helpers ==========
 
@@ -23,6 +24,11 @@ import { getStorageMode, LOCAL_USER_ID } from '../../storage'
  * Defaults to local - cloud sync is a future premium feature
  */
 function isLocalMode(): boolean {
+    const activeAccount = authStorage.getActiveAccount()
+    if (activeAccount) {
+        return activeAccount.isLocal
+    }
+
     const mode = getStorageMode()
     // Default to local mode - only use cloud if explicitly set
     if (mode === 'local') {
@@ -49,13 +55,31 @@ function createLocalSession() {
  * Create a fake user for local mode
  */
 function createLocalUser() {
+    const account = getLocalAccount()
+    const profile = account?.profile ?? {}
+    const fullName = profile.fullName ?? account?.displayName ?? 'Local User'
+    const avatarPath = typeof profile.avatarPath === 'string' ? profile.avatarPath : null
+    const avatarUrl = avatarPath
+        ? getLocalFileStorage().getUrl('images', avatarPath)
+        : account?.avatarUrl ?? null
+    const avatarProviderUrl = profile.avatarProviderUrl ?? null
+    const email = account?.email ?? 'local@localhost'
+
     return {
         id: LOCAL_USER_ID,
-        email: 'local@localhost',
+        email,
         app_metadata: {},
         user_metadata: {
-            full_name: 'Local User',
-            avatar_url: null,
+            full_name: fullName,
+            username: profile.username ?? null,
+            pronouns: profile.pronouns ?? null,
+            bio: profile.bio ?? null,
+            website: profile.website ?? null,
+            location: profile.location ?? null,
+            timezone: profile.timezone ?? null,
+            avatar_url: avatarUrl,
+            avatar_provider_url: avatarProviderUrl,
+            avatar_path: avatarPath,
             picture: null,
             is_local: true
         },
@@ -74,6 +98,14 @@ function decodeImageDataUrl(dataUrl: string): { contentType: string; buffer: Buf
     const buffer = Buffer.from(match[2], 'base64')
     if (!buffer.length) throw new Error('Empty image data')
     return { contentType, buffer }
+}
+
+function getLocalAccount(): StoredAccount | null {
+    const active = authStorage.getActiveAccount()
+    if (active?.isLocal) return active
+    const localById = authStorage.findAccountByUserId(LOCAL_USER_ID)
+    if (localById?.isLocal) return localById
+    return null
 }
 
 /** Parse access_token and refresh_token from a Supabase OAuth callback URL (hash or query). */
@@ -107,10 +139,13 @@ export const authRouter = router({
         log.info('[Auth] Entering local mode')
 
         // Add local account to multi-account store
+        const existingAccount = getLocalAccount()
         const accountId = authStorage.addAccount({
             userId: LOCAL_USER_ID,
-            email: 'local@localhost',
-            displayName: 'Local User',
+            email: existingAccount?.email ?? 'local@localhost',
+            displayName: existingAccount?.displayName ?? 'Local User',
+            avatarUrl: existingAccount?.avatarUrl,
+            profile: existingAccount?.profile,
             isLocal: true,
             provider: 'local'
         })
@@ -204,7 +239,7 @@ export const authRouter = router({
     updateProfile: protectedProcedure
         .input(z.object({
             fullName: z.string().min(1).max(80).nullable().optional(),
-            username: z.string().min(2).max(32).regex(/^[a-z0-9_]+$/).nullable().optional(),
+            username: z.string().min(2).max(32).regex(/^[a-zA-Z0-9_.-]+$/).nullable().optional(),
             bio: z.string().max(240).nullable().optional(),
             website: z.string().max(200).url().nullable().optional(),
             location: z.string().max(80).nullable().optional(),
@@ -217,6 +252,108 @@ export const authRouter = router({
             }).optional()
         }))
         .mutation(async ({ input, ctx }) => {
+            if (ctx.isLocalMode || isLocalMode()) {
+                let account = getLocalAccount()
+                if (!account) {
+                    const accountId = authStorage.addAccount({
+                        userId: LOCAL_USER_ID,
+                        email: 'local@localhost',
+                        displayName: 'Local User',
+                        isLocal: true,
+                        provider: 'local'
+                    })
+                    authStorage.setActiveAccount(accountId)
+                    account = getLocalAccount()
+                }
+
+                if (!account) {
+                    throw new Error('No local account available')
+                }
+
+                const currentProfile = account.profile ?? {}
+                const nextProfile = { ...currentProfile }
+
+                if (input.fullName !== undefined) nextProfile.fullName = input.fullName
+                if (input.username !== undefined) nextProfile.username = input.username
+                if (input.bio !== undefined) nextProfile.bio = input.bio
+                if (input.website !== undefined) nextProfile.website = input.website
+                if (input.location !== undefined) nextProfile.location = input.location
+                if (input.timezone !== undefined) nextProfile.timezone = input.timezone
+                if (input.pronouns !== undefined) nextProfile.pronouns = input.pronouns
+
+                const fileStorage = getLocalFileStorage()
+                const existingAvatarPath = typeof currentProfile.avatarPath === 'string' ? currentProfile.avatarPath : null
+                const existingAvatarUrlFromPath = existingAvatarPath
+                    ? fileStorage.getUrl('images', existingAvatarPath)
+                    : null
+                let nextAvatarUrl = existingAvatarUrlFromPath ?? account.avatarUrl ?? null
+                let nextAvatarProviderUrl = currentProfile.avatarProviderUrl ?? null
+                let nextAvatarPath = existingAvatarPath
+
+                if (input.avatar?.mode === 'remove') {
+                    if (existingAvatarPath) {
+                        await fileStorage.deleteFile('images', existingAvatarPath)
+                    }
+                    nextAvatarUrl = null
+                    nextAvatarProviderUrl = null
+                    nextAvatarPath = null
+                }
+
+                if (input.avatar?.mode === 'provider') {
+                    const providerUrl = input.avatar.providerUrl ?? null
+                    if (existingAvatarPath) {
+                        await fileStorage.deleteFile('images', existingAvatarPath)
+                    }
+                    nextAvatarUrl = providerUrl
+                    nextAvatarProviderUrl = providerUrl
+                    nextAvatarPath = null
+                }
+
+                if (input.avatar?.mode === 'upload') {
+                    const dataUrl = input.avatar.dataUrl
+                    if (!dataUrl) throw new Error('Missing avatar data')
+                    const { contentType, buffer } = decodeImageDataUrl(dataUrl)
+                    if (buffer.length > 2_000_000) throw new Error('Avatar image too large')
+                    const ext = contentType.includes('webp') ? 'webp' : contentType.includes('png') ? 'png' : contentType.includes('jpeg') ? 'jpg' : 'img'
+                    const storagePath = `${account.userId}/avatars/avatar.${ext}`
+                    const result = await fileStorage.uploadOrReplace('images', storagePath, buffer, {
+                        contentType,
+                        cacheControl: '3600'
+                    })
+                    if (!result.success) {
+                        throw new Error(result.error || 'Failed to store avatar')
+                    }
+                    if (existingAvatarPath && existingAvatarPath !== storagePath) {
+                        await fileStorage.deleteFile('images', existingAvatarPath)
+                    }
+                    nextAvatarPath = storagePath
+                    nextAvatarUrl = fileStorage.getUrl('images', storagePath)
+                    nextAvatarProviderUrl = null
+                }
+
+                nextProfile.avatarProviderUrl = nextAvatarProviderUrl
+                nextProfile.avatarPath = nextAvatarPath
+
+                const fullNameValue = typeof nextProfile.fullName === 'string' ? nextProfile.fullName.trim() : ''
+                const displayName =
+                    fullNameValue ||
+                    (input.fullName === undefined ? account.displayName : 'Local User') ||
+                    'Local User'
+
+                const accountId = authStorage.addAccount({
+                    userId: account.userId,
+                    email: account.email,
+                    displayName,
+                    avatarUrl: nextAvatarUrl ?? undefined,
+                    isLocal: true,
+                    provider: account.provider ?? 'local',
+                    profile: nextProfile
+                })
+                authStorage.setActiveAccount(accountId)
+
+                return createLocalUser()
+            }
+
             const { data: { user: currentUser }, error: currentUserError } = await supabase.auth.getUser()
             if (currentUserError) {
                 log.error('[Auth] updateProfile getUser error:', currentUserError)
@@ -372,16 +509,51 @@ export const authRouter = router({
     // ========== Multi-Account Management ==========
 
     // Get all connected accounts
-    getAccounts: publicProcedure.query(() => {
+    getAccounts: publicProcedure.query(async () => {
         const accounts = authStorage.getAccounts()
         const activeId = authStorage.getActiveAccountId()
+        const activeAccount = accounts.find(a => a.id === activeId)
+        const fileStorage = getLocalFileStorage()
+
+        // For active cloud account, refresh avatar from Supabase
+        let refreshedAvatarUrl: string | undefined
+        if (activeAccount && !activeAccount.isLocal) {
+            try {
+                const { data: { user } } = await supabase.auth.getUser()
+                if (user) {
+                    const userMeta = user.user_metadata as Record<string, unknown> || {}
+                    // Google OAuth puts avatar in 'picture', Supabase uses 'avatar_url'
+                    refreshedAvatarUrl =
+                        (userMeta.avatar_url as string) ||
+                        (userMeta.picture as string) ||
+                        undefined
+
+                    // Update stored account if avatar changed
+                    if (refreshedAvatarUrl && refreshedAvatarUrl !== activeAccount.avatarUrl) {
+                        authStorage.addAccount({
+                            userId: activeAccount.userId,
+                            email: activeAccount.email,
+                            displayName: activeAccount.displayName,
+                            avatarUrl: refreshedAvatarUrl,
+                            isLocal: false,
+                            provider: activeAccount.provider
+                        })
+                    }
+                }
+            } catch (error) {
+                log.debug('[Auth] Failed to refresh avatar for active account:', error)
+            }
+        }
+
         return {
             accounts: accounts.map(acc => ({
                 id: acc.id,
                 userId: acc.userId,
                 email: acc.email,
                 displayName: acc.displayName,
-                avatarUrl: acc.avatarUrl,
+                avatarUrl: acc.id === activeId && refreshedAvatarUrl
+                    ? refreshedAvatarUrl
+                    : acc.avatarUrl ?? (acc.isLocal && acc.profile?.avatarPath ? fileStorage.getUrl('images', acc.profile.avatarPath) : undefined),
                 isLocal: acc.isLocal,
                 provider: acc.provider,
                 connectedAt: acc.connectedAt,
@@ -445,6 +617,45 @@ export const authRouter = router({
             }
 
             log.info('[Auth] Account removed:', account.email)
+            return { success: true }
+        }),
+
+    // Update local account profile (name, avatar, etc.)
+    updateLocalProfile: publicProcedure
+        .input(z.object({
+            displayName: z.string().min(1).max(50).optional(),
+            avatarEmoji: z.string().max(10).optional(), // Emoji avatar for local accounts
+            avatarColor: z.string().regex(/^#[0-9A-Fa-f]{6}$/).optional() // Hex color
+        }))
+        .mutation(({ input }) => {
+            const activeAccount = authStorage.getActiveAccount()
+            if (!activeAccount) {
+                throw new Error('No active account')
+            }
+            if (!activeAccount.isLocal) {
+                throw new Error('Can only update local account profile')
+            }
+
+            log.info('[Auth] Updating local profile:', input)
+
+            // Build avatar URL from emoji + color (we'll use a special format)
+            let avatarUrl = activeAccount.avatarUrl
+            if (input.avatarEmoji || input.avatarColor) {
+                const emoji = input.avatarEmoji || '👤'
+                const color = input.avatarColor || '#6366f1'
+                // Store as special format: emoji://[emoji]?bg=[color]
+                avatarUrl = `emoji://${emoji}?bg=${encodeURIComponent(color)}`
+            }
+
+            authStorage.addAccount({
+                userId: activeAccount.userId,
+                email: activeAccount.email,
+                displayName: input.displayName || activeAccount.displayName,
+                avatarUrl,
+                isLocal: true,
+                provider: 'local'
+            })
+
             return { success: true }
         }),
 

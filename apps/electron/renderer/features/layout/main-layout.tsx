@@ -1,3 +1,4 @@
+import type { CSSProperties, MouseEvent } from "react";
 import {
   lazy,
   Suspense,
@@ -56,6 +57,7 @@ import { SettingsPage } from "@/features/settings/settings-page";
 import { useOpenSettingsPage } from "@/features/settings/use-open-settings-page";
 import { TitleBar } from "./title-bar";
 import { cn, isMacOS } from "@/lib/utils";
+import { isLocalMode as isLocalModeRenderer } from "@/lib/supabase";
 import { useAtom, useSetAtom, useAtomValue } from "jotai";
 import {
   Tooltip,
@@ -295,7 +297,7 @@ export function MainLayout() {
   });
 
   const handleNewChat = useCallback(
-    (message?: string | React.MouseEvent) => {
+    (message?: string | MouseEvent) => {
       setActiveTab("chat");
       const title =
         typeof message === "string"
@@ -354,6 +356,17 @@ export function MainLayout() {
 
     return btoa(base64);
   }, []);
+
+  const isLocalStorageMode = isLocalModeRenderer();
+
+  const getLocalPath = useCallback(
+    (file?: { metadata?: Record<string, unknown> | null } | null) => {
+      if (!file?.metadata || typeof file.metadata !== "object") return null;
+      const maybePath = (file.metadata as Record<string, unknown>).localPath;
+      return typeof maybePath === "string" ? maybePath : null;
+    },
+    []
+  );
 
   const handleExportExcel = useCallback(async () => {
     try {
@@ -828,118 +841,11 @@ export function MainLayout() {
             <div className="flex-1 flex flex-col min-w-0 overflow-hidden relative pt-9 bg-sidebar">
               {!sidebarOpen && (
                 <>
-                  {isMacOS() && (
-                    <div
-                      className={cn(
-                        "absolute z-[60] flex items-center gap-2 animate-in fade-in slide-in-from-left-4 duration-500 no-drag",
-                        "top-0 h-9 pl-14 pr-2 left-4"
-                      )}
-                    >
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-8 w-8 rounded-md bg-background/60 backdrop-blur-xl border border-border/50 shadow-sm hover:bg-accent hover:scale-110 transition-all active:scale-95 text-primary no-drag"
-                            onClick={() => setSidebarOpen(true)}
-                          >
-                            <IconLayoutSidebarLeftExpand size={18} />
-                          </Button>
-                        </TooltipTrigger>
-                        <TooltipContent
-                          side="bottom"
-                          className="flex items-center gap-2 font-semibold"
-                        >
-                          Open Sidebar
-                          <kbd className="pointer-events-none inline-flex h-5 select-none items-center gap-1 rounded border bg-muted px-1.5 font-mono text-[10px] font-medium text-muted-foreground opacity-100">
-                            {navigator.platform.toLowerCase().includes("mac")
-                              ? "⌘"
-                              : "Ctrl"}{" "}
-                            \
-                          </kbd>
-                        </TooltipContent>
-                      </Tooltip>
-
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-8 w-8 rounded-md bg-background/60 backdrop-blur-xl border border-border/50 shadow-sm hover:bg-accent hover:scale-110 transition-all active:scale-95 no-drag"
-                            onClick={() => setActiveTab("gallery")}
-                          >
-                            <IconPhoto size={18} />
-                          </Button>
-                        </TooltipTrigger>
-                        <TooltipContent
-                          side="bottom"
-                          className="flex items-center gap-2 font-semibold"
-                        >
-                          Gallery
-                        </TooltipContent>
-                      </Tooltip>
-
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <Button
-                            variant="outline"
-                            size="icon"
-                            className="h-8 w-8 rounded-md bg-background/60 backdrop-blur-xl border-border/50 shadow-sm hover:bg-accent hover:scale-110 transition-all active:scale-95 no-drag"
-                            onClick={handleNewChat}
-                            disabled={createChat.isPending}
-                          >
-                            <IconPlus size={18} />
-                          </Button>
-                        </TooltipTrigger>
-                        <TooltipContent
-                          side="bottom"
-                          className="flex items-center gap-2 font-semibold"
-                        >
-                          New Chat
-                          <kbd className="pointer-events-none inline-flex h-5 select-none items-center gap-1 rounded border bg-muted px-1.5 font-mono text-[10px] font-medium text-muted-foreground opacity-100">
-                            {navigator.platform.toLowerCase().includes("mac")
-                              ? "⌘"
-                              : "Ctrl"}{" "}
-                            N
-                          </kbd>
-                        </TooltipContent>
-                      </Tooltip>
-
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-8 w-8 rounded-md bg-background/60 backdrop-blur-xl border border-border/50 shadow-sm hover:bg-accent hover:scale-110 transition-all active:scale-95 no-drag"
-                            onClick={() => setCommandKOpen(true)}
-                          >
-                            <IconHistory
-                              size={18}
-                              className="text-muted-foreground"
-                            />
-                          </Button>
-                        </TooltipTrigger>
-                        <TooltipContent
-                          side="bottom"
-                          className="flex items-center gap-2 font-semibold"
-                        >
-                          Search chats
-                          <kbd className="pointer-events-none inline-flex h-5 select-none items-center gap-1 rounded border bg-muted px-1.5 font-mono text-[10px] font-medium text-muted-foreground opacity-100">
-                            {navigator.platform.toLowerCase().includes("mac")
-                              ? "⌘"
-                              : "Ctrl"}{" "}
-                            K
-                          </kbd>
-                        </TooltipContent>
-                      </Tooltip>
-                    </div>
-                  )}
-
                   {/* Windows: vertical floating buttons inside chat area */}
                   {!isMacOS() && !sidebarOpen && activeTab === "chat" && (
                     <div
                       className="absolute left-4 top-12 z-[200] flex flex-col items-center gap-2 no-drag pointer-events-auto"
-                      style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
+                      style={{ WebkitAppRegion: "no-drag" } as CSSProperties}
                     >
                       <Tooltip>
                         <TooltipTrigger asChild>
@@ -1126,9 +1032,17 @@ export function MainLayout() {
                                 toast.success("Guardado");
                               }
                             }}
-                            storageKind="cloud"
-                            storageLabel="Nube (S-AGI)"
-                            storageTooltip="Guardado en la nube con historial de versiones"
+                            storageKind={isLocalStorageMode ? "local" : "cloud"}
+                            storageLabel={
+                              isLocalStorageMode ? "Local" : "Nube (S-AGI)"
+                            }
+                            storageTooltip={
+                              isLocalStorageMode
+                                ? getLocalPath(currentExcelFile)
+                                  ? `Guardado en ${getLocalPath(currentExcelFile)}`
+                                  : "Guardado en este dispositivo"
+                                : "Guardado en la nube con historial de versiones"
+                            }
                             onOpenHistory={() => {
                               setVersionHistoryFileId(currentExcelFileId);
                               setVersionHistoryFileType("excel");
@@ -1276,9 +1190,17 @@ export function MainLayout() {
                                 toast.success("Guardado");
                               }
                             }}
-                            storageKind="cloud"
-                            storageLabel="Nube (S-AGI)"
-                            storageTooltip="Guardado en la nube con historial de versiones"
+                            storageKind={isLocalStorageMode ? "local" : "cloud"}
+                            storageLabel={
+                              isLocalStorageMode ? "Local" : "Nube (S-AGI)"
+                            }
+                            storageTooltip={
+                              isLocalStorageMode
+                                ? getLocalPath(currentDocFile)
+                                  ? `Guardado en ${getLocalPath(currentDocFile)}`
+                                  : "Guardado en este dispositivo"
+                                : "Guardado en la nube con historial de versiones"
+                            }
                             onOpenHistory={() => {
                               setVersionHistoryFileId(currentDocFileId);
                               setVersionHistoryFileType("doc");

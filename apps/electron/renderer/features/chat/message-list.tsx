@@ -564,8 +564,8 @@ const ErrorNotification = memo(function ErrorNotification({
 /** Memoized assistant avatar to prevent unnecessary re-renders */
 const AssistantAvatar = memo(function AssistantAvatar() {
   return (
-    <div className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0">
-      <Logo size={32} />
+    <div className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0">
+      <Logo size={24} />
     </div>
   );
 });

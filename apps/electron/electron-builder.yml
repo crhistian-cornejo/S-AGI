@@ -63,8 +63,7 @@ mac:
   gatekeeperAssess: false
   entitlements: apps/electron/build/entitlements.mac.plist
   entitlementsInherit: apps/electron/build/entitlements.mac.plist
-  notarize:
-    teamId: "${env.APPLE_TEAM_ID}"
+  notarize: true
   artifactName: "S-AGI-${version}-macOS-${arch}.${ext}"
   extendInfo:
     NSMicrophoneUsageDescription: "S-AGI needs microphone access for voice input"

@@ -1,10 +1,8 @@
 import { useState } from "react";
-import { useSetAtom } from "jotai";
 import { IconLoader2, IconBrandGoogle, IconDeviceDesktop, IconPlus, IconCheck } from "@tabler/icons-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
-import { authDialogOpenAtom, authDialogModeAtom } from "@/lib/atoms";
 import { trpc } from "@/lib/trpc";
 import { MinimalTitleBar } from "@/features/layout/minimal-title-bar";
 import backgroundImage from "@/assets/background.png";
@@ -15,8 +13,6 @@ interface AuthGuardProps {
 }
 
 export function AuthGuard({ children }: AuthGuardProps) {
-  const setAuthDialogOpen = useSetAtom(authDialogOpenAtom);
-  const setAuthDialogMode = useSetAtom(authDialogModeAtom);
   const [switchingId, setSwitchingId] = useState<string | null>(null);
 
   const {
@@ -33,37 +29,30 @@ export function AuthGuard({ children }: AuthGuardProps) {
   const accounts = accountsData?.accounts || [];
   const hasAccounts = accounts.length > 0;
 
-  // NOTE: Session synchronization is handled by the main process via encrypted storage.
-  // The renderer should NOT try to sync its localStorage session to main, as this causes
-  // race conditions with refresh tokens ("refresh_token_already_used" error).
-  // The main process is the single source of truth for authentication.
-
   const utils = trpc.useUtils();
 
   const signInWithOAuth = trpc.auth.signInWithOAuth.useMutation({
     onSuccess: () => {
-      toast.info("Opening Google sign in...");
+      toast.info("Abriendo Google...");
     },
     onError: (err) => {
-      toast.error(err.message || "Failed to start Google sign in");
+      toast.error(err.message || "Error al iniciar sesión con Google");
     },
   });
 
   const enterLocalMode = trpc.auth.enterLocalMode.useMutation({
     onSuccess: () => {
-      toast.success("Welcome! Using local storage mode.");
-      // Invalidate session query to trigger re-render with local session
+      toast.success("Modo local activado");
       utils.auth.getSession.invalidate();
       utils.auth.getAccounts.invalidate();
     },
     onError: (err) => {
-      toast.error(err.message || "Failed to enter local mode");
+      toast.error(err.message || "Error al activar modo local");
     },
   });
 
   const switchAccount = trpc.auth.switchAccount.useMutation({
     onSuccess: () => {
-      // Invalidate ALL user-specific caches when switching accounts
       utils.auth.getSession.invalidate();
       utils.auth.getUser.invalidate();
       utils.auth.getAccounts.invalidate();
@@ -71,11 +60,11 @@ export function AuthGuard({ children }: AuthGuardProps) {
       utils.chats.listArchived.invalidate();
       utils.artifacts.list.invalidate();
       utils.userFiles.list.invalidate();
-      toast.success("Welcome back!");
+      toast.success("Bienvenido de nuevo");
       setSwitchingId(null);
     },
     onError: () => {
-      toast.error("Failed to switch account");
+      toast.error("Error al cambiar de cuenta");
       setSwitchingId(null);
     },
   });
@@ -116,7 +105,7 @@ export function AuthGuard({ children }: AuthGuardProps) {
             backgroundRepeat: "no-repeat",
           }}
         >
-          {/* Dark overlay for better text legibility */}
+          {/* Dark overlay */}
           <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" />
 
           <MinimalTitleBar />
@@ -125,60 +114,74 @@ export function AuthGuard({ children }: AuthGuardProps) {
           <div className="relative z-10 flex flex-col items-center gap-6">
             <div className="text-center space-y-2">
               <h2 className="text-3xl font-bold text-white drop-shadow-lg">
-                Welcome back to S-AGI
+                Bienvenido a S-AGI
               </h2>
               <p className="text-white/80 max-w-sm">
-                Select an account to continue
+                Selecciona una cuenta para continuar
               </p>
             </div>
 
             {/* Account List */}
             <div className="w-[320px] rounded-xl bg-white/10 backdrop-blur-md border border-white/20 overflow-hidden">
-              {accounts.map((account) => (
-                <button
-                  key={account.id}
-                  type="button"
-                  onClick={() => handleSelectAccount(account.id)}
-                  disabled={switchingId === account.id}
-                  className={cn(
-                    "w-full flex items-center gap-3 px-4 py-3 text-left transition-colors",
-                    "hover:bg-white/10 border-b border-white/10 last:border-b-0",
-                    switchingId === account.id && "opacity-70"
-                  )}
-                >
-                  <Avatar className="h-10 w-10 shrink-0">
-                    {account.avatarUrl ? (
-                      <AvatarImage src={account.avatarUrl} />
-                    ) : null}
-                    <AvatarFallback className="bg-white/20 text-white">
-                      {account.isLocal ? (
-                        <IconDeviceDesktop size={18} />
-                      ) : (
-                        account.email?.charAt(0).toUpperCase() || "?"
-                      )}
-                    </AvatarFallback>
-                  </Avatar>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-white truncate">
-                      {account.isLocal ? "Local Account" : account.email}
-                    </p>
-                    <p className="text-xs text-white/60 truncate">
-                      {account.isLocal ? "Offline mode" : account.provider || "Cloud"}
-                    </p>
-                  </div>
-                  {switchingId === account.id ? (
-                    <IconLoader2 size={18} className="animate-spin text-white/60" />
-                  ) : (
-                    <IconCheck size={18} className="text-white/40" />
-                  )}
-                </button>
-              ))}
+              {accounts.map((account) => {
+                const avatarUrl = account.avatarUrl || '';
+                const isEmoji = avatarUrl.startsWith('emoji://');
+                const emoji = isEmoji ? decodeURIComponent(avatarUrl.split('://')[1]?.split('?')[0] || '👤') : null;
+                const bgColor = isEmoji ? decodeURIComponent(avatarUrl.split('bg=')[1] || '#6366f1') : null;
+
+                return (
+                  <button
+                    key={account.id}
+                    type="button"
+                    onClick={() => handleSelectAccount(account.id)}
+                    disabled={switchingId === account.id}
+                    className={cn(
+                      "w-full flex items-center gap-3 px-4 py-3 text-left transition-colors",
+                      "hover:bg-white/10 border-b border-white/10 last:border-b-0",
+                      switchingId === account.id && "opacity-70"
+                    )}
+                  >
+                    <Avatar className="h-10 w-10 shrink-0">
+                      {isEmoji ? (
+                        <AvatarFallback
+                          className="text-xl"
+                          style={{ backgroundColor: bgColor || undefined }}
+                        >
+                          {emoji}
+                        </AvatarFallback>
+                      ) : avatarUrl && !account.isLocal ? (
+                        <AvatarImage src={avatarUrl} />
+                      ) : null}
+                      <AvatarFallback className="bg-white/20 text-white">
+                        {account.isLocal ? (
+                          <IconDeviceDesktop size={18} />
+                        ) : (
+                          account.email?.charAt(0).toUpperCase() || "?"
+                        )}
+                      </AvatarFallback>
+                    </Avatar>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-white truncate">
+                        {account.isLocal ? (account.displayName || "Cuenta Local") : account.email}
+                      </p>
+                      <p className="text-xs text-white/60 truncate">
+                        {account.isLocal ? "Modo offline" : account.provider || "Cloud"}
+                      </p>
+                    </div>
+                    {switchingId === account.id ? (
+                      <IconLoader2 size={18} className="animate-spin text-white/60" />
+                    ) : (
+                      <IconCheck size={18} className="text-white/40" />
+                    )}
+                  </button>
+                );
+              })}
             </div>
 
             {/* Divider */}
             <div className="flex items-center gap-4 w-[280px]">
               <div className="flex-1 border-t border-white/30" />
-              <span className="text-xs text-white/60">or</span>
+              <span className="text-xs text-white/60">o</span>
               <div className="flex-1 border-t border-white/30" />
             </div>
 
@@ -194,14 +197,14 @@ export function AuthGuard({ children }: AuthGuardProps) {
               ) : (
                 <IconPlus className="mr-2 h-5 w-5" />
               )}
-              Add Different Account
+              Agregar otra cuenta
             </Button>
           </div>
         </div>
       );
     }
 
-    // No accounts exist - show full login screen
+    // No accounts exist - show login screen (Google + Local only)
     return (
       <div
         className="relative flex h-full w-full flex-col items-center justify-center gap-6"
@@ -212,7 +215,7 @@ export function AuthGuard({ children }: AuthGuardProps) {
           backgroundRepeat: "no-repeat",
         }}
       >
-        {/* Dark overlay for better text legibility */}
+        {/* Dark overlay */}
         <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" />
 
         <MinimalTitleBar />
@@ -221,10 +224,10 @@ export function AuthGuard({ children }: AuthGuardProps) {
         <div className="relative z-10 flex flex-col items-center gap-6">
           <div className="text-center space-y-2">
             <h2 className="text-3xl font-bold text-white drop-shadow-lg">
-              Welcome to S-AGI
+              Bienvenido a S-AGI
             </h2>
             <p className="text-white/80 max-w-sm">
-              Office agent for spreadsheet and word
+              Tu asistente de oficina con IA
             </p>
           </div>
 
@@ -233,66 +236,40 @@ export function AuthGuard({ children }: AuthGuardProps) {
             size="lg"
             onClick={handleGoogleSignIn}
             disabled={signInWithOAuth.isPending}
-            className="min-w-[280px] bg-white text-black hover:bg-white/90 shadow-lg"
+            className="min-w-[280px] bg-white text-black hover:bg-white/90 shadow-lg h-12 text-base"
           >
             {signInWithOAuth.isPending ? (
-              <IconLoader2 className="mr-2 h-5 w-5 animate-spin" />
+              <IconLoader2 className="mr-3 h-5 w-5 animate-spin" />
             ) : (
-              <IconBrandGoogle className="mr-2 h-5 w-5" />
+              <IconBrandGoogle className="mr-3 h-5 w-5" />
             )}
-            Continue with Google
+            Continuar con Google
           </Button>
 
           {/* Divider */}
           <div className="flex items-center gap-4 w-[280px]">
             <div className="flex-1 border-t border-white/30" />
-            <span className="text-xs text-white/60">or</span>
+            <span className="text-xs text-white/60">o</span>
             <div className="flex-1 border-t border-white/30" />
           </div>
 
-          {/* Email sign in option */}
-          <Button
-            variant="outline"
-            onClick={() => {
-              setAuthDialogMode("signin");
-              setAuthDialogOpen(true);
-            }}
-            className="min-w-[280px] bg-white/10 border-white/30 text-white hover:bg-white/20 backdrop-blur-sm"
-          >
-            Sign in with Email
-          </Button>
-
-          {/* Local mode option - PRIMARY for offline use */}
+          {/* Local mode option */}
           <Button
             variant="outline"
             onClick={handleLocalMode}
             disabled={enterLocalMode.isPending}
-            className="min-w-[280px] bg-emerald-600/80 border-emerald-500/50 text-white hover:bg-emerald-600 backdrop-blur-sm"
+            className="min-w-[280px] bg-white/10 border-white/30 text-white hover:bg-white/20 backdrop-blur-sm h-12 text-base"
           >
             {enterLocalMode.isPending ? (
-              <IconLoader2 className="mr-2 h-5 w-5 animate-spin" />
+              <IconLoader2 className="mr-3 h-5 w-5 animate-spin" />
             ) : (
-              <IconDeviceDesktop className="mr-2 h-5 w-5" />
+              <IconDeviceDesktop className="mr-3 h-5 w-5" />
             )}
-            Continue Offline (Local Storage)
+            Usar sin cuenta (local)
           </Button>
 
-          <p className="text-xs text-white/60 text-center max-w-[280px]">
-            Local mode stores all data on your device. Sign in to enable cloud sync.
-          </p>
-
-          <p className="text-xs text-white/70 mt-2">
-            Don&apos;t have an account?{" "}
-            <button
-              type="button"
-              onClick={() => {
-                setAuthDialogMode("signup");
-                setAuthDialogOpen(true);
-              }}
-              className="text-white hover:underline font-medium"
-            >
-              Create one
-            </button>
+          <p className="text-[11px] text-white/50 text-center max-w-[280px]">
+            El modo local guarda todo en tu dispositivo
           </p>
         </div>
       </div>

@@ -1,6 +1,6 @@
 import { memo, useMemo, useRef, useEffect, useState, useCallback } from "react";
 import { useAtom, useAtomValue } from "jotai";
-import { useDebounce, useSpellCheck } from "@/hooks";
+// Spell check/prediction removed for maximum typing fluidity
 import { AnimatedLogo } from "./animated-logo";
 import { TextShimmer } from "@/components/ui/text-shimmer";
 import {
@@ -21,7 +21,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { ImageAttachmentItem } from "@/components/image-attachment-item";
 import { FileAttachmentItem } from "@/components/file-attachment-item";
-import { GhostTextOverlay, TabHint } from "@/components/ghost-text-overlay";
+// GhostTextOverlay removed - no longer using spell check/autocomplete
 import { SuggestedPrompts } from "./suggested-prompts";
 import {
   DocumentMentionPopover,
@@ -112,15 +112,6 @@ export const ChatInput = memo(function ChatInput({
   const streamingReasoning = useAtomValue(streamingReasoningAtom);
   const isReasoning = useAtomValue(isReasoningAtom);
   const supportsReasoning = useAtomValue(supportsReasoningAtom);
-
-  const [cursorPosition, setCursorPosition] = useState<number | null>(null);
-
-  const debouncedValue = useDebounce(value, 150);
-
-  const { autocomplete, applyTab } = useSpellCheck(
-    debouncedValue,
-    cursorPosition,
-  );
 
   // Get API key status to filter providers
   const { data: keyStatus } = trpc.settings.getApiKeyStatus.useQuery();
@@ -272,32 +263,6 @@ export const ChatInput = memo(function ChatInput({
       }
     }
 
-    // Tab to apply autocomplete suggestion
-    if (e.key === "Tab" && !e.ctrlKey && !e.shiftKey && autocomplete) {
-      e.preventDefault();
-
-      const rawCursor = textareaRef.current?.selectionStart;
-      const currentCursor = rawCursor ?? cursorPosition ?? value.length;
-      const result = applyTab(currentCursor);
-      onChange(result.text);
-      setCursorPosition(result.cursorPosition);
-
-      requestAnimationFrame(() => {
-        if (!textareaRef.current) return;
-        textareaRef.current.focus();
-        const pos = Math.max(
-          0,
-          Math.min(
-            result.cursorPosition ?? result.text.length,
-            result.text.length,
-          ),
-        );
-        textareaRef.current.selectionStart = pos;
-        textareaRef.current.selectionEnd = pos;
-      });
-      return;
-    }
-
     // Ctrl+Tab: cycle ResponseMode (Instant→Thinking→Auto) o Reasoning (Low→Medium→High)
     if (e.key === "Tab" && e.ctrlKey) {
       if (supportsResponseMode) {
@@ -397,7 +362,6 @@ export const ChatInput = memo(function ChatInput({
       const cursorPos = e.target.selectionStart || 0;
 
       onChange(newValue);
-      setCursorPosition(cursorPos);
 
       // Check if we should open the mention popover
       // Look for @ that's either at the start or preceded by whitespace
@@ -786,10 +750,6 @@ export const ChatInput = memo(function ChatInput({
             onChange={handleInputChange}
             onKeyDown={handleKeyDown}
             onPaste={handlePaste}
-            onSelect={(e) => {
-              const target = e.currentTarget;
-              setCursorPosition(target.selectionStart);
-            }}
             placeholder={
               isImageMode
                 ? "Describe the image you want to generate..."
@@ -802,16 +762,6 @@ export const ChatInput = memo(function ChatInput({
             disabled={false}
             spellCheck={false}
           />
-          {/* Ghost Text Overlay - Mirror element technique for autocomplete */}
-          <GhostTextOverlay
-            textareaRef={textareaRef}
-            value={value}
-            autocomplete={autocomplete}
-            className="z-10"
-          />
-
-          {/* Tab hint indicator */}
-          <TabHint hasAutocomplete={!!autocomplete} />
         </div>
 
         {/* Bottom Bar Controls */}

@@ -9,6 +9,10 @@ import type {
   FileType,
   PanelType,
   BucketType,
+  // Project types
+  Project,
+  CreateProjectInput,
+  UpdateProjectInput,
   // Chat types
   Chat,
   CreateChatInput,
@@ -199,6 +203,16 @@ export interface IStorageAdapter {
       userId: string,
       data: UpdateQuickPromptInput
     ): Promise<QuickPrompt>;
+    delete(id: string, userId: string): Promise<void>;
+    reorder(userId: string, ids: string[]): Promise<void>;
+  };
+
+  // ============ PROJECTS (Folders for threads) ============
+  projects: {
+    list(userId: string): Promise<Project[]>;
+    get(id: string, userId: string): Promise<Project | null>;
+    create(data: CreateProjectInput): Promise<Project>;
+    update(id: string, userId: string, data: UpdateProjectInput): Promise<Project>;
     delete(id: string, userId: string): Promise<void>;
     reorder(userId: string, ids: string[]): Promise<void>;
   };

@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { router, publicProcedure } from "../trpc";
-import { supabase, isSupabaseConfigured } from "../../supabase/client";
-import { getStorageAdapter, getStorageMode } from "../../storage";
+import { supabase } from "../../supabase/client";
+import { getStorageAdapter, isLocalStorageMode } from "../../storage";
 import log from "electron-log";
 
 // Helper to format date as YYYY-MM-DD (Local Time)
@@ -11,18 +11,6 @@ const formatDate = (date: Date) => {
   const d = String(date.getDate()).padStart(2, "0");
   return `${y}-${m}-${d}`;
 };
-
-/**
- * Check if we should use local storage mode
- * Defaults to local - cloud sync is a future premium feature
- */
-function isLocalMode(): boolean {
-  const mode = getStorageMode();
-  if (mode === "local") {
-    return true;
-  }
-  return !isSupabaseConfigured();
-}
 
 export const usageRouter = router({
   getStats: publicProcedure
@@ -34,7 +22,7 @@ export const usageRouter = router({
     )
     .query(async ({ input }) => {
       // In local mode, query from SQLite
-      if (isLocalMode()) {
+      if (isLocalStorageMode()) {
         log.debug("[Usage] Local mode - fetching usage stats from SQLite");
         const adapter = await getStorageAdapter();
 

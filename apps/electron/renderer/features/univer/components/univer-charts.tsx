@@ -120,7 +120,7 @@ export function UniverCharts({ univerAPI }: { univerAPI: any }) {
       }
 
       columns.slice(1).forEach((col) => {
-        const value = row[col.index + 1]
+        const value = row[col.index]
         point[col.label] = col.isNumeric ? parseFloat(value) || 0 : value
       })
 

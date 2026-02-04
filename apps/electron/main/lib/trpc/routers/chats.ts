@@ -1,21 +1,8 @@
 import log from "electron-log";
 import { z } from "zod";
 import { router, protectedProcedure } from "../trpc";
-import { supabase, isSupabaseConfigured } from "../../supabase/client";
-import { getStorageAdapter, getStorageMode } from "../../storage";
-
-/**
- * Check if we should use local storage mode
- * Defaults to local - cloud sync is a future premium feature
- */
-function isLocalMode(): boolean {
-  const mode = getStorageMode();
-  // Default to local mode - only use cloud if explicitly set
-  if (mode === "local") {
-    return true;
-  }
-  return !isSupabaseConfigured();
-}
+import { supabase } from "../../supabase/client";
+import { getStorageAdapter, isLocalStorageMode } from "../../storage";
 
 /**
  * Map local chat (camelCase) to Supabase format (snake_case)
@@ -26,6 +13,8 @@ function mapLocalChatToSnakeCase(chat: {
   title: string | null;
   archived: boolean;
   pinned: boolean;
+  projectId?: string | null;
+  sortOrder?: number;
   sourceType?: string | null;
   sourceId?: string | null;
   openaiVectorStoreId?: string | null;
@@ -39,6 +28,8 @@ function mapLocalChatToSnakeCase(chat: {
     title: chat.title || "New Chat",
     archived: chat.archived,
     pinned: chat.pinned,
+    project_id: chat.projectId || null,
+    sort_order: chat.sortOrder || 0,
     source_type: chat.sourceType || null,
     source_id: chat.sourceId || null,
     openai_vector_store_id: chat.openaiVectorStoreId || null,
@@ -293,7 +284,7 @@ export const chatsRouter = router({
       try {
         // Use local storage adapter in local mode
         // Following OpenCode pattern: no user filter in single-user mode
-        if (isLocalMode()) {
+        if (isLocalStorageMode()) {
           log.info("[Chats] Local mode - listing all chats");
           const adapter = await getStorageAdapter();
           // Use listAll (no userId filter) - OpenCode pattern
@@ -371,7 +362,7 @@ export const chatsRouter = router({
   listArchived: protectedProcedure.query(async ({ ctx }) => {
     try {
       // Use local storage adapter in local mode
-      if (isLocalMode()) {
+      if (isLocalStorageMode()) {
         log.info("[Chats] Local mode - listing archived chats");
         const adapter = await getStorageAdapter();
         const chats = await adapter.chats.listAll!({
@@ -422,7 +413,7 @@ export const chatsRouter = router({
     .query(async ({ ctx, input }) => {
       // Use local storage adapter in local mode
       // Following OpenCode pattern: no ownership verification in single-user local mode
-      if (isLocalMode()) {
+      if (isLocalStorageMode()) {
         log.debug("[Chats] Local mode - getting chat by id:", input.id);
         const adapter = await getStorageAdapter();
         // Use getById (no userId check) - OpenCode pattern
@@ -464,7 +455,7 @@ export const chatsRouter = router({
       }
 
       // Use local storage adapter in local mode
-      if (isLocalMode()) {
+      if (isLocalStorageMode()) {
         log.info("[Chats] Using local storage for create, getting adapter...");
         log.info("[Chats] ctx.userId:", ctx.userId);
         const adapter = await getStorageAdapter();
@@ -543,7 +534,7 @@ export const chatsRouter = router({
 
       // Use local storage adapter in local mode
       // Following OpenCode pattern: no ownership verification in single-user local mode
-      if (isLocalMode()) {
+      if (isLocalStorageMode()) {
         log.debug("[Chats] Local mode - updating chat:", id);
         const adapter = await getStorageAdapter();
         // Use updateById (no userId check) - OpenCode pattern
@@ -572,7 +563,7 @@ export const chatsRouter = router({
     .mutation(async ({ ctx, input }) => {
       // Use local storage adapter in local mode
       // Following OpenCode pattern: no ownership verification in single-user local mode
-      if (isLocalMode()) {
+      if (isLocalStorageMode()) {
         log.debug("[Chats] Local mode - togglePin for chat:", input.id);
         const adapter = await getStorageAdapter();
         // Use getById (no userId check) - OpenCode pattern
@@ -618,7 +609,7 @@ export const chatsRouter = router({
     .mutation(async ({ ctx, input }) => {
       // Use local storage adapter in local mode
       // Following OpenCode pattern: no ownership verification in single-user local mode
-      if (isLocalMode()) {
+      if (isLocalStorageMode()) {
         log.debug("[Chats] Local mode - archiving chat:", input.id);
         const adapter = await getStorageAdapter();
         // Use archiveById (no userId check) - OpenCode pattern
@@ -650,7 +641,7 @@ export const chatsRouter = router({
     .mutation(async ({ ctx, input }) => {
       // Use local storage adapter in local mode
       // Following OpenCode pattern: no ownership verification in single-user local mode
-      if (isLocalMode()) {
+      if (isLocalStorageMode()) {
         log.debug("[Chats] Local mode - restoring chat:", input.id);
         const adapter = await getStorageAdapter();
         // Use restoreById (no userId check) - OpenCode pattern
@@ -681,7 +672,7 @@ export const chatsRouter = router({
     .mutation(async ({ ctx, input }) => {
       // Use local storage adapter in local mode
       // Following OpenCode pattern: no ownership verification in single-user local mode
-      if (isLocalMode()) {
+      if (isLocalStorageMode()) {
         log.debug("[Chats] Local mode - deleting chat:", input.id);
         const adapter = await getStorageAdapter();
         // Use getById (no userId check) - OpenCode pattern

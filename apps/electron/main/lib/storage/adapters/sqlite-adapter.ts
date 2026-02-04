@@ -9,6 +9,7 @@ import {
   closeDatabase,
   isLocalDatabaseAvailable,
   getRawDatabase,
+  getLastDatabaseInitError,
 } from "../local-db";
 import {
   getLocalFileStorage,
@@ -20,6 +21,9 @@ import type {
   FileType,
   PanelType,
   BucketType,
+  Project,
+  CreateProjectInput,
+  UpdateProjectInput,
   Chat,
   CreateChatInput,
   UpdateChatInput,
@@ -83,7 +87,18 @@ export class SQLiteAdapter implements IStorageAdapter {
     try {
       const db = await initDatabase();
       if (!db) {
-        throw new Error("Failed to initialize SQLite database - better-sqlite3 may not be available");
+        const lastError = getLastDatabaseInitError();
+        const baseMessage =
+          "Failed to initialize SQLite database - better-sqlite3 may not be available";
+        const errorMessage = lastError?.message
+          ? `${baseMessage}. Root cause: ${lastError.message}`
+          : baseMessage;
+        const hint =
+          lastError?.message?.includes("MODULE_NOT_FOUND") ||
+          lastError?.message?.includes("was compiled against a different")
+            ? " Hint: run `bun install` (postinstall rebuilds native modules) or `bunx electron-rebuild -f -w better-sqlite3`."
+            : "";
+        throw new Error(`${errorMessage}${hint}`);
       }
       this._fileStorage = getLocalFileStorage();
       this._isConnected = true;
@@ -178,6 +193,14 @@ export class SQLiteAdapter implements IStorageAdapter {
         updates.push("pinned = ?");
         params.push(data.pinned ? 1 : 0);
       }
+      if (data.projectId !== undefined) {
+        updates.push("project_id = ?");
+        params.push(data.projectId);
+      }
+      if (data.sortOrder !== undefined) {
+        updates.push("sort_order = ?");
+        params.push(data.sortOrder);
+      }
       if (data.openaiVectorStoreId !== undefined) {
         updates.push("openai_vector_store_id = ?");
         params.push(data.openaiVectorStoreId);
@@ -259,9 +282,9 @@ export class SQLiteAdapter implements IStorageAdapter {
       log.info("[SQLiteAdapter] chats.create - id:", id, "userId:", data.userId, "title:", data.title);
 
       db.prepare(`
-        INSERT INTO chats (id, user_id, title, source_type, source_id, archived, pinned, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, 0, 0, ?, ?)
-      `).run(id, data.userId, data.title || "New Chat", data.sourceType || null, data.sourceId || null, now, now);
+        INSERT INTO chats (id, user_id, title, project_id, source_type, source_id, archived, pinned, sort_order, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, 0, 0, 0, ?, ?)
+      `).run(id, data.userId, data.title || "New Chat", data.projectId || null, data.sourceType || null, data.sourceId || null, now, now);
 
       // Verify the insert worked - use getById (no userId check)
       const chat = await this.chats.getById(id);
@@ -290,6 +313,14 @@ export class SQLiteAdapter implements IStorageAdapter {
       if (data.pinned !== undefined) {
         updates.push("pinned = ?");
         params.push(data.pinned ? 1 : 0);
+      }
+      if (data.projectId !== undefined) {
+        updates.push("project_id = ?");
+        params.push(data.projectId);
+      }
+      if (data.sortOrder !== undefined) {
+        updates.push("sort_order = ?");
+        params.push(data.sortOrder);
       }
       if (data.openaiVectorStoreId !== undefined) {
         updates.push("openai_vector_store_id = ?");
@@ -333,6 +364,8 @@ export class SQLiteAdapter implements IStorageAdapter {
     title: row.title,
     archived: Boolean(row.archived),
     pinned: Boolean(row.pinned),
+    projectId: row.project_id || null,
+    sortOrder: row.sort_order || 0,
     sourceType: row.source_type,
     sourceId: row.source_id,
     openaiVectorStoreId: row.openai_vector_store_id,
@@ -1272,6 +1305,127 @@ export class SQLiteAdapter implements IStorageAdapter {
     title: row.title,
     content: row.content,
     order: row.order || 0,
+    createdAt: toDate(row.created_at) || new Date(),
+    updatedAt: toDate(row.updated_at) || new Date(),
+  });
+
+  // ============ PROJECTS (Folders for threads) ============
+
+  projects = {
+    list: async (userId: string): Promise<Project[]> => {
+      const db = getRawDatabase();
+      if (!db) return [];
+
+      const results = db.prepare(`
+        SELECT * FROM projects WHERE user_id = ? ORDER BY sort_order ASC, created_at ASC
+      `).all(userId) as any[];
+
+      return results.map(this.mapProject);
+    },
+
+    get: async (id: string, userId: string): Promise<Project | null> => {
+      const db = getRawDatabase();
+      if (!db) return null;
+
+      const result = db.prepare(
+        `SELECT * FROM projects WHERE id = ? AND user_id = ? LIMIT 1`
+      ).get(id, userId) as any;
+
+      return result ? this.mapProject(result) : null;
+    },
+
+    create: async (data: CreateProjectInput): Promise<Project> => {
+      const db = getRawDatabase();
+      if (!db) throw new Error("Database not available");
+
+      const id = crypto.randomUUID();
+      const now = Math.floor(Date.now() / 1000);
+
+      // Get max sort_order for this user
+      const maxOrderResult = db.prepare(`
+        SELECT MAX(sort_order) as max_order FROM projects WHERE user_id = ?
+      `).get(data.userId) as any;
+      const sortOrder = (maxOrderResult?.max_order ?? -1) + 1;
+
+      db.prepare(`
+        INSERT INTO projects (id, user_id, name, icon, color, is_collapsed, sort_order, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?)
+      `).run(id, data.userId, data.name, data.icon || "📁", data.color || null, sortOrder, now, now);
+
+      return this.projects.get(id, data.userId) as Promise<Project>;
+    },
+
+    update: async (id: string, userId: string, data: UpdateProjectInput): Promise<Project> => {
+      const db = getRawDatabase();
+      if (!db) throw new Error("Database not available");
+
+      const updates: string[] = [];
+      const params: unknown[] = [];
+
+      if (data.name !== undefined) {
+        updates.push("name = ?");
+        params.push(data.name);
+      }
+      if (data.icon !== undefined) {
+        updates.push("icon = ?");
+        params.push(data.icon);
+      }
+      if (data.color !== undefined) {
+        updates.push("color = ?");
+        params.push(data.color);
+      }
+      if (data.isCollapsed !== undefined) {
+        updates.push("is_collapsed = ?");
+        params.push(data.isCollapsed ? 1 : 0);
+      }
+      if (data.sortOrder !== undefined) {
+        updates.push("sort_order = ?");
+        params.push(data.sortOrder);
+      }
+
+      updates.push("updated_at = ?");
+      params.push(Math.floor(Date.now() / 1000));
+      params.push(id, userId);
+
+      db.prepare(`
+        UPDATE projects SET ${updates.join(", ")} WHERE id = ? AND user_id = ?
+      `).run(...params);
+
+      return this.projects.get(id, userId) as Promise<Project>;
+    },
+
+    delete: async (id: string, userId: string): Promise<void> => {
+      const db = getRawDatabase();
+      if (!db) throw new Error("Database not available");
+
+      // First, unassign all chats from this project
+      db.prepare(`
+        UPDATE chats SET project_id = NULL WHERE project_id = ? AND user_id = ?
+      `).run(id, userId);
+
+      // Then delete the project
+      db.prepare(`DELETE FROM projects WHERE id = ? AND user_id = ?`).run(id, userId);
+    },
+
+    reorder: async (userId: string, ids: string[]): Promise<void> => {
+      const db = getRawDatabase();
+      if (!db) throw new Error("Database not available");
+
+      const stmt = db.prepare(`UPDATE projects SET sort_order = ? WHERE id = ? AND user_id = ?`);
+      ids.forEach((id, index) => {
+        stmt.run(index, id, userId);
+      });
+    },
+  };
+
+  private mapProject = (row: any): Project => ({
+    id: row.id,
+    userId: row.user_id,
+    name: row.name,
+    icon: row.icon || "📁",
+    color: row.color,
+    isCollapsed: Boolean(row.is_collapsed),
+    sortOrder: row.sort_order || 0,
     createdAt: toDate(row.created_at) || new Date(),
     updatedAt: toDate(row.updated_at) || new Date(),
   });

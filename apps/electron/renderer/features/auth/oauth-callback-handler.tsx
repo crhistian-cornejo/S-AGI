@@ -1,6 +1,8 @@
 import { useEffect, useRef } from 'react'
+import { useSetAtom } from 'jotai'
 import { toast } from 'sonner'
 import { trpc } from '@/lib/trpc'
+import { authDialogOpenAtom } from '@/lib/atoms'
 
 /**
  * Handles OAuth callback by capturing tokens from:
@@ -10,10 +12,13 @@ import { trpc } from '@/lib/trpc'
 export function OAuthCallbackHandler() {
     const hasProcessed = useRef(false)
     const utils = trpc.useUtils()
+    const setAuthDialogOpen = useSetAtom(authDialogOpenAtom)
 
     const setSession = trpc.auth.setSession.useMutation({
         onSuccess: () => {
             toast.success('Signed in successfully!')
+            // Close the auth dialog modal
+            setAuthDialogOpen(false)
             // Clear the hash from URL if present
             if (window.location.hash) {
                 window.history.replaceState(null, '', window.location.pathname)
@@ -21,6 +26,7 @@ export function OAuthCallbackHandler() {
             // Invalidate auth queries to refresh the UI
             utils.auth.getSession.invalidate()
             utils.auth.getUser.invalidate()
+            utils.chats.list.invalidate()
         },
         onError: (error) => {
             toast.error(error.message || 'Failed to complete sign in')

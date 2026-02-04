@@ -19,6 +19,34 @@ export type ChangeType =
   | "checkpoint";
 export type SyncStatus = "pending" | "synced" | "conflict";
 
+// ============ PROJECT TYPES (Folders for threads) ============
+export interface Project {
+  id: string;
+  userId: string;
+  name: string;
+  icon: string;
+  color: string | null;
+  isCollapsed: boolean;
+  sortOrder: number;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface CreateProjectInput {
+  userId: string;
+  name: string;
+  icon?: string;
+  color?: string;
+}
+
+export interface UpdateProjectInput {
+  name?: string;
+  icon?: string;
+  color?: string;
+  isCollapsed?: boolean;
+  sortOrder?: number;
+}
+
 // ============ CHAT TYPES ============
 export interface Chat {
   id: string;
@@ -26,6 +54,8 @@ export interface Chat {
   title: string | null;
   archived: boolean;
   pinned: boolean;
+  projectId: string | null;
+  sortOrder: number;
   sourceType: string | null;
   sourceId: string | null;
   openaiVectorStoreId: string | null;
@@ -37,6 +67,7 @@ export interface Chat {
 export interface CreateChatInput {
   userId: string;
   title?: string;
+  projectId?: string;
   sourceType?: string;
   sourceId?: string;
 }
@@ -45,6 +76,8 @@ export interface UpdateChatInput {
   title?: string;
   archived?: boolean;
   pinned?: boolean;
+  projectId?: string | null;
+  sortOrder?: number;
   openaiVectorStoreId?: string;
 }
 

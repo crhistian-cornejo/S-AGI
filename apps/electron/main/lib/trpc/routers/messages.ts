@@ -1,26 +1,10 @@
 import { z } from 'zod'
 import { router, protectedProcedure } from '../trpc'
-import { supabase, isSupabaseConfigured } from '../../supabase/client'
+import { supabase } from '../../supabase/client'
 import path from 'path'
 import { processBase64Image, isProcessableImage, getExtensionForFormat } from '../../ai'
 import log from 'electron-log'
-import { getStorageAdapter, getStorageMode } from '../../storage'
-
-/**
- * Check if we should use local storage mode
- * Defaults to local - cloud sync is a future premium feature
- */
-function isLocalMode(): boolean {
-    const storageMode = getStorageMode()
-    const supabaseConfigured = isSupabaseConfigured()
-    log.debug('[Messages] isLocalMode check - storageMode:', storageMode, 'supabaseConfigured:', supabaseConfigured)
-
-    // Default to local mode - only use cloud if explicitly set
-    if (storageMode === 'local') {
-        return true
-    }
-    return !supabaseConfigured
-}
+import { getStorageAdapter, isLocalStorageMode } from '../../storage'
 
 /**
  * Map local message (camelCase) to Supabase format (snake_case)
@@ -124,7 +108,7 @@ export const messagesRouter = router({
 
             // Use local storage adapter in local mode
             // Following OpenCode pattern: no ownership verification needed in single-user local mode
-            if (isLocalMode()) {
+            if (isLocalStorageMode()) {
                 log.info('[Messages] Local mode - listing messages for chatId:', input.chatId)
                 const adapter = await getStorageAdapter()
 
@@ -205,7 +189,7 @@ export const messagesRouter = router({
 
             // Use local storage adapter in local mode
             // Following OpenCode pattern: no ownership verification needed in single-user local mode
-            if (isLocalMode()) {
+            if (isLocalStorageMode()) {
                 log.info('[Messages] Local mode - adding message to chatId:', input.chatId)
                 const adapter = await getStorageAdapter()
 
@@ -286,7 +270,7 @@ export const messagesRouter = router({
         .mutation(async ({ ctx, input }) => {
             // Use local storage adapter in local mode
             // Following OpenCode pattern: no ownership verification in single-user local mode
-            if (isLocalMode()) {
+            if (isLocalStorageMode()) {
                 log.debug('[Messages] Local mode - updating message:', input.id)
                 const adapter = await getStorageAdapter()
 
@@ -351,7 +335,7 @@ export const messagesRouter = router({
         .mutation(async ({ ctx, input }) => {
             // Use local storage adapter in local mode
             // Following OpenCode pattern: no ownership verification in single-user local mode
-            if (isLocalMode()) {
+            if (isLocalStorageMode()) {
                 log.debug('[Messages] Local mode - deleting message:', input.id)
                 const adapter = await getStorageAdapter()
                 await adapter.messages.delete(input.id, 'local-user')
@@ -456,7 +440,7 @@ export const messagesRouter = router({
             const storagePath = `${ctx.userId}/${timestamp}-${randomId}-${fileNameWithoutExt}${fileExt}`
 
             // Use local storage adapter in local mode
-            if (isLocalMode()) {
+            if (isLocalStorageMode()) {
                 log.debug('[Messages] Using local storage for uploadFile')
                 const adapter = await getStorageAdapter()
 

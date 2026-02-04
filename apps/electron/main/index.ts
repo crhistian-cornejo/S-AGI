@@ -1399,7 +1399,7 @@ function createTray(): void {
 }
 
 function createWindow(): void {
-  // Create the browser window
+  // Create the browser window with performance optimizations
   mainWindow = new BrowserWindow({
     width: 1100,
     height: 850,
@@ -1409,6 +1409,15 @@ function createWindow(): void {
     autoHideMenuBar: true,
     frame: false,
     titleBarStyle: "hiddenInset",
+    // macOS: Position traffic lights consistently across macOS versions
+    ...(process.platform === "darwin" && {
+      trafficLightPosition: { x: 12, y: 12 },
+    }),
+    // Windows: Enable native visual effects
+    ...(process.platform === "win32" && {
+      backgroundColor: "#00000000",
+      transparent: false,
+    }),
     icon:
       process.platform === "darwin"
         ? join(__dirname, "icon.icns")
@@ -1420,8 +1429,10 @@ function createWindow(): void {
       sandbox: true,
       contextIsolation: true,
       nodeIntegration: false,
-      backgroundThrottling: true,
-      v8CacheOptions: "bypassHeatCheck",
+      backgroundThrottling: false, // Keep responsive when app is visible
+      v8CacheOptions: "bypassHeatCheck", // Faster V8 compilation caching
+      spellcheck: false, // Disable browser spellcheck (app handles it)
+      webgl: true, // Enable GPU acceleration for WebGL
     },
   });
 
@@ -1720,6 +1731,9 @@ app.on("window-all-closed", () => {
 // Graceful shutdown - Clean up resources before quitting
 app.on("before-quit", async () => {
   log.info("[App] Before quit - cleaning up resources...");
+
+  // Remove power monitor listeners to prevent memory leaks
+  powerMonitor.removeAllListeners();
 
   // Close local storage
   try {

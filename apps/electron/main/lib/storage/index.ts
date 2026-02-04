@@ -62,6 +62,7 @@ export {
   getDatabasePath,
   getLocalStoragePath,
   isLocalDatabaseAvailable,
+  getLastDatabaseInitError,
 } from "./local-db";
 
 // Export local-files functions
@@ -163,4 +164,48 @@ export function getStorageUserId(supabaseUserId?: string | null): string {
     return supabaseUserId;
   }
   return LOCAL_USER_ID;
+}
+
+// ============ STORAGE MODE HELPER ============
+
+// Import authStorage lazily to avoid circular dependency
+let _authStorage: { getActiveAccount: () => { isLocal: boolean } | null } | null = null;
+let _isSupabaseConfigured: (() => boolean) | null = null;
+
+/**
+ * Initialize storage mode helpers (call this after supabase client is ready)
+ */
+export function initStorageModeHelpers(
+  authStorage: { getActiveAccount: () => { isLocal: boolean } | null },
+  isSupabaseConfigured: () => boolean
+): void {
+  _authStorage = authStorage;
+  _isSupabaseConfigured = isSupabaseConfigured;
+}
+
+/**
+ * Check if app should use local storage mode
+ * Based on active account type - cloud accounts use Supabase, local accounts use SQLite
+ * This is the SINGLE SOURCE OF TRUTH for storage mode decisions
+ */
+export function isLocalStorageMode(): boolean {
+  // First check active account - this determines storage mode
+  if (_authStorage) {
+    const activeAccount = _authStorage.getActiveAccount();
+    if (activeAccount) {
+      return activeAccount.isLocal;
+    }
+  }
+
+  // Fallback: check storage mode setting
+  if (currentMode === "local") {
+    return true;
+  }
+
+  // Final fallback: check if Supabase is configured
+  if (_isSupabaseConfigured) {
+    return !_isSupabaseConfigured();
+  }
+
+  return true; // Default to local mode
 }

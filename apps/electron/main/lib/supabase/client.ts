@@ -1,6 +1,7 @@
 import { createClient, SupabaseClient as SupabaseClientType } from "@supabase/supabase-js";
 import log from "electron-log";
 import { getSupabaseAuthStore } from "./auth-store";
+import { initStorageModeHelpers } from "../storage";
 
 const supabaseUrl =
   import.meta.env.MAIN_VITE_SUPABASE_URL ||
@@ -13,6 +14,9 @@ const supabaseAnonKey =
 
 // Use custom encrypted storage for Electron (persists session between app restarts)
 const authStorage = getSupabaseAuthStore();
+
+// Initialize storage mode helpers for cross-module access
+initStorageModeHelpers(authStorage, isSupabaseConfigured);
 
 /**
  * Check if Supabase is properly configured

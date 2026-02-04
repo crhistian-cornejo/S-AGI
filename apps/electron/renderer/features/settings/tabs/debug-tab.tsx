@@ -9,6 +9,7 @@ import {
     IconDatabase,
     IconWorld,
     IconCpu,
+    IconFolder,
     IconCheck,
     IconX,
     IconLoader2
@@ -16,7 +17,7 @@ import {
 import { trpc } from '@/lib/trpc'
 import { useSetAtom } from 'jotai'
 import { selectedChatIdAtom, onboardingCompletedAtom } from "../../../lib/atoms/index"
-import { cn } from '@/lib/utils'
+import { cn, isElectron } from '@/lib/utils'
 
 export function DebugTab() {
     const [isClearing, setIsClearing] = useState(false)
@@ -29,6 +30,16 @@ export function DebugTab() {
     const { data: health, refetch: refetchHealth } = trpc.settings.checkHealth.useQuery(undefined, {
         enabled: false // Only run on demand
     })
+    const openLocalFolderMutation = trpc.settings.openLocalFolder.useMutation({
+        onSuccess: () => {
+            toast.success('Local folder opened')
+        },
+        onError: (error) => {
+            const message = (error as { message?: string })?.message
+            toast.error(message ? `Failed to open local folder: ${message}` : 'Failed to open local folder')
+        }
+    })
+    const isDesktop = isElectron()
 
     const handleCheckHealth = async () => {
         setIsCheckingHealth(true)
@@ -83,6 +94,14 @@ export function DebugTab() {
         } catch {
             toast.error('Failed to refresh session')
         }
+    }
+
+    const handleOpenLocalFolder = () => {
+        if (!isDesktop) {
+            toast.error('Available only in the desktop app')
+            return
+        }
+        openLocalFolderMutation.mutate()
     }
 
     return (
@@ -156,6 +175,23 @@ export function DebugTab() {
                     />
 
                     <SettingsRow
+                        title="Open Local Folder"
+                        description="Open the app data folder for this OS"
+                        action={
+                            <Button
+                                variant="outline"
+                                onClick={handleOpenLocalFolder}
+                                disabled={!isDesktop || openLocalFolderMutation.isPending}
+                                size="sm"
+                                className="h-8 w-24 text-xs"
+                            >
+                                <IconFolder size={14} className="mr-1.5" />
+                                Open
+                            </Button>
+                        }
+                    />
+
+                    <SettingsRow
                         title="Reset Onboarding"
                         description="Show the welcome guide again"
                         action={
@@ -222,6 +258,7 @@ export function DebugTab() {
                     <InfoRow label="Node" value={systemInfo?.node} />
                     <InfoRow label="Platform" value={`${systemInfo?.platform} (${systemInfo?.arch})`} />
                     <InfoRow label="Memory" value={`${systemInfo?.freeMem}GB / ${systemInfo?.totalMem}GB free`} />
+                    <InfoRow label="User Data" value={systemInfo?.userData} />
                 </div>
             </div>
         </div>

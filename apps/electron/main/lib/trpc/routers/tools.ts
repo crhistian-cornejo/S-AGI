@@ -1,23 +1,11 @@
 import { z } from 'zod'
 import { router, protectedProcedure } from '../trpc'
-import { supabase, isSupabaseConfigured } from '../../supabase/client'
+import { supabase } from '../../supabase/client'
 import { sendToRenderer } from '../../window-manager'
 import { getSecureApiKeyStore } from '../../auth/api-key-store'
 import log from 'electron-log'
 import OpenAI from 'openai'
-import { getStorageAdapter, getStorageMode } from '../../storage'
-
-/**
- * Check if we should use local storage mode
- * Defaults to local - cloud sync is a future premium feature
- */
-function isLocalMode(): boolean {
-    const mode = getStorageMode()
-    if (mode === 'local') {
-        return true
-    }
-    return !isSupabaseConfigured()
-}
+import { getStorageAdapter, isLocalStorageMode } from '../../storage'
 
 /**
  * Tool execution router - executes spreadsheet tools in the main process
@@ -4403,53 +4391,21 @@ async function executeGenerateChart(
         tension: type === 'line' || type === 'area' ? 0.3 : 0
     }))
 
-    // Build Chart.js configuration
+    // Build ChartViewer configuration (renderer expects this shape)
     const chartConfig = {
-        type: type === 'area' ? 'line' : type, // Area is just line with fill
+        type,
         data: {
             labels,
             datasets: processedDatasets
         },
         options: {
-            responsive: true,
-            maintainAspectRatio: true,
+            title: { display: true, text: title },
+            showLegend: normalizedOptions?.showLegend !== false,
+            showGrid: normalizedOptions?.showGrid !== false,
+            stacked: normalizedOptions?.stacked ?? false,
             aspectRatio: normalizedOptions?.aspectRatio ?? 2,
-            plugins: {
-                legend: {
-                    display: normalizedOptions?.showLegend !== false,
-                    position: 'top' as const
-                },
-                title: {
-                    display: true,
-                    text: title,
-                    font: { size: 16, weight: 'bold' as const }
-                }
-            },
-            scales: type !== 'pie' && type !== 'doughnut' && type !== 'radar' && type !== 'polarArea' ? {
-                x: {
-                    display: true,
-                    title: {
-                        display: !!normalizedOptions?.xAxisTitle,
-                        text: normalizedOptions?.xAxisTitle || ''
-                    },
-                    grid: {
-                        display: normalizedOptions?.showGrid !== false
-                    },
-                    stacked: normalizedOptions?.stacked || false
-                },
-                y: {
-                    display: true,
-                    title: {
-                        display: !!normalizedOptions?.yAxisTitle,
-                        text: normalizedOptions?.yAxisTitle || ''
-                    },
-                    grid: {
-                        display: normalizedOptions?.showGrid !== false
-                    },
-                    stacked: normalizedOptions?.stacked || false,
-                    beginAtZero: true
-                }
-            } : undefined
+            xAxisTitle: normalizedOptions?.xAxisTitle,
+            yAxisTitle: normalizedOptions?.yAxisTitle
         }
     }
 
@@ -4993,7 +4949,7 @@ export const toolsRouter = router({
         }))
         .mutation(async ({ ctx, input }) => {
             // Verify chat ownership (skip in local mode - single user)
-            if (isLocalMode()) {
+            if (isLocalStorageMode()) {
                 log.debug('[Tools] Local mode - skipping chat ownership check')
                 const adapter = await getStorageAdapter()
                 const chat = await adapter.chats.getById!(input.chatId)

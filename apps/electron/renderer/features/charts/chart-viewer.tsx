@@ -174,6 +174,8 @@ interface ChartConfig {
         showLegend?: boolean
         currency?: string
         locale?: string
+        xAxisTitle?: string
+        yAxisTitle?: string
     }
 }
 
@@ -259,10 +261,23 @@ export const ChartViewer = forwardRef<ChartViewerRef, ChartViewerProps>(function
     }, [config])
 
     // Axis styling
+    const xAxisLabel = config.options?.xAxisTitle
+    const yAxisLabel = config.options?.yAxisTitle
+
     const axisProps = {
         tick: { fill: 'hsl(var(--muted-foreground))', fontSize: 11 },
         axisLine: false,
         tickLine: false,
+    }
+
+    const xAxisProps = {
+        ...axisProps,
+        label: xAxisLabel ? { value: xAxisLabel, position: 'insideBottom' as const, offset: -5, fill: 'hsl(var(--muted-foreground))', fontSize: 11 } : undefined
+    }
+
+    const yAxisProps = {
+        ...axisProps,
+        label: yAxisLabel ? { value: yAxisLabel, angle: -90, position: 'insideLeft' as const, offset: 10, fill: 'hsl(var(--muted-foreground))', fontSize: 11 } : undefined
     }
 
     const gridProps = {
@@ -280,8 +295,8 @@ export const ChartViewer = forwardRef<ChartViewerRef, ChartViewerProps>(function
         return (
             <BarChart data={chartData} margin={CHART_CONFIG.margin}>
                 {config.options?.showGrid !== false && <CartesianGrid {...gridProps} />}
-                <XAxis dataKey="name" {...axisProps} />
-                <YAxis {...axisProps} width={50} />
+                <XAxis dataKey="name" {...xAxisProps} />
+                <YAxis {...yAxisProps} width={50} />
                 <RechartsTooltip content={<ChartTooltip />} cursor={{ fill: 'hsl(var(--muted) / 0.1)' }} />
                 {config.options?.showLegend !== false && <Legend content={<ChartLegend />} />}
                 <ReferenceLine y={0} stroke="hsl(var(--border))" />
@@ -307,8 +322,8 @@ export const ChartViewer = forwardRef<ChartViewerRef, ChartViewerProps>(function
         return (
             <LineChart data={chartData} margin={CHART_CONFIG.margin}>
                 {config.options?.showGrid !== false && <CartesianGrid {...gridProps} />}
-                <XAxis dataKey="name" {...axisProps} />
-                <YAxis {...axisProps} width={50} />
+                <XAxis dataKey="name" {...xAxisProps} />
+                <YAxis {...yAxisProps} width={50} />
                 <RechartsTooltip content={<ChartTooltip />} />
                 {config.options?.showLegend !== false && <Legend content={<ChartLegend />} />}
                 <ReferenceLine y={0} stroke="hsl(var(--border))" />
@@ -344,8 +359,8 @@ export const ChartViewer = forwardRef<ChartViewerRef, ChartViewerProps>(function
                     ))}
                 </defs>
                 {config.options?.showGrid !== false && <CartesianGrid {...gridProps} />}
-                <XAxis dataKey="name" {...axisProps} />
-                <YAxis {...axisProps} width={50} />
+                <XAxis dataKey="name" {...xAxisProps} />
+                <YAxis {...yAxisProps} width={50} />
                 <RechartsTooltip content={<ChartTooltip />} />
                 {config.options?.showLegend !== false && <Legend content={<ChartLegend />} />}
                 <ReferenceLine y={0} stroke="hsl(var(--border))" />
@@ -421,8 +436,8 @@ export const ChartViewer = forwardRef<ChartViewerRef, ChartViewerProps>(function
         return (
             <ScatterChart margin={CHART_CONFIG.margin}>
                 {config.options?.showGrid !== false && <CartesianGrid {...gridProps} />}
-                <XAxis type="number" dataKey="x" name="X" {...axisProps} />
-                <YAxis type="number" dataKey="y" name="Y" {...axisProps} width={50} />
+                <XAxis type="number" dataKey="x" name="X" {...xAxisProps} />
+                <YAxis type="number" dataKey="y" name="Y" {...yAxisProps} width={50} />
                 <RechartsTooltip content={<ChartTooltip />} cursor={{ strokeDasharray: '3 3' }} />
                 {config.options?.showLegend !== false && <Legend content={<ChartLegend />} />}
                 <Scatter
@@ -479,7 +494,6 @@ export const ChartViewer = forwardRef<ChartViewerRef, ChartViewerProps>(function
             case 'scatter':
                 return renderScatterChart()
             case 'radar':
-            case 'polarArea':
                 return renderRadarChart()
             default:
                 return (

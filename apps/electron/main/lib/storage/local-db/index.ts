@@ -13,6 +13,7 @@ type SQLiteDatabase = import("better-sqlite3").Database;
 
 let sqlite: SQLiteDatabase | null = null;
 let initPromise: Promise<SQLiteDatabase | null> | null = null;
+let lastInitError: Error | null = null;
 
 /**
  * Get the path to the local database
@@ -89,6 +90,7 @@ export async function initDatabase(): Promise<SQLiteDatabase | null> {
 
       // Store in module-level variable
       sqlite = db;
+      lastInitError = null;
 
       log.info("[LocalDB] Database initialized successfully");
       return sqlite;
@@ -101,6 +103,7 @@ export async function initDatabase(): Promise<SQLiteDatabase | null> {
         log.error("[LocalDB] Stack trace:", errorStack);
       }
       sqlite = null;
+      lastInitError = error instanceof Error ? error : new Error(errorMessage);
       initPromise = null;
       return null;
     }
@@ -289,6 +292,19 @@ function runMigrations(db: SQLiteDatabase): void {
       updated_at INTEGER DEFAULT (unixepoch()) NOT NULL
     )`,
 
+    // Projects table (folders for organizing threads)
+    `CREATE TABLE IF NOT EXISTS projects (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL DEFAULT 'local-user',
+      name TEXT NOT NULL,
+      icon TEXT DEFAULT '📁',
+      color TEXT,
+      is_collapsed INTEGER DEFAULT 0,
+      sort_order INTEGER DEFAULT 0,
+      created_at INTEGER DEFAULT (unixepoch()) NOT NULL,
+      updated_at INTEGER DEFAULT (unixepoch()) NOT NULL
+    )`,
+
     // Create indexes
     `CREATE INDEX IF NOT EXISTS chats_user_id_idx ON chats(user_id)`,
     `CREATE INDEX IF NOT EXISTS chats_updated_at_idx ON chats(updated_at)`,
@@ -306,6 +322,18 @@ function runMigrations(db: SQLiteDatabase): void {
     `CREATE INDEX IF NOT EXISTS chat_files_chat_id_idx ON chat_files(chat_id)`,
     `CREATE INDEX IF NOT EXISTS chat_files_hash_idx ON chat_files(chat_id, file_hash)`,
 
+    // Projects indexes
+    `CREATE INDEX IF NOT EXISTS projects_user_id_idx ON projects(user_id)`,
+    `CREATE INDEX IF NOT EXISTS projects_sort_order_idx ON projects(sort_order)`,
+
+    // Add project_id and sort_order to chats table (migration for existing databases)
+    `ALTER TABLE chats ADD COLUMN project_id TEXT REFERENCES projects(id) ON DELETE SET NULL`,
+    `ALTER TABLE chats ADD COLUMN sort_order INTEGER DEFAULT 0`,
+
+    // Index for chats project lookups
+    `CREATE INDEX IF NOT EXISTS chats_project_id_idx ON chats(project_id)`,
+    `CREATE INDEX IF NOT EXISTS chats_sort_order_idx ON chats(project_id, sort_order)`,
+
     // Insert default local user if not exists
     `INSERT OR IGNORE INTO local_user (id, display_name) VALUES ('local-user', 'Local User')`,
   ];
@@ -314,9 +342,9 @@ function runMigrations(db: SQLiteDatabase): void {
     try {
       db.exec(migration);
     } catch (error) {
-      // Ignore errors for already existing tables/indexes
+      // Ignore errors for already existing tables/indexes/columns
       const message = error instanceof Error ? error.message : String(error);
-      if (!message.includes("already exists")) {
+      if (!message.includes("already exists") && !message.includes("duplicate column name")) {
         log.error(`[LocalDB] Migration error: ${message}`);
       }
     }
@@ -347,6 +375,13 @@ export function getRawDatabase(): SQLiteDatabase | null {
  */
 export function isLocalDatabaseAvailable(): boolean {
   return sqlite !== null;
+}
+
+/**
+ * Get the last initialization error (if any)
+ */
+export function getLastDatabaseInitError(): Error | null {
+  return lastInitError;
 }
 
 /**
