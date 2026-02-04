@@ -175,10 +175,10 @@ export const AgentWebSearch = memo(function AgentWebSearch({
 })
 
 // ============================================================================
-// Consolidated Web Search Component - Groups multiple searches into one UI
+// Individual Web Search Card - Shows one search with its query and sources
 // ============================================================================
 
-interface WebSearchItem {
+export interface WebSearchItem {
   searchId: string
   query?: string
   status: 'searching' | 'done'
@@ -186,6 +186,150 @@ interface WebSearchItem {
   domains?: string[]
   url?: string
 }
+
+interface IndividualWebSearchCardProps {
+  search: WebSearchItem
+}
+
+/**
+ * Individual web search card - shows a single search with its query and sources
+ * Used to display each search separately with favicons
+ * Shows sources in real-time as they are found during searching
+ */
+export const IndividualWebSearchCard = memo(function IndividualWebSearchCard({
+  search,
+}: IndividualWebSearchCardProps) {
+  const [isExpanded, setIsExpanded] = useState(true)
+
+  const isSearching = search.status === 'searching'
+  const query = search.query || 'Web search'
+
+  // Convert domains to sources with URLs
+  const sources: Source[] = useMemo(() => {
+    const result: Source[] = []
+
+    if (search.domains) {
+      for (const domain of search.domains) {
+        const url = domain.startsWith('http') ? domain : `https://${domain}`
+        result.push({ url, title: domain })
+      }
+    }
+
+    if (search.url) {
+      const url = search.url.startsWith('http') ? search.url : `https://${search.url}`
+      try {
+        const hostname = new URL(url).hostname
+        result.push({ url, title: hostname })
+      } catch {
+        result.push({ url, title: search.url })
+      }
+    }
+
+    return result
+  }, [search.domains, search.url])
+
+  const resultCount = sources.length
+  const hasSources = resultCount > 0
+
+  return (
+    <div className="rounded-lg border border-border/50 bg-muted/20 overflow-hidden">
+      {/* Header - query and result count */}
+      <button
+        type="button"
+        onClick={() => setIsExpanded(!isExpanded)}
+        className={cn(
+          "flex items-center justify-between px-2.5 py-1.5 w-full text-left",
+          "cursor-pointer hover:bg-muted/30 transition-colors duration-150",
+        )}
+      >
+        <div className="flex items-center gap-2 text-xs truncate flex-1 min-w-0">
+          {/* Globe icon or spinner when searching */}
+          {isSearching ? (
+            <IconLoader2 className="w-3.5 h-3.5 animate-spin text-violet-500 shrink-0" />
+          ) : (
+            <IconWorld className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+          )}
+          <span className="text-muted-foreground truncate">"{query}"</span>
+        </div>
+
+        <div className="flex items-center gap-2 flex-shrink-0 ml-2">
+          {/* Show count - even during searching if we have sources */}
+          {hasSources ? (
+            <span className="text-[10px] text-muted-foreground/70">
+              {resultCount} resultado{resultCount !== 1 ? 's' : ''}
+            </span>
+          ) : isSearching ? (
+            <TextShimmer as="span" duration={1.2} className="text-[10px]">
+              Buscando...
+            </TextShimmer>
+          ) : null}
+
+          {/* Expand/collapse only if has sources */}
+          {hasSources && (
+            <div className="relative w-3.5 h-3.5">
+              <ExpandIcon
+                className={cn(
+                  "absolute inset-0 w-3.5 h-3.5 text-muted-foreground/50 transition-[opacity,transform] duration-200",
+                  isExpanded ? "opacity-0 scale-75" : "opacity-100 scale-100",
+                )}
+              />
+              <CollapseIcon
+                className={cn(
+                  "absolute inset-0 w-3.5 h-3.5 text-muted-foreground/50 transition-[opacity,transform] duration-200",
+                  isExpanded ? "opacity-100 scale-100" : "opacity-0 scale-75",
+                )}
+              />
+            </div>
+          )}
+        </div>
+      </button>
+
+      {/* Sources list with favicons - show even during searching if we have sources */}
+      {isExpanded && hasSources && (
+        <div className="border-t border-border/30">
+          {sources.map((source, index) => (
+            <SourceItem key={`${source.url}-${index}`} source={source} />
+          ))}
+          {/* Show loading indicator at bottom if still searching */}
+          {isSearching && (
+            <div className="px-2.5 py-1.5 flex items-center gap-2 text-[10px] text-muted-foreground/60 border-t border-border/20">
+              <IconLoader2 className="w-2.5 h-2.5 animate-spin" />
+              <span>Buscando más...</span>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Loading state when no sources yet */}
+      {isSearching && !hasSources && (
+        <div className="border-t border-border/30 px-2.5 py-2">
+          {/* Skeleton loaders for sources */}
+          <div className="space-y-1.5">
+            <div className="flex items-center gap-2.5 animate-pulse">
+              <div className="w-4 h-4 rounded bg-muted/50" />
+              <div className="h-3 bg-muted/50 rounded flex-1 max-w-[120px]" />
+              <div className="h-2.5 bg-muted/30 rounded w-16" />
+            </div>
+            <div className="flex items-center gap-2.5 animate-pulse">
+              <div className="w-4 h-4 rounded bg-muted/40" />
+              <div className="h-3 bg-muted/40 rounded flex-1 max-w-[100px]" />
+              <div className="h-2.5 bg-muted/20 rounded w-14" />
+            </div>
+            <div className="flex items-center gap-2.5 animate-pulse">
+              <div className="w-4 h-4 rounded bg-muted/30" />
+              <div className="h-3 bg-muted/30 rounded flex-1 max-w-[140px]" />
+              <div className="h-2.5 bg-muted/20 rounded w-12" />
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+})
+
+// ============================================================================
+// Consolidated Web Search Component - Groups multiple searches into one UI
+// ============================================================================
 
 interface ConsolidatedWebSearchProps {
   searches: WebSearchItem[]
@@ -364,9 +508,18 @@ export const ConsolidatedWebSearch = memo(function ConsolidatedWebSearch({
 function SourceItem({ source }: { source: Source }) {
   const hostname = useMemo(() => {
     try {
-      return new URL(source.url).hostname
+      return new URL(source.url).hostname.replace('www.', '')
     } catch {
       return source.url
+    }
+  }, [source.url])
+
+  const faviconUrl = useMemo(() => {
+    try {
+      const domain = new URL(source.url).hostname
+      return `https://www.google.com/s2/favicons?domain=${domain}&sz=16`
+    } catch {
+      return null
     }
   }, [source.url])
 
@@ -375,17 +528,39 @@ function SourceItem({ source }: { source: Source }) {
       href={source.url}
       target="_blank"
       rel="noopener noreferrer"
-      className="flex items-center justify-between px-2.5 py-2 hover:bg-muted/30 transition-colors group"
+      className="flex items-center gap-2.5 px-2.5 py-1.5 hover:bg-muted/30 transition-colors group"
     >
+      {/* Favicon */}
+      <div className="w-4 h-4 shrink-0 rounded overflow-hidden bg-muted/50 flex items-center justify-center">
+        {faviconUrl ? (
+          <img
+            src={faviconUrl}
+            alt=""
+            className="w-4 h-4 object-contain"
+            onError={(e) => {
+              e.currentTarget.style.display = 'none'
+              const parent = e.currentTarget.parentElement
+              if (parent) {
+                parent.innerHTML = '<span class="text-[8px] text-muted-foreground">🌐</span>'
+              }
+            }}
+          />
+        ) : (
+          <IconWorld size={12} className="text-muted-foreground" />
+        )}
+      </div>
+
+      {/* Title and domain */}
       <div className="min-w-0 flex-1">
-        <span className="text-sm text-foreground group-hover:text-violet-600 transition-colors truncate block">
+        <span className="text-xs text-foreground group-hover:text-violet-600 transition-colors truncate block">
           {source.title || hostname}
         </span>
-        <span className="text-xs text-muted-foreground truncate block">
-          {hostname}
-        </span>
       </div>
-      <IconExternalLink size={14} className="text-muted-foreground shrink-0 ml-2 group-hover:text-violet-500" />
+
+      {/* Domain on right */}
+      <span className="text-[10px] text-muted-foreground/70 shrink-0">
+        {hostname}
+      </span>
     </a>
   )
 }

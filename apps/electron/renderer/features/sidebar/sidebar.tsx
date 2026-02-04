@@ -153,7 +153,7 @@ function FadeScrollArea({ children, className }: FadeScrollAreaProps) {
       {/* Scrollable content */}
       <div
         ref={scrollRef}
-        className="h-full overflow-y-auto overflow-x-hidden scrollbar-thin scrollbar-thumb-border scrollbar-track-transparent w-full"
+        className="h-full overflow-y-auto overflow-x-hidden scrollbar-thin scrollbar-thumb-border scrollbar-track-transparent w-full pr-1"
       >
         {children}
       </div>

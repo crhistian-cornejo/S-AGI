@@ -1,7 +1,6 @@
 import { useState, useMemo, useRef, useLayoutEffect, type ComponentType } from "react";
 import { cn } from "@/lib/utils";
 import {
-  IconBookmark,
   IconBrain,
   IconCheck,
   IconChevronDown,
@@ -22,6 +21,8 @@ import {
   ClaudeIcon,
 } from "@/components/icons/model-icons";
 import { AgentToolCallFlat, type ToolCall } from "./agent-tool-call-flat";
+import { IndividualWebSearchCard } from "./agent-web-search";
+import { CompactMarkdownRenderer } from "@/components/chat-markdown-renderer";
 
 /** Strip markdown bold from title so **text** renders as plain bold text */
 function stripTitleMarkdown(title: string): string {
@@ -54,40 +55,6 @@ function parseReasoningContent(content: string): {
   const showMore = remainingLines.length > 10;
 
   return { title, bullets: [], showMore };
-}
-
-/** Simple markdown to HTML parser for reasoning content */
-function parseMarkdownToHtml(text: string): string {
-  if (!text) return "";
-
-  let html = text
-    // Escape HTML entities first
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    // Bold: **text** or __text__
-    .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
-    .replace(/__(.+?)__/g, "<strong>$1</strong>")
-    // Italic: *text* or _text_ (but not inside words)
-    .replace(/(?<!\w)\*([^*]+)\*(?!\w)/g, "<em>$1</em>")
-    .replace(/(?<!\w)_([^_]+)_(?!\w)/g, "<em>$1</em>")
-    // Line breaks
-    .replace(/\n\n/g, "</p><p>")
-    .replace(/\n/g, "<br/>");
-
-  // Wrap in paragraph
-  html = `<p>${html}</p>`;
-
-  // Process bullet lists (- or * at start of line)
-  html = html.replace(/<br\/>[-*•]\s+/g, "</li><li>");
-  if (html.includes("</li><li>")) {
-    html = html.replace(/<p>[-*•]\s+/, "<ul><li>");
-    html = html.replace(/<\/li><li>([^<]*)<\/p>/, "</li><li>$1</li></ul>");
-    // Fix remaining list items
-    html = html.replace(/<\/p>$/, "</li></ul>");
-  }
-
-  return html;
 }
 
 export interface AgentReasoningAction {
@@ -233,8 +200,8 @@ export function AgentReasoning({
   actions = [],
   webSearches = [],
   annotations = [],
-  modelId,
-  modelName,
+  modelId: _modelId,
+  modelName: _modelName,
 }: AgentReasoningProps) {
   const [isExpanded, setIsExpanded] = useState(!defaultCollapsed);
   const [showAllBullets, setShowAllBullets] = useState(false);
@@ -289,26 +256,14 @@ export function AgentReasoning({
   const canToggle =
     hasContent || hasActions || hasWebSearches || hasAnnotations;
 
+  // Check if all web searches are done (not still searching)
+  const allSearchesDone = webSearches.every((ws) => ws.status === "done");
+
   if (!canToggle && !isStreaming) return null;
 
   // Use parsed title as header, or fallback to default
   const headerLabel =
     parsedReasoning.title || (isStreaming ? "Pensando..." : "Razonamiento");
-
-  const urlSet = new Set<string>();
-  const fileSet = new Set<string>();
-  annotations.forEach((annotation) => {
-    if (annotation.type === "url_citation") {
-      urlSet.add(annotation.url);
-    }
-    if (annotation.type === "file_citation") {
-      fileSet.add(annotation.fileId);
-    }
-  });
-  const uniqueUrlCount = urlSet.size;
-  const uniqueFileCount = fileSet.size;
-
-  const totalSources = uniqueUrlCount + uniqueFileCount;
 
   const normalizedActions = hasWebSearches
     ? actions.filter((a) => a.type !== "web-search")
@@ -318,6 +273,8 @@ export function AgentReasoning({
     (a) => a.type !== "model"
   );
 
+  // Sequence items for actions/tools (web searches rendered separately with ConsolidatedWebSearch)
+  // Note: Sources are NOT added here - they are shown inside ConsolidatedWebSearch with favicons
   const sequenceItems: Array<{
     key: string;
     icon: ComponentType<{ className?: string }>;
@@ -325,34 +282,13 @@ export function AgentReasoning({
     badge?: string;
     isActive?: boolean;
     toolCall?: ToolCall;
-  }> = [
-    ...actionsWithoutModel.map((action, index) => ({
-      key: `${action.type}-${index}`,
-      icon: getActionIcon(action),
-      label: getActionLabel(action),
-      isActive: false,
-      toolCall: action.toolCall,
-    })),
-    ...webSearches.map((ws) => ({
-      key: `web-${ws.searchId}`,
-      icon: GlobeIcon,
-      label:
-        ws.status === "searching" ? "Searching the web" : "Searched the web",
-      badge: ws.query ? `"${ws.query}"` : undefined,
-      isActive: ws.status === "searching",
-    })),
-    ...(totalSources > 0
-      ? [
-          {
-            key: "sources",
-            icon: IconBookmark,
-            label: "Sources",
-            badge: String(totalSources),
-            isActive: false,
-          },
-        ]
-      : []),
-  ];
+  }> = actionsWithoutModel.map((action, index) => ({
+    key: `${action.type}-${index}`,
+    icon: getActionIcon(action),
+    label: getActionLabel(action),
+    isActive: false,
+    toolCall: action.toolCall,
+  }));
 
   return (
     <div className={cn("", className)}>
@@ -418,20 +354,18 @@ export function AgentReasoning({
                 <div
                   className={cn(
                     "text-[13px] text-muted-foreground/80 leading-[1.6]",
-                    "prose prose-sm prose-invert max-w-none",
+                    "[&_.prose]:text-muted-foreground/80",
                     "[&_strong]:text-muted-foreground [&_strong]:font-semibold",
                     "[&_ul]:list-disc [&_ul]:pl-4 [&_ul]:space-y-1.5 [&_ul]:my-2",
                     "[&_li]:text-muted-foreground/80",
                     "[&_p]:my-2 [&_p:first-child]:mt-0 [&_p:last-child]:mb-0",
-                    "[&_br]:block [&_br]:content-[''] [&_br]:mt-1.5",
                     isExpanded
                       ? "max-h-64 overflow-y-auto pr-2"
                       : "max-h-20 overflow-hidden"
                   )}
-                  dangerouslySetInnerHTML={{
-                    __html: parseMarkdownToHtml(contentWithoutTitle),
-                  }}
-                />
+                >
+                  <CompactMarkdownRenderer content={contentWithoutTitle} />
+                </div>
               </div>
             )}
 
@@ -500,21 +434,20 @@ export function AgentReasoning({
               </div>
             )}
 
-            {/* "Listo" when done - check icon on timeline only */}
-            {!isStreaming && hasContent && (
-              <div className="relative flex items-center gap-1.5 text-[13px] text-green-600 dark:text-green-500">
-                <IconCheck className="absolute -left-5 top-[3px] w-3.5 h-3.5 shrink-0 text-green-500" />
-                <span className="font-medium">Listo</span>
+            {/* Web searches - each rendered individually with query and sources */}
+            {hasWebSearches && (
+              <div className="space-y-2">
+                {webSearches.map((search) => (
+                  <IndividualWebSearchCard key={search.searchId} search={search} />
+                ))}
               </div>
             )}
 
-            {/* Sources badge */}
-            {totalSources > 0 && (
-              <div className="flex items-center gap-1.5">
-                <div className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-muted/50 text-[10px] text-muted-foreground">
-                  <IconBookmark size={10} className="opacity-70" />
-                  <span className="font-medium">{totalSources} fuentes</span>
-                </div>
+            {/* "Listo" when done - only show when not streaming AND all web searches are done */}
+            {!isStreaming && hasContent && (!hasWebSearches || allSearchesDone) && (
+              <div className="relative flex items-center gap-1.5 text-[13px] text-green-600 dark:text-green-500">
+                <IconCheck className="absolute -left-5 top-[3px] w-3.5 h-3.5 shrink-0 text-green-500" />
+                <span className="font-medium">Listo</span>
               </div>
             )}
           </div>

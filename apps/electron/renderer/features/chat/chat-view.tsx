@@ -1709,16 +1709,17 @@ export function ChatView() {
         </ScrollArea>
 
         {showScrollToBottom && (
-          <div className="absolute bottom-[20px] left-1/2 -translate-x-1/2 z-20">
+          <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-[100] pointer-events-auto">
             <Tooltip>
               <TooltipTrigger asChild>
-                <div className="rounded-full bg-border/70 shadow-md">
+                <div className="rounded-full bg-background/95 border border-border shadow-lg backdrop-blur-sm">
                   <Button
                     type="button"
                     size="icon"
                     variant="secondary"
-                    className="h-9 w-9 rounded-full"
+                    className="h-9 w-9 rounded-full hover:bg-accent"
                     onClick={() => scrollToBottom("smooth")}
+                    aria-label="Ir al final"
                   >
                     <IconArrowDown size={18} />
                   </Button>

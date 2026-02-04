@@ -49,18 +49,38 @@ export interface AuthStoreData {
  * - Tracks active account
  * - Uses OS-level encryption via Electron's safeStorage
  * - Implements SupportedStorage interface for Supabase compatibility
+ * - LAZY INITIALIZATION: Waits for app.isReady() before accessing safeStorage
  */
 export class SupabaseAuthStore {
-    private storePath: string
-    private multiAccountStorePath: string
-    private multiAccountStoreFallbackPath: string
+    private storePath: string = ''
+    private multiAccountStorePath: string = ''
+    private multiAccountStoreFallbackPath: string = ''
     private cache: Record<string, string> = {}      // Supabase session cache (for active account)
     private accountsData: AuthStoreData = {         // Multi-account data
         accounts: [],
         activeAccountId: null
     }
+    private initialized: boolean = false
+    private initPromise: Promise<void> | null = null
 
     constructor() {
+        // Defer initialization until app is ready
+        this.initPromise = this.ensureInitialized()
+    }
+
+    /**
+     * Ensure the store is initialized (app ready + paths set + data loaded)
+     * Safe to call multiple times - will only initialize once
+     */
+    private async ensureInitialized(): Promise<void> {
+        if (this.initialized) return
+
+        // Wait for app to be ready before accessing userData path and safeStorage
+        if (!app.isReady()) {
+            log.debug('[SupabaseAuthStore] Waiting for app.whenReady()...')
+            await app.whenReady()
+        }
+
         const userDataPath = app.getPath('userData')
         const secureDir = join(userDataPath, 'secure')
 
@@ -71,8 +91,50 @@ export class SupabaseAuthStore {
         this.storePath = join(secureDir, STORE_FILE)
         this.multiAccountStorePath = join(secureDir, MULTI_ACCOUNT_STORE_FILE)
         this.multiAccountStoreFallbackPath = join(secureDir, MULTI_ACCOUNT_STORE_FALLBACK_FILE)
+        
+        log.info('[SupabaseAuthStore] Initializing after app ready')
+        log.debug(`[SupabaseAuthStore] safeStorage.isEncryptionAvailable() = ${safeStorage.isEncryptionAvailable()}`)
+        
         this.load()
         this.loadAccounts()
+        this.initialized = true
+        
+        log.info(`[SupabaseAuthStore] Initialized with ${this.accountsData.accounts.length} accounts`)
+    }
+
+    /**
+     * Synchronously ensure initialized (for methods that can't be async)
+     * Returns true if ready, false if still initializing
+     */
+    private ensureInitializedSync(): boolean {
+        if (this.initialized) return true
+        
+        if (!app.isReady()) {
+            log.warn('[SupabaseAuthStore] App not ready yet, data may not be loaded')
+            return false
+        }
+
+        // App is ready but we haven't initialized yet - do it now synchronously
+        const userDataPath = app.getPath('userData')
+        const secureDir = join(userDataPath, 'secure')
+
+        if (!existsSync(secureDir)) {
+            mkdirSync(secureDir, { recursive: true })
+        }
+
+        this.storePath = join(secureDir, STORE_FILE)
+        this.multiAccountStorePath = join(secureDir, MULTI_ACCOUNT_STORE_FILE)
+        this.multiAccountStoreFallbackPath = join(secureDir, MULTI_ACCOUNT_STORE_FALLBACK_FILE)
+        
+        log.info('[SupabaseAuthStore] Sync initialization after app ready')
+        log.debug(`[SupabaseAuthStore] safeStorage.isEncryptionAvailable() = ${safeStorage.isEncryptionAvailable()}`)
+        
+        this.load()
+        this.loadAccounts()
+        this.initialized = true
+        
+        log.info(`[SupabaseAuthStore] Initialized with ${this.accountsData.accounts.length} accounts`)
+        return true
     }
 
     // ============================================
@@ -80,9 +142,19 @@ export class SupabaseAuthStore {
     // ============================================
 
     /**
+     * Wait for initialization to complete (for async contexts)
+     */
+    async waitForInit(): Promise<void> {
+        if (this.initPromise) {
+            await this.initPromise
+        }
+    }
+
+    /**
      * Get all stored accounts
      */
     getAccounts(): StoredAccount[] {
+        this.ensureInitializedSync()
         return [...this.accountsData.accounts]
     }
 
@@ -90,6 +162,7 @@ export class SupabaseAuthStore {
      * Get the currently active account
      */
     getActiveAccount(): StoredAccount | null {
+        this.ensureInitializedSync()
         if (!this.accountsData.activeAccountId) return null
         return this.accountsData.accounts.find(
             a => a.id === this.accountsData.activeAccountId
@@ -100,6 +173,7 @@ export class SupabaseAuthStore {
      * Get active account ID
      */
     getActiveAccountId(): string | null {
+        this.ensureInitializedSync()
         return this.accountsData.activeAccountId
     }
 
@@ -109,6 +183,7 @@ export class SupabaseAuthStore {
      * Returns the account ID
      */
     addAccount(account: Omit<StoredAccount, 'id' | 'connectedAt'>): string {
+        this.ensureInitializedSync()
         // Check if account with same userId already exists
         const existingIndex = this.accountsData.accounts.findIndex(
             a => a.userId === account.userId
@@ -152,6 +227,7 @@ export class SupabaseAuthStore {
      * If removing the active account, clears active and Supabase session
      */
     removeAccount(accountId: string): boolean {
+        this.ensureInitializedSync()
         const index = this.accountsData.accounts.findIndex(a => a.id === accountId)
         if (index === -1) {
             log.warn(`[SupabaseAuthStore] Account not found: ${accountId}`)
@@ -180,6 +256,7 @@ export class SupabaseAuthStore {
      * The auth router should call setSession after switching.
      */
     setActiveAccount(accountId: string): boolean {
+        this.ensureInitializedSync()
         const account = this.accountsData.accounts.find(a => a.id === accountId)
         if (!account) {
             log.warn(`[SupabaseAuthStore] Cannot set active - account not found: ${accountId}`)
@@ -196,6 +273,7 @@ export class SupabaseAuthStore {
      * Find account by userId
      */
     findAccountByUserId(userId: string): StoredAccount | null {
+        this.ensureInitializedSync()
         return this.accountsData.accounts.find(a => a.userId === userId) || null
     }
 
@@ -203,6 +281,7 @@ export class SupabaseAuthStore {
      * Check if an account exists
      */
     hasAccount(userId: string): boolean {
+        this.ensureInitializedSync()
         return this.accountsData.accounts.some(a => a.userId === userId)
     }
 
@@ -317,15 +396,18 @@ export class SupabaseAuthStore {
     }
 
     getItem(key: string): string | null {
+        this.ensureInitializedSync()
         return this.cache[key] || null
     }
 
     setItem(key: string, value: string): void {
+        this.ensureInitializedSync()
         this.cache[key] = value
         this.save()
     }
 
     removeItem(key: string): void {
+        this.ensureInitializedSync()
         delete this.cache[key]
         this.save()
     }
@@ -334,9 +416,10 @@ export class SupabaseAuthStore {
      * Clear the active Supabase session (not accounts list)
      */
     clearSession(): void {
+        this.ensureInitializedSync()
         this.cache = {}
         try {
-            if (existsSync(this.storePath)) {
+            if (this.storePath && existsSync(this.storePath)) {
                 unlinkSync(this.storePath)
                 log.info('[SupabaseAuthStore] Cleared session file')
             }
@@ -350,10 +433,11 @@ export class SupabaseAuthStore {
      * Called on full logout to ensure no data remains
      */
     clear(): void {
+        this.ensureInitializedSync()
         this.clearSession()
         this.clearAllAccounts()
         try {
-            if (existsSync(this.multiAccountStorePath)) {
+            if (this.multiAccountStorePath && existsSync(this.multiAccountStorePath)) {
                 unlinkSync(this.multiAccountStorePath)
             }
         } catch (error) {
@@ -365,6 +449,7 @@ export class SupabaseAuthStore {
      * Check if there's a stored session for current active account
      */
     hasSession(): boolean {
+        this.ensureInitializedSync()
         return Object.keys(this.cache).length > 0
     }
 
@@ -372,6 +457,7 @@ export class SupabaseAuthStore {
      * Check if there are any accounts stored
      */
     hasAnyAccounts(): boolean {
+        this.ensureInitializedSync()
         return this.accountsData.accounts.length > 0
     }
 }

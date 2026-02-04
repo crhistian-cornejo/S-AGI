@@ -127,14 +127,15 @@ export const MessageTableOfContents = memo(function MessageTableOfContents({
         onMouseEnter={handleMouseEnter}
         onMouseLeave={handleMouseLeave}
       >
-        <div className="py-1">
+        <div className="py-1 px-2">
           {entries.map(({ id, prompt }) => (
             <button
               key={id}
               type="button"
               className={cn(
                 overlayItem,
-                'w-full text-left',
+                'w-full text-left min-w-0 mx-0',
+                'pl-2.5 pr-5', // extra right padding so truncated text doesn’t sit on the edge on hover
                 'hover:bg-sidebar-accent hover:text-sidebar-accent-foreground',
                 'focus:bg-sidebar-accent focus:text-sidebar-accent-foreground',
                 'data-[highlighted]:bg-sidebar-accent data-[highlighted]:text-sidebar-accent-foreground'
@@ -144,7 +145,7 @@ export const MessageTableOfContents = memo(function MessageTableOfContents({
                 setOpen(false)
               }}
             >
-              <span className="truncate">{prompt}</span>
+              <span className="truncate block min-w-0 flex-1">{prompt}</span>
             </button>
           ))}
         </div>

@@ -669,13 +669,6 @@ export const MessageList = memo(function MessageList({
                   </div>
                 )}
 
-                {streamingWebSearches && streamingWebSearches.length > 0 && (
-                  <ConsolidatedWebSearch
-                    searches={streamingWebSearches}
-                    isNativeSearch
-                  />
-                )}
-
                 {streamingFileSearches && streamingFileSearches.length > 0 && (
                   <div className="space-y-2">
                     {streamingFileSearches.map((search) => (

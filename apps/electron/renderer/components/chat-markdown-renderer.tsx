@@ -671,6 +671,206 @@ interface ChatMarkdownRendererProps {
 function preprocessLatex(content: string): string {
   let result = content;
 
+  // ========================================================================
+  // STEP 0: Protect markdown emphasis patterns BEFORE any LaTeX processing
+  // This prevents **bold** and *italic* from being corrupted by math detection
+  // ========================================================================
+  const emphasisPlaceholders: Map<string, string> = new Map();
+  let placeholderIndex = 0;
+
+  // Protect **bold** patterns (including multi-word)
+  result = result.replace(/\*\*([^*\n]+)\*\*/g, (match) => {
+    const placeholder = `⟦EMB${placeholderIndex++}⟧`;
+    emphasisPlaceholders.set(placeholder, match);
+    return placeholder;
+  });
+
+  // Protect *italic* patterns (but not ** which was already replaced)
+  result = result.replace(/\*([^*\n]+)\*/g, (match) => {
+    const placeholder = `⟦EMI${placeholderIndex++}⟧`;
+    emphasisPlaceholders.set(placeholder, match);
+    return placeholder;
+  });
+
+  // Protect __bold__ patterns
+  result = result.replace(/__([^_\n]+)__/g, (match) => {
+    const placeholder = `⟦EUB${placeholderIndex++}⟧`;
+    emphasisPlaceholders.set(placeholder, match);
+    return placeholder;
+  });
+
+  // Protect _italic_ patterns
+  result = result.replace(/_([^_\n]+)_/g, (match) => {
+    const placeholder = `⟦EUI${placeholderIndex++}⟧`;
+    emphasisPlaceholders.set(placeholder, match);
+    return placeholder;
+  });
+
+  // ========================================================================
+  // STEP 0.5: Fix malformed LaTeX patterns that AI models often produce
+  // ========================================================================
+
+  // Fix: Bold headers that run into previous text (add newline before **)
+  // Pattern: text!**Header or text.**Header → text!\n\n**Header
+  result = result.replace(/([.!?])(\*\*[A-Z])/g, '$1\n\n$2');
+
+  // Fix: $ $ or $  $ (empty or whitespace-only math) → remove
+  result = result.replace(/\$\s*\$/g, '');
+
+  // Fix: $$$ or more consecutive dollars → normalize to $$
+  result = result.replace(/\${3,}/g, '$$');
+
+  // Fix: $content$\,more$ or $content$\,more.$ → $content \, more$
+  // AI often splits integral expressions like: $\int f(x)$\,dx.$
+  // This pattern catches: $math$\command...$ and merges them
+  result = result.replace(/\$([^$\n]+)\$\\([,;:\s]*)([a-zA-Z]+)\.?\$?/g, (_match, math, spacing, rest) => {
+    // Reconstruct as single math expression
+    const spacingCmd = spacing ? `\\${spacing}` : ' ';
+    return `$${math}${spacingCmd}${rest}$`;
+  });
+
+  // Fix: $content$\,text.$ pattern (LaTeX spacing command after closing $)
+  // Example: $I=\int...$\,dx.$ → $I=\int... \, dx$
+  result = result.replace(/\$([^$\n]+)\$\\,\s*([a-zA-Z]+)\.\$$/gm, '$$$1 \\, $2$$');
+
+  // Fix: Split math expressions like $a$+$b$ → $a+b$
+  // Only for simple cases where the content between is a single operator
+  result = result.replace(/\$([^$\n]+)\$([+\-*/=])\$([^$\n]+)\$/g, '$$$1$2$3$$');
+
+  // Fix: $content$$ (inline ending with double dollar) → $content$
+  result = result.replace(/\$([^$\n]+)\$\$/g, '$$$1$$');
+
+  // Fix: $$content$ (display starting, inline ending) → $content$
+  result = result.replace(/\$\$([^$\n]+)\$([^$])/g, '$$$1$$$2');
+
+  // Fix: $$ followed by $$ with only whitespace/punctuation between
+  result = result.replace(/\$\$([.,;:!?\s]*)\$\$/g, '$1');
+
+  // Fix: Orphan $ at end of math expressions
+  result = result.replace(/\$\$([^$]+)\$\s+\$/g, '$$$$$1$$$$');
+
+  // Fix: Mixed inline/display on same conceptual expression
+  // Pattern: $ $$content$$ → $$content$$
+  result = result.replace(/\$\s*\$\$([^$]+)\$\$/g, '$$$$$1$$$$');
+
+  // Fix: content$$, or content$$ (display math delimiter after content without opening)
+  result = result.replace(/([a-zA-Z0-9})])\$\$([,.\s]|$)/g, '$1$$$2');
+
+  // Fix: Trailing orphan $ after punctuation at line end
+  // Example: $math$. $ or $math$.$  → $math$.
+  result = result.replace(/\$([^$\n]+)\$([.,;:!?])\s*\$\s*$/gm, '$$$1$$$2');
+
+  // Fix: $content$. followed by orphan $ on same context
+  // Pattern: something $math$.$  (note the trailing $)
+  result = result.replace(/\$([^$\n]+)\$\.(\s*)\$/g, '$$$1$$.$2');
+
+  // Fix: Integral expressions where \,dx is split out
+  // Pattern: $\int...f(x)$\,dx or $\int...f(x)$\,dx.$
+  // Should become: $\int...f(x)\,dx$
+  result = result.replace(/\$(\\int[^$]*)\$\\,\s*(d[xyztruvw])\.?\$?/gi, '$$$1 \\, $2$$');
+
+  // Fix: More general case of LaTeX commands after closing $
+  // Pattern: $content$\command → $content \command$
+  // This catches cases like $f(x)$\cdot$g(x)$ → $f(x) \cdot g(x)$
+  result = result.replace(/\$([^$\n]+)\$\\(cdot|times|pm|mp|div|cap|cup|wedge|vee|oplus|otimes)\$([^$\n]+)\$/gi,
+    '$$$1 \\$2 $3$$');
+
+  // Fix: Unmatched $ at end of line after valid math
+  // Pattern: "text $math$ extra $" → "text $math$ extra"
+  result = result.replace(/\$([^$\n]+)\$([^$\n]*)\$\s*$/gm, (_match, math, between) => {
+    // Only apply if 'between' doesn't contain LaTeX commands
+    if (/\\[a-zA-Z]/.test(between)) {
+      // It has LaTeX, merge it back
+      return `$${math}${between}$`;
+    }
+    // No LaTeX in between, just remove trailing $
+    return `$${math}$${between}`;
+  });
+
+  // ========================================================================
+  // STEP 0.75: Wrap obvious LaTeX expressions that have NO delimiters at all
+  // This handles AI reasoning output where LaTeX commands appear without $...$
+  // Example: "E=mc^2" or "G_{\mu\nu}+\Lambda g_{\mu\nu}=\frac{8\pi G}{c^4}T_{\mu\nu}"
+  // ========================================================================
+  {
+    // Process line by line, looking for lines without $ that have LaTeX
+    const processedLines = result.split('\n').map(line => {
+      // Skip if line already has math delimiters
+      if (/(?<!\\)\$/.test(line)) return line;
+
+      // Skip code blocks and emphasis placeholders
+      if (line.trim().startsWith('```') || /^⟦/.test(line.trim())) return line;
+
+      // Skip markdown links
+      if (/\[[^\]]*\]\([^)]+\)/.test(line)) return line;
+
+      // Strategy: Find specific LaTeX patterns and wrap them with context
+      let modified = line;
+
+      // 1. Wrap \frac{...}{...} with surrounding context
+      modified = modified.replace(
+        /([A-Za-z0-9+\-*/=<>()[\]{}\\,.\s]*\\frac\{[^{}]*\}\{[^{}]*\}[A-Za-z0-9+\-*/=<>()[\]{}\\,.\s]*)/g,
+        (match) => {
+          if (match.includes('$')) return match;
+          const trimmed = match.trim();
+          return trimmed ? ` $${trimmed}$ ` : match;
+        }
+      );
+
+      // 2. Wrap expressions with Greek letters: \mu, \nu, \alpha, etc.
+      modified = modified.replace(
+        /([A-Za-z0-9_^{}+\-*/=<>()[\]\\,.\s]*\\(?:mu|nu|alpha|beta|gamma|delta|epsilon|zeta|eta|theta|iota|kappa|lambda|rho|sigma|tau|phi|chi|psi|omega|Gamma|Delta|Theta|Lambda|Xi|Pi|Sigma|Phi|Psi|Omega|pi|infty)(?![a-zA-Z])[A-Za-z0-9_^{}+\-*/=<>()[\]\\,.\s]*)/g,
+        (match) => {
+          if (match.includes('$')) return match;
+          const trimmed = match.trim();
+          return trimmed ? ` $${trimmed}$ ` : match;
+        }
+      );
+
+      // 3. Wrap expressions with integrals, sums, etc.
+      modified = modified.replace(
+        /([A-Za-z0-9_^{}+\-*/=<>()[\]\\,.\s]*\\(?:int|iint|iiint|oint|sum|prod|lim|sqrt)(?:\{[^{}]*\}|[_^][{]?[^{}\s]+[}]?)*[A-Za-z0-9_^{}+\-*/=<>()[\]\\,.\s]*)/g,
+        (match) => {
+          if (match.includes('$')) return match;
+          const trimmed = match.trim();
+          return trimmed ? ` $${trimmed}$ ` : match;
+        }
+      );
+
+      // 4. Wrap expressions with subscripts/superscripts in braces: X_{...} or X^{...}
+      modified = modified.replace(
+        /([A-Za-z][A-Za-z0-9]*[_^]\{[^{}]+\}(?:[+\-*/=<>]?[A-Za-z0-9_^{}]*)*)/g,
+        (match) => {
+          if (match.includes('$')) return match;
+          // Don't wrap if it's just a variable name
+          if (!/[_^]\{/.test(match)) return match;
+          return ` $${match.trim()}$ `;
+        }
+      );
+
+      // 5. Wrap simple equations like E=mc^2 (letter=letters with ^)
+      modified = modified.replace(
+        /\b([A-Za-z]=[A-Za-z0-9]+\^[0-9]+)\b/g,
+        (match) => {
+          if (match.includes('$')) return match;
+          return ` $${match}$ `;
+        }
+      );
+
+      // 6. Clean up multiple spaces and trim $ $ patterns
+      modified = modified.replace(/\s+/g, ' ').replace(/\$\s+\$/g, '').trim();
+
+      // Only return modified if we actually wrapped something
+      if (modified !== line && modified.includes('$')) {
+        return modified;
+      }
+
+      return line;
+    });
+
+    result = processedLines.join('\n');
+  }
+
   // 1. Wrap display math environments (align, equation, gather, etc.)
   // Match environments that span multiple lines
   result = result.replace(
@@ -838,6 +1038,13 @@ function preprocessLatex(content: string): string {
     const classifyToken = (token: string): "strong" | "weak" | "none" => {
       const stripped = stripPunctuation(token);
       if (!stripped) return "none";
+
+      // Skip markdown emphasis patterns - don't treat **bold** or *italic* as math
+      // Match patterns like **word**, *word*, __word__, _word_
+      if (/^(\*{1,2}|_{1,2})[^*_]+(\*{1,2}|_{1,2})$/.test(token)) return "none";
+      // Also skip standalone emphasis markers
+      if (/^\*{1,2}$/.test(token) || /^_{1,2}$/.test(token)) return "none";
+
       const hasBackslash = backslash.test(stripped);
       const hasGreek = greekOrSymbol.test(stripped);
       const hasOperator = operator.test(stripped);
@@ -845,9 +1052,15 @@ function preprocessLatex(content: string): string {
       const hasBracket = /[()[\]|]/.test(stripped);
       const hasLetter = /[A-Za-z]/.test(stripped);
 
+      // Only treat * as math operator if it's not at word boundaries (markdown emphasis)
+      // Check if operator is ONLY asterisks - if so, likely markdown, not math
+      const operatorsWithoutAsterisk = stripped.replace(/\*/g, '');
+      const hasNonAsteriskOperator = /[=<>^_+/|]/.test(operatorsWithoutAsterisk);
+      const hasMathOperator = hasNonAsteriskOperator || (hasOperator && (hasDigit || hasGreek || hasBackslash));
+
       if (hasBackslash || hasGreek) return "strong";
-      if (hasOperator) return "strong";
-      if (hasDigit && (hasOperator || hasBracket)) return "strong";
+      if (hasMathOperator) return "strong";
+      if (hasDigit && (hasNonAsteriskOperator || hasBracket)) return "strong";
 
       if (/^[a-zA-Z]$/.test(stripped)) return "weak";
       if (/^d[xyztruvw]$/i.test(stripped)) return "weak"; // dx, dy, dt
@@ -979,8 +1192,22 @@ function preprocessLatex(content: string): string {
         .replace(/π/g, "\\pi ");
 
     const wrapInlineMath = (line: string) => {
+      // Note: Markdown emphasis is already protected at the top level of preprocessLatex
+      // Placeholders like ⟦EMB0⟧ are treated as regular text (not math)
+
+      // If line has no LaTeX indicators, return as-is
+      if (!backslash.test(line) && !greekOrSymbol.test(line) && !operator.test(line)) {
+        return line;
+      }
+
       const tokens = line.split(/(\s+)/);
-      const types = tokens.map((t) => (/^\s+$/.test(t) ? "space" : classifyToken(t)));
+      const types = tokens.map((t) => {
+        if (/^\s+$/.test(t)) return "space";
+        // Emphasis placeholders should be treated as "none" (not math)
+        if (/^⟦EM[BIU]{1,2}\d+⟧$/.test(t)) return "none";
+        return classifyToken(t);
+      });
+
       let out = "";
       let i = 0;
       while (i < tokens.length) {
@@ -1007,6 +1234,7 @@ function preprocessLatex(content: string): string {
         }
         i = j;
       }
+
       return out;
     };
 
@@ -1051,7 +1279,22 @@ function preprocessLatex(content: string): string {
             continue;
           }
 
+          // Note: Markdown emphasis (**bold**, *italic*) is already protected
+          // via placeholders (⟦EMB...⟧) in Step 0 at the top of preprocessLatex
+
           const hasDelim = /(?<!\\)\$/.test(line);
+
+          // Handle standalone math lines that start with $ (inline math that should be display)
+          // These often don't render correctly as $...$ so convert to $$...$$
+          // Match: line starts with $, ends with $ (optionally followed by punctuation)
+          const standaloneInlineMath = /^\$([^$]+)\$([.,;:!?]?)$/.exec(line.trim());
+          if (standaloneInlineMath) {
+            const mathContent = standaloneInlineMath[1];
+            const trailingPunct = standaloneInlineMath[2] || '';
+            out.push(`$$${mathContent}$$${trailingPunct}`);
+            continue;
+          }
+
           if (!hasDelim && isMathLine(line)) {
             const block = [line];
             let j = i + 1;
@@ -1081,6 +1324,13 @@ function preprocessLatex(content: string): string {
         return out.join("\n");
       })
       .join("");
+  }
+
+  // ========================================================================
+  // FINAL STEP: Restore markdown emphasis patterns
+  // ========================================================================
+  for (const [placeholder, original] of emphasisPlaceholders) {
+    result = result.split(placeholder).join(original);
   }
 
   return result;
