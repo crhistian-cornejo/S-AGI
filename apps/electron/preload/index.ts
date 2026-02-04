@@ -420,6 +420,17 @@ const desktopApi = {
       }>,
   },
 
+  images: {
+    readLocal: (filePath: string) =>
+      ipcRenderer.invoke("images:read-local", { filePath }) as Promise<{
+        success: boolean;
+        data?: string; // base64 encoded image data
+        mediaType?: string;
+        size?: number;
+        error?: string;
+      }>,
+  },
+
   // PDF local file picker (view only, no import)
   pdf: {
     pickLocal: () =>

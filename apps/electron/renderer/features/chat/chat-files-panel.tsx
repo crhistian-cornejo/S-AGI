@@ -4,7 +4,7 @@
  */
 import { useState, useEffect } from 'react'
 import { useAtomValue } from 'jotai'
-import { selectedChatIdAtom } from '@/lib/atoms'
+import { selectedChatIdAtom, glmOcrEnabledAtom } from '@/lib/atoms'
 import { useDocumentUpload, type VectorStoreFile, type UploadedDocument } from '@/hooks'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -31,7 +31,12 @@ import {
     IconInfoCircle,
     IconChevronDown,
     IconChevronRight,
+    IconScan,
+    IconSparkles,
 } from '@tabler/icons-react'
+import { Badge } from '@/components/ui/badge'
+import { trpc } from '@/lib/trpc'
+import { toast } from 'sonner'
 
 interface ChatFilesPanelProps {
     className?: string
@@ -98,12 +103,42 @@ interface FileItemProps {
     onDelete?: () => void
     isDeleting?: boolean
     className?: string
+    chatId?: string | null
+    onOcrComplete?: () => void
 }
 
-function FileItem({ file, onDelete, isDeleting, className }: FileItemProps) {
+function FileItem({ file, onDelete, isDeleting, className, chatId, onOcrComplete }: FileItemProps) {
     const isUploading = 'status' in file && (file.status === 'uploading' || file.status === 'processing')
     const hasError = 'error' in file && file.error
-    
+    const ocrEnabled = useAtomValue(glmOcrEnabledAtom)
+
+    // Check file metadata for OCR status (dbId and metadata come from extended file type)
+    const extFile = file as VectorStoreFile & { dbId?: string; metadata?: Record<string, unknown> }
+    const metadata = extFile.metadata
+    const isPdf = file.filename.toLowerCase().endsWith('.pdf')
+    const ocrSuggested = metadata?.ocrSuggested === true
+    const extractionMethod = metadata?.extractionMethod as string | undefined
+    const isOcrProcessed = extractionMethod === 'glm-ocr'
+    const dbId = extFile.dbId
+
+    // OCR reprocess mutation
+    const reprocessMutation = trpc.files.reprocessWithGLMOCR.useMutation({
+        onSuccess: () => {
+            toast.success('PDF processed with GLM-OCR')
+            onOcrComplete?.()
+        },
+        onError: (error) => {
+            toast.error(error.message || 'OCR processing failed')
+        }
+    })
+
+    const handleReprocessWithOCR = () => {
+        if (!chatId || !dbId) return
+        reprocessMutation.mutate({ fileId: dbId, chatId })
+    }
+
+    const isOcrProcessing = reprocessMutation.isPending
+
     return (
         <div className={cn(
             "group flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-accent/50 transition-colors",
@@ -111,31 +146,65 @@ function FileItem({ file, onDelete, isDeleting, className }: FileItemProps) {
             className
         )}>
             {getFileIcon(file.filename)}
-            
+
             <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-1.5">
                     <span className="text-xs font-medium truncate">{file.filename}</span>
                     <FileStatusIcon status={'status' in file ? file.status : 'completed'} />
+
+                    {/* OCR Status Badges */}
+                    {isPdf && isOcrProcessed && (
+                        <Badge variant="outline" className="h-4 px-1 text-[8px] border-green-500/50 text-green-600 dark:text-green-400">
+                            <IconSparkles size={8} className="mr-0.5" />
+                            OCR
+                        </Badge>
+                    )}
+                    {isPdf && ocrSuggested && !isOcrProcessed && ocrEnabled && (
+                        <Badge variant="outline" className="h-4 px-1 text-[8px] border-amber-500/50 text-amber-600 dark:text-amber-400">
+                            <IconScan size={8} className="mr-0.5" />
+                            OCR?
+                        </Badge>
+                    )}
                 </div>
-                {file.bytes && (
-                    <span className="text-[10px] text-muted-foreground">
-                        {formatFileSize(file.bytes)}
-                    </span>
-                )}
+                <div className="flex items-center gap-2">
+                    {file.bytes && (
+                        <span className="text-[10px] text-muted-foreground">
+                            {formatFileSize(file.bytes)}
+                        </span>
+                    )}
+                    {/* OCR Improve Button */}
+                    {isPdf && ocrSuggested && !isOcrProcessed && ocrEnabled && chatId && dbId && (
+                        <button
+                            type="button"
+                            onClick={handleReprocessWithOCR}
+                            disabled={isOcrProcessing}
+                            className="text-[9px] text-blue-500 hover:text-blue-600 hover:underline transition-colors disabled:opacity-50"
+                        >
+                            {isOcrProcessing ? (
+                                <span className="flex items-center gap-1">
+                                    <IconLoader2 size={8} className="animate-spin" />
+                                    Processing...
+                                </span>
+                            ) : (
+                                'Improve with OCR'
+                            )}
+                        </button>
+                    )}
+                </div>
                 {hasError && (
                     <span className="text-[10px] text-destructive truncate block">
                         {(file as UploadedDocument).error}
                     </span>
                 )}
             </div>
-            
+
             {onDelete && !isUploading && (
                 <Button
                     variant="ghost"
                     size="icon"
                     className="h-5 w-5 opacity-0 group-hover:opacity-100 transition-opacity"
                     onClick={onDelete}
-                    disabled={isDeleting}
+                    disabled={isDeleting || isOcrProcessing}
                 >
                     {isDeleting ? (
                         <IconLoader2 size={12} className="animate-spin" />
@@ -157,6 +226,8 @@ export function ChatFilesPanel({ className }: ChatFilesPanelProps) {
         deleteDocument,
         isDeleting,
     } = useDocumentUpload({ chatId })
+
+    const utils = trpc.useUtils()
     
     // Combine server files with uploading documents
     const allFiles = [
@@ -237,7 +308,7 @@ export function ChatFilesPanel({ className }: ChatFilesPanelProps) {
                                         "shadow-sm hover:shadow-md"
                                     )}
                                 >
-                                    <FileItem file={file} className="p-0 border-0 bg-transparent shadow-none w-full scale-[0.9] origin-left" />
+                                    <FileItem file={file} chatId={chatId} className="p-0 border-0 bg-transparent shadow-none w-full scale-[0.9] origin-left" />
                                     
                                     {idx === 2 && allFiles.length > 3 && (
                                         <>
@@ -263,8 +334,10 @@ export function ChatFilesPanel({ className }: ChatFilesPanelProps) {
                                 <FileItem
                                     key={file.id}
                                     file={file}
+                                    chatId={chatId}
                                     onDelete={file.id ? () => deleteDocument(file.id) : undefined}
                                     isDeleting={isDeleting}
+                                    onOcrComplete={() => utils.files.listForChat.invalidate()}
                                 />
                             ))}
                             {allFiles.length >= 3 && (

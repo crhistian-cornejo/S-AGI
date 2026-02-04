@@ -581,15 +581,6 @@ const ErrorNotification = memo(function ErrorNotification({
   );
 });
 
-/** Memoized assistant avatar to prevent unnecessary re-renders */
-const AssistantAvatar = memo(function AssistantAvatar() {
-  return (
-    <div className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0">
-      <Logo size={24} />
-    </div>
-  );
-});
-
 /** Main message list component - memoized for performance */
 export const MessageList = memo(function MessageList({
   messages,
@@ -652,9 +643,7 @@ export const MessageList = memo(function MessageList({
           (streamingWebSearches && streamingWebSearches.length > 0) ||
           (streamingFileSearches && streamingFileSearches.length > 0)) && (
           <div className="animate-in fade-in duration-300 w-full overflow-hidden">
-            <div className="flex items-start gap-4 w-full overflow-hidden">
-              <AssistantAvatar />
-              <div className="flex-1 min-w-0 space-y-2 pt-0.5 overflow-hidden">
+            <div className="flex-1 min-w-0 space-y-2 pt-0.5 overflow-hidden">
                 {/* Reasoning section - shows ABOVE the text */}
                 {(isReasoning ||
                   streamingReasoning ||
@@ -708,7 +697,6 @@ export const MessageList = memo(function MessageList({
                   />
                 )}
               </div>
-            </div>
           </div>
         )}
 
@@ -722,8 +710,7 @@ export const MessageList = memo(function MessageList({
         (!streamingToolCalls || streamingToolCalls.length === 0) &&
         (!streamingWebSearches || streamingWebSearches.length === 0) &&
         (!streamingFileSearches || streamingFileSearches.length === 0) && (
-          <div className="flex gap-4 animate-in fade-in duration-300">
-            <AssistantAvatar />
+          <div className="animate-in fade-in duration-300">
             <div className="flex-1 pt-1 space-y-3">
               {/* Skeleton lines mimicking text response */}
               <Skeleton className="h-4 w-[85%]" />
@@ -916,8 +903,7 @@ const MessageItem = memo(function MessageItem({
   }
 
   return (
-    <div className="flex items-start gap-4 group w-full overflow-hidden">
-      <AssistantAvatar />
+    <div className="group w-full overflow-hidden">
       <div className="flex-1 min-w-0 space-y-2 pt-0.5 overflow-hidden">
         {/* Reasoning shown above everything */}
         {reasoning && (
@@ -928,6 +914,8 @@ const MessageItem = memo(function MessageItem({
             durationMs={message.metadata?.durationMs}
             actions={message.metadata?.actions}
             annotations={message.metadata?.annotations}
+            modelId={modelId}
+            modelName={modelName}
           />
         )}
 
@@ -1026,24 +1014,23 @@ const MessageItem = memo(function MessageItem({
                     annotations={message.metadata.annotations}
                   />
                 )}
-              {/* Model used for this response (OpenAI or Z.AI icon + name) — basis for cost calculation */}
+              {/* Model used for this response - minimal icon with tooltip like Claude.ai */}
               {(modelId || modelName) && (
                 <Tooltip>
                   <TooltipTrigger asChild>
-                    <span className="h-5 px-2 flex items-center gap-1.5 text-[10px] rounded-full bg-muted/40 text-muted-foreground/80 font-medium hover:bg-muted/60 transition-colors cursor-default">
+                    <button
+                      type="button"
+                      className="p-1.5 rounded-md transition-[background-color,transform] duration-150 ease-out hover:bg-accent active:scale-[0.97]"
+                      aria-label={`Model: ${modelName}`}
+                    >
                       <ModelIcon
                         provider={modelProvider}
-                        size={12}
-                        className="shrink-0 opacity-70"
+                        size={16}
+                        className="text-muted-foreground"
                       />
-                      <span className="truncate max-w-[120px]">
-                        {modelName}
-                      </span>
-                    </span>
+                    </button>
                   </TooltipTrigger>
-                  <TooltipContent side="top">
-                    Model used: {modelName}
-                  </TooltipContent>
+                  <TooltipContent side="top">{modelName}</TooltipContent>
                 </Tooltip>
               )}
             </div>
@@ -1107,6 +1094,25 @@ const MessageItem = memo(function MessageItem({
                 </TooltipContent>
               </Tooltip>
             )}
+          </div>
+        )}
+
+        {/* S-AGI Logo - shown below actions */}
+        {content && (
+          <div className="flex justify-start mt-3">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <div className="cursor-default p-1.5 hover:bg-muted/50 rounded-md transition-colors">
+                  <Logo size={18} className="text-muted-foreground/50 hover:text-muted-foreground/70 transition-colors" />
+                </div>
+              </TooltipTrigger>
+              <TooltipContent side="right" className="max-w-xs">
+                <p className="text-sm font-medium">S-AGI</p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  ¿Tienes más preguntas? ¡Sigue preguntando!
+                </p>
+              </TooltipContent>
+            </Tooltip>
           </div>
         )}
       </div>

@@ -13,6 +13,15 @@ import {
   type TextWithPosition,
   type BoundingBox,
 } from "../pdf/pdf-service";
+import {
+  processWithGLMOCR,
+  analyzePDFQuality,
+  shouldAutoProcess,
+  isGLMOCRAvailable,
+  GLMOCRServiceError,
+  type PDFAnalysisResult,
+  type OCRSettings,
+} from "../ocr";
 
 // Re-export position types for consumers
 export type { TextWithPosition, BoundingBox };
@@ -473,6 +482,174 @@ export function isProcessableExtension(extension: string): boolean {
     "tex",
   ];
   return processableExtensions.includes(ext);
+}
+
+// ============================================================================
+// OCR-Enhanced Processing
+// ============================================================================
+
+/**
+ * Extended result type for OCR-aware processing
+ */
+export interface ProcessedDocumentWithOCR extends ProcessedDocument {
+  /** Whether OCR was used for extraction */
+  ocrUsed: boolean;
+  /** Whether OCR is suggested for this document */
+  ocrSuggested: boolean;
+  /** PDF analysis result if analyzed */
+  ocrAnalysis?: PDFAnalysisResult;
+  /** Extraction method used */
+  extractionMethod: "native" | "glm-ocr";
+}
+
+/**
+ * Process a document with optional OCR fallback
+ *
+ * Flow:
+ * 1. Extract with native LibPDF first (fast)
+ * 2. Analyze quality to detect if OCR would help
+ * 3. If OCR enabled and beneficial, process with GLM-OCR
+ * 4. Return best result with metadata
+ */
+export async function processDocumentWithOCRFallback(
+  buffer: Buffer,
+  filename: string,
+  mimeType: string,
+  ocrSettings: OCRSettings
+): Promise<ProcessedDocumentWithOCR> {
+  const startTime = Date.now();
+  log.info(
+    `[DocumentProcessor] Processing with OCR fallback: ${filename} (OCR enabled: ${ocrSettings.enabled})`
+  );
+
+  // Step 1: Native extraction first (always fast)
+  const nativeResult = await processDocument(buffer, filename, mimeType);
+
+  // Only analyze PDFs for OCR
+  const isPdf = SUPPORTED_DOCUMENT_TYPES.pdf.includes(mimeType as any);
+  if (!isPdf) {
+    return {
+      ...nativeResult,
+      ocrUsed: false,
+      ocrSuggested: false,
+      extractionMethod: "native",
+    };
+  }
+
+  // Step 2: Analyze quality
+  const analysis = analyzePDFQuality(nativeResult);
+  log.info(
+    `[DocumentProcessor] OCR analysis: needsOCR=${analysis.needsOCR}, confidence=${analysis.confidence.toFixed(2)}, reasons=${analysis.reasons.join(", ")}`
+  );
+
+  // Step 3: Decide whether to use OCR
+  const shouldUseOCR =
+    analysis.needsOCR &&
+    ocrSettings.enabled &&
+    isGLMOCRAvailable() &&
+    (ocrSettings.autoProcess || shouldAutoProcess(analysis));
+
+  if (!shouldUseOCR) {
+    // Return native result with suggestion flag
+    return {
+      ...nativeResult,
+      ocrUsed: false,
+      ocrSuggested: analysis.needsOCR && ocrSettings.autoDetect,
+      ocrAnalysis: analysis,
+      extractionMethod: "native",
+    };
+  }
+
+  // Step 4: Process with GLM-OCR
+  try {
+    log.info("[DocumentProcessor] Processing with GLM-OCR...");
+    const ocrResult = await processWithGLMOCR(buffer, mimeType);
+
+    const duration = Date.now() - startTime;
+    log.info(
+      `[DocumentProcessor] GLM-OCR completed in ${duration}ms, extracted ${ocrResult.content.length} chars`
+    );
+
+    // Merge OCR result with native metadata
+    return {
+      success: true,
+      content: ocrResult.content,
+      pages: ocrResult.pages,
+      metadata: {
+        ...nativeResult.metadata,
+        wordCount: ocrResult.pages.reduce((sum, p) => sum + p.wordCount, 0),
+        pageCount: ocrResult.pages.length,
+        extractedAt: new Date().toISOString(),
+      },
+      processingStatus: "completed",
+      ocrUsed: true,
+      ocrSuggested: false,
+      ocrAnalysis: analysis,
+      extractionMethod: "glm-ocr",
+    };
+  } catch (error) {
+    // Log error and fallback to native
+    const errorMessage =
+      error instanceof GLMOCRServiceError
+        ? `${error.code}: ${error.message}`
+        : String(error);
+    log.warn(`[DocumentProcessor] GLM-OCR failed, using native: ${errorMessage}`);
+
+    return {
+      ...nativeResult,
+      ocrUsed: false,
+      ocrSuggested: true, // Suggest retry later
+      ocrAnalysis: analysis,
+      extractionMethod: "native",
+      metadata: {
+        ...nativeResult.metadata,
+        ocrError: errorMessage,
+      } as any,
+    };
+  }
+}
+
+/**
+ * Reprocess an existing document with GLM-OCR
+ * Used for manual "Improve with OCR" action
+ */
+export async function reprocessWithOCR(
+  buffer: Buffer,
+  mimeType: string
+): Promise<{
+  success: boolean;
+  content: string;
+  pages: PageContent[];
+  error?: string;
+}> {
+  if (!isGLMOCRAvailable()) {
+    return {
+      success: false,
+      content: "",
+      pages: [],
+      error: "Z.AI API key not configured",
+    };
+  }
+
+  try {
+    const result = await processWithGLMOCR(buffer, mimeType);
+    return {
+      success: true,
+      content: result.content,
+      pages: result.pages,
+    };
+  } catch (error) {
+    const errorMessage =
+      error instanceof GLMOCRServiceError
+        ? error.message
+        : "OCR processing failed";
+    return {
+      success: false,
+      content: "",
+      pages: [],
+      error: errorMessage,
+    };
+  }
 }
 
 // ============================================================================

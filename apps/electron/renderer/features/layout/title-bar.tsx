@@ -207,10 +207,11 @@ export function TitleBar({ className, noTrafficLightSpace }: TitleBarProps) {
                     type="button"
                     onClick={() => setAgentPanelOpen(!agentPanelOpen)}
                     className={cn(
-                      "flex items-center gap-2 transition-all duration-200 no-drag pointer-events-auto",
+                      "flex items-center gap-2 transition-all duration-200 no-drag pointer-events-auto relative z-[300]",
                       "hover:opacity-80 active:scale-95 cursor-pointer",
                       agentPanelOpen && "text-primary"
                     )}
+                    style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
                   >
                     <div className="relative">
                       <Logo size={16} />
@@ -240,7 +241,8 @@ export function TitleBar({ className, noTrafficLightSpace }: TitleBarProps) {
                   <button
                     type="button"
                     onClick={() => setSidebarOpen(true)}
-                    className="no-drag pointer-events-auto flex items-center justify-center w-7 h-7 rounded-md transition-all duration-200 hover:bg-accent/50 text-muted-foreground hover:text-foreground"
+                    className="no-drag pointer-events-auto flex items-center justify-center w-7 h-7 rounded-md transition-all duration-200 hover:bg-accent/50 text-muted-foreground hover:text-foreground relative z-[300]"
+                    style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
                   >
                     <IconMessages size={16} />
                   </button>
@@ -254,7 +256,8 @@ export function TitleBar({ className, noTrafficLightSpace }: TitleBarProps) {
                   <button
                     type="button"
                     onClick={handleNewThread}
-                    className="no-drag pointer-events-auto flex items-center justify-center w-7 h-7 rounded-md transition-all duration-200 hover:bg-accent/50 text-muted-foreground hover:text-foreground"
+                    className="no-drag pointer-events-auto flex items-center justify-center w-7 h-7 rounded-md transition-all duration-200 hover:bg-accent/50 text-muted-foreground hover:text-foreground relative z-[300]"
+                    style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
                   >
                     <IconPlus size={16} />
                   </button>
@@ -305,10 +308,11 @@ export function TitleBar({ className, noTrafficLightSpace }: TitleBarProps) {
                     type="button"
                     onClick={() => setAgentPanelOpen(!agentPanelOpen)}
                     className={cn(
-                      "flex items-center gap-2 transition-all duration-200 no-drag pointer-events-auto",
+                      "flex items-center gap-2 transition-all duration-200 no-drag pointer-events-auto relative z-[300]",
                       "hover:opacity-80 active:scale-95 cursor-pointer",
                       agentPanelOpen && "text-primary"
                     )}
+                    style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
                   >
                     <div className="relative">
                       <Logo size={16} />
@@ -338,7 +342,8 @@ export function TitleBar({ className, noTrafficLightSpace }: TitleBarProps) {
                   <button
                     type="button"
                     onClick={() => setSidebarOpen(true)}
-                    className="no-drag pointer-events-auto flex items-center justify-center w-7 h-7 rounded-md transition-all duration-200 hover:bg-accent/50 text-muted-foreground hover:text-foreground"
+                    className="no-drag pointer-events-auto flex items-center justify-center w-7 h-7 rounded-md transition-all duration-200 hover:bg-accent/50 text-muted-foreground hover:text-foreground relative z-[300]"
+                    style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
                   >
                     <IconMessages size={16} />
                   </button>
@@ -352,7 +357,8 @@ export function TitleBar({ className, noTrafficLightSpace }: TitleBarProps) {
                   <button
                     type="button"
                     onClick={handleNewThread}
-                    className="no-drag pointer-events-auto flex items-center justify-center w-7 h-7 rounded-md transition-all duration-200 hover:bg-accent/50 text-muted-foreground hover:text-foreground"
+                    className="no-drag pointer-events-auto flex items-center justify-center w-7 h-7 rounded-md transition-all duration-200 hover:bg-accent/50 text-muted-foreground hover:text-foreground relative z-[300]"
+                    style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
                   >
                     <IconPlus size={16} />
                   </button>
@@ -403,10 +409,11 @@ export function TitleBar({ className, noTrafficLightSpace }: TitleBarProps) {
                     type="button"
                     onClick={() => setAgentPanelOpen(!agentPanelOpen)}
                     className={cn(
-                      "flex items-center gap-2 transition-all duration-200 no-drag pointer-events-auto",
+                      "flex items-center gap-2 transition-all duration-200 no-drag pointer-events-auto relative z-[300]",
                       "hover:opacity-80 active:scale-95 cursor-pointer",
                       agentPanelOpen && "text-primary"
                     )}
+                    style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
                   >
                     <div className="relative">
                       <Logo size={16} />
@@ -436,7 +443,8 @@ export function TitleBar({ className, noTrafficLightSpace }: TitleBarProps) {
                   <button
                     type="button"
                     onClick={() => setSidebarOpen(true)}
-                    className="no-drag pointer-events-auto flex items-center justify-center w-7 h-7 rounded-md transition-all duration-200 hover:bg-accent/50 text-muted-foreground hover:text-foreground"
+                    className="no-drag pointer-events-auto flex items-center justify-center w-7 h-7 rounded-md transition-all duration-200 hover:bg-accent/50 text-muted-foreground hover:text-foreground relative z-[300]"
+                    style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
                   >
                     <IconMessages size={16} />
                   </button>
@@ -450,7 +458,8 @@ export function TitleBar({ className, noTrafficLightSpace }: TitleBarProps) {
                   <button
                     type="button"
                     onClick={handleNewThread}
-                    className="no-drag pointer-events-auto flex items-center justify-center w-7 h-7 rounded-md transition-all duration-200 hover:bg-accent/50 text-muted-foreground hover:text-foreground"
+                    className="no-drag pointer-events-auto flex items-center justify-center w-7 h-7 rounded-md transition-all duration-200 hover:bg-accent/50 text-muted-foreground hover:text-foreground relative z-[300]"
+                    style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
                   >
                     <IconPlus size={16} />
                   </button>
@@ -501,10 +510,11 @@ export function TitleBar({ className, noTrafficLightSpace }: TitleBarProps) {
                     type="button"
                     onClick={() => setAgentPanelOpen(!agentPanelOpen)}
                     className={cn(
-                      "flex items-center gap-2 transition-all duration-200 no-drag pointer-events-auto",
+                      "flex items-center gap-2 transition-all duration-200 no-drag pointer-events-auto relative z-[300]",
                       "hover:opacity-80 active:scale-95 cursor-pointer",
                       agentPanelOpen && "text-primary"
                     )}
+                    style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
                   >
                     <div className="relative">
                       <Logo size={16} />
@@ -534,7 +544,8 @@ export function TitleBar({ className, noTrafficLightSpace }: TitleBarProps) {
                   <button
                     type="button"
                     onClick={() => setSidebarOpen(true)}
-                    className="no-drag pointer-events-auto flex items-center justify-center w-7 h-7 rounded-md transition-all duration-200 hover:bg-accent/50 text-muted-foreground hover:text-foreground"
+                    className="no-drag pointer-events-auto flex items-center justify-center w-7 h-7 rounded-md transition-all duration-200 hover:bg-accent/50 text-muted-foreground hover:text-foreground relative z-[300]"
+                    style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
                   >
                     <IconMessages size={16} />
                   </button>
@@ -548,7 +559,8 @@ export function TitleBar({ className, noTrafficLightSpace }: TitleBarProps) {
                   <button
                     type="button"
                     onClick={handleNewThread}
-                    className="no-drag pointer-events-auto flex items-center justify-center w-7 h-7 rounded-md transition-all duration-200 hover:bg-accent/50 text-muted-foreground hover:text-foreground"
+                    className="no-drag pointer-events-auto flex items-center justify-center w-7 h-7 rounded-md transition-all duration-200 hover:bg-accent/50 text-muted-foreground hover:text-foreground relative z-[300]"
+                    style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
                   >
                     <IconPlus size={16} />
                   </button>
@@ -678,6 +690,7 @@ export function TitleBar({ className, noTrafficLightSpace }: TitleBarProps) {
         )}
       {activeTab !== "ideas" &&
         activeTab !== "chat" &&
+        activeTab !== "gallery" &&
         activeTab !== "settings" &&
         (!isWindowsApp || activeTab !== "pdf") &&
         !showTrafficLights &&
@@ -698,12 +711,13 @@ export function TitleBar({ className, noTrafficLightSpace }: TitleBarProps) {
                   }
                   disabled={!isAgentEnabled}
                   className={cn(
-                    "flex items-center gap-2 no-drag pointer-events-auto ml-2 shrink-0 z-10 transition-all duration-200",
+                    "flex items-center gap-2 no-drag pointer-events-auto ml-2 shrink-0 z-[300] relative transition-all duration-200",
                     isAgentEnabled &&
                       "hover:opacity-80 active:scale-95 cursor-pointer",
                     !isAgentEnabled && "cursor-default",
                     isAgentEnabled && agentPanelOpen && "text-primary"
                   )}
+                  style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
                 >
                   <div className="relative">
                     <Logo size={16} />
@@ -739,12 +753,13 @@ export function TitleBar({ className, noTrafficLightSpace }: TitleBarProps) {
                 }
                 disabled={!isAgentEnabled}
                 className={cn(
-                  "flex items-center gap-2 mr-2 transition-all duration-200",
+                  "flex items-center gap-2 mr-2 transition-all duration-200 relative z-[300]",
                   isAgentEnabled &&
                     "hover:opacity-80 active:scale-95 cursor-pointer",
                   !isAgentEnabled && "cursor-default",
                   isAgentEnabled && agentPanelOpen && "text-primary"
                 )}
+                style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
               >
                 <div className="relative">
                   <Logo size={16} />

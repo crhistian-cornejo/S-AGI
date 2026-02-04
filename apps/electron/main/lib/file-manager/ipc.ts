@@ -2,9 +2,11 @@ import { ipcMain, dialog, shell } from 'electron'
 import { z } from 'zod'
 import * as fs from 'node:fs'
 import * as path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { getFileManager } from './file-manager'
 import { isSensitiveUnlocked } from '../security/sensitive-lock'
 import { validateIPCSender } from '../security/ipc-validation'
+import { getLocalFileStorage } from '../storage'
 
 export function registerFileManagerIpc(getTrayPopover: () => Electron.BrowserWindow | null): void {
     const fm = getFileManager()
@@ -257,6 +259,63 @@ export function registerFileManagerIpc(getTrayPopover: () => Electron.BrowserWin
             return {
                 success: false,
                 error: error instanceof Error ? error.message : 'Failed to read file'
+            }
+        }
+    })
+
+    // Read a local image from the app local-data/images folder as base64
+    ipcMain.handle('images:read-local', async (event, input: unknown) => {
+        if (!validateIPCSender(event.sender)) return { success: false, error: 'Unauthorized' }
+        const { filePath } = z.object({
+            filePath: z.string().min(1)
+        }).parse(input)
+
+        try {
+            const requestedPath = filePath.startsWith('file://')
+                ? fileURLToPath(filePath)
+                : filePath
+
+            const storage = getLocalFileStorage()
+            const imagesRoot = path.resolve(storage.getBucketPath('images'))
+            const resolvedPath = path.resolve(requestedPath)
+            const relativeToImagesRoot = path.relative(imagesRoot, resolvedPath)
+
+            // Only allow reads from local images bucket
+            if (
+                relativeToImagesRoot.startsWith('..') ||
+                path.isAbsolute(relativeToImagesRoot)
+            ) {
+                return { success: false, error: 'Path outside local images folder' }
+            }
+
+            if (!fs.existsSync(resolvedPath)) {
+                return { success: false, error: 'File not found' }
+            }
+
+            const ext = path.extname(resolvedPath).toLowerCase()
+            const allowedTypes: Record<string, string> = {
+                '.png': 'image/png',
+                '.jpg': 'image/jpeg',
+                '.jpeg': 'image/jpeg',
+                '.webp': 'image/webp',
+                '.gif': 'image/gif'
+            }
+            const mediaType = allowedTypes[ext]
+            if (!mediaType) {
+                return { success: false, error: 'Unsupported image type' }
+            }
+
+            const buffer = await fs.promises.readFile(resolvedPath)
+            return {
+                success: true,
+                data: buffer.toString('base64'),
+                mediaType,
+                size: buffer.length
+            }
+        } catch (error) {
+            return {
+                success: false,
+                error: error instanceof Error ? error.message : 'Failed to read image'
             }
         }
     })

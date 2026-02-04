@@ -1,19 +1,23 @@
 import {
   IconAdjustmentsHorizontal,
+  IconArchive,
   IconBug,
   IconChartBar,
   IconKey,
   IconKeyboard,
   IconPalette,
   IconUser,
+  IconFileText,
 } from "@tabler/icons-react";
 import type { SettingsTab } from "@/lib/atoms";
 import {
   AccountTab,
+  ArchivedChatsTab,
   AdvancedTab,
   ApiKeysTab,
   AppearanceTab,
   DebugTab,
+  PdfSettingsTab,
 } from "./tabs";
 import { ShortcutsTab } from "./tabs/shortcuts-tab";
 import { UsageTab } from "./tabs/usage-tab";
@@ -34,6 +38,12 @@ export const SETTINGS_TABS: SettingsTabConfig[] = [
     label: "Account",
     icon: IconUser,
     description: "Profile and connected accounts",
+  },
+  {
+    id: "archived-chats",
+    label: "Archived Chats",
+    icon: IconArchive,
+    description: "Restore or remove archived conversations",
   },
   {
     id: "api-keys",
@@ -65,6 +75,12 @@ export const SETTINGS_TABS: SettingsTabConfig[] = [
     icon: IconKeyboard,
     description: "Configure keyboard shortcuts",
   },
+  {
+    id: "pdf-ocr",
+    label: "PDF & OCR",
+    icon: IconFileText,
+    description: "Configure PDF extraction and GLM-OCR",
+  },
   ...(isDevelopment
     ? [
         {
@@ -81,6 +97,8 @@ export function renderSettingsTabContent(activeTab: SettingsTab) {
   switch (activeTab) {
     case "account":
       return <AccountTab />;
+    case "archived-chats":
+      return <ArchivedChatsTab />;
     case "api-keys":
       return <ApiKeysTab />;
     case "usage":
@@ -91,6 +109,8 @@ export function renderSettingsTabContent(activeTab: SettingsTab) {
       return <AdvancedTab />;
     case "shortcuts":
       return <ShortcutsTab />;
+    case "pdf-ocr":
+      return <PdfSettingsTab />;
     case "debug":
       return isDevelopment ? <DebugTab /> : null;
     default:

@@ -1,12 +1,17 @@
+import { z } from 'zod'
 import { router, protectedProcedure } from '../trpc'
 import { supabase } from '../../supabase/client'
 import log from 'electron-log'
+import { getLocalFileStorage, isLocalStorageMode } from '../../storage'
+import { existsSync, readdirSync, statSync } from 'fs'
+import { join } from 'path'
 
 interface GalleryImage {
     id: string
     url: string
     name: string
     type: 'uploaded' | 'generated' | 'edited'
+    source: 'local' | 'cloud'
     createdAt: string
     chatId: string | null
 }
@@ -18,9 +23,71 @@ export const galleryRouter = router({
     /**
      * List all images (uploaded and generated) for the current user
      */
-    list: protectedProcedure.query(async ({ ctx }) => {
+    list: protectedProcedure
+        .input(
+            z
+                .object({
+                    modeHint: z.enum(['local', 'cloud']).optional()
+                })
+                .optional()
+        )
+        .query(async ({ ctx, input }) => {
         try {
             const allImages: GalleryImage[] = []
+            const localMode = isLocalStorageMode()
+            if (input?.modeHint && input.modeHint !== (localMode ? 'local' : 'cloud')) {
+                log.warn('[GalleryRouter] modeHint mismatch', {
+                    hint: input.modeHint,
+                    detected: localMode ? 'local' : 'cloud'
+                })
+            }
+
+            if (localMode) {
+                const fileStorage = getLocalFileStorage()
+                const imagesRoot = fileStorage.getBucketPath('images')
+
+                const walk = (folderPath: string): string[] => {
+                    if (!existsSync(folderPath)) return []
+                    const entries = readdirSync(folderPath, { withFileTypes: true })
+                    const files: string[] = []
+                    for (const entry of entries) {
+                        const full = join(folderPath, entry.name)
+                        if (entry.isDirectory()) {
+                            files.push(...walk(full))
+                        } else if (entry.isFile() && entry.name.match(/\.(png|jpg|jpeg|webp)$/i)) {
+                            files.push(full)
+                        }
+                    }
+                    return files
+                }
+
+                const generatedRoot = join(imagesRoot, 'generated')
+                const editedRoot = join(imagesRoot, 'edited')
+                const localFiles = [...walk(generatedRoot), ...walk(editedRoot)]
+
+                for (const fullPath of localFiles) {
+                    const relativePath = fullPath.slice(imagesRoot.length + 1).replace(/\\/g, '/')
+                    const segments = relativePath.split('/')
+                    const topFolder = segments[0]
+                    const chatId = segments.length >= 3 ? segments[1] : null
+                    const fileName = segments[segments.length - 1] || 'image'
+                    const stats = statSync(fullPath)
+
+                    allImages.push({
+                        id: relativePath,
+                        url: fileStorage.getUrl('images', relativePath),
+                        name: fileName,
+                        type: topFolder === 'edited' ? 'edited' : 'generated',
+                        source: 'local',
+                        createdAt: stats.mtime.toISOString(),
+                        chatId
+                    })
+                }
+
+                return allImages.sort(
+                    (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+                )
+            }
 
             // 1. Fetch uploaded images from chat_files
             const { data: uploadedFiles, error: uploadError } = await supabase
@@ -57,6 +124,7 @@ export const galleryRouter = router({
                             url: signedData.signedUrl,
                             name: file.filename || path.split('/').pop() || 'image',
                             type: 'uploaded',
+                            source: 'cloud',
                             createdAt: file.created_at,
                             chatId: file.chat_id
                         })
@@ -97,6 +165,7 @@ export const galleryRouter = router({
                                             url: signedData.signedUrl,
                                             name: img.name,
                                             type: 'generated',
+                                            source: 'cloud',
                                             createdAt: img.created_at || new Date().toISOString(),
                                             chatId: folder.name
                                         })
@@ -136,6 +205,7 @@ export const galleryRouter = router({
                                             url: signedData.signedUrl,
                                             name: img.name,
                                             type: 'edited',
+                                            source: 'cloud',
                                             createdAt: img.created_at || new Date().toISOString(),
                                             chatId: folder.name
                                         })

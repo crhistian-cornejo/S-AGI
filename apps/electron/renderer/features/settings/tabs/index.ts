@@ -1,6 +1,8 @@
 export { AccountTab } from './account-tab'
+export { ArchivedChatsTab } from './archived-chats-tab'
 export { AppearanceTab } from './appearance-tab'
 export { ApiKeysTab } from './api-keys-tab'
 export { AdvancedTab } from './advanced-tab'
 export { ShortcutsTab } from './shortcuts-tab'
 export { DebugTab } from './debug-tab'
+export { PdfSettingsTab } from './pdf-settings-tab'

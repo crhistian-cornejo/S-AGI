@@ -93,6 +93,15 @@ interface DesktopApi {
             canceled?: boolean
         }>
     }
+    images: {
+        readLocal: (filePath: string) => Promise<{
+            success: boolean
+            data?: string
+            mediaType?: string
+            size?: number
+            error?: string
+        }>
+    }
     security: {
         getSensitiveStatus: () => Promise<{ unlockedUntil: number; canBiometric: boolean; pinEnabled: boolean }>
         unlockSensitive: (data: { ttlMs?: number; reason?: string }) => Promise<{ success: boolean; unlockedUntil: number; error?: string }>

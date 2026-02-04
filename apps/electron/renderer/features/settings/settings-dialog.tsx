@@ -9,6 +9,7 @@ import {
   IconKey,
   IconBug,
   IconAdjustmentsHorizontal,
+  IconArchive,
   IconKeyboard,
   IconChartBar,
 } from "@tabler/icons-react";
@@ -20,6 +21,7 @@ import {
 } from "@/lib/atoms";
 import {
   AccountTab,
+  ArchivedChatsTab,
   AppearanceTab,
   ApiKeysTab,
   DebugTab,
@@ -44,6 +46,12 @@ const ALL_TABS: TabConfig[] = [
     label: "Account",
     icon: IconUser,
     description: "Manage your account settings",
+  },
+  {
+    id: "archived-chats",
+    label: "Archived Chats",
+    icon: IconArchive,
+    description: "Restore or remove archived conversations",
   },
   {
     id: "api-keys",
@@ -149,6 +157,8 @@ export function SettingsDialog() {
     switch (activeTab) {
       case "account":
         return <AccountTab />;
+      case "archived-chats":
+        return <ArchivedChatsTab />;
       case "api-keys":
         return <ApiKeysTab />;
       case "usage":

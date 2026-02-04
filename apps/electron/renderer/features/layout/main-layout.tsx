@@ -57,7 +57,6 @@ import { SettingsPage } from "@/features/settings/settings-page";
 import { useOpenSettingsPage } from "@/features/settings/use-open-settings-page";
 import { TitleBar } from "./title-bar";
 import { cn, isMacOS } from "@/lib/utils";
-import { isLocalMode as isLocalModeRenderer } from "@/lib/supabase";
 import { useAtom, useSetAtom, useAtomValue } from "jotai";
 import {
   Tooltip,
@@ -129,6 +128,7 @@ const PdfSidebar = lazy(() =>
 );
 const settingsTabs: SettingsTab[] = [
   "account",
+  "archived-chats",
   "appearance",
   "api-keys",
   "advanced",
@@ -357,7 +357,8 @@ export function MainLayout() {
     return btoa(base64);
   }, []);
 
-  const isLocalStorageMode = isLocalModeRenderer();
+  // Use main-process truth for storage mode (active account), not env-only renderer guess.
+  const { data: isLocalStorageMode = false } = trpc.auth.isLocalMode.useQuery();
 
   const getLocalPath = useCallback(
     (file?: { metadata?: Record<string, unknown> | null } | null) => {
@@ -1015,7 +1016,8 @@ export function MainLayout() {
                 <div className="flex-1 flex min-w-0 overflow-hidden rounded-2xl border border-sidebar-border/40 bg-sidebar relative">
                   <div
                     className={cn(
-                      "flex-1 flex flex-col min-w-0 overflow-hidden"
+                      "flex-1 flex flex-col min-w-0 overflow-hidden",
+                      agentPanelOpen && "pr-[320px]"
                     )}
                   >
                     {/* File Header - shows when valid file is loaded (ID matches) */}
@@ -1122,6 +1124,24 @@ export function MainLayout() {
                           />
                         </Suspense>
                       </div>
+                    </div>
+                  </div>
+                  {/* Agent Panel - GPU slide, no layout animation */}
+                  <div
+                    className={cn(
+                      "absolute right-0 top-0 h-full w-[320px] bg-sidebar border-l border-sidebar-border/40",
+                      "transition-transform transition-opacity duration-300 ease-in-out transform-gpu",
+                      agentPanelOpen
+                        ? "translate-x-0 opacity-100"
+                        : "translate-x-full opacity-0 pointer-events-none"
+                    )}
+                    inert={!agentPanelOpen || undefined}
+                    aria-hidden={!agentPanelOpen}
+                  >
+                    <div className="h-full w-[320px]">
+                      <Suspense fallback={<PanelLoadingFallback />}>
+                        <AgentPanel />
+                      </Suspense>
                     </div>
                   </div>
                 </div>

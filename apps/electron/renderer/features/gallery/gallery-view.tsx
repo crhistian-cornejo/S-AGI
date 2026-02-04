@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { useAtom, useSetAtom } from 'jotai'
 import { sidebarOpenAtom, activeTabAtom, commandKOpenAtom } from '@/lib/atoms'
 import { trpc } from '@/lib/trpc'
@@ -85,15 +85,19 @@ Card.displayName = "Card";
 
 // --- Main Gallery View ---
 export function GalleryView() {
-    const { data: images, isLoading, refetch, isFetching } = trpc.gallery.list.useQuery(undefined, {
+    const { data: isLocalMode = false } = trpc.auth.isLocalMode.useQuery()
+    const { data: images, isLoading, refetch, isFetching } = trpc.gallery.list.useQuery({
+        modeHint: isLocalMode ? 'local' : 'cloud'
+    }, {
         staleTime: 1000 * 60 * 5,
         gcTime: 1000 * 60 * 60,
-        refetchOnMount: false,
+        refetchOnMount: true,
         refetchOnWindowFocus: false,
         refetchOnReconnect: true
     })
     const [hovered, setHovered] = useState<number | null>(null);
     const [selectedImage, setSelectedImage] = useState<string | null>(null)
+    const [resolvedLocalUrls, setResolvedLocalUrls] = useState<Record<string, string>>({})
     const [sidebarOpen, setSidebarOpen] = useAtom(sidebarOpenAtom)
     const [, setActiveTab] = useAtom(activeTabAtom)
     const setCommandKOpen = useSetAtom(commandKOpenAtom)
@@ -101,13 +105,43 @@ export function GalleryView() {
     // Get platform info at runtime for better detection
     const platform = (window as any).desktopApi?.platform || 'unknown'
     const isWindowsRuntime = platform === 'win32'
-    
-    // Debug log
-    React.useEffect(() => {
-        console.log('[Gallery] Platform detected:', platform, 'isWindows:', isWindowsRuntime)
-        console.log('[Gallery] desktopApi available:', !!(window as any).desktopApi)
-    }, [isWindowsRuntime, platform])
 
+    useEffect(() => {
+        let cancelled = false
+        const api = window.desktopApi
+        if (!images || images.length === 0 || !api?.images?.readLocal) {
+            setResolvedLocalUrls({})
+            return
+        }
+
+        const localImages = images.filter((img) => img.url.startsWith('file://'))
+        if (localImages.length === 0) {
+            setResolvedLocalUrls({})
+            return
+        }
+
+        Promise.all(
+            localImages.map(async (img) => {
+                const result = await api.images.readLocal(img.url)
+                if (!result.success || !result.data || !result.mediaType) return null
+                return [img.id, `data:${result.mediaType};base64,${result.data}`] as const
+            })
+        ).then((pairs) => {
+            if (cancelled) return
+            const resolved: Record<string, string> = {}
+            for (const pair of pairs) {
+                if (pair) resolved[pair[0]] = pair[1]
+            }
+            setResolvedLocalUrls(resolved)
+        }).catch(() => {
+            if (!cancelled) setResolvedLocalUrls({})
+        })
+
+        return () => {
+            cancelled = true
+        }
+    }, [images])
+    
     if (isLoading) {
         return (
             <div className="flex-1 flex flex-col items-center justify-center space-y-4">
@@ -143,7 +177,7 @@ export function GalleryView() {
     // Map TRPC data to FocusCards format
     const cards = images.map(img => ({
         title: img.name,
-        src: img.url,
+        src: resolvedLocalUrls[img.id] ?? img.url,
         date: new Date(img.createdAt).toLocaleDateString(),
         id: img.id
     }))
@@ -171,9 +205,24 @@ export function GalleryView() {
                 
                 <IconPhoto className="text-primary shrink-0" size={20} />
                 <h2 className="font-semibold tracking-tight shrink-0">Gallery</h2>
+                <span
+                    className={cn(
+                        "text-[10px] px-2 py-0.5 rounded-full font-bold uppercase tracking-wider shrink-0",
+                        isLocalMode
+                            ? "bg-blue-500/10 text-blue-600"
+                            : "bg-violet-500/10 text-violet-600"
+                    )}
+                >
+                    {isLocalMode ? "LOCAL" : "CLOUD"}
+                </span>
                 <span className="text-[10px] px-2 py-0.5 rounded-full bg-primary/10 text-primary font-bold uppercase tracking-wider shrink-0">
                     {images.length} items
                 </span>
+                {isLocalMode && (
+                    <span className="text-[11px] text-muted-foreground shrink-0">
+                        from local folder
+                    </span>
+                )}
                 
                 <div className="w-px h-6 bg-border shrink-0 mx-1" />
                 

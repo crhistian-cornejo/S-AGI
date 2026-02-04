@@ -231,21 +231,26 @@ export function HamburgerMenu() {
         <DropdownMenuSub>
           <DropdownMenuSubTrigger>View</DropdownMenuSubTrigger>
           <DropdownMenuSubContent className="w-56">
-            <DropdownMenuItem onClick={() => window.location.reload()}>
-              Reload
-              {formatHotkey("Ctrl+R")}
-            </DropdownMenuItem>
-            <DropdownMenuItem disabled>
-              Force Reload
-              {formatHotkey("Ctrl+Shift+R")}
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              onClick={() => window.desktopApi?.toggleDevTools?.()}
-            >
-              Toggle Developer Tools
-              {formatHotkey("Ctrl+Shift+I")}
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
+            {/* Development-only options */}
+            {import.meta.env.DEV && (
+              <>
+                <DropdownMenuItem onClick={() => window.location.reload()}>
+                  Reload
+                  {formatHotkey("Ctrl+R")}
+                </DropdownMenuItem>
+                <DropdownMenuItem disabled>
+                  Force Reload
+                  {formatHotkey("Ctrl+Shift+R")}
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => window.desktopApi?.toggleDevTools?.()}
+                >
+                  Toggle Developer Tools
+                  {formatHotkey("Ctrl+Shift+I")}
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+              </>
+            )}
             <DropdownMenuItem
               onClick={() => {
                 if (window.desktopApi?.isMaximized?.()) {

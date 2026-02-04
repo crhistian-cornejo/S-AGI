@@ -40,6 +40,52 @@ export const AgentImageGeneration = memo(function AgentImageGeneration({
     const [isRevealed, setIsRevealed] = useState(false)
     const [loadError, setLoadError] = useState(false)
     const [isLightboxOpen, setIsLightboxOpen] = useState(false)
+    const [resolvedImageUrl, setResolvedImageUrl] = useState<string | undefined>(imageUrl)
+
+    // Handle local file:// URLs by converting to data URI
+    const isLocalFileUrl = imageUrl?.startsWith('file://')
+
+    useEffect(() => {
+        let cancelled = false
+
+        // Reset state when imageUrl changes
+        setIsLoaded(false)
+        setIsRevealed(false)
+        setLoadError(false)
+        setResolvedImageUrl(imageUrl)
+
+        // If not a local file URL, nothing more to do
+        if (!imageUrl || !isLocalFileUrl) return
+
+        const api = window.desktopApi
+        if (!api?.images?.readLocal) {
+            console.error('[AgentImageGeneration] images.readLocal API not available')
+            setLoadError(true)
+            return
+        }
+
+        // Read local file and convert to data URI
+        api.images.readLocal(imageUrl)
+            .then((result) => {
+                if (cancelled) return
+                if (!result.success || !result.data || !result.mediaType) {
+                    console.error('[AgentImageGeneration] Failed to read local image:', result.error)
+                    setLoadError(true)
+                    return
+                }
+                setResolvedImageUrl(`data:${result.mediaType};base64,${result.data}`)
+            })
+            .catch((err) => {
+                if (!cancelled) {
+                    console.error('[AgentImageGeneration] Error reading local image:', err)
+                    setLoadError(true)
+                }
+            })
+
+        return () => {
+            cancelled = true
+        }
+    }, [imageUrl, isLocalFileUrl])
 
     // Trigger reveal animation after image loads
     useEffect(() => {
@@ -67,9 +113,9 @@ export const AgentImageGeneration = memo(function AgentImageGeneration({
     }, [isLightboxOpen])
 
     const handleDownload = useCallback(async () => {
-        if (!imageUrl) return
+        if (!resolvedImageUrl) return
         try {
-            const response = await fetch(imageUrl)
+            const response = await fetch(resolvedImageUrl)
             const blob = await response.blob()
             const url = URL.createObjectURL(blob)
             const a = document.createElement('a')
@@ -84,27 +130,28 @@ export const AgentImageGeneration = memo(function AgentImageGeneration({
             console.error('Failed to download image:', err)
             toast.error('Failed to download image')
         }
-    }, [imageUrl])
+    }, [resolvedImageUrl])
 
     const handleShare = useCallback(async () => {
-        if (!imageUrl) return
+        if (!resolvedImageUrl) return
         try {
-            await navigator.clipboard.writeText(imageUrl)
+            // For local files, copy the resolved data URI; otherwise copy original URL
+            await navigator.clipboard.writeText(isLocalFileUrl ? 'Local image (cannot share URL)' : (imageUrl || ''))
             toast.success('Image URL copied to clipboard')
         } catch (err) {
             console.error('Failed to copy URL:', err)
             toast.error('Failed to copy URL')
         }
-    }, [imageUrl])
+    }, [resolvedImageUrl, isLocalFileUrl, imageUrl])
 
     const handleEdit = useCallback(() => {
-        if (!imageUrl) return
+        if (!resolvedImageUrl) return
         setImageEditDialog({
             isOpen: true,
-            imageUrl,
+            imageUrl: resolvedImageUrl,
             originalPrompt: prompt
         })
-    }, [imageUrl, prompt, setImageEditDialog])
+    }, [resolvedImageUrl, prompt, setImageEditDialog])
 
     // Error state
     if (status === 'error' || loadError) {
@@ -219,7 +266,7 @@ export const AgentImageGeneration = memo(function AgentImageGeneration({
                             className="block w-full focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                         >
                             <img
-                                src={imageUrl}
+                                src={resolvedImageUrl}
                                 alt={prompt}
                                 onLoad={() => setIsLoaded(true)}
                                 onError={() => setLoadError(true)}
@@ -309,7 +356,7 @@ export const AgentImageGeneration = memo(function AgentImageGeneration({
             </div>
 
             {/* Lightbox overlay */}
-            {isLightboxOpen && imageUrl && (
+            {isLightboxOpen && resolvedImageUrl && (
                 <div
                     className="fixed inset-0 z-50 bg-black/90 backdrop-blur-sm flex items-center justify-center"
                     onClick={() => setIsLightboxOpen(false)}
@@ -344,7 +391,7 @@ export const AgentImageGeneration = memo(function AgentImageGeneration({
 
                     {/* Full size image - onClick only prevents event bubbling */}
                     <img
-                        src={imageUrl}
+                        src={resolvedImageUrl}
                         alt={prompt}
                         className="max-w-[90vw] max-h-[90vh] object-contain"
                         onClick={(e) => e.stopPropagation()}

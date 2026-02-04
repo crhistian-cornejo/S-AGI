@@ -488,41 +488,6 @@ function ChatItem({
 }
 
 // ============================================================================
-// Section Header - Collapsible section header
-// ============================================================================
-interface SectionHeaderProps {
-  title: string;
-  count: number;
-  isOpen: boolean;
-  onToggle: () => void;
-  icon?: ReactNode;
-}
-
-function SectionHeader({
-  title,
-  count,
-  isOpen,
-  onToggle,
-  icon,
-}: SectionHeaderProps) {
-  return (
-    <button
-      type="button"
-      className="flex items-center gap-2 px-3 py-1.5 w-full text-xs font-medium text-muted-foreground hover:text-foreground transition-colors"
-      onClick={onToggle}
-      aria-expanded={isOpen}
-    >
-      {isOpen ? <IconChevronDown size={12} /> : <IconChevronRight size={12} />}
-      {icon}
-      <span>{title}</span>
-      <span className="ml-auto text-[10px] bg-muted/50 px-1.5 py-0.5 rounded-full">
-        {count}
-      </span>
-    </button>
-  );
-}
-
-// ============================================================================
 // Collapsible container with smooth height animation
 // ============================================================================
 interface CollapsibleSectionProps {
@@ -791,9 +756,6 @@ export function Sidebar() {
   // Pending project for new chat creation
   const [pendingProjectId, setPendingProjectId] = useState<string | null>(null);
 
-  // Section collapse state
-  const [showArchived, setShowArchived] = useState(false);
-
   // DnD sensors
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -840,13 +802,6 @@ export function Sidebar() {
     staleTime: 60_000,
     gcTime: 1000 * 60 * 30,
   });
-
-  // Fetch archived chats
-  const { data: archivedChats, refetch: refetchArchived } =
-    trpc.chats.listArchived.useQuery(undefined, {
-      staleTime: 60_000,
-      gcTime: 1000 * 60 * 30,
-    });
 
   // Fetch projects
   const { data: projects, refetch: refetchProjects } =
@@ -927,11 +882,6 @@ export function Sidebar() {
     return grouped;
   }, [sortedChats, projects]);
 
-  const filteredArchived = useMemo(
-    () => archivedChats || [],
-    [archivedChats],
-  );
-
   // DnD handlers for project reordering
   const handleDragStart = (event: DragStartEvent) => {
     setActiveId(event.active.id as string);
@@ -985,7 +935,6 @@ export function Sidebar() {
   const restoreChat = trpc.chats.restore.useMutation({
     onSuccess: () => {
       refetch();
-      refetchArchived();
       toast.success("Chat restored");
     },
   });
@@ -993,7 +942,6 @@ export function Sidebar() {
   const restoreDeletedChat = trpc.chats.restoreDeleted.useMutation({
     onSuccess: () => {
       refetch();
-      refetchArchived();
       toast.success("Chat restored");
     },
   });
@@ -1034,7 +982,6 @@ export function Sidebar() {
   const deleteChat = trpc.chats.delete.useMutation({
     onSuccess: (_data, variables) => {
       refetch();
-      refetchArchived();
 
       const undoItem: UndoItem = {
         action: "delete",
@@ -1059,7 +1006,6 @@ export function Sidebar() {
   const archiveChat = trpc.chats.archive.useMutation({
     onSuccess: (_data, variables) => {
       refetch();
-      refetchArchived();
       if (selectedChatId === variables.id) {
         setSelectedChatId(null);
       }
@@ -1135,6 +1081,7 @@ export function Sidebar() {
       utils.auth.getAccounts.invalidate();
       utils.chats.list.invalidate();
       utils.chats.listArchived.invalidate();
+      utils.gallery.list.invalidate();
       utils.artifacts.list.invalidate();
       utils.userFiles.list.invalidate();
       // Clear selected chat to avoid showing data from previous account
@@ -1170,10 +1117,6 @@ export function Sidebar() {
     archiveChat.mutate({ id: chatId });
   };
 
-  const handleRestoreChat = (chatId: string) => {
-    restoreChat.mutate({ id: chatId });
-  };
-
   const handleTogglePin = (chatId: string) => {
     togglePin.mutate({ id: chatId });
   };
@@ -1195,36 +1138,6 @@ export function Sidebar() {
   const handleCancelRename = () => {
     setEditingChatId(null);
     setEditingTitle("");
-  };
-
-  const renderChatList = (chatList: Chat[], isArchived = false) => {
-    if (chatList.length === 0) {
-      return (
-        <div className="text-xs text-muted-foreground text-center py-4 px-4">
-          {isArchived ? "No archived chats" : "No conversations"}
-        </div>
-      );
-    }
-
-    return chatList.map((chat) => (
-      <ChatItem
-        key={chat.id}
-        chat={chat}
-        isSelected={selectedChatId === chat.id}
-        isEditing={editingChatId === chat.id}
-        editingTitle={editingTitle}
-        onSelect={() => handleChatSelect(chat.id)}
-        onStartRename={() => handleStartRename(chat.id, chat.title || "")}
-        onSaveRename={handleSaveRename}
-        onCancelRename={handleCancelRename}
-        onSetEditingTitle={setEditingTitle}
-        onArchive={() => handleArchiveChat(chat.id)}
-        onDelete={() => handleDeleteChat(chat.id)}
-        onTogglePin={() => handleTogglePin(chat.id)}
-        onRestore={() => handleRestoreChat(chat.id)}
-        isArchived={isArchived}
-      />
-    ));
   };
 
   return (
@@ -1466,24 +1379,6 @@ export function Sidebar() {
                   onMoveToProject={(projectId) => moveChat.mutate({ chatId: chat.id, projectId })}
                 />
               ))}
-
-              {/* Archived Section */}
-              {(archivedChats?.length ?? 0) > 0 && (
-                <div className="mb-2 border-t border-border/50 pt-2 mt-4">
-                  <SectionHeader
-                    title="Archived"
-                    count={filteredArchived.length}
-                    isOpen={showArchived}
-                    onToggle={() => setShowArchived(!showArchived)}
-                    icon={<IconArchive size={12} />}
-                  />
-                  <CollapsibleSection isOpen={showArchived} className="pl-1">
-                    <div className="relative ml-2 border-l border-border/60 pl-3 space-y-1">
-                      {renderChatList(filteredArchived, true)}
-                    </div>
-                  </CollapsibleSection>
-                </div>
-              )}
 
               {/* Drag overlay for projects */}
               <DragOverlay>

@@ -9,6 +9,7 @@ import {
     isProcessableDocument,
     searchWithCitations,
     formatCitation,
+    reprocessWithOCR,
     type ProcessingStatus,
     type DocumentMetadata,
     type PageContent
@@ -1047,6 +1048,117 @@ export const filesRouter = router({
             }
 
             return stats
+        }),
+
+    /**
+     * Reprocess a document with GLM-OCR for improved extraction
+     * Use this for scanned PDFs, documents with tables, or formulas
+     */
+    reprocessWithGLMOCR: protectedProcedure
+        .input(z.object({
+            fileId: z.string().uuid(),
+            chatId: z.string().uuid()
+        }))
+        .mutation(async ({ ctx, input }) => {
+            log.info('[FilesRouter] reprocessWithGLMOCR:', { fileId: input.fileId, chatId: input.chatId })
+
+            // Get file info
+            const { data: file, error: fileError } = await supabase
+                .from('chat_files')
+                .select('id, filename, storage_path, content_type, metadata')
+                .eq('id', input.fileId)
+                .eq('user_id', ctx.userId)
+                .eq('chat_id', input.chatId)
+                .single()
+
+            if (fileError || !file) {
+                throw new Error('File not found')
+            }
+
+            // Check if it's a PDF
+            if (file.content_type !== 'application/pdf') {
+                throw new Error('GLM-OCR only supports PDF files')
+            }
+
+            // Update status to processing
+            await supabase
+                .from('chat_files')
+                .update({
+                    processing_status: 'processing',
+                    metadata: { ...file.metadata, ocrProcessing: true }
+                })
+                .eq('id', input.fileId)
+
+            try {
+                // Download file from storage
+                const { data: fileData, error: downloadError } = await supabase.storage
+                    .from('attachments')
+                    .download(file.storage_path)
+
+                if (downloadError || !fileData) {
+                    throw new Error('Failed to download file')
+                }
+
+                const buffer = Buffer.from(await fileData.arrayBuffer())
+
+                // Process with GLM-OCR
+                const ocrResult = await reprocessWithOCR(buffer, file.content_type)
+
+                if (!ocrResult.success) {
+                    throw new Error(ocrResult.error || 'OCR processing failed')
+                }
+
+                // Update database with OCR results
+                const { error: updateError } = await supabase
+                    .from('chat_files')
+                    .update({
+                        processing_status: 'completed',
+                        extracted_content: ocrResult.content,
+                        pages: ocrResult.pages,
+                        metadata: {
+                            ...file.metadata,
+                            extractionMethod: 'glm-ocr',
+                            ocrProcessedAt: new Date().toISOString(),
+                            ocrProcessing: false,
+                            wordCount: ocrResult.pages.reduce((sum, p) => sum + p.wordCount, 0),
+                            pageCount: ocrResult.pages.length
+                        }
+                    })
+                    .eq('id', input.fileId)
+
+                if (updateError) {
+                    throw new Error('Failed to update document')
+                }
+
+                log.info('[FilesRouter] GLM-OCR reprocessing completed:', {
+                    fileId: input.fileId,
+                    contentLength: ocrResult.content.length,
+                    pageCount: ocrResult.pages.length
+                })
+
+                return {
+                    success: true,
+                    contentLength: ocrResult.content.length,
+                    pageCount: ocrResult.pages.length,
+                    extractionMethod: 'glm-ocr'
+                }
+            } catch (err) {
+                // Mark as failed
+                await supabase
+                    .from('chat_files')
+                    .update({
+                        processing_status: 'failed',
+                        metadata: {
+                            ...file.metadata,
+                            ocrError: err instanceof Error ? err.message : 'Unknown error',
+                            ocrProcessing: false
+                        }
+                    })
+                    .eq('id', input.fileId)
+
+                log.error('[FilesRouter] GLM-OCR reprocessing failed:', err)
+                throw new Error(err instanceof Error ? err.message : 'OCR processing failed')
+            }
         }),
 
     /**

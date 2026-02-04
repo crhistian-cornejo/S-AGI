@@ -76,12 +76,14 @@ export const fullThemeDataAtom = atom<VSCodeFullTheme | null>(null)
 export const settingsModalOpenAtom = atom(false)
 export type SettingsTab =
   | 'account'
+  | 'archived-chats'
   | 'appearance'
   | 'api-keys'
   | 'advanced'
   | 'shortcuts'
   | 'debug'
   | 'usage'
+  | 'pdf-ocr'
 export const settingsActiveTabAtom = atom<SettingsTab>('account')
 
 // === HELP & SHORTCUTS ===
@@ -210,4 +212,24 @@ export const primaryFontSizeAtom = atomWithStorage<FontSize>(
 export const secondaryFontSizeAtom = atomWithStorage<FontSize>(
   'preferences:secondary-font-size',
   'sm'
+)
+
+// === GLM-OCR SETTINGS ===
+
+/** Enable GLM-OCR for advanced PDF extraction */
+export const glmOcrEnabledAtom = atomWithStorage(
+  'preferences:glm-ocr-enabled',
+  false
+)
+
+/** Auto-detect PDFs that would benefit from OCR */
+export const glmOcrAutoDetectAtom = atomWithStorage(
+  'preferences:glm-ocr-auto-detect',
+  true
+)
+
+/** Automatically process with OCR without asking (when enabled + high confidence) */
+export const glmOcrAutoProcessAtom = atomWithStorage(
+  'preferences:glm-ocr-auto-process',
+  false
 )

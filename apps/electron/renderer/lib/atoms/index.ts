@@ -150,6 +150,10 @@ export {
   uiFontFamilyAtom,
   primaryFontSizeAtom,
   secondaryFontSizeAtom,
+  // GLM-OCR
+  glmOcrEnabledAtom,
+  glmOcrAutoDetectAtom,
+  glmOcrAutoProcessAtom,
 } from './ui'
 
 // === ARTIFACT STATE ===

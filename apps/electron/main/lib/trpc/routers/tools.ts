@@ -3981,71 +3981,79 @@ async function executeGenerateImage(
         throw new Error('No image data in response')
     }
 
-    // Upload to Supabase Storage
     const imageBuffer = Buffer.from(base64, 'base64')
     const fileName = `generated/${chatId}/${crypto.randomUUID()}.${format}`
-    
-    const { error: uploadError } = await supabase.storage
-        .from('images')
-        .upload(fileName, imageBuffer, {
+    let imageUrl = ''
+
+    if (isLocalStorageMode()) {
+        const adapter = await getStorageAdapter()
+        const upload = await adapter.fileStorage.upload('images', fileName, imageBuffer, {
             contentType: `image/${format}`,
-            cacheControl: '31536000' // 1 year cache
+            cacheControl: '31536000',
+            upsert: false
         })
+        if (!upload.success) {
+            throw new Error(upload.error || 'Failed to upload local image')
+        }
+        imageUrl = await adapter.fileStorage.getUrl('images', fileName)
 
-    if (uploadError) {
-        log.error(`[Tools] Failed to upload image to storage: ${uploadError.message}`)
-        throw new Error(`Failed to upload image: ${uploadError.message}`)
-    }
-
-    // --- NEW: Save record to chat_files table so it appears in Gallery and File Search ---
-    try {
-        await supabase
-            .from('chat_files')
-            .insert({
-                chat_id: chatId,
-                user_id: _userId,
+        try {
+            await adapter.chatFiles.create({
+                chatId,
+                userId: _userId,
                 filename: `generated-${Date.now()}.${format}`,
-                storage_path: fileName, // This is relative to the bucket 'images'? 
-                // Wait, chat_files.storage_path expects bucket 'attachments'?
-                // In filesRouter it uses 'attachments' bucket.
-                // Here we use 'images' bucket. This might be a conflict.
-                // Let's check where chat_files points to.
-                file_size: imageBuffer.length,
-                content_type: `image/${format}`
+                storagePath: fileName,
+                fileSize: imageBuffer.length,
+                contentType: `image/${format}`
             })
-    } catch (err) {
-        log.error(`[Tools] Failed to save generated image to chat_files:`, err)
-    }
-    // ---------------------------------------------------------------------------------
-
-    // Generate signed URL for private access (7 days expiration)
-    // This is more secure than public URLs and allows for access control
-    const SIGNED_URL_EXPIRATION = 60 * 60 * 24 * 7 // 7 days in seconds
-    
-    const { data: signedUrlData, error: signedUrlError } = await supabase.storage
-        .from('images')
-        .createSignedUrl(fileName, SIGNED_URL_EXPIRATION)
-
-    if (signedUrlError || !signedUrlData?.signedUrl) {
-        log.error(`[Tools] Failed to create signed URL: ${signedUrlError?.message}`)
-        // Fallback to public URL if signed URL fails
-        const { data: publicUrlData } = supabase.storage
+        } catch (err) {
+            log.warn('[Tools] Failed to register local generated image in chat_files:', err)
+        }
+    } else {
+        const { error: uploadError } = await supabase.storage
             .from('images')
-            .getPublicUrl(fileName)
-        
-        const imageUrl = publicUrlData.publicUrl
-        log.warn(`[Tools] Using public URL as fallback: ${imageUrl}`)
-        
-        return {
-            imageUrl,
-            message: `Image generated successfully`,
-            prompt,
-            size: size || 'auto',
-            quality: quality || 'auto'
+            .upload(fileName, imageBuffer, {
+                contentType: `image/${format}`,
+                cacheControl: '31536000' // 1 year cache
+            })
+
+        if (uploadError) {
+            log.error(`[Tools] Failed to upload image to storage: ${uploadError.message}`)
+            throw new Error(`Failed to upload image: ${uploadError.message}`)
+        }
+
+        try {
+            await supabase
+                .from('chat_files')
+                .insert({
+                    chat_id: chatId,
+                    user_id: _userId,
+                    filename: `generated-${Date.now()}.${format}`,
+                    storage_path: fileName,
+                    file_size: imageBuffer.length,
+                    content_type: `image/${format}`
+                })
+        } catch (err) {
+            log.error(`[Tools] Failed to save generated image to chat_files:`, err)
+        }
+
+        // Generate signed URL for private access (7 days expiration)
+        const SIGNED_URL_EXPIRATION = 60 * 60 * 24 * 7 // 7 days in seconds
+        const { data: signedUrlData, error: signedUrlError } = await supabase.storage
+            .from('images')
+            .createSignedUrl(fileName, SIGNED_URL_EXPIRATION)
+
+        if (signedUrlError || !signedUrlData?.signedUrl) {
+            log.error(`[Tools] Failed to create signed URL: ${signedUrlError?.message}`)
+            const { data: publicUrlData } = supabase.storage
+                .from('images')
+                .getPublicUrl(fileName)
+            imageUrl = publicUrlData.publicUrl
+            log.warn(`[Tools] Using public URL as fallback: ${imageUrl}`)
+        } else {
+            imageUrl = signedUrlData.signedUrl
         }
     }
-
-    const imageUrl = signedUrlData.signedUrl
 
     log.info(`[Tools] Generated image with signed URL (expires in 7 days): ${imageUrl.slice(0, 80)}...`)
 
@@ -4126,49 +4134,51 @@ async function executeEditImage(
         throw new Error('No image data in response')
     }
 
-    // Upload to Supabase Storage
     const editedBuffer = Buffer.from(base64, 'base64')
     const fileName = `edited/${chatId}/${crypto.randomUUID()}.png`
-    
-    const { error: uploadError } = await supabase.storage
-        .from('images')
-        .upload(fileName, editedBuffer, {
+    let imageUrl = ''
+
+    if (isLocalStorageMode()) {
+        const adapter = await getStorageAdapter()
+        const upload = await adapter.fileStorage.upload('images', fileName, editedBuffer, {
             contentType: 'image/png',
-            cacheControl: '31536000'
+            cacheControl: '31536000',
+            upsert: false
         })
-
-    if (uploadError) {
-        log.error(`[Tools] Failed to upload edited image to storage: ${uploadError.message}`)
-        throw new Error(`Failed to upload image: ${uploadError.message}`)
-    }
-
-    // Generate signed URL for private access (7 days expiration)
-    const SIGNED_URL_EXPIRATION = 60 * 60 * 24 * 7 // 7 days in seconds
-    
-    const { data: signedUrlData, error: signedUrlError } = await supabase.storage
-        .from('images')
-        .createSignedUrl(fileName, SIGNED_URL_EXPIRATION)
-
-    if (signedUrlError || !signedUrlData?.signedUrl) {
-        log.error(`[Tools] Failed to create signed URL for edited image: ${signedUrlError?.message}`)
-        // Fallback to public URL if signed URL fails
-        const { data: publicUrlData } = supabase.storage
+        if (!upload.success) {
+            throw new Error(upload.error || 'Failed to upload local edited image')
+        }
+        imageUrl = await adapter.fileStorage.getUrl('images', fileName)
+    } else {
+        const { error: uploadError } = await supabase.storage
             .from('images')
-            .getPublicUrl(fileName)
-        
-        const imageUrl = publicUrlData.publicUrl
-        log.warn(`[Tools] Using public URL as fallback: ${imageUrl}`)
-        
-        return {
-            imageUrl,
-            message: `Image edited successfully`,
-            prompt,
-            size: size || 'auto',
-            quality: quality || 'auto'
+            .upload(fileName, editedBuffer, {
+                contentType: 'image/png',
+                cacheControl: '31536000'
+            })
+
+        if (uploadError) {
+            log.error(`[Tools] Failed to upload edited image to storage: ${uploadError.message}`)
+            throw new Error(`Failed to upload image: ${uploadError.message}`)
+        }
+
+        // Generate signed URL for private access (7 days expiration)
+        const SIGNED_URL_EXPIRATION = 60 * 60 * 24 * 7 // 7 days in seconds
+        const { data: signedUrlData, error: signedUrlError } = await supabase.storage
+            .from('images')
+            .createSignedUrl(fileName, SIGNED_URL_EXPIRATION)
+
+        if (signedUrlError || !signedUrlData?.signedUrl) {
+            log.error(`[Tools] Failed to create signed URL for edited image: ${signedUrlError?.message}`)
+            const { data: publicUrlData } = supabase.storage
+                .from('images')
+                .getPublicUrl(fileName)
+            imageUrl = publicUrlData.publicUrl
+            log.warn(`[Tools] Using public URL as fallback: ${imageUrl}`)
+        } else {
+            imageUrl = signedUrlData.signedUrl
         }
     }
-
-    const imageUrl = signedUrlData.signedUrl
 
     log.info(`[Tools] Edited image with signed URL (expires in 7 days): ${imageUrl.slice(0, 80)}...`)
 

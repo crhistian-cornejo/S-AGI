@@ -89,6 +89,15 @@ export interface DesktopApi {
       }) => void,
     ) => () => void;
   };
+  images: {
+    readLocal: (filePath: string) => Promise<{
+      success: boolean;
+      data?: string;
+      mediaType?: string;
+      size?: number;
+      error?: string;
+    }>;
+  };
   clipboard: {
     writeText: (text: string) => Promise<boolean>;
     readText: () => Promise<string>;

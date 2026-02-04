@@ -225,10 +225,15 @@ function updateApplicationMenu() {
     {
       label: "View",
       submenu: [
-        { role: "reload" } as const,
-        { role: "forceReload" } as const,
-        { role: "toggleDevTools" } as const,
-        { type: "separator" } as const,
+        // Development-only options
+        ...(is.dev
+          ? [
+              { role: "reload" } as const,
+              { role: "forceReload" } as const,
+              { role: "toggleDevTools" } as const,
+              { type: "separator" } as const,
+            ]
+          : []),
         { role: "resetZoom" } as const,
         { role: "zoomIn" } as const,
         { role: "zoomOut" } as const,
@@ -242,7 +247,8 @@ function updateApplicationMenu() {
         },
         {
           label: "Show Keyboard Shortcuts",
-          accelerator: process.platform === "darwin" ? "Command+Shift+/" : "Ctrl+Shift+/",
+          accelerator:
+            process.platform === "darwin" ? "Command+Shift+/" : "Ctrl+Shift+/",
           click: () => sendMenuAction("show-shortcuts"),
         },
         { type: "separator" } as const,
@@ -511,7 +517,8 @@ function updateApplicationMenu() {
         { type: "separator" } as const,
         {
           label: "Keyboard Shortcuts",
-          accelerator: process.platform === "darwin" ? "Command+Shift+/" : "Ctrl+Shift+/",
+          accelerator:
+            process.platform === "darwin" ? "Command+Shift+/" : "Ctrl+Shift+/",
           click: () => sendMenuAction("show-shortcuts"),
         },
         {
@@ -536,7 +543,7 @@ function updateApplicationMenu() {
       "[Menu] Application menu updated with",
       menuItems.length,
       "items:",
-      menuItems,
+      menuItems
     );
   } catch (error) {
     log.error("[Menu] Failed to build menu:", error);
@@ -670,7 +677,7 @@ async function getRecentItems(): Promise<
     // Sort all items by updated_at and return top 10
     recentItems.sort(
       (a, b) =>
-        new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime(),
+        new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
     );
 
     return recentItems.slice(0, 10);
@@ -699,7 +706,7 @@ async function getTraySpreadsheets(): Promise<
       .select("id, name, updated_at, chat_id, user_id, type")
       .eq("type", "spreadsheet")
       .or(
-        `user_id.eq.${session.user.id},chat_id.in.(select id from chats where user_id = '${session.user.id}')`,
+        `user_id.eq.${session.user.id},chat_id.in.(select id from chats where user_id = '${session.user.id}')`
       )
       .order("updated_at", { ascending: false })
       .limit(20);
@@ -719,7 +726,7 @@ async function getTraySpreadsheets(): Promise<
 }
 
 async function getTraySpreadsheetData(
-  artifactId: string,
+  artifactId: string
 ): Promise<{ id: string; name: string; univerData: any } | null> {
   if (!getAppPreferences().trayEnabled) {
     return null;
@@ -882,7 +889,7 @@ function createTrayPopover(): BrowserWindow {
   // Load the tray popover page
   if (is.dev && process.env["ELECTRON_RENDERER_URL"]) {
     popover.loadURL(
-      `${process.env["ELECTRON_RENDERER_URL"]}/tray-popover.html`,
+      `${process.env["ELECTRON_RENDERER_URL"]}/tray-popover.html`
     );
   } else {
     popover.loadFile(join(__dirname, "../renderer/tray-popover.html"));
@@ -984,7 +991,7 @@ function showQuickPromptWindow(): void {
 
   // Center horizontally and vertically on the current display (slightly above center)
   const x = Math.round(
-    display.bounds.x + (display.bounds.width - windowWidth) / 2,
+    display.bounds.x + (display.bounds.width - windowWidth) / 2
   );
   const y =
     Math.round(display.bounds.y + (display.bounds.height - windowHeight) / 2) -
@@ -1059,7 +1066,7 @@ function isAllowedNavigation(url: string, allowedOrigins: string[]): boolean {
 
 function attachNavigationGuards(
   window: BrowserWindow,
-  allowedOrigins: string[],
+  allowedOrigins: string[]
 ): void {
   window.webContents.setWindowOpenHandler(({ url }) => {
     if (isAllowedNavigation(url, allowedOrigins)) {
@@ -1099,7 +1106,7 @@ function isSafeForExternalOpen(url: string): boolean {
     // Only allow http/https protocols
     if (parsedUrl.protocol !== "http:" && parsedUrl.protocol !== "https:") {
       log.warn(
-        `[Security] Blocked non-HTTP(S) protocol: ${parsedUrl.protocol}`,
+        `[Security] Blocked non-HTTP(S) protocol: ${parsedUrl.protocol}`
       );
       return false;
     }
@@ -1188,12 +1195,12 @@ function registerPermissionRequestHandler(): void {
       const rendererOrigins = getRendererOrigins();
       const isLocal = url.startsWith("file://");
       const isTrustedOrigin = rendererOrigins.some((origin) =>
-        url.startsWith(origin),
+        url.startsWith(origin)
       );
 
       if (!isLocal && !isTrustedOrigin) {
         log.warn(
-          `[Security] Permission request denied for untrusted origin: ${url}`,
+          `[Security] Permission request denied for untrusted origin: ${url}`
         );
         return callback(false);
       }
@@ -1205,7 +1212,7 @@ function registerPermissionRequestHandler(): void {
         const mediaLabel =
           mediaTypes.length > 0 ? mediaTypes.join(", ") : "unknown";
         log.info(
-          `[Security] Allowing media permission '${permission}' (${mediaLabel}) for: ${url}`,
+          `[Security] Allowing media permission '${permission}' (${mediaLabel}) for: ${url}`
         );
         return callback(true);
       }
@@ -1223,7 +1230,7 @@ function registerPermissionRequestHandler(): void {
         (isLocal || isTrustedOrigin)
       ) {
         log.info(
-          `[Security] Allowing clipboard permission '${permission}' for: ${url}`,
+          `[Security] Allowing clipboard permission '${permission}' for: ${url}`
         );
         return callback(true);
       }
@@ -1231,7 +1238,7 @@ function registerPermissionRequestHandler(): void {
       // Deny all other permissions by default
       log.warn(`[Security] Permission '${permission}' denied for: ${url}`);
       callback(false);
-    },
+    }
   );
 
   session.defaultSession.setPermissionCheckHandler(
@@ -1240,12 +1247,12 @@ function registerPermissionRequestHandler(): void {
       const rendererOrigins = getRendererOrigins();
       const isLocal = url.startsWith("file://");
       const isTrustedOrigin = rendererOrigins.some((origin) =>
-        url.startsWith(origin),
+        url.startsWith(origin)
       );
 
       if (!isLocal && !isTrustedOrigin) {
         log.warn(
-          `[Security] Permission check denied for untrusted origin: ${url}`,
+          `[Security] Permission check denied for untrusted origin: ${url}`
         );
         return false;
       }
@@ -1254,7 +1261,7 @@ function registerPermissionRequestHandler(): void {
         const mediaType =
           (details as { mediaType?: string })?.mediaType ?? "unknown";
         log.info(
-          `[Security] Permission check allowed '${permission}' (${mediaType}) for: ${url}`,
+          `[Security] Permission check allowed '${permission}' (${mediaType}) for: ${url}`
         );
         return true;
       }
@@ -1269,7 +1276,7 @@ function registerPermissionRequestHandler(): void {
       }
 
       return false;
-    },
+    }
   );
 }
 
@@ -1422,8 +1429,8 @@ function createWindow(): void {
       process.platform === "darwin"
         ? join(__dirname, "icon.icns")
         : process.platform === "win32"
-          ? join(__dirname, "icon.ico")
-          : join(__dirname, "logo.svg"),
+        ? join(__dirname, "icon.ico")
+        : join(__dirname, "logo.svg"),
     webPreferences: {
       preload: join(__dirname, "../preload/index.cjs"),
       sandbox: true,
@@ -1461,10 +1468,10 @@ function createWindow(): void {
 
   // Notify renderer when maximized/unmaximized (for title-bar icon)
   mainWindow.on("maximize", () =>
-    mainWindow?.webContents.send("window:maximize-changed", true),
+    mainWindow?.webContents.send("window:maximize-changed", true)
   );
   mainWindow.on("unmaximize", () =>
-    mainWindow?.webContents.send("window:maximize-changed", false),
+    mainWindow?.webContents.send("window:maximize-changed", false)
   );
 
   // DevTools: use View > Toggle DevTools (Ctrl+Shift+I). No auto-open to avoid
@@ -1565,9 +1572,14 @@ app.whenReady().then(async () => {
   try {
     const adapter = await initializeStorage("local");
     if (adapter && adapter.isConnected) {
-      log.info("[App] Local storage initialized successfully, isConnected:", adapter.isConnected);
+      log.info(
+        "[App] Local storage initialized successfully, isConnected:",
+        adapter.isConnected
+      );
     } else {
-      log.warn("[App] Local storage adapter created but not connected - cloud mode may be required");
+      log.warn(
+        "[App] Local storage adapter created but not connected - cloud mode may be required"
+      );
     }
   } catch (error) {
     log.error("[App] Failed to initialize local storage:", error);
@@ -1576,7 +1588,9 @@ app.whenReady().then(async () => {
       const { dialog } = require("electron");
       dialog.showErrorBox(
         "Storage Initialization Error",
-        `Failed to initialize local storage: ${error instanceof Error ? error.message : String(error)}\n\nThe app may not function correctly.`
+        `Failed to initialize local storage: ${
+          error instanceof Error ? error.message : String(error)
+        }\n\nThe app may not function correctly.`
       );
     }
   }
@@ -1670,7 +1684,7 @@ app.whenReady().then(async () => {
       log.info(`[App] Hotkey registered: ${status.id} → ${status.shortcut}`);
     } else if (status.enabled) {
       log.warn(
-        `[App] Hotkey failed to register: ${status.id} → ${status.shortcut} (${status.error})`,
+        `[App] Hotkey failed to register: ${status.id} → ${status.shortcut} (${status.error})`
       );
     }
   }
@@ -1837,14 +1851,14 @@ ipcMain.handle(
   "auth:set-session",
   async (
     event,
-    session: { access_token?: string; refresh_token?: string } | null,
+    session: { access_token?: string; refresh_token?: string } | null
   ) => {
     if (!validateIPCSender(event.sender)) {
       return { success: false, error: "Unauthorized" };
     }
     log.info(
       "[Auth] Synchronizing session from renderer, has tokens:",
-      !!session?.access_token,
+      !!session?.access_token
     );
     try {
       if (session?.access_token && session?.refresh_token) {
@@ -1855,7 +1869,7 @@ ipcMain.handle(
         if (error) throw error;
         log.info(
           "[Auth] Session synchronized successfully, user:",
-          data.user?.id?.substring(0, 8) + "...",
+          data.user?.id?.substring(0, 8) + "..."
         );
 
         // Verify it persisted
@@ -1866,7 +1880,7 @@ ipcMain.handle(
           "[Auth] Verification - session exists:",
           !!verifySession,
           "user:",
-          verifySession?.user?.id?.substring(0, 8) + "...",
+          verifySession?.user?.id?.substring(0, 8) + "..."
         );
       } else {
         await supabase.auth.signOut();
@@ -1877,7 +1891,7 @@ ipcMain.handle(
       log.error("[Auth] Failed to synchronize session:", error);
       return { success: false, error: (error as Error).message };
     }
-  },
+  }
 );
 
 ipcMain.handle("theme:get", (event) => {
@@ -1904,7 +1918,7 @@ ipcMain.handle(
       trayEnabled?: boolean;
       quickPromptEnabled?: boolean;
       autoSaveDelay?: number;
-    },
+    }
   ) => {
     if (!validateIPCSender(event.sender)) {
       return getAppPreferences();
@@ -1933,7 +1947,7 @@ ipcMain.handle(
     // Emit preferences updated event
     mainWindow?.webContents.send("preferences:updated", next);
     return next;
-  },
+  }
 );
 
 // Clipboard handlers
@@ -1980,7 +1994,7 @@ ipcMain.handle(
     const { clipboard } = require("electron");
     clipboard.write(data);
     return true;
-  },
+  }
 );
 
 ipcMain.handle("clipboard:read", (event) => {
@@ -2056,7 +2070,7 @@ ipcMain.handle(
     if (!validateIPCSender(event.sender)) return null;
     if (!input?.id) return null;
     return await getTraySpreadsheetData(input.id);
-  },
+  }
 );
 
 ipcMain.handle("tray:get-citations", async (event) => {
@@ -2171,7 +2185,7 @@ ipcMain.handle(
       default:
         log.warn("[Tray] Unknown action:", action);
     }
-  },
+  }
 );
 
 // Forward cell highlight requests from agent panel to Univer spreadsheet
@@ -2181,5 +2195,5 @@ ipcMain.on(
     if (!validateIPCSender(event.sender)) return;
     // Forward to main window (same window, but this ensures proper routing)
     sendToMainWindow("univer:highlight-cells", params);
-  },
+  }
 );

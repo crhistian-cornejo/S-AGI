@@ -29,6 +29,41 @@ export const AgentGeneratedImage = memo(function AgentGeneratedImage({
     const [isLoaded, setIsLoaded] = useState(false)
     const [isRevealed, setIsRevealed] = useState(false)
     const [error, setError] = useState(false)
+    const [resolvedImageUrl, setResolvedImageUrl] = useState(imageUrl)
+    const isLocalFileUrl = imageUrl.startsWith('file://')
+
+    useEffect(() => {
+        let cancelled = false
+
+        setIsLoaded(false)
+        setIsRevealed(false)
+        setError(false)
+        setResolvedImageUrl(imageUrl)
+
+        if (!isLocalFileUrl) return
+        const api = window.desktopApi
+        if (!api?.images?.readLocal) {
+            setError(true)
+            return
+        }
+
+        api.images.readLocal(imageUrl)
+            .then((result) => {
+                if (cancelled) return
+                if (!result.success || !result.data || !result.mediaType) {
+                    setError(true)
+                    return
+                }
+                setResolvedImageUrl(`data:${result.mediaType};base64,${result.data}`)
+            })
+            .catch(() => {
+                if (!cancelled) setError(true)
+            })
+
+        return () => {
+            cancelled = true
+        }
+    }, [imageUrl, isLocalFileUrl])
 
     // Trigger reveal animation after image loads
     useEffect(() => {
@@ -41,7 +76,7 @@ export const AgentGeneratedImage = memo(function AgentGeneratedImage({
 
     const handleDownload = async () => {
         try {
-            const response = await fetch(imageUrl)
+            const response = await fetch(resolvedImageUrl)
             const blob = await response.blob()
             const url = URL.createObjectURL(blob)
             const a = document.createElement('a')
@@ -57,7 +92,9 @@ export const AgentGeneratedImage = memo(function AgentGeneratedImage({
     }
 
     const handleOpenExternal = () => {
-        window.open(imageUrl, '_blank')
+        if (!isLocalFileUrl) {
+            window.open(resolvedImageUrl, '_blank')
+        }
     }
 
     if (error) {
@@ -112,7 +149,7 @@ export const AgentGeneratedImage = memo(function AgentGeneratedImage({
                     "transition-[max-height] duration-1000 ease-out"
                 )}>
                     <img
-                        src={imageUrl}
+                        src={resolvedImageUrl}
                         alt={prompt}
                         onLoad={() => setIsLoaded(true)}
                         onError={() => setError(true)}
@@ -162,6 +199,7 @@ export const AgentGeneratedImage = memo(function AgentGeneratedImage({
                                 size="icon"
                                 className="h-8 w-8 bg-background/80 backdrop-blur-sm"
                                 onClick={handleOpenExternal}
+                                disabled={isLocalFileUrl}
                             >
                                 <IconExternalLink size={16} />
                             </Button>

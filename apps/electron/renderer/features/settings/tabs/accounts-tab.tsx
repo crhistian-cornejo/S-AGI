@@ -84,6 +84,7 @@ export function AccountsTab({ variant = "standalone", className }: AccountsTabPr
       utils.auth.getAccounts.invalidate();
       utils.chats.list.invalidate();
       utils.chats.listArchived.invalidate();
+      utils.gallery.list.invalidate();
       utils.artifacts.list.invalidate();
       utils.userFiles.list.invalidate();
       toast.success("Switched account");

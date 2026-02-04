@@ -3,7 +3,7 @@ import { router, protectedProcedure } from "../trpc";
 import { supabase } from "../../supabase/client";
 import log from "electron-log";
 import { cleanupFile } from "./user-files-cleanup";
-import { getStorageAdapter, isLocalStorageMode } from "../../storage";
+import { getRawDatabase, getStorageAdapter, isLocalStorageMode } from "../../storage";
 import {
   buildLocalPayload,
   buildLocalUserFilePath,
@@ -14,7 +14,7 @@ import {
   deleteLocalUserFile,
 } from "../../storage/local-user-files";
 import type { IStorageAdapter } from "../../storage";
-import type { FileType } from "../../storage/adapters/types";
+import type { FileType, FileVersion } from "../../storage/adapters/types";
 
 // Cleanup threshold - when version count exceeds this, trigger cleanup
 const CLEANUP_THRESHOLD = 100;
@@ -148,6 +148,79 @@ async function ensureLocalFilePath(params: {
   });
 
   return { localPath, metadata: nextMetadata };
+}
+
+function mapLocalFileVersionToSnakeCase(version: FileVersion) {
+  return {
+    id: version.id,
+    file_id: version.fileId,
+    version_number: version.versionNumber,
+    univer_data: version.univerData,
+    content: version.content,
+    change_type: version.changeType,
+    change_description: version.changeDescription,
+    change_summary: version.changeSummary,
+    diff_summary: version.diffSummary,
+    created_by: version.createdBy,
+    ai_model: version.aiModel,
+    ai_prompt: version.aiPrompt,
+    tool_name: version.toolName,
+    size_bytes: version.sizeBytes,
+    commit_id: version.commitId,
+    commit_message: version.commitMessage,
+    commit_parent_id: version.commitParentId,
+    is_checkpoint: version.isCheckpoint,
+    is_obsolete: version.isObsolete,
+    obsoleted_at: version.obsoletedAt?.toISOString() || null,
+    obsoleted_by_version: version.obsoletedByVersion,
+    created_at: version.createdAt.toISOString(),
+  };
+}
+
+function mapLocalUserFileToSnakeCase(file: {
+  id: string;
+  userId: string;
+  name: string;
+  type: string;
+  description: string | null;
+  univerData: unknown;
+  content: string | null;
+  metadata: Record<string, unknown> | null;
+  icon: string | null;
+  color: string | null;
+  isPinned: boolean;
+  isArchived: boolean;
+  versionCount: number;
+  totalEdits: number;
+  folderPath: string | null;
+  tags: string[] | null;
+  createdAt: Date;
+  updatedAt: Date;
+  lastOpenedAt: Date | null;
+  deletedAt: Date | null;
+}) {
+  return {
+    id: file.id,
+    user_id: file.userId,
+    name: file.name,
+    type: file.type,
+    description: file.description,
+    univer_data: file.univerData,
+    content: file.content,
+    metadata: file.metadata,
+    icon: file.icon,
+    color: file.color,
+    is_pinned: file.isPinned,
+    is_archived: file.isArchived,
+    version_count: file.versionCount,
+    total_edits: file.totalEdits,
+    folder_path: file.folderPath,
+    tags: file.tags,
+    created_at: file.createdAt.toISOString(),
+    updated_at: file.updatedAt.toISOString(),
+    last_opened_at: file.lastOpenedAt?.toISOString() || null,
+    deleted_at: file.deletedAt?.toISOString() || null,
+  };
 }
 
 // Schemas
@@ -1077,6 +1150,68 @@ export const userFilesRouter = router({
       }),
     )
     .query(async ({ ctx, input }) => {
+      if (isLocalStorageMode()) {
+        log.debug("[UserFilesRouter] Using local storage for listVersions");
+        const adapter = await getStorageAdapter();
+        const file = await adapter.userFiles.get(input.fileId, ctx.userId);
+        if (!file) {
+          throw new Error("File not found");
+        }
+
+        let versions = await adapter.userFiles.listVersions(input.fileId, ctx.userId, {
+          includeObsolete: input.includeObsolete,
+          limit: input.limit,
+          offset: input.offset,
+        });
+
+        // Safety fallback: if no active versions are visible, expose obsolete ones
+        // to avoid an empty history panel for files that only have obsolete entries.
+        if (versions.length === 0 && !input.includeObsolete) {
+          const obsoleteVersions = await adapter.userFiles.listVersions(
+            input.fileId,
+            ctx.userId,
+            {
+              includeObsolete: true,
+              limit: input.limit,
+              offset: input.offset,
+            }
+          );
+          if (obsoleteVersions.length > 0) {
+            log.warn(
+              "[UserFilesRouter] No active versions found; returning obsolete local versions for visibility",
+              { fileId: input.fileId, count: obsoleteVersions.length }
+            );
+            versions = obsoleteVersions;
+          }
+        }
+
+        // Self-heal older local files where version_count exists but file_versions rows are missing.
+        if (versions.length === 0 && (file.versionCount || 0) > 0) {
+          const bootstrapVersionNumber = Math.max(file.versionCount || 1, 1);
+          await adapter.userFiles.createVersion({
+            fileId: input.fileId,
+            versionNumber: bootstrapVersionNumber,
+            univerData: file.univerData || undefined,
+            content: file.content || undefined,
+            changeType: "created",
+            changeDescription: "Snapshot local recuperado",
+            createdBy: ctx.userId || "local-user",
+            sizeBytes: JSON.stringify(file.univerData || file.content || "").length,
+          });
+          versions = await adapter.userFiles.listVersions(input.fileId, ctx.userId, {
+            includeObsolete: true,
+            limit: input.limit,
+            offset: input.offset,
+          });
+          log.warn(
+            "[UserFilesRouter] Rebuilt missing local file_versions history snapshot",
+            { fileId: input.fileId, restoredCount: versions.length }
+          );
+        }
+
+        return versions.map(mapLocalFileVersionToSnakeCase);
+      }
+
       // Verify file ownership
       const { data: file } = await supabase
         .from("user_files")
@@ -1123,6 +1258,25 @@ export const userFilesRouter = router({
       }),
     )
     .query(async ({ ctx, input }) => {
+      if (isLocalStorageMode()) {
+        log.debug("[UserFilesRouter] Using local storage for getVersion");
+        const adapter = await getStorageAdapter();
+        const file = await adapter.userFiles.get(input.fileId, ctx.userId);
+        if (!file) {
+          throw new Error("File not found");
+        }
+
+        const version = await adapter.userFiles.getVersion(
+          input.fileId,
+          input.versionNumber,
+          ctx.userId
+        );
+        if (!version) {
+          throw new Error("Version not found");
+        }
+        return mapLocalFileVersionToSnakeCase(version);
+      }
+
       // Verify file ownership
       const { data: file } = await supabase
         .from("user_files")
@@ -1158,6 +1312,95 @@ export const userFilesRouter = router({
       }),
     )
     .mutation(async ({ ctx, input }) => {
+      if (isLocalStorageMode()) {
+        log.debug("[UserFilesRouter] Using local storage for restoreVersion");
+        const adapter = await getStorageAdapter();
+
+        const currentFile = await adapter.userFiles.get(input.fileId, ctx.userId);
+        if (!currentFile) {
+          throw new Error("File not found");
+        }
+
+        const targetVersion = await adapter.userFiles.getVersion(
+          input.fileId,
+          input.versionNumber,
+          ctx.userId
+        );
+        if (!targetVersion) {
+          throw new Error("Version not found");
+        }
+
+        const currentVersionNumber = currentFile.versionCount || 0;
+        const nextVersionNumber = Math.max(
+          await adapter.userFiles.getNextVersionNumber(input.fileId),
+          input.versionNumber + 1
+        );
+
+        const db = getRawDatabase();
+        if (db && input.versionNumber < currentVersionNumber) {
+          const now = Math.floor(Date.now() / 1000);
+          db.prepare(`
+            UPDATE file_versions
+            SET is_obsolete = 1, obsoleted_at = ?, obsoleted_by_version = ?
+            WHERE file_id = ? AND version_number > ?
+          `).run(now, nextVersionNumber, input.fileId, input.versionNumber);
+        }
+
+        const updatedFile = await adapter.userFiles.update(input.fileId, ctx.userId, {
+          univerData: targetVersion.univerData,
+          content: targetVersion.content || undefined,
+        });
+
+        const restoredVersion = await adapter.userFiles.createVersion({
+          fileId: input.fileId,
+          versionNumber: nextVersionNumber,
+          univerData: targetVersion.univerData || undefined,
+          content: targetVersion.content || undefined,
+          changeType: "restore",
+          changeDescription: `Restaurado desde versión ${input.versionNumber}`,
+          createdBy: ctx.userId,
+          sizeBytes: JSON.stringify(
+            targetVersion.univerData || targetVersion.content || ""
+          ).length,
+          commitParentId: targetVersion.id,
+        });
+
+        let metadata: Record<string, unknown> | null = updatedFile.metadata
+          ? { ...updatedFile.metadata }
+          : null;
+        const ensured = await ensureLocalFilePath({
+          adapter,
+          fileId: updatedFile.id,
+          name: updatedFile.name,
+          type: updatedFile.type,
+          metadata,
+        });
+        metadata = ensured.metadata;
+
+        await writeLocalUserFile(
+          ensured.localPath,
+          buildLocalPayload({
+            id: updatedFile.id,
+            type: updatedFile.type,
+            name: updatedFile.name,
+            univerData: targetVersion.univerData || undefined,
+            content: targetVersion.content || undefined,
+          })
+        );
+
+        const latest = (await adapter.userFiles.get(input.fileId, ctx.userId)) || updatedFile;
+        log.info(
+          "[UserFilesRouter] Restored local file to version:",
+          input.versionNumber,
+          "Created new version:",
+          restoredVersion.versionNumber
+        );
+        return mapLocalUserFileToSnakeCase({
+          ...latest,
+          metadata,
+        });
+      }
+
       // Get the version to restore
       const { data: version, error: versionError } = await supabase
         .from("file_versions")
@@ -1295,6 +1538,42 @@ export const userFilesRouter = router({
       }),
     )
     .query(async ({ ctx, input }) => {
+      if (isLocalStorageMode()) {
+        log.debug("[UserFilesRouter] Using local storage for compareVersions");
+        const adapter = await getStorageAdapter();
+        const file = await adapter.userFiles.get(input.fileId, ctx.userId);
+        if (!file) {
+          throw new Error("File not found");
+        }
+
+        const [versionAData, versionBData] = await Promise.all([
+          adapter.userFiles.getVersion(input.fileId, input.versionA, ctx.userId),
+          adapter.userFiles.getVersion(input.fileId, input.versionB, ctx.userId),
+        ]);
+
+        const versionA = versionAData ? mapLocalFileVersionToSnakeCase(versionAData) : null;
+        const versionB = versionBData ? mapLocalFileVersionToSnakeCase(versionBData) : null;
+
+        let diff = null;
+        if (
+          versionA &&
+          versionB &&
+          (file.type === "excel" || file.type === "doc")
+        ) {
+          diff = {
+            hasChanges: true,
+            versionA: versionA.univer_data,
+            versionB: versionB.univer_data,
+          };
+        }
+
+        return {
+          versionA,
+          versionB,
+          diff,
+        };
+      }
+
       // Verify file ownership
       const { data: file } = await supabase
         .from("user_files")
@@ -1350,6 +1629,34 @@ export const userFilesRouter = router({
   getVersionStats: protectedProcedure
     .input(z.object({ fileId: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
+      if (isLocalStorageMode()) {
+        log.debug("[UserFilesRouter] Using local storage for getVersionStats");
+        const adapter = await getStorageAdapter();
+        const file = await adapter.userFiles.get(input.fileId, ctx.userId);
+        if (!file) {
+          throw new Error("File not found");
+        }
+
+        const versions = await adapter.userFiles.listVersions(input.fileId, ctx.userId, {
+          includeObsolete: true,
+        });
+
+        const byType = versions.reduce(
+          (acc, version) => {
+            const key = version.changeType;
+            acc[key] = (acc[key] || 0) + 1;
+            return acc;
+          },
+          {} as Record<string, number>
+        );
+
+        return {
+          totalVersions: file.versionCount || 0,
+          totalEdits: file.totalEdits || 0,
+          byType,
+        };
+      }
+
       // Verify file ownership
       const { data: file } = await supabase
         .from("user_files")
