@@ -14,6 +14,11 @@ import {
   IconTable,
   IconFileText,
   IconPhoto,
+  IconArrowLeft,
+  IconMinus,
+  IconSquare,
+  IconX,
+  IconArrowsDiagonalMinimize2,
 } from "@tabler/icons-react";
 import { ChatQueueProcessor } from "@/features/chat/components/queue-processor";
 import { trpc } from "@/lib/trpc";
@@ -35,6 +40,7 @@ import {
   addLocalPdfAtom,
   createPdfSourceFromLocalFile,
   agentPanelOpenAtom,
+  zenModeAtom,
   type ReasoningEffort,
 } from "@/lib/atoms";
 import {
@@ -52,12 +58,11 @@ import {
 import { excelSidebarOpenAtom, docSidebarOpenAtom } from "@/lib/atoms";
 import { Sidebar } from "@/features/sidebar/sidebar";
 import { ChatView } from "@/features/chat/chat-view";
-import { ShareSessionButton } from "@/features/chat/share-session-dialog";
 import { GalleryView } from "@/features/gallery/gallery-view";
 import { SettingsPage } from "@/features/settings/settings-page";
 import { useOpenSettingsPage } from "@/features/settings/use-open-settings-page";
 import { TitleBar } from "./title-bar";
-import { cn, isMacOS } from "@/lib/utils";
+import { cn, isMacOS, isElectron } from "@/lib/utils";
 import { useAtom, useSetAtom, useAtomValue } from "jotai";
 import {
   Tooltip,
@@ -160,6 +165,13 @@ export function MainLayout() {
   const docScratchId = useAtomValue(docScratchSessionIdAtom);
   const setSelectedChatId = useSetAtom(selectedChatIdAtom);
   const [activeTab, setActiveTab] = useAtom(activeTabAtom);
+  const [zenMode, setZenMode] = useAtom(zenModeAtom);
+  const zenPrevBoundsRef = useRef<{
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  } | null>(null);
 
   // Excel file system atoms
   const [excelSidebarOpen, setExcelSidebarOpen] = useAtom(excelSidebarOpenAtom);
@@ -776,6 +788,132 @@ export function MainLayout() {
       enabled: !isUniverTabActive,
     }
   );
+  // Zen Mode: resize window when toggling
+  useEffect(() => {
+    const api = window.desktopApi;
+    if (!api?.getBounds || !api?.setBounds) return;
+
+    const ZEN_WIDTH = 220;
+    const ZEN_MIN_HEIGHT = 600;
+
+    if (zenMode) {
+      // Entering zen mode: save current bounds, resize window to narrow
+      (async () => {
+        const bounds = await api.getBounds();
+        if (!bounds) return;
+        zenPrevBoundsRef.current = bounds;
+
+        const height = Math.max(bounds.height, ZEN_MIN_HEIGHT);
+        // Center on current position
+        const x = bounds.x + Math.round((bounds.width - ZEN_WIDTH) / 2);
+        const y = bounds.y + Math.round((bounds.height - height) / 2);
+
+        await api.setBounds({ x, y, width: ZEN_WIDTH, height });
+      })();
+    } else if (zenPrevBoundsRef.current) {
+      // Exiting zen mode: restore previous bounds
+      const prev = zenPrevBoundsRef.current;
+      zenPrevBoundsRef.current = null;
+      api.setBounds(prev);
+    }
+  }, [zenMode]);
+
+  // Zen Mode toggle: Cmd+Shift+Z (Mac) / Ctrl+Shift+Z (Windows)
+  useHotkeys(
+    "meta+shift+z, ctrl+shift+z",
+    (e) => {
+      e.preventDefault();
+      setZenMode((prev) => !prev);
+    },
+    {
+      preventDefault: true,
+      enableOnFormTags: true,
+    }
+  );
+
+  // === ZEN MODE LAYOUT ===
+  if (zenMode) {
+    const showTrafficLights = isMacOS() && isElectron();
+    const showWindowControls = isElectron() && !isMacOS();
+
+    return (
+      <div className="h-screen w-screen bg-background relative overflow-hidden">
+        <ChatQueueProcessor />
+        <ShortcutsDialog />
+        <CommandKDialog />
+
+        {/* Zen Title Bar */}
+        <div
+          className="h-9 bg-background shrink-0 px-2 flex items-center relative drag-region"
+          style={{ WebkitAppRegion: "drag" } as CSSProperties}
+        >
+          {/* macOS traffic light space */}
+          {showTrafficLights && <div className="w-[70px] shrink-0" />}
+
+          {/* Back to App button */}
+          <div
+            className="flex items-center no-drag pointer-events-auto"
+            style={{ WebkitAppRegion: "no-drag" } as CSSProperties}
+          >
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 px-2.5 gap-1.5 text-muted-foreground hover:text-foreground rounded-lg"
+                  onClick={() => setZenMode(false)}
+                >
+                  <IconArrowLeft size={14} />
+                  <span className="text-xs font-medium">App</span>
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">Exit Zen Mode</TooltipContent>
+            </Tooltip>
+          </div>
+
+          {/* Spacer */}
+          <div className="flex-1 drag-region" aria-hidden />
+
+          {/* Window controls (Windows/Linux) */}
+          {showWindowControls && (
+            <div
+              className="flex items-center no-drag"
+              style={{ WebkitAppRegion: "no-drag" } as CSSProperties}
+            >
+              <Button
+                variant="ghost"
+                className="h-9 w-10 rounded-none hover:bg-accent"
+                onClick={() => window.desktopApi?.minimize()}
+              >
+                <IconMinus size={16} />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-9 w-10 rounded-none hover:bg-accent"
+                onClick={() => window.desktopApi?.maximize()}
+              >
+                <IconSquare size={14} />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-9 w-10 rounded-none hover:bg-destructive hover:text-destructive-foreground"
+                onClick={() => window.desktopApi?.close()}
+              >
+                <IconX size={16} />
+              </Button>
+            </div>
+          )}
+        </div>
+
+        {/* Zen Chat Content - full width (window is already narrow) */}
+        <div className="flex-1 flex flex-col h-[calc(100vh-36px)] overflow-hidden">
+          <ChatView />
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="h-screen w-screen bg-background relative overflow-hidden">
@@ -934,8 +1072,6 @@ export function MainLayout() {
                         </TooltipContent>
                       </Tooltip>
 
-                      {/* Share Session Button */}
-                      <ShareSessionButton />
                     </div>
                   )}
                 </>

@@ -36,6 +36,18 @@ export interface DesktopApi {
   maximize: () => Promise<void>;
   close: () => Promise<void>;
   isMaximized: () => Promise<boolean>;
+  getBounds: () => Promise<{
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  } | null>;
+  setBounds: (bounds: {
+    x?: number;
+    y?: number;
+    width?: number;
+    height?: number;
+  }) => Promise<void>;
   onMaximizeChange: (callback: (maximized: boolean) => void) => () => void;
   getVersion: () => Promise<string>;
   setSession: (

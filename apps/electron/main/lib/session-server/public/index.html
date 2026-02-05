@@ -3,6 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="color-scheme" content="light dark">
   <title>S-AGI Session</title>
   <link rel="stylesheet" href="styles.css">
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -76,6 +77,19 @@
       </div>
     </main>
 
+    <!-- Composer (read-only) -->
+    <section class="composer" aria-label="Read-only message composer">
+      <div class="composer-inner">
+        <div class="composer-input" role="textbox" aria-readonly="true">
+          This session is read-only. Ask the host to share the prompt.
+        </div>
+        <button class="composer-send" type="button" disabled>
+          Send
+        </button>
+      </div>
+      <div class="composer-meta">Live updates - Read-only</div>
+    </section>
+
     <!-- Footer -->
     <footer class="footer">
       <div class="footer-content">
@@ -98,6 +112,8 @@
     </div>
   </div>
 
-  <script src="client.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js" defer></script>
+  <script src="https://cdn.jsdelivr.net/npm/dompurify@3.0.8/dist/purify.min.js" defer></script>
+  <script src="client.js" defer></script>
 </body>
 </html>

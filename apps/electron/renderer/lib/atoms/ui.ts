@@ -168,6 +168,10 @@ export const imageEditDialogAtom = atom<ImageEditDialogState>({
   originalPrompt: '',
 })
 
+// === ZEN MODE ===
+
+export const zenModeAtom = atomWithStorage('zen-mode', false)
+
 // === FILE SIDEBARS ===
 
 export const excelSidebarOpenAtom = atomWithStorage('excel-sidebar-open', true)

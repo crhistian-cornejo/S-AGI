@@ -1850,6 +1850,20 @@ ipcMain.handle("window:close", (event) => {
   mainWindow?.close();
 });
 
+ipcMain.handle("window:getBounds", (event) => {
+  if (!validateIPCSender(event.sender)) return null;
+  return mainWindow?.getBounds() ?? null;
+});
+
+ipcMain.handle(
+  "window:setBounds",
+  (event, bounds: { x?: number; y?: number; width?: number; height?: number }) => {
+    if (!validateIPCSender(event.sender)) return;
+    if (!mainWindow) return;
+    mainWindow.setBounds(bounds);
+  }
+);
+
 ipcMain.handle("app:getVersion", (event) => {
   if (!validateIPCSender(event.sender)) return null;
   return app.getVersion();

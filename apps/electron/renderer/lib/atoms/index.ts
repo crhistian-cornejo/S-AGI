@@ -139,6 +139,8 @@ export {
   ASPECT_RATIO_LABELS,
   type ImageEditDialogState,
   imageEditDialogAtom,
+  // Zen Mode
+  zenModeAtom,
   // File Sidebars
   excelSidebarOpenAtom,
   docSidebarOpenAtom,

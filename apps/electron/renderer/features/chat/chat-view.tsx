@@ -37,6 +37,7 @@ import {
   imageEditDialogAtom,
   pendingQuickPromptMessageAtom,
   chatSoundsEnabledAtom,
+  zenModeAtom,
   type WebSearchInfo,
   type FileSearchInfo,
   type UrlCitation,
@@ -74,6 +75,8 @@ export function ChatView() {
   const soundsEnabled = useAtomValue(chatSoundsEnabledAtom);
   // Sound effects hook
   const chatSounds = useChatSounds(soundsEnabled);
+  // Zen mode
+  const zenMode = useAtomValue(zenModeAtom);
 
   // Force rebuild - useAtomValue for read-only, useSetAtom for write-only
   const selectedChatId = useAtomValue(selectedChatIdAtom);
@@ -158,6 +161,32 @@ export function ChatView() {
   const stopThinkingRef = useRef<(() => void) | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+
+  // Refs for batching streaming state updates (OPT 6)
+  const webSearchesRef = useRef<WebSearchInfo[]>([]);
+  const annotationsRef = useRef<Annotation[]>([]);
+  const wsFlushScheduled = useRef(false);
+  const annFlushScheduled = useRef(false);
+
+  const flushWebSearches = useCallback(() => {
+    if (!wsFlushScheduled.current) {
+      wsFlushScheduled.current = true;
+      requestAnimationFrame(() => {
+        setStreamingWebSearches([...webSearchesRef.current]);
+        wsFlushScheduled.current = false;
+      });
+    }
+  }, [setStreamingWebSearches]);
+
+  const flushAnnotations = useCallback(() => {
+    if (!annFlushScheduled.current) {
+      annFlushScheduled.current = true;
+      requestAnimationFrame(() => {
+        setStreamingAnnotations([...annotationsRef.current]);
+        annFlushScheduled.current = false;
+      });
+    }
+  }, [setStreamingAnnotations]);
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
   const [activeMessageId, setActiveMessageId] = useState<string | null>(null);
 
@@ -170,8 +199,10 @@ export function ChatView() {
     setStreamingToolCalls([]);
     setStreamingError(null);
     setStreamingWebSearches([]);
+    webSearchesRef.current = [];
     setStreamingFileSearches([]);
     setStreamingAnnotations([]);
+    annotationsRef.current = [];
     setStreamingDocumentCitations([]);
     setStreamingSuggestions([]);
     smoothStream.reset();
@@ -360,8 +391,10 @@ export function ChatView() {
     setIsReasoning(false);
     setStreamingError(null);
     setStreamingWebSearches([]); // Clear previous web searches
+    webSearchesRef.current = [];
     setStreamingFileSearches([]); // Clear previous file searches
     setStreamingAnnotations([]); // Clear previous annotations
+    annotationsRef.current = [];
     setStreamingDocumentCitations([]); // Clear previous citations
     setStreamingSuggestions([]); // Clear previous suggestions
 
@@ -646,7 +679,6 @@ export function ChatView() {
 
               case "reasoning-summary-delta": {
                 fullReasoning += event.delta;
-                console.log("[ChatView] Reasoning delta received, total length:", fullReasoning.length);
                 setStreamingReasoning((prev) => prev + event.delta);
                 setIsReasoning(true);
                 break;
@@ -658,11 +690,9 @@ export function ChatView() {
               }
 
               case "web-search-start": {
-                console.log("[ChatView] Web search start:", event);
                 // Deduplicate by searchId - don't add if already exists
                 const alreadyExists = collectedWebSearches.some(ws => ws.searchId === event.searchId);
                 if (alreadyExists) {
-                  console.log("[ChatView] Web search already exists, skipping:", event.searchId);
                   break;
                 }
                 actionCounts.webSearch += 1;
@@ -675,54 +705,48 @@ export function ChatView() {
                   url: event.url,
                   sources: event.sources,
                 };
-                setStreamingWebSearches((prev) => {
-                  // Also deduplicate in state
-                  if (prev.some(ws => ws.searchId === event.searchId)) {
-                    return prev;
-                  }
-                  return [...prev, newSearch];
-                });
+                // Accumulate in ref, flush via rAF
+                if (!webSearchesRef.current.some(ws => ws.searchId === event.searchId)) {
+                  webSearchesRef.current = [...webSearchesRef.current, newSearch];
+                  flushWebSearches();
+                }
                 // Also collect for persistence
                 collectedWebSearches.push(newSearch);
                 break;
               }
 
               case "web-search-searching": {
-                console.log("[ChatView] Web search searching:", event);
-                setStreamingWebSearches((prev) =>
-                  prev.map((ws) =>
-                    ws.searchId === event.searchId
-                      ? {
-                          ...ws,
-                          status: "searching" as const,
-                          action: event.action ?? ws.action,
-                          query: event.query || ws.query,
-                          domains: event.domains ?? ws.domains,
-                          url: event.url ?? ws.url,
-                        }
-                      : ws
-                  )
+                webSearchesRef.current = webSearchesRef.current.map((ws) =>
+                  ws.searchId === event.searchId
+                    ? {
+                        ...ws,
+                        status: "searching" as const,
+                        action: event.action ?? ws.action,
+                        query: event.query || ws.query,
+                        domains: event.domains ?? ws.domains,
+                        url: event.url ?? ws.url,
+                      }
+                    : ws
                 );
+                flushWebSearches();
                 break;
               }
 
               case "web-search-done": {
-                console.log("[ChatView] Web search done:", event);
-                setStreamingWebSearches((prev) =>
-                  prev.map((ws) =>
-                    ws.searchId === event.searchId
-                      ? {
-                          ...ws,
-                          status: "done" as const,
-                          action: event.action ?? ws.action,
-                          query: event.query || ws.query,
-                          domains: event.domains ?? ws.domains,
-                          url: event.url ?? ws.url,
-                          sources: event.sources ?? ws.sources,
-                        }
-                      : ws
-                  )
+                webSearchesRef.current = webSearchesRef.current.map((ws) =>
+                  ws.searchId === event.searchId
+                    ? {
+                        ...ws,
+                        status: "done" as const,
+                        action: event.action ?? ws.action,
+                        query: event.query || ws.query,
+                        domains: event.domains ?? ws.domains,
+                        url: event.url ?? ws.url,
+                        sources: event.sources ?? ws.sources,
+                      }
+                    : ws
                 );
+                flushWebSearches();
 
                 // Also update collected web searches for persistence
                 const existingIdx = collectedWebSearches.findIndex(ws => ws.searchId === event.searchId);
@@ -740,7 +764,6 @@ export function ChatView() {
 
                 // If we got sources with titles, also emit them as annotations for display
                 if (event.sources && event.sources.length > 0) {
-                  console.log("[ChatView] Converting sources to annotations:", event.sources);
                   const sourcesAsAnnotations = event.sources.map((s: any, idx: number) => ({
                     type: "url_citation" as const,
                     url: s.url,
@@ -748,7 +771,8 @@ export function ChatView() {
                     startIndex: idx,
                     endIndex: idx + 1,
                   }));
-                  setStreamingAnnotations((prev) => [...prev, ...sourcesAsAnnotations]);
+                  annotationsRef.current = [...annotationsRef.current, ...sourcesAsAnnotations];
+                  flushAnnotations();
                   // Also collect annotations for persistence
                   collectedAnnotations = [...collectedAnnotations, ...sourcesAsAnnotations];
                 }
@@ -756,8 +780,6 @@ export function ChatView() {
               }
 
               case "annotations": {
-                // Collect URL and file citations from the response
-                console.log("[ChatView] Received annotations event:", event);
 
                 const urlCitations = (event.annotations || [])
                   .filter((a: any) => a.type === "url_citation")
@@ -786,19 +808,15 @@ export function ChatView() {
                   ...urlCitations,
                   ...fileCitations,
                 ];
-                console.log("[ChatView] Parsed citations:", {
-                  urlCitations: urlCitations.length,
-                  fileCitations: fileCitations.length,
-                });
-
                 if (allCitations.length > 0) {
                   // Accumulate in local variable for persistence
                   collectedAnnotations = [
                     ...collectedAnnotations,
                     ...allCitations,
                   ];
-                  // Also update streaming state for live display
-                  setStreamingAnnotations((prev) => [...prev, ...allCitations]);
+                  // Accumulate in ref and flush via rAF
+                  annotationsRef.current = [...annotationsRef.current, ...allCitations];
+                  flushAnnotations();
                 }
 
                 // Convert file_citations to DocumentCitation format for inline badges
@@ -823,26 +841,16 @@ export function ChatView() {
               }
 
               case "suggestions": {
-                console.log(
-                  "[ChatView] Suggestions event received:",
-                  event.suggestions
-                );
                 if (event.suggestions && Array.isArray(event.suggestions)) {
                   // Store in local variable for persistence
                   collectedSuggestions = event.suggestions;
                   // Update UI state
                   setStreamingSuggestions(event.suggestions);
-                } else {
-                  console.warn(
-                    "[ChatView] Received invalid suggestions format:",
-                    event
-                  );
                 }
                 break;
               }
 
               case "file-search-start": {
-                console.log("[ChatView] File search start:", event);
                 actionCounts.fileSearch += 1;
                 const newFileSearch: FileSearchInfo = {
                   searchId: event.searchId,
@@ -853,7 +861,6 @@ export function ChatView() {
               }
 
               case "file-search-searching": {
-                console.log("[ChatView] File search searching:", event);
                 setStreamingFileSearches((prev) =>
                   prev.map((fs) =>
                     fs.searchId === event.searchId
@@ -865,7 +872,6 @@ export function ChatView() {
               }
 
               case "file-search-done": {
-                console.log("[ChatView] File search done:", event);
                 setStreamingFileSearches((prev) =>
                   prev.map((fs) =>
                     fs.searchId === event.searchId
@@ -877,11 +883,6 @@ export function ChatView() {
               }
 
               case "document_citations": {
-                // Store document citations for inline rendering with hover tooltips
-                console.log(
-                  "[ChatView] Document citations received:",
-                  event.citations?.length || 0
-                );
                 if (event.citations && event.citations.length > 0) {
                   collectedDocumentCitations = event.citations.map(
                     (c: any) => ({
@@ -1047,8 +1048,10 @@ export function ChatView() {
                 setStreamingReasoning("");
                 setIsReasoning(false);
                 setStreamingWebSearches([]);
+                webSearchesRef.current = [];
                 setStreamingFileSearches([]);
                 setStreamingAnnotations([]);
+                annotationsRef.current = [];
                 setStreamingDocumentCitations([]);
                 cleanupListener?.();
                 abortRef.current = null;
@@ -1056,8 +1059,6 @@ export function ChatView() {
               }
 
               case "finish": {
-                console.log("[ChatView] FINISH event - fullReasoning length:", fullReasoning?.length || 0);
-                console.log("[ChatView] FINISH event - fullReasoning preview:", fullReasoning?.substring(0, 100) || "(empty)");
                 const durationMs = Date.now() - streamStartedAt;
                 const rawUsage = event.usage;
                 const usage = {
@@ -1202,19 +1203,17 @@ export function ChatView() {
                 smoothStream.stopStream();
                 setStreamingToolCalls([]);
                 // Save reasoning from local variable before clearing
-                console.log("[ChatView] About to set lastReasoning:", fullReasoning?.length || 0, "chars");
                 if (fullReasoning) {
                   setLastReasoning(fullReasoning);
-                  console.log("[ChatView] lastReasoning SET successfully");
-                } else {
-                  console.log("[ChatView] WARNING: fullReasoning is empty, not setting lastReasoning");
                 }
                 setStreamingReasoning("");
                 setIsReasoning(false);
                 // Clear search states (already saved in message metadata)
                 setStreamingWebSearches([]);
+                webSearchesRef.current = [];
                 setStreamingFileSearches([]);
                 setStreamingAnnotations([]);
+                annotationsRef.current = [];
                 setStreamingDocumentCitations([]);
 
                 // Stop thinking sound and play response done sound
@@ -1812,17 +1811,19 @@ export function ChatView() {
         {/* Bottom Fade Overlay */}
         <div className="absolute bottom-0 left-0 right-0 h-16 bg-gradient-to-t from-[hsl(var(--chat-background))] to-transparent pointer-events-none z-10" />
 
-        {/* Floating ToC - right side, horizontal lines, length by prompt */}
-        <div className="absolute right-2 top-10 bottom-16 w-12 flex flex-col items-end justify-start pt-2 z-[8] pointer-events-none overflow-hidden">
-          <div className="pointer-events-auto max-h-full overflow-y-auto py-1 pr-1 scrollbar-none">
-            <MessageTableOfContents
-              messages={messages || []}
-              activeId={activeMessageId}
-              onScrollToMessage={handleScrollToMessage}
-              tooltipSide="left"
-            />
+        {/* Floating ToC - right side, horizontal lines, length by prompt (hidden in Zen Mode) */}
+        {!zenMode && (
+          <div className="absolute right-2 top-10 bottom-16 w-12 flex flex-col items-end justify-start pt-2 z-[8] pointer-events-none overflow-hidden">
+            <div className="pointer-events-auto max-h-full overflow-y-auto py-1 pr-1 scrollbar-none">
+              <MessageTableOfContents
+                messages={messages || []}
+                activeId={activeMessageId}
+                onScrollToMessage={handleScrollToMessage}
+                tooltipSide="left"
+              />
+            </div>
           </div>
-        </div>
+        )}
       </div>
 
       {/* Queue indicator - shows when messages are queued - MOVED OUTSIDE INPUT AREA */}

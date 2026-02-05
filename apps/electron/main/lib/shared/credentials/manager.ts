@@ -3,6 +3,7 @@
  *
  * High-level API for managing all types of credentials.
  * Uses the secure storage backend for encrypted storage.
+ * Includes in-memory cache with TTL to avoid repeated async lookups.
  *
  * Based on craft-agents-oss patterns.
  */
@@ -28,22 +29,54 @@ export interface ChatGPTOAuthCredentials {
   accountId?: string;
 }
 
+const KEY_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+
+interface CacheEntry<T> {
+  value: T;
+  cachedAt: number;
+}
+
 /**
  * Centralized credential management
  */
 export class CredentialManager {
   private storage = getSecureStorage();
+  private keyCache = new Map<string, CacheEntry<string | null>>();
+
+  private getCached(key: string): string | null | undefined {
+    const entry = this.keyCache.get(key);
+    if (entry && Date.now() - entry.cachedAt < KEY_CACHE_TTL_MS) {
+      return entry.value;
+    }
+    if (entry) {
+      this.keyCache.delete(key);
+    }
+    return undefined;
+  }
+
+  private setCache(key: string, value: string | null): void {
+    this.keyCache.set(key, { value, cachedAt: Date.now() });
+  }
+
+  private invalidateCache(key: string): void {
+    this.keyCache.delete(key);
+  }
 
   // ============================================================
   // Anthropic API Key
   // ============================================================
 
   async getAnthropicKey(): Promise<string | null> {
+    const cached = this.getCached("anthropic_api_key");
+    if (cached !== undefined) return cached;
     const cred = await this.storage.get({ type: "anthropic_api_key" });
-    return cred?.value || null;
+    const value = cred?.value || null;
+    this.setCache("anthropic_api_key", value);
+    return value;
   }
 
   async setAnthropicKey(key: string | null): Promise<void> {
+    this.invalidateCache("anthropic_api_key");
     if (key) {
       await this.storage.set(
         { type: "anthropic_api_key" },
@@ -119,11 +152,16 @@ export class CredentialManager {
   // ============================================================
 
   async getOpenAIKey(): Promise<string | null> {
+    const cached = this.getCached("openai_api_key");
+    if (cached !== undefined) return cached;
     const cred = await this.storage.get({ type: "openai_api_key" });
-    return cred?.value || null;
+    const value = cred?.value || null;
+    this.setCache("openai_api_key", value);
+    return value;
   }
 
   async setOpenAIKey(key: string | null): Promise<void> {
+    this.invalidateCache("openai_api_key");
     if (key) {
       await this.storage.set(
         { type: "openai_api_key" },
@@ -199,11 +237,16 @@ export class CredentialManager {
   // ============================================================
 
   async getZaiKey(): Promise<string | null> {
+    const cached = this.getCached("zai_api_key");
+    if (cached !== undefined) return cached;
     const cred = await this.storage.get({ type: "zai_api_key" });
-    return cred?.value || null;
+    const value = cred?.value || null;
+    this.setCache("zai_api_key", value);
+    return value;
   }
 
   async setZaiKey(key: string | null): Promise<void> {
+    this.invalidateCache("zai_api_key");
     if (key) {
       await this.storage.set(
         { type: "zai_api_key" },
@@ -269,6 +312,7 @@ export class CredentialManager {
    * Clear all credentials
    */
   async clearAll(): Promise<void> {
+    this.keyCache.clear();
     const types: CredentialType[] = [
       "anthropic_api_key",
       "claude_oauth",

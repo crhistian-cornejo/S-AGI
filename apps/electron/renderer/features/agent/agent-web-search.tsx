@@ -219,16 +219,6 @@ export const IndividualWebSearchCard = memo(function IndividualWebSearchCard({
   const isSearching = search.status === 'searching'
   const query = search.query || 'Web search'
 
-  // Debug logging
-  console.log('[WebSearchCard] Rendering:', {
-    searchId: search.searchId,
-    query,
-    status: search.status,
-    domains: search.domains,
-    annotationsCount: annotations.length,
-    annotations: annotations.slice(0, 3),
-  })
-
   // Build sources from annotations (which have titles), search.sources, or fall back to domains
   // Deduplicate by URL to show each unique page only once
   const sources: Source[] = useMemo(() => {
@@ -236,7 +226,6 @@ export const IndividualWebSearchCard = memo(function IndividualWebSearchCard({
 
     // Priority 1: If we have annotations with titles, use those
     if (annotations.length > 0) {
-      console.log('[WebSearchCard] Using annotations for sources:', annotations.length)
       rawSources = annotations.map(a => ({
         url: a.url,
         title: a.title || undefined
@@ -244,7 +233,6 @@ export const IndividualWebSearchCard = memo(function IndividualWebSearchCard({
     }
     // Priority 2: If we have sources from the search event (with titles)
     else if (search.sources && search.sources.length > 0) {
-      console.log('[WebSearchCard] Using search.sources:', search.sources.length)
       rawSources = search.sources.map(s => ({
         url: s.url,
         title: s.title || undefined
@@ -253,7 +241,6 @@ export const IndividualWebSearchCard = memo(function IndividualWebSearchCard({
     // Priority 3: Fall back to domains/urls from search data (no titles)
     else {
       if (search.domains) {
-        console.log('[WebSearchCard] Using domains fallback:', search.domains.length)
         for (const domain of search.domains) {
           const url = domain.startsWith('http') ? domain : `https://${domain}`
           rawSources.push({ url, title: undefined })
@@ -278,7 +265,6 @@ export const IndividualWebSearchCard = memo(function IndividualWebSearchCard({
       }
     }
 
-    console.log('[WebSearchCard] Deduplicated sources:', rawSources.length, '->', uniqueSources.length)
     return uniqueSources
   }, [search.domains, search.url, search.sources, annotations])
 

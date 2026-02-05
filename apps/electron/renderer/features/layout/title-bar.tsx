@@ -14,6 +14,7 @@ import {
   excelSidebarOpenAtom,
   docSidebarOpenAtom,
   selectedChatIdAtom,
+  zenModeAtom,
 } from "@/lib/atoms";
 import { useOpenSettingsPage } from "@/features/settings/use-open-settings-page";
 import { trpc } from "@/lib/trpc";
@@ -43,6 +44,7 @@ import {
   IconTable,
   IconFileText,
   IconPlus,
+  IconLeaf,
 } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
 import { Logo } from "@/components/ui/logo";
@@ -116,6 +118,7 @@ export function TitleBar({ className, noTrafficLightSpace }: TitleBarProps) {
   const [agentPanelOpen, setAgentPanelOpen] = useAtom(agentPanelOpenAtom);
   const [excelSidebarOpen, setExcelSidebarOpen] = useAtom(excelSidebarOpenAtom);
   const [docSidebarOpen, setDocSidebarOpen] = useAtom(docSidebarOpenAtom);
+  const setZenMode = useSetAtom(zenModeAtom);
   const { data: keyStatus } = trpc.settings.getApiKeyStatus.useQuery();
 
   const isWindowsApp = isWindows();
@@ -799,6 +802,29 @@ export function TitleBar({ className, noTrafficLightSpace }: TitleBarProps) {
               </Button>
             </TooltipTrigger>
             <TooltipContent side="bottom">Toggle Artifacts</TooltipContent>
+          </Tooltip>
+        )}
+
+        {/* Zen Mode button - only on chat tab */}
+        {activeTab === "chat" && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8 mr-0.5 text-muted-foreground hover:text-foreground"
+                onClick={() => setZenMode(true)}
+                aria-label="Zen Mode"
+              >
+                <IconLeaf size={16} />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">
+              Zen Mode
+              <kbd className="ml-2 pointer-events-none inline-flex h-4 select-none items-center rounded border bg-muted px-1 font-mono text-[10px] font-medium text-muted-foreground">
+                {isMacOS() ? "⌘⇧Z" : "Ctrl+Shift+Z"}
+              </kbd>
+            </TooltipContent>
           </Tooltip>
         )}
 

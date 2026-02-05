@@ -7,7 +7,7 @@ import { useStreamingStatusStore } from '../stores/streaming-status-store'
 import { useSendCallbackStore } from '../stores/send-callback-store'
 
 // Delay between processing queue items (ms)
-const QUEUE_PROCESS_DELAY = 500
+const QUEUE_PROCESS_DELAY = 150
 
 /**
  * Global queue processor component.

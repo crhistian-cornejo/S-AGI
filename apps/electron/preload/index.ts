@@ -12,6 +12,19 @@ const desktopApi = {
   close: () => ipcRenderer.invoke("window:close"),
   isMaximized: () =>
     ipcRenderer.invoke("window:isMaximized") as Promise<boolean>,
+  getBounds: () =>
+    ipcRenderer.invoke("window:getBounds") as Promise<{
+      x: number;
+      y: number;
+      width: number;
+      height: number;
+    } | null>,
+  setBounds: (bounds: {
+    x?: number;
+    y?: number;
+    width?: number;
+    height?: number;
+  }) => ipcRenderer.invoke("window:setBounds", bounds),
   onMaximizeChange: (callback: (maximized: boolean) => void) => {
     const handler = (_: unknown, maximized: boolean) => callback(maximized);
     ipcRenderer.on("window:maximize-changed", handler);

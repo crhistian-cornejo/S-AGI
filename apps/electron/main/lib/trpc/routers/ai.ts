@@ -12,6 +12,7 @@ import { getCredentialManager } from "../../shared/credentials";
 // import { getChatGPTAuthManager, getGeminiAuthManager } from '../../auth'
 
 import OpenAI from "openai";
+import { getOrCreateClient } from "./openai-client-cache";
 import type { Responses } from "openai/resources/responses/responses";
 import { OpenAIFileService, shouldUseAISDK, streamWithAISDK } from "../../ai";
 import { streamWithClaudeAgentSDK } from "../../ai/claude-agent-sdk";
@@ -1860,15 +1861,13 @@ export const aiRouter = router({
               ? ZAI_CODING_BASE_URL
               : ZAI_GENERAL_BASE_URL;
 
-            client = new OpenAI({
+            client = getOrCreateClient({
               apiKey: zaiApiKey,
               baseURL: zaiBaseURL,
               defaultHeaders: {
                 "X-Source": ZAI_SOURCE_HEADER,
               },
-              // CRITICAL: Disable any internal buffering for fastest streaming
-              // This ensures chunks are processed immediately as they arrive
-              maxRetries: 0, // Don't retry on streaming errors (would cause delays)
+              maxRetries: 0,
             });
 
             // Update apiKey for tool context
@@ -1889,10 +1888,9 @@ export const aiRouter = router({
               throw new Error("OpenAI API key is required. Please configure it in Settings.");
             }
 
-            client = new OpenAI({
+            client = getOrCreateClient({
               apiKey: openaiApiKey,
-              // CRITICAL: Disable any internal buffering for fastest streaming
-              maxRetries: 0, // Don't retry on streaming errors (would cause delays)
+              maxRetries: 0,
             });
 
             // Update apiKey for tool context
@@ -2666,7 +2664,7 @@ CITATION REQUIREMENTS (MANDATORY):
                       "[AI] Z.AI coding endpoint billing error - falling back to general endpoint",
                     );
                     zaiBaseURL = ZAI_GENERAL_BASE_URL;
-                    openaiClient = new OpenAI({
+                    openaiClient = getOrCreateClient({
                       apiKey: input.apiKey!,
                       baseURL: zaiBaseURL,
                       defaultHeaders: { "X-Source": ZAI_SOURCE_HEADER },
@@ -3340,24 +3338,8 @@ CITATION REQUIREMENTS (MANDATORY):
               })
               .on("response.web_search_call.completed", (event: any) => {
                 const wsEvent = event as any;
-                log.info(
-                  `[AI] Web search completed:`,
-                  JSON.stringify(wsEvent, null, 2),
-                );
                 const { action, query, domains, url, sources } =
                   extractWebSearchDetails(wsEvent);
-
-                // Debug: Log exactly what we're emitting
-                log.info(`[AI] web-search-done emit:`, {
-                  searchId: event.item_id,
-                  action,
-                  query,
-                  domainsCount: domains?.length || 0,
-                  domains,
-                  url,
-                  sourcesCount: sources?.length || 0,
-                  sources: sources?.slice(0, 3),
-                });
 
                 emit({
                   type: "web-search-done",
@@ -3409,19 +3391,9 @@ CITATION REQUIREMENTS (MANDATORY):
                 });
               })
               .on("response.file_search_call.in_progress", (event: any) => {
-                log.info(
-                  `[AI] File search in_progress:`,
-                  JSON.stringify(event, null, 2),
-                );
                 emit({ type: "file-search-start", searchId: event.item_id });
               })
               .on("response.file_search_call.searching", (event: any) => {
-                const fsEvent = event as any;
-                log.info(`[AI] File search searching:`, {
-                  itemId: event.item_id,
-                  queries: fsEvent.queries,
-                  status: fsEvent.status,
-                });
                 emit({
                   type: "file-search-searching",
                   searchId: event.item_id,
@@ -3429,15 +3401,6 @@ CITATION REQUIREMENTS (MANDATORY):
               })
               .on("response.file_search_call.completed", (event: any) => {
                 const fsEvent = event as any;
-                log.info(`[AI] File search completed:`, {
-                  itemId: event.item_id,
-                  resultsCount: fsEvent.results?.length || 0,
-                  results: fsEvent.results?.map((r: any) => ({
-                    filename: r.filename,
-                    score: r.score,
-                    textPreview: r.text?.substring(0, 200),
-                  })),
-                });
                 emit({
                   type: "file-search-done",
                   searchId: event.item_id,
@@ -3461,63 +3424,23 @@ CITATION REQUIREMENTS (MANDATORY):
               `[AI] Step ${currentStepNumber} complete in ${Date.now() - stepStartTime}ms, text=${fullText.length} chars`,
             );
 
-            // DEBUG: Log the full final response structure
-            log.info(
-              `[AI] finalResponse keys: ${Object.keys(finalResponse).join(", ")}`,
-            );
-            log.info(
-              `[AI] finalResponse.output type: ${typeof finalResponse.output}, isArray: ${Array.isArray(finalResponse.output)}, length: ${(finalResponse.output as any)?.length}`,
-            );
-
             // Check finalResponse.output for annotations (fallback if not received via streaming)
-            // The annotations may be in the final response output items
-            log.info(`[AI] Processing finalResponse.output for annotations, isArray: ${Array.isArray(finalResponse.output)}, length: ${(finalResponse.output as any[])?.length || 0}`);
             if (finalResponse.output && Array.isArray(finalResponse.output)) {
               const allFinalAnnotations: any[] = [];
 
               for (const outputItem of finalResponse.output) {
                 const itemType = (outputItem as any).type;
-                log.info(`[AI] Final output item type: ${itemType}`);
 
-                // Log the full structure of each output item
                 if (itemType === "message") {
                   const msgItem = outputItem as any;
-                  log.info(
-                    `[AI] Message content count: ${msgItem.content?.length || 0}`,
-                  );
-
                   for (const content of msgItem.content || []) {
-                    log.info(
-                      `[AI] Content type: ${content?.type}, annotations: ${JSON.stringify(content?.annotations?.slice(0, 2))}`,
-                    );
                     if (
                       content?.annotations &&
                       content.annotations.length > 0
                     ) {
-                      log.info(
-                        `[AI] Found ${content.annotations.length} annotations in final response`,
-                      );
                       allFinalAnnotations.push(...content.annotations);
                     }
                   }
-                } else if (itemType === "web_search_call") {
-                  // Web search results might have URLs here
-                  log.info(
-                    `[AI] Web search call item: ${JSON.stringify(outputItem).slice(0, 500)}`,
-                  );
-                } else if (itemType === "file_search_call") {
-                  // File search results with document citations
-                  const fsItem = outputItem as any;
-                  log.info(`[AI] File search call item:`, {
-                    id: fsItem.id,
-                    status: fsItem.status,
-                    resultsCount: fsItem.results?.length || 0,
-                    results: fsItem.results?.slice(0, 3)?.map((r: any) => ({
-                      filename: r.filename,
-                      score: r.score,
-                      textPreview: r.text?.substring(0, 150),
-                    })),
-                  });
                 }
               }
 
@@ -3544,16 +3467,9 @@ CITATION REQUIREMENTS (MANDATORY):
                 const allCitations = [...urlCitations, ...fileCitations];
 
                 if (allCitations.length > 0) {
-                  log.info(
-                    `[AI] Emitting ${urlCitations.length} URL citations and ${fileCitations.length} file citations from final response`,
-                  );
                   emit({ type: "annotations", annotations: allCitations });
                 }
               }
-            } else {
-              log.warn(
-                `[AI] finalResponse.output is not a valid array: ${JSON.stringify(finalResponse.output)?.slice(0, 200)}`,
-              );
             }
 
             // Execute any pending tool calls IN PARALLEL

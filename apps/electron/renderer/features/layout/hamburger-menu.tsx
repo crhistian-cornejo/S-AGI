@@ -26,6 +26,7 @@ import {
   pdfSidebarOpenAtom,
   excelSidebarOpenAtom,
   docSidebarOpenAtom,
+  zenModeAtom,
 } from "@/lib/atoms";
 import { useOpenSettingsPage } from "@/features/settings/use-open-settings-page";
 import { isMacOS } from "@/lib/utils";
@@ -81,6 +82,7 @@ export function HamburgerMenu() {
   const [pdfSidebarOpen, setPdfSidebarOpen] = useAtom(pdfSidebarOpenAtom);
   const [excelSidebarOpen, setExcelSidebarOpen] = useAtom(excelSidebarOpenAtom);
   const [docSidebarOpen, setDocSidebarOpen] = useAtom(docSidebarOpenAtom);
+  const setZenMode = useSetAtom(zenModeAtom);
   const isAgentEnabled =
     activeTab === "excel" || activeTab === "doc" || activeTab === "pdf";
 
@@ -271,6 +273,10 @@ export function HamburgerMenu() {
             <DropdownMenuItem onClick={() => setShortcutsOpen(true)}>
               Show Keyboard Shortcuts
               {formatHotkey("Shift+?")}
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onClick={() => setZenMode(true)}>
+              Zen Mode
             </DropdownMenuItem>
           </DropdownMenuSubContent>
         </DropdownMenuSub>

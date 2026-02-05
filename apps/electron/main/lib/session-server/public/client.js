@@ -20,6 +20,7 @@
   let ws = null;
   let reconnectAttempts = 0;
   const MAX_RECONNECT_ATTEMPTS = 5;
+  let emptyStateRendered = false;
 
   // Theme Management
   function initTheme() {
@@ -120,10 +121,14 @@
     
     // Clear existing messages
     messagesContainer.innerHTML = '';
+    emptyStateRendered = false;
     
     // Render all messages
     if (state.messages && state.messages.length > 0) {
       state.messages.forEach(msg => renderMessage(msg));
+      clearEmptyState();
+    } else {
+      renderEmptyState();
     }
     
     // Scroll to bottom
@@ -132,6 +137,7 @@
 
   function handleNewMessage(msg) {
     renderMessage(msg);
+    clearEmptyState();
     scrollToBottom();
     
     // Hide typing indicator when assistant message arrives
@@ -171,78 +177,120 @@
 
   // Render Message
   function renderMessage(msg) {
+    const role = msg.role || 'assistant';
     const messageEl = document.createElement('div');
-    messageEl.className = `message ${msg.role}`;
+    messageEl.className = `message ${role}`;
     
-    const avatarEl = document.createElement('div');
-    avatarEl.className = 'message-avatar';
-    
-    if (msg.role === 'user') {
-      avatarEl.innerHTML = `
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
-          <circle cx="12" cy="7" r="4"/>
-        </svg>
-      `;
-    } else {
-      avatarEl.innerHTML = `
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M12 2L2 7l10 5 10-5-10-5z"/>
-          <path d="M2 17l10 5 10-5"/>
-          <path d="M2 12l10 5 10-5"/>
-        </svg>
-      `;
-    }
-    
+    const bodyEl = document.createElement('div');
+    bodyEl.className = 'message-body';
+
     const contentEl = document.createElement('div');
     contentEl.className = 'message-content';
-    contentEl.innerHTML = renderMarkdown(msg.content);
+    const contentText = typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content);
+    contentEl.innerHTML = renderMarkdown(contentText);
     
     // Add timestamp
     if (msg.createdAt) {
       const timeEl = document.createElement('div');
       timeEl.className = 'message-time';
       timeEl.textContent = formatTime(msg.createdAt);
-      contentEl.appendChild(timeEl);
+      bodyEl.appendChild(timeEl);
     }
-    
-    messageEl.appendChild(avatarEl);
-    messageEl.appendChild(contentEl);
+
+    bodyEl.prepend(contentEl);
+
+    if (role === 'user') {
+      const badgeEl = document.createElement('div');
+      badgeEl.className = 'message-user-badge';
+      badgeEl.innerHTML = `
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
+          <circle cx="12" cy="7" r="4"/>
+        </svg>
+      `;
+      messageEl.appendChild(bodyEl);
+      messageEl.appendChild(badgeEl);
+    } else {
+      messageEl.appendChild(bodyEl);
+    }
     messagesContainer.appendChild(messageEl);
   }
 
-  // Simple Markdown Renderer
+  // Markdown Renderer
   function renderMarkdown(text) {
     if (!text) return '';
-    
-    // Escape HTML
-    let html = text
+
+    if (window.marked) {
+      const renderer = new window.marked.Renderer();
+
+      renderer.code = function(code, infostring) {
+        const lang = (infostring || '').trim().split(/\s+/)[0];
+        const escaped = escapeHtml(code);
+        const label = lang ? lang.toUpperCase() : 'CODE';
+        const langClass = lang ? `language-${lang}` : '';
+        return `
+          <div class="code-block">
+            <div class="code-header">
+              <span class="code-lang">${label}</span>
+              <button class="code-copy" type="button">Copy</button>
+            </div>
+            <pre><code class="${langClass}">${escaped}</code></pre>
+          </div>
+        `;
+      };
+
+      renderer.link = function(href, title, text) {
+        const safeHref = href || '#';
+        const safeTitle = title ? ` title="${escapeHtml(title)}"` : '';
+        return `<a href="${safeHref}"${safeTitle} target="_blank" rel="noopener noreferrer">${text}</a>`;
+      };
+
+      renderer.table = function(header, body) {
+        return `
+          <div class="table-block">
+            <div class="table-wrap">
+              <table>
+                <thead>${header}</thead>
+                <tbody>${body}</tbody>
+              </table>
+            </div>
+          </div>
+        `;
+      };
+
+      window.marked.setOptions({
+        gfm: true,
+        breaks: true,
+        headerIds: false,
+        mangle: false
+      });
+
+      const rawHtml = window.marked.parse(text, { renderer });
+      return sanitizeHtml(rawHtml);
+    }
+
+    // Fallback: basic formatting
+    const escaped = escapeHtml(text);
+    const html = escaped.replace(/\n/g, '<br>');
+    return `<p>${html}</p>`;
+  }
+
+  function sanitizeHtml(html) {
+    if (window.DOMPurify) {
+      return window.DOMPurify.sanitize(html, {
+        ADD_ATTR: ['target', 'rel', 'class']
+      });
+    }
+    return html;
+  }
+
+  function escapeHtml(text) {
+    return String(text)
       .replace(/&/g, '&amp;')
       .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;');
-    
-    // Code blocks
-    html = html.replace(/```(\w*)\n([\s\S]*?)```/g, function(match, lang, code) {
-      return `<pre><code class="language-${lang}">${code.trim()}</code></pre>`;
-    });
-    
-    // Inline code
-    html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
-    
-    // Bold
-    html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
-    
-    // Italic
-    html = html.replace(/\*([^*]+)\*/g, '<em>$1</em>');
-    
-    // Line breaks
-    html = html.replace(/\n/g, '<br>');
-    
-    // Paragraphs (wrap text between double line breaks)
-    html = html.replace(/<br><br>/g, '</p><p>');
-    html = `<p>${html}</p>`;
-    
-    return html;
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;');
   }
 
   // Utilities
@@ -253,9 +301,62 @@
 
   function scrollToBottom() {
     const container = document.querySelector('.messages-container');
-    container.scrollTop = container.scrollHeight;
+    if (container) {
+      container.scrollTop = container.scrollHeight;
+    }
+  }
+
+  function renderEmptyState() {
+    if (emptyStateRendered) return;
+    const emptyEl = document.createElement('div');
+    emptyEl.className = 'empty-state';
+    emptyEl.id = 'empty-state';
+    emptyEl.innerHTML = `
+      <div class="empty-icon">
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
+          <path d="M12 2L2 7l10 5 10-5-10-5z"/>
+          <path d="M2 17l10 5 10-5"/>
+          <path d="M2 12l10 5 10-5"/>
+        </svg>
+      </div>
+      <h2>Waiting for the host...</h2>
+      <p>Messages will appear here in real time.</p>
+    `;
+    messagesContainer.appendChild(emptyEl);
+    emptyStateRendered = true;
+  }
+
+  function clearEmptyState() {
+    if (!emptyStateRendered) return;
+    const emptyEl = document.getElementById('empty-state');
+    if (emptyEl) {
+      emptyEl.remove();
+    }
+    emptyStateRendered = false;
+  }
+
+  function setupCopyHandlers() {
+    messagesContainer.addEventListener('click', function(event) {
+      const target = event.target;
+      if (!(target instanceof Element)) return;
+      const button = target.closest('.code-copy');
+      if (!button) return;
+      const block = button.closest('.code-block');
+      const codeEl = block ? block.querySelector('pre code') : null;
+      const codeText = codeEl ? codeEl.textContent || '' : '';
+      if (!codeText) return;
+      navigator.clipboard.writeText(codeText).then(() => {
+        button.classList.add('copied');
+        button.textContent = 'Copied';
+        setTimeout(() => {
+          button.classList.remove('copied');
+          button.textContent = 'Copy';
+        }, 1500);
+      });
+    });
   }
 
   // Initialize
+  setupCopyHandlers();
   connect();
 })();

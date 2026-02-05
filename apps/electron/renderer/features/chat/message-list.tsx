@@ -640,15 +640,6 @@ export const MessageList = memo(function MessageList({
                 index === messages.length - 1
                   ? lastReasoning || message.metadata?.reasoning
                   : message.metadata?.reasoning;
-              // Debug log for last assistant message
-              if (message.role === "assistant" && index === messages.length - 1) {
-                console.log("[MessageList] Last assistant msg reasoning:", {
-                  isLoading,
-                  lastReasoningLen: lastReasoning?.length || 0,
-                  metadataReasoningLen: (message.metadata?.reasoning as string)?.length || 0,
-                  finalReasoningLen: (reasoning as string)?.length || 0,
-                });
-              }
               return reasoning;
             })()}
           />
@@ -668,7 +659,9 @@ export const MessageList = memo(function MessageList({
                 {(isReasoning ||
                   streamingReasoning ||
                   (streamingAnnotations &&
-                    streamingAnnotations.length > 0)) && (
+                    streamingAnnotations.length > 0) ||
+                  (streamingWebSearches &&
+                    streamingWebSearches.length > 0)) && (
                   <AgentReasoning
                     content={streamingReasoning || ""}
                     isStreaming={isReasoning}

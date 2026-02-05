@@ -53,6 +53,7 @@ import {
   streamingReasoningAtom,
   isReasoningAtom,
   allModelsGroupedAtom,
+  zenModeAtom,
   // NOTE: Gemini disabled - hasGeminiAdvancedAtom,
   type ReasoningEffort,
   type ResponseMode,
@@ -112,6 +113,7 @@ export const ChatInput = memo(function ChatInput({
   const streamingReasoning = useAtomValue(streamingReasoningAtom);
   const isReasoning = useAtomValue(isReasoningAtom);
   const supportsReasoning = useAtomValue(supportsReasoningAtom);
+  const zenMode = useAtomValue(zenModeAtom);
 
   // Get API key status to filter providers
   const { data: keyStatus } = trpc.settings.getApiKeyStatus.useQuery();
@@ -767,47 +769,51 @@ export const ChatInput = memo(function ChatInput({
         {/* Bottom Bar Controls */}
         <div className="flex items-center justify-between px-1">
           <div className="flex items-center gap-0.5">
-            {/* Agent/Plan Mode Toggle */}
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <div className="flex items-center">
-                  <button
-                    type="button"
-                    onClick={() => setIsPlanMode(false)}
-                    className={cn(
-                      "h-7 px-2.5 rounded-l-lg text-xs font-semibold flex items-center gap-1.5 transition-all",
-                      !isPlanMode
-                        ? "bg-foreground text-background"
-                        : "bg-muted/50 text-muted-foreground hover:bg-muted",
-                    )}
-                  >
-                    <IconSparkles size={14} />
-                    Agent
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setIsPlanMode(true)}
-                    className={cn(
-                      "h-7 px-2.5 rounded-r-lg text-xs font-semibold flex items-center gap-1.5 transition-all",
-                      isPlanMode
-                        ? "bg-[hsl(var(--plan-mode))] text-[hsl(var(--plan-mode-foreground))]"
-                        : "bg-muted/50 text-muted-foreground hover:bg-muted",
-                    )}
-                  >
-                    <IconListCheck size={14} />
-                    Plan
-                  </button>
-                </div>
-              </TooltipTrigger>
-              <TooltipContent>
-                <p>
-                  Toggle mode{" "}
-                  <span className="text-muted-foreground ml-1">⇧Tab</span>
-                </p>
-              </TooltipContent>
-            </Tooltip>
+            {/* Agent/Plan Mode Toggle - hidden in Zen Mode */}
+            {!zenMode && (
+              <>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <div className="flex items-center">
+                      <button
+                        type="button"
+                        onClick={() => setIsPlanMode(false)}
+                        className={cn(
+                          "h-7 px-2.5 rounded-l-lg text-xs font-semibold flex items-center gap-1.5 transition-all",
+                          !isPlanMode
+                            ? "bg-foreground text-background"
+                            : "bg-muted/50 text-muted-foreground hover:bg-muted",
+                        )}
+                      >
+                        <IconSparkles size={14} />
+                        Agent
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setIsPlanMode(true)}
+                        className={cn(
+                          "h-7 px-2.5 rounded-r-lg text-xs font-semibold flex items-center gap-1.5 transition-all",
+                          isPlanMode
+                            ? "bg-[hsl(var(--plan-mode))] text-[hsl(var(--plan-mode-foreground))]"
+                            : "bg-muted/50 text-muted-foreground hover:bg-muted",
+                        )}
+                      >
+                        <IconListCheck size={14} />
+                        Plan
+                      </button>
+                    </div>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p>
+                      Toggle mode{" "}
+                      <span className="text-muted-foreground ml-1">⇧Tab</span>
+                    </p>
+                  </TooltipContent>
+                </Tooltip>
 
-            <div className="w-px h-3.5 bg-border/40 mx-1" />
+                <div className="w-px h-3.5 bg-border/40 mx-1" />
+              </>
+            )}
 
             {/* Model Selector with Icons */}
             <Select value={selectedModel} onValueChange={handleModelChange}>
@@ -1067,30 +1073,33 @@ export const ChatInput = memo(function ChatInput({
           <div className="flex items-center gap-1">
             <TooltipProvider delayDuration={0}>
               <div className="flex items-center gap-0.5 mr-1">
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      className={cn(
-                        "h-8 w-8 text-muted-foreground/40 hover:text-foreground hover:bg-accent/50 rounded-xl",
-                        images.length > 0 && "bg-accent/50 text-foreground",
-                      )}
-                      onClick={openFileDialog}
-                      disabled={images.length >= maxFiles || isLoading}
-                    >
-                      <IconPaperclip size={18} />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    <p>
-                      {images.length >= maxFiles
-                        ? `${maxFiles} images max`
-                        : "Attach images"}
-                    </p>
-                  </TooltipContent>
-                </Tooltip>
+                {/* Image attach - hidden in Zen Mode */}
+                {!zenMode && (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className={cn(
+                          "h-8 w-8 text-muted-foreground/40 hover:text-foreground hover:bg-accent/50 rounded-xl",
+                          images.length > 0 && "bg-accent/50 text-foreground",
+                        )}
+                        onClick={openFileDialog}
+                        disabled={images.length >= maxFiles || isLoading}
+                      >
+                        <IconPaperclip size={18} />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p>
+                        {images.length >= maxFiles
+                          ? `${maxFiles} images max`
+                          : "Attach images"}
+                      </p>
+                    </TooltipContent>
+                  </Tooltip>
+                )}
 
                 {/* Document upload button for file search */}
                 <Tooltip>
@@ -1123,8 +1132,8 @@ export const ChatInput = memo(function ChatInput({
                   </TooltipContent>
                 </Tooltip>
 
-                {/* @ Mention button for Knowledge Base */}
-                {mentionableDocuments.length > 0 && (
+                {/* @ Mention button for Knowledge Base - hidden in Zen Mode */}
+                {!zenMode && mentionableDocuments.length > 0 && (
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <Button
@@ -1186,32 +1195,34 @@ export const ChatInput = memo(function ChatInput({
                   </Tooltip>
                 )}
 
-                {/* Image Generation Toggle */}
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      className={cn(
-                        "h-8 w-8 rounded-xl transition-all",
-                        isImageMode
-                          ? "bg-primary text-primary-foreground hover:bg-primary/90"
-                          : "text-muted-foreground/40 hover:text-foreground hover:bg-accent/50",
-                      )}
-                      onClick={() => setIsImageMode(!isImageMode)}
-                      disabled={isLoading}
-                    >
-                      <IconPhoto size={18} />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    <p>{isImageMode ? "Image mode ON" : "Generate image"}</p>
-                  </TooltipContent>
-                </Tooltip>
+                {/* Image Generation Toggle - hidden in Zen Mode */}
+                {!zenMode && (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className={cn(
+                          "h-8 w-8 rounded-xl transition-all",
+                          isImageMode
+                            ? "bg-primary text-primary-foreground hover:bg-primary/90"
+                            : "text-muted-foreground/40 hover:text-foreground hover:bg-accent/50",
+                        )}
+                        onClick={() => setIsImageMode(!isImageMode)}
+                        disabled={isLoading}
+                      >
+                        <IconPhoto size={18} />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p>{isImageMode ? "Image mode ON" : "Generate image"}</p>
+                    </TooltipContent>
+                  </Tooltip>
+                )}
 
-                {/* Aspect Ratio Selector - visible only in image mode */}
-                {isImageMode && (
+                {/* Aspect Ratio Selector - visible only in image mode, hidden in Zen Mode */}
+                {!zenMode && isImageMode && (
                   <div className="flex items-center bg-muted/50 rounded-lg p-0.5 animate-in fade-in slide-in-from-left-2 duration-200">
                     <Tooltip>
                       <TooltipTrigger asChild>
