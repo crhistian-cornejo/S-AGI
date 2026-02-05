@@ -10,7 +10,6 @@ import React from "react"
 const WDYR_ENABLED = false
 
 if (import.meta.env.DEV && WDYR_ENABLED) {
-  // Dynamic import to avoid bundling in production
   import("@welldone-software/why-did-you-render").then((whyDidYouRenderModule) => {
     const whyDidYouRender = whyDidYouRenderModule.default
 
@@ -22,8 +21,8 @@ if (import.meta.env.DEV && WDYR_ENABLED) {
     whyDidYouRender(React, {
       trackAllPureComponents: true,
       trackHooks: true,
-      logOwnerReasons: true, // Shows parent chain causing re-renders
-      logOnDifferentValues: true, // Log ALL re-renders
+      logOwnerReasons: true,
+      logOnDifferentValues: true,
       collapseGroups: true,
 
       notifier: (info) => {
@@ -38,7 +37,7 @@ if (import.meta.env.DEV && WDYR_ENABLED) {
         renderCounts[name].count++
         renderCounts[name].lastTime = now
 
-        // Log every render with prop names (safely handle different data types)
+        // Log every render with prop names
         const getDiffNames = (diff: unknown) => {
           if (!diff) return []
           if (Array.isArray(diff)) return diff.map((d: { pathString?: string; name?: string }) => d?.pathString || d?.name || 'unknown')

@@ -4,7 +4,7 @@ import { useState, type CSSProperties } from "react"
 import { useSetAtom, useAtom } from "jotai"
 import { useTheme } from "next-themes"
 import { motion, AnimatePresence } from "motion/react"
-import { IconRocket, IconCheck, IconKey, IconArrowRight, IconShieldCheck, IconLoader2, IconEye, IconEyeOff, IconPalette, IconMoon, IconSun, IconDeviceDesktop, IconBraces, IconFunction, IconTable, IconFileTypePdf, IconFileText, IconNotes } from "@tabler/icons-react"
+import { IconRocket, IconCheck, IconKey, IconArrowRight, IconShieldCheck, IconLoader2, IconEye, IconEyeOff, IconPalette, IconMoon, IconSun, IconDeviceDesktop, IconBraces, IconFunction, IconTable, IconFileTypePdf, IconFileText, IconNotes, IconCloud, IconDatabase, IconDeviceLaptop, IconCloudUpload, IconLock, IconRefresh } from "@tabler/icons-react"
 import { Logo } from "@/components/ui/logo"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -15,7 +15,7 @@ import { BUILTIN_THEMES } from "@/lib/themes/builtin-themes"
 import { trpc } from "@/lib/trpc"
 import { toast } from "sonner"
 
-type OnboardingStep = "welcome" | "theme" | "api-keys" | "ready"
+type OnboardingStep = "welcome" | "theme" | "api-keys" | "storage" | "ready"
 
 export function OnboardingPage() {
   const [step, setStep] = useState<OnboardingStep>("welcome")
@@ -26,13 +26,15 @@ export function OnboardingPage() {
     setDirection(1)
     if (step === "welcome") setStep("theme")
     else if (step === "theme") setStep("api-keys")
-    else if (step === "api-keys") setStep("ready")
+    else if (step === "api-keys") setStep("storage")
+    else if (step === "storage") setStep("ready")
   }
 
   const handleBack = () => {
     setDirection(-1)
     if (step === "theme") setStep("welcome")
     else if (step === "api-keys") setStep("theme")
+    else if (step === "storage") setStep("api-keys")
   }
 
   const handleComplete = () => {
@@ -51,7 +53,7 @@ export function OnboardingPage() {
         <div
             className={cn(
                 "w-full px-6 relative z-10",
-                step === "welcome" ? "max-w-6xl" : "max-w-[500px]"
+                step === "welcome" ? "max-w-6xl" : step === "storage" ? "max-w-xl" : "max-w-[500px]"
             )}
         >
             <AnimatePresence mode="wait" custom={direction}>
@@ -63,6 +65,9 @@ export function OnboardingPage() {
                 )}
                 {step === "api-keys" && (
                     <ApiKeysStep key="api-keys" onNext={handleNext} onBack={handleBack} />
+                )}
+                {step === "storage" && (
+                    <StorageStep key="storage" onNext={handleNext} onBack={handleBack} />
                 )}
                 {step === "ready" && (
                     <ReadyStep key="ready" onComplete={handleComplete} />
@@ -290,7 +295,8 @@ function SvgShowcaseCard({
 
 function CodePreviewSvg() {
     return (
-        <svg viewBox="0 0 420 125" className="h-[125px] w-full">
+        <svg viewBox="0 0 420 125" className="h-[125px] w-full" role="img" aria-label="Code preview">
+            <title>Vista previa de código</title>
             <rect x="1" y="1" width="418" height="123" rx="10" fill="hsl(var(--secondary) / 0.4)" stroke="hsl(var(--border))" />
             <rect x="16" y="20" width="88" height="8" rx="4" fill="hsl(var(--muted-foreground) / 0.28)" />
             <rect x="16" y="44" width="132" height="8" rx="4" fill="#8b5cf6" opacity="0.7" />
@@ -307,7 +313,8 @@ function CodePreviewSvg() {
 
 function KatexPreviewSvg() {
     return (
-        <svg viewBox="0 0 420 125" className="h-[125px] w-full">
+        <svg viewBox="0 0 420 125" className="h-[125px] w-full" role="img" aria-label="KaTeX math preview">
+            <title>Vista previa de fórmulas matemáticas</title>
             <rect x="1" y="1" width="418" height="123" rx="10" fill="hsl(var(--secondary) / 0.4)" stroke="hsl(var(--border))" />
             <text x="20" y="32" fontSize="14" fill="hsl(var(--muted-foreground))">f(x) =</text>
             <text x="74" y="32" fontSize="24" fill="hsl(var(--foreground))">Σ</text>
@@ -329,7 +336,8 @@ function SheetPreviewSvg() {
     const rows = [36, 58, 80, 102]
 
     return (
-        <svg viewBox="0 0 420 125" className="h-[125px] w-full">
+        <svg viewBox="0 0 420 125" className="h-[125px] w-full" role="img" aria-label="Spreadsheet preview">
+            <title>Vista previa de hoja de cálculo</title>
             <rect x="1" y="1" width="418" height="123" rx="10" fill="hsl(var(--secondary) / 0.4)" stroke="hsl(var(--border))" />
             <rect x="18" y="16" width="384" height="95" rx="8" fill="hsl(var(--background))" opacity="0.65" />
             {columns.map((x) => (
@@ -352,7 +360,12 @@ function SheetPreviewSvg() {
     )
 }
 
-function ThemePreview({ theme }: { theme: any }) {
+interface ThemeConfig {
+    type: 'light' | 'dark'
+    colors?: Record<string, string>
+}
+
+function ThemePreview({ theme }: { theme: ThemeConfig }) {
     const bgColor = theme?.colors?.['editor.background'] || '#1a1a1a'
     const accentColor = theme?.colors?.['focusBorder'] || theme?.colors?.['button.background'] || theme?.colors?.['textLink.foreground'] || '#0034FF'
     const isDark = theme.type === 'dark'
@@ -650,6 +663,274 @@ function ApiKeysStep({ onNext, onBack }: { onNext: () => void; onBack: () => voi
                 </div>
             </div>
         </motion.div>
+    )
+}
+
+function StorageStep({ onNext, onBack }: { onNext: () => void; onBack: () => void }) {
+    return (
+        <motion.div 
+            initial={{ opacity: 0, x: 50 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: -50 }}
+            transition={{ duration: 0.4 }}
+            className="space-y-8"
+        >
+            <div className="text-center space-y-2">
+                <div className="w-12 h-12 mx-auto rounded-2xl bg-gradient-to-br from-blue-500/10 to-violet-500/10 flex items-center justify-center mb-4">
+                    <IconDatabase className="w-6 h-6 text-blue-500" />
+                </div>
+                <h2 className="text-2xl font-bold tracking-tight">Elige cómo almacenar</h2>
+                <p className="text-muted-foreground">
+                    S-AGI soporta almacenamiento local y en la nube.
+                </p>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+                {/* LOCAL Storage Card */}
+                <motion.div
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: 0.2 }}
+                    className="group relative rounded-2xl border-2 border-blue-500/20 bg-gradient-to-br from-blue-500/5 to-transparent p-5 space-y-4 hover:border-blue-500/40 transition-colors"
+                >
+                    <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-xl bg-blue-500/10 flex items-center justify-center">
+                            <IconDeviceLaptop className="w-5 h-5 text-blue-500" />
+                        </div>
+                        <div>
+                            <h3 className="font-semibold text-sm">Local</h3>
+                            <p className="text-xs text-muted-foreground">Tu dispositivo</p>
+                        </div>
+                    </div>
+                    
+                    <LocalStorageSvg />
+
+                    <div className="space-y-2">
+                        <div className="flex items-center gap-2 text-xs text-foreground/80">
+                            <IconLock size={14} className="text-blue-500" />
+                            <span>100% privado</span>
+                        </div>
+                        <div className="flex items-center gap-2 text-xs text-foreground/80">
+                            <IconDatabase size={14} className="text-blue-500" />
+                            <span>Sin conexión</span>
+                        </div>
+                        <div className="flex items-center gap-2 text-xs text-foreground/80">
+                            <IconRocket size={14} className="text-blue-500" />
+                            <span>Ultra rápido</span>
+                        </div>
+                    </div>
+                </motion.div>
+
+                {/* CLOUD Storage Card */}
+                <motion.div
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: 0.3 }}
+                    className="group relative rounded-2xl border-2 border-violet-500/20 bg-gradient-to-br from-violet-500/5 to-transparent p-5 space-y-4 hover:border-violet-500/40 transition-colors"
+                >
+                    <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-xl bg-violet-500/10 flex items-center justify-center">
+                            <IconCloud className="w-5 h-5 text-violet-500" />
+                        </div>
+                        <div>
+                            <h3 className="font-semibold text-sm">Cloud</h3>
+                            <p className="text-xs text-muted-foreground">Sincronizado</p>
+                        </div>
+                    </div>
+                    
+                    <CloudStorageSvg />
+
+                    <div className="space-y-2">
+                        <div className="flex items-center gap-2 text-xs text-foreground/80">
+                            <IconRefresh size={14} className="text-violet-500" />
+                            <span>Sincronización automática</span>
+                        </div>
+                        <div className="flex items-center gap-2 text-xs text-foreground/80">
+                            <IconCloudUpload size={14} className="text-violet-500" />
+                            <span>Acceso desde cualquier lugar</span>
+                        </div>
+                        <div className="flex items-center gap-2 text-xs text-foreground/80">
+                            <IconShieldCheck size={14} className="text-violet-500" />
+                            <span>Backup en la nube</span>
+                        </div>
+                    </div>
+                </motion.div>
+            </div>
+
+            <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={{ delay: 0.5 }}
+                className="bg-secondary/30 border border-border/60 rounded-xl p-4 text-center"
+            >
+                <p className="text-xs text-muted-foreground leading-relaxed">
+                    <span className="text-foreground font-medium">Puedes cambiar esto después</span> en Configuración → Cuenta.
+                    <br />
+                    Por defecto usamos almacenamiento <span className="text-blue-500 font-medium">LOCAL</span> para máxima privacidad.
+                </p>
+            </motion.div>
+
+            <div className="space-y-3 pt-2">
+                <Button onClick={onNext} size="lg" className="w-full h-11">
+                    Continuar
+                </Button>
+                <Button variant="ghost" onClick={onBack} className="w-full h-11 text-muted-foreground font-normal">
+                    Volver
+                </Button>
+            </div>
+        </motion.div>
+    )
+}
+
+function LocalStorageSvg() {
+    return (
+        <svg viewBox="0 0 200 100" className="w-full h-[80px]" role="img" aria-label="Local storage illustration">
+            <title>Almacenamiento local</title>
+            {/* Laptop base */}
+            <motion.rect
+                x="30" y="30" width="140" height="50" rx="6"
+                fill="hsl(var(--secondary))"
+                stroke="hsl(var(--border))"
+                strokeWidth="1.5"
+                initial={{ opacity: 0, scale: 0.8 }}
+                animate={{ opacity: 1, scale: 1 }}
+                transition={{ delay: 0.3 }}
+            />
+            
+            {/* Screen glow */}
+            <motion.rect
+                x="40" y="38" width="120" height="35" rx="3"
+                fill="hsl(217.2 91.2% 59.8% / 0.1)"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: [0.3, 0.6, 0.3] }}
+                transition={{ duration: 2, repeat: Infinity, delay: 0.5 }}
+            />
+            
+            {/* Data lines */}
+            <motion.rect
+                x="48" y="44" width="50" height="4" rx="2"
+                fill="hsl(217.2 91.2% 59.8% / 0.6)"
+                initial={{ width: 0 }}
+                animate={{ width: 50 }}
+                transition={{ delay: 0.6, duration: 0.4 }}
+            />
+            <motion.rect
+                x="48" y="52" width="70" height="4" rx="2"
+                fill="hsl(217.2 91.2% 59.8% / 0.4)"
+                initial={{ width: 0 }}
+                animate={{ width: 70 }}
+                transition={{ delay: 0.8, duration: 0.4 }}
+            />
+            <motion.rect
+                x="48" y="60" width="40" height="4" rx="2"
+                fill="hsl(217.2 91.2% 59.8% / 0.5)"
+                initial={{ width: 0 }}
+                animate={{ width: 40 }}
+                transition={{ delay: 1, duration: 0.4 }}
+            />
+            
+            {/* Lock icon */}
+            <motion.g
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 1.2 }}
+            >
+                <circle cx="140" cy="55" r="12" fill="hsl(217.2 91.2% 59.8% / 0.2)" />
+                <path 
+                    d="M136 54 L136 51 A4 4 0 0 1 144 51 L144 54" 
+                    stroke="hsl(217.2 91.2% 59.8%)" 
+                    strokeWidth="2" 
+                    fill="none"
+                />
+                <rect x="134" y="54" width="12" height="8" rx="2" fill="hsl(217.2 91.2% 59.8%)" />
+            </motion.g>
+            
+            {/* Keyboard base */}
+            <rect x="35" y="82" width="130" height="8" rx="2" fill="hsl(var(--muted-foreground) / 0.2)" />
+        </svg>
+    )
+}
+
+function CloudStorageSvg() {
+    return (
+        <svg viewBox="0 0 200 100" className="w-full h-[80px]" role="img" aria-label="Cloud storage illustration">
+            <title>Almacenamiento en la nube</title>
+            {/* Main cloud */}
+            <motion.path
+                d="M50 65 C30 65 20 50 35 40 C35 20 70 15 85 35 C100 25 130 30 130 50 C150 50 155 75 130 75 L50 75 C35 75 30 65 50 65"
+                fill="hsl(263.4 70% 50.4% / 0.15)"
+                stroke="hsl(263.4 70% 50.4% / 0.4)"
+                strokeWidth="2"
+                initial={{ pathLength: 0, opacity: 0 }}
+                animate={{ pathLength: 1, opacity: 1 }}
+                transition={{ delay: 0.3, duration: 1 }}
+            />
+            
+            {/* Data dots animating up */}
+            <motion.circle
+                cx="70" cy="85"
+                r="4"
+                fill="hsl(263.4 70% 50.4%)"
+                initial={{ y: 0, opacity: 1 }}
+                animate={{ y: -50, opacity: 0 }}
+                transition={{ duration: 1.5, repeat: Infinity, delay: 0.5 }}
+            />
+            <motion.circle
+                cx="90" cy="85"
+                r="4"
+                fill="hsl(263.4 70% 50.4%)"
+                initial={{ y: 0, opacity: 1 }}
+                animate={{ y: -50, opacity: 0 }}
+                transition={{ duration: 1.5, repeat: Infinity, delay: 0.8 }}
+            />
+            <motion.circle
+                cx="110" cy="85"
+                r="4"
+                fill="hsl(263.4 70% 50.4%)"
+                initial={{ y: 0, opacity: 1 }}
+                animate={{ y: -50, opacity: 0 }}
+                transition={{ duration: 1.5, repeat: Infinity, delay: 1.1 }}
+            />
+            
+            {/* Sync arrows */}
+            <motion.g
+                initial={{ opacity: 0, scale: 0.5 }}
+                animate={{ opacity: 1, scale: 1 }}
+                transition={{ delay: 0.8 }}
+            >
+                <motion.path
+                    d="M155 45 L165 55 L155 65"
+                    stroke="hsl(263.4 70% 50.4%)"
+                    strokeWidth="2.5"
+                    fill="none"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    animate={{ x: [0, 3, 0] }}
+                    transition={{ duration: 1, repeat: Infinity }}
+                />
+                <motion.path
+                    d="M175 45 L165 55 L175 65"
+                    stroke="hsl(263.4 70% 50.4% / 0.5)"
+                    strokeWidth="2.5"
+                    fill="none"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    animate={{ x: [0, -3, 0] }}
+                    transition={{ duration: 1, repeat: Infinity }}
+                />
+            </motion.g>
+            
+            {/* Connection lines */}
+            <motion.line
+                x1="90" y1="75" x2="90" y2="95"
+                stroke="hsl(var(--border))"
+                strokeWidth="1.5"
+                strokeDasharray="4 2"
+                initial={{ pathLength: 0 }}
+                animate={{ pathLength: 1 }}
+                transition={{ delay: 1.2, duration: 0.5 }}
+            />
+        </svg>
     )
 }
 

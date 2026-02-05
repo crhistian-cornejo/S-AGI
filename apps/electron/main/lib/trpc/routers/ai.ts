@@ -449,6 +449,34 @@ WORKFLOW GUIDELINES
 7. **Navigate After Creation**: Use navigate_to_tab to show users their created content
 
 ================================================================================
+⚠️ REGLA CRÍTICA: ACTÚA PRIMERO, NUNCA PIDAS PERMISO ⚠️
+================================================================================
+
+ESTÁ ABSOLUTAMENTE PROHIBIDO:
+- "¿Quieres que busque...?" ❌ PROHIBIDO
+- "Necesito confirmar..." ❌ PROHIBIDO
+- "¿Te gustaría que...?" ❌ PROHIBIDO
+- "Puedo hacer X, pero primero dime..." ❌ PROHIBIDO
+- "¿Prefieres que...?" ❌ PROHIBIDO
+- Cualquier pregunta antes de actuar ❌ PROHIBIDO
+
+COMPORTAMIENTO OBLIGATORIO:
+- Si el usuario dice "busca" → USA WEB SEARCH INMEDIATAMENTE
+- Si el usuario pregunta algo → BUSCA/ACTÚA para encontrar la respuesta
+- Si algo es ambiguo → Elige la interpretación más común y ACTÚA
+- Si el usuario dice "sí" → DEBERÍAS ESTAR ACTUANDO, NO PREGUNTANDO MÁS
+
+NUNCA hagas esto:
+- Decir que vas a buscar y luego pedir confirmación
+- Preguntar si el usuario quiere que hagas lo que CLARAMENTE te pidió
+- Responder con preguntas cuando puedes responder con acciones
+
+SIEMPRE haz esto:
+- Recibir petición → EJECUTAR herramientas → Presentar resultados
+- Buscar ANTES de que el usuario tenga que preguntar "¿encontraste?"
+- Actuar con la interpretación más probable si hay ambigüedad
+
+================================================================================
 RESPONSE STYLE
 ================================================================================
 
@@ -542,6 +570,7 @@ function extractWebSearchDetails(wsEvent: any): {
   query?: string;
   domains?: string[];
   url?: string;
+  sources?: Array<{ url: string; title?: string }>;
 } {
   const actionValue = wsEvent?.action;
   const actionObj =
@@ -570,7 +599,8 @@ function extractWebSearchDetails(wsEvent: any): {
         ? wsEvent.query
         : queries?.[0];
 
-  const domains = Array.isArray(actionObj.domains)
+  // Try to extract domains from various possible structures
+  let domains = Array.isArray(actionObj.domains)
     ? actionObj.domains
     : Array.isArray(wsEvent?.domains)
       ? wsEvent.domains
@@ -583,11 +613,56 @@ function extractWebSearchDetails(wsEvent: any): {
         ? wsEvent.url
         : undefined;
 
+  // Extract sources from results array (OpenAI structure)
+  let sources: Array<{ url: string; title?: string }> | undefined;
+  const results = wsEvent?.results || actionObj?.results;
+  if (Array.isArray(results)) {
+    sources = results
+      .filter((r: any) => r?.url)
+      .map((r: any) => ({
+        url: r.url,
+        title: r.title || r.name || undefined,
+      }));
+
+    // Also extract domains from results if not already set
+    if (!domains && sources.length > 0) {
+      domains = sources.map((s) => {
+        try {
+          return new URL(s.url).hostname;
+        } catch {
+          return s.url;
+        }
+      });
+    }
+  }
+
+  // Check for output.results structure
+  const outputResults = wsEvent?.output?.results;
+  if (Array.isArray(outputResults) && !sources) {
+    sources = outputResults
+      .filter((r: any) => r?.url)
+      .map((r: any) => ({
+        url: r.url,
+        title: r.title || r.name || undefined,
+      }));
+
+    if (!domains && sources.length > 0) {
+      domains = sources.map((s) => {
+        try {
+          return new URL(s.url).hostname;
+        } catch {
+          return s.url;
+        }
+      });
+    }
+  }
+
   return {
     action: actionType,
     query,
     domains,
     url,
+    sources,
   };
 }
 
@@ -1425,6 +1500,8 @@ export const aiRouter = router({
             filename: z.string(),
           })
           .optional(),
+        /** User's timezone (e.g., 'America/Lima', 'America/New_York') for accurate date/time in responses */
+        timezone: z.string().optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -1865,12 +1942,29 @@ export const aiRouter = router({
 
           // Select system prompt based on mode
           // Add current date/time context for accurate temporal awareness
+          // Use user's timezone if provided, fallback to America/Lima
+          const userTimezone = input.timezone || "America/Lima";
           const now = new Date();
+
+          // Get timezone display name (e.g., "Lima, Peru" from "America/Lima")
+          let timezoneDisplay = userTimezone;
+          try {
+            // Extract city name from IANA timezone
+            const parts = userTimezone.split("/");
+            timezoneDisplay = parts[parts.length - 1].replace(/_/g, " ");
+          } catch {
+            // Keep full timezone if parsing fails
+          }
+
           const dateContext = `\n\n================================================================================
-CURRENT DATE & TIME
+CURRENT DATE & TIME (USER'S LOCAL TIME)
 ================================================================================
-Today: ${now.toLocaleDateString("es-ES", { weekday: "long", year: "numeric", month: "long", day: "numeric", timeZone: "America/Lima" })}
-Time: ${now.toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit", timeZone: "America/Lima" })} (Lima, Peru)
+Today: ${now.toLocaleDateString("es-ES", { weekday: "long", year: "numeric", month: "long", day: "numeric", timeZone: userTimezone })}
+Time: ${now.toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit", timeZone: userTimezone })} (${timezoneDisplay})
+Timezone: ${userTimezone}
+================================================================================
+IMPORTANT: When searching for current events, sports, news, or time-sensitive information,
+use TODAY'S DATE shown above. The user is in ${timezoneDisplay} timezone.
 ================================================================================\n`;
 
           let systemPrompt =
@@ -1972,9 +2066,18 @@ Time: ${now.toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit", ti
 
           const shouldUseWebSearch = (
             prompt: string,
-          ): { enabled: boolean; contextSize: "low" | "medium" | "high" } => {
+          ): { enabled: boolean; forceWebSearch: boolean; contextSize: "low" | "medium" | "high" } => {
+            // Patterns that FORCE web search (model must search, no questions)
+            const forceSearchPatterns = [
+              /^busca\b/i, // "busca" at start of message - direct command
+              /\bbusca\s+(cuando|donde|que|quien|como|cuanto|sobre|acerca|informacion)/i, // "busca cuando/donde/etc"
+              /\bbuscar\s+en\s+(internet|la\s+web|google)/i, // "buscar en internet/web"
+              /\bsearch\s+(for|the\s+web|online|google)/i, // "search for/the web/online"
+              /\b(google|googlea)\b/i, // Direct google command
+            ];
+
             const explicitWebPatterns = [
-              /\b(internet|web|online|google|buscar\s+en\s+la\s+web|busca\s+en\s+la\s+web|search\s+the\s+web)\b/i,
+              /\b(internet|web|online|buscar\s+en\s+la\s+web|busca\s+en\s+la\s+web|search\s+the\s+web)\b/i,
               /\b(source|sources|fuente|fuentes|cita|citation)\b/i,
               /\bsite:/i,
             ];
@@ -1983,7 +2086,17 @@ Time: ${now.toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit", ti
               /\b(hoy|ayer|esta\s+semana|este\s+mes|este\s+ano|actual|actualidad|reciente|ultimas|ultimos|latest|news|noticias)\b/i,
               /\b(precio|cotizacion|stock|acciones|tipo\s+de\s+cambio|usd|dolar|eur|crypto|bitcoin)\b/i,
               /\b(clima|weather|pronostico)\b/i,
-              /\b(resultados|score|marcador|partido|eleccion|elecciones)\b/i,
+              /\b(resultados|score|marcador|partido|partidos|eleccion|elecciones)\b/i,
+              // Sports and events scheduling (typo-tolerant: prox.* matches proximos/proxmiso, part.* matches partidos/prtidos)
+              /\b(cuando\s+juega|cuando\s+juegan|prox\w*\s+part\w*|fixture|fixtures)\b/i,
+              /\b(vs|versus|contra)\b/i,
+              /\b(liga|copa|champions|libertadores|mundial|torneo|campeonato)\b/i,
+              /\b(futbol|soccer|basketball|tennis|nba|nfl|mlb)\b/i,
+              // Peruvian/Latin American football teams that need live data
+              /\b(alianza\s*lima|universitario|sporting\s*cristal|cienciano|melgar|cesar\s*vallejo|binacional|mannucci|cantolao|sport\s*huancayo|san\s*martin|ayacucho|cusco|boys|municipal|carlos\s*stein|sport\s*boys|utc)\b/i,
+              // Questions about "when" something happens or will happen
+              /\bcuales?\s+(son|es|sera|seran)\s+.*\b(prox|part|juego|fecha)/i,
+              /\bcuando\s+(es|sera|son|seran|juega|juegan)/i,
             ];
 
             const researchPatterns = [
@@ -1991,6 +2104,10 @@ Time: ${now.toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit", ti
             ];
 
             const hasUrl = /(https?:\/\/|www\.)/i.test(prompt);
+            // Force search when user gives direct command
+            const forceSearch = forceSearchPatterns.some((pattern) =>
+              pattern.test(prompt),
+            );
             const wantsWeb = explicitWebPatterns.some((pattern) =>
               pattern.test(prompt),
             );
@@ -2001,21 +2118,25 @@ Time: ${now.toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit", ti
               pattern.test(prompt),
             );
 
-            const enabled = hasUrl || wantsWeb || wantsRecency || wantsResearch;
+            const enabled = hasUrl || forceSearch || wantsWeb || wantsRecency || wantsResearch;
+            // Force web search when user explicitly commands it
+            const forceWebSearch = forceSearch || wantsRecency;
             const contextSize: "low" | "medium" | "high" =
               wantsResearch || prompt.length > 220 ? "medium" : "low";
 
             log.info("[AI] Web search heuristic analysis:", {
               prompt: prompt.substring(0, 100),
               enabled,
+              forceWebSearch,
               contextSize,
               hasUrl,
+              forceSearch,
               wantsWeb,
               wantsRecency,
               wantsResearch,
             });
 
-            return { enabled, contextSize };
+            return { enabled, forceWebSearch, contextSize };
           };
 
           // Automatically enable file search if chat has a vector store (Knowledge Base)
@@ -2263,27 +2384,26 @@ CITATION REQUIREMENTS (MANDATORY):
           }
 
           const webSearchDecision = shouldForceFileSearch
-            ? { enabled: false, contextSize: "low" as const }
+            ? { enabled: false, forceWebSearch: false, contextSize: "low" as const }
             : shouldUseWebSearch(input.prompt);
 
-          if (webSearchDecision.enabled) {
-            nativeToolsConfig = {
-              ...nativeToolsConfig,
-              webSearch: {
-                ...(typeof nativeToolsConfig?.webSearch === "object"
-                  ? nativeToolsConfig.webSearch
-                  : {}),
-                searchContextSize: webSearchDecision.contextSize,
-              },
-            };
-          } else if (nativeToolsConfig?.webSearch !== false) {
-            nativeToolsConfig = {
-              ...nativeToolsConfig,
-              webSearch: false,
-            };
-          }
+          // Track if we should force web search tool usage (when user explicitly commands it)
+          let shouldForceWebSearch = webSearchDecision.forceWebSearch && !shouldForceFileSearch;
 
-          log.info(`[AI] Web search decision:`, webSearchDecision);
+          // ALWAYS include web_search as available tool - model should decide when to use it
+          // The heuristics only determine if we FORCE the model to use it (tool_choice)
+          // This prevents the model from using spreadsheet/chart tools for web queries
+          nativeToolsConfig = {
+            ...nativeToolsConfig,
+            webSearch: {
+              ...(typeof nativeToolsConfig?.webSearch === "object"
+                ? nativeToolsConfig.webSearch
+                : {}),
+              searchContextSize: webSearchDecision.contextSize || "medium",
+            },
+          };
+
+          log.info(`[AI] Web search decision:`, { ...webSearchDecision, shouldForceWebSearch });
           log.info(
             `[AI] Building native tools with config:`,
             JSON.stringify(nativeToolsConfig, null, 2),
@@ -2415,11 +2535,14 @@ CITATION REQUIREMENTS (MANDATORY):
               : null;
 
           // Determine reasoning config (ResponseMode override para GPT-5.2)
+          // For GPT-5.2 in auto mode: always show some reasoning (user feedback)
+          // - "instant" now uses "low" effort instead of "none" to always show reasoning
+          // - "thinking" uses "high" effort for complex analysis
           const reasoningConfig: ReasoningConfig | undefined =
             provider === "zai"
               ? undefined
               : chosenMode === "instant"
-                ? { effort: "none", summary: "auto" }
+                ? { effort: "low", summary: "auto" } // Changed: always generate reasoning
                 : chosenMode === "thinking"
                   ? { effort: "high", summary: "auto" }
                   : modelDef?.supportsReasoning
@@ -2491,11 +2614,23 @@ CITATION REQUIREMENTS (MANDATORY):
                   input.reasoning?.effort === "medium" ||
                   input.reasoning?.effort === "high");
 
+              // Determine tool_choice for Chat Completions API
+              // Force web_search when user explicitly commands it (prevents model from asking questions)
+              let chatToolChoice: any = chatTools.length > 0 ? "auto" : undefined;
+              if (shouldForceWebSearch && !shouldForceFileSearch && currentStepNumber === 1 && chatTools.length > 0) {
+                // For Z.AI and other Chat Completions providers, force web_search by name
+                const hasWebSearchTool = chatTools.some((t: any) => t.type === "web_search" || t.function?.name === "web_search");
+                if (hasWebSearchTool) {
+                  chatToolChoice = { type: "function", function: { name: "web_search" } };
+                  log.info(`[AI] Forcing web_search tool_choice for ${provider}`);
+                }
+              }
+
               const params: any = {
                 model: modelId,
                 messages: chatMessages || [],
                 tools: chatTools.length > 0 ? chatTools : undefined,
-                tool_choice: chatTools.length > 0 ? "auto" : undefined,
+                tool_choice: chatToolChoice,
                 stream: true,
                 // CRITICAL: Force immediate streaming without buffering
                 // This ensures tokens arrive as soon as they're generated
@@ -3003,10 +3138,24 @@ CITATION REQUIREMENTS (MANDATORY):
                 currentStepNumber === 1 && {
                   tool_choice: { type: "file_search" },
                 }),
+              // Force web_search tool when user explicitly commands web search
+              // This prevents the model from asking clarifying questions instead of searching
+              ...(shouldForceWebSearch &&
+                !shouldForceFileSearch &&
+                currentStepNumber === 1 && {
+                  tool_choice: { type: provider === "chatgpt-plus" ? "web_search" : "web_search_preview" },
+                }),
             };
 
+            // Determine which tool_choice will be used for logging
+            const effectiveToolChoice = shouldForceFileSearch && currentStepNumber === 1
+              ? "file_search"
+              : shouldForceWebSearch && currentStepNumber === 1
+                ? (provider === "chatgpt-plus" ? "web_search" : "web_search_preview")
+                : "auto";
+
             log.info(
-              `[AI] Stream params: maxOutputTokens=${maxOutputTokens}, truncation=${truncation}, flex=${!!optimization.useFlex}, prompt_cache_key=${promptCacheKey}, prompt_cache_retention=${promptCacheRetention || "default"}, tool_choice=${shouldForceFileSearch && currentStepNumber === 1 ? "file_search" : "auto"}, tools=${toolsForRequest.map((t: any) => t.type).join(", ")}`,
+              `[AI] Stream params: maxOutputTokens=${maxOutputTokens}, truncation=${truncation}, flex=${!!optimization.useFlex}, prompt_cache_key=${promptCacheKey}, prompt_cache_retention=${promptCacheRetention || "default"}, tool_choice=${effectiveToolChoice}, tools=${toolsForRequest.map((t: any) => t.type).join(", ")}`,
             );
 
             const requestTimeoutMs =
@@ -3195,8 +3344,21 @@ CITATION REQUIREMENTS (MANDATORY):
                   `[AI] Web search completed:`,
                   JSON.stringify(wsEvent, null, 2),
                 );
-                const { action, query, domains, url } =
+                const { action, query, domains, url, sources } =
                   extractWebSearchDetails(wsEvent);
+
+                // Debug: Log exactly what we're emitting
+                log.info(`[AI] web-search-done emit:`, {
+                  searchId: event.item_id,
+                  action,
+                  query,
+                  domainsCount: domains?.length || 0,
+                  domains,
+                  url,
+                  sourcesCount: sources?.length || 0,
+                  sources: sources?.slice(0, 3),
+                });
+
                 emit({
                   type: "web-search-done",
                   searchId: event.item_id,
@@ -3204,6 +3366,7 @@ CITATION REQUIREMENTS (MANDATORY):
                   query,
                   domains,
                   url,
+                  sources, // Include sources with titles
                 });
               })
               .on(
@@ -3308,6 +3471,7 @@ CITATION REQUIREMENTS (MANDATORY):
 
             // Check finalResponse.output for annotations (fallback if not received via streaming)
             // The annotations may be in the final response output items
+            log.info(`[AI] Processing finalResponse.output for annotations, isArray: ${Array.isArray(finalResponse.output)}, length: ${(finalResponse.output as any[])?.length || 0}`);
             if (finalResponse.output && Array.isArray(finalResponse.output)) {
               const allFinalAnnotations: any[] = [];
 

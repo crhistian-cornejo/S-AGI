@@ -1,6 +1,7 @@
 "use client"
 
 import * as DialogPrimitive from "@radix-ui/react-dialog"
+import { VisuallyHidden } from "@radix-ui/react-visually-hidden"
 import { IconX } from "@tabler/icons-react"
 import * as React from "react"
 
@@ -37,10 +38,11 @@ const DialogContent = React.forwardRef<
     React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content> & {
         showCloseButton?: boolean
         onOverlayClick?: () => void
+        ariaLabel?: string
     }
 >(
     (
-        { className, children, showCloseButton = true, onOverlayClick, ...props },
+        { className, children, showCloseButton = true, onOverlayClick, ariaLabel = "Dialog", ...props },
         ref,
     ) => (
         <DialogPortal>
@@ -60,6 +62,9 @@ const DialogContent = React.forwardRef<
                 )}
                 {...props}
             >
+                <VisuallyHidden asChild>
+                    <DialogPrimitive.Title>{ariaLabel}</DialogPrimitive.Title>
+                </VisuallyHidden>
                 {children}
                 {showCloseButton && (
                     <DialogPrimitive.Close className="absolute right-4 top-4 rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none disabled:pointer-events-none data-[state=open]:bg-accent data-[state=open]:text-muted-foreground">

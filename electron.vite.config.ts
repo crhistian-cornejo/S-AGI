@@ -1,7 +1,7 @@
 import { resolve } from 'path'
 import { defineConfig, externalizeDepsPlugin } from 'electron-vite'
 import react from '@vitejs/plugin-react'
-import { copyFileSync, existsSync, mkdirSync } from 'fs'
+import { copyFileSync, cpSync, existsSync, mkdirSync } from 'fs'
 
 const __dirname = import.meta.dirname
 const isDev = process.env.NODE_ENV !== 'production'
@@ -64,6 +64,30 @@ function copyTrayIcons() {
     }
 }
 
+// Plugin to copy session-server public folder to output directory
+function copySessionServerPublic() {
+    const copyPublic = () => {
+        const srcDir = resolve(__dirname, 'apps/electron/main/lib/session-server/public')
+        const outDir = resolve(__dirname, 'out/main/lib/session-server/public')
+
+        if (existsSync(srcDir)) {
+            mkdirSync(resolve(__dirname, 'out/main/lib/session-server'), { recursive: true })
+            cpSync(srcDir, outDir, { recursive: true })
+            console.log('Copied session-server public folder to out/main/lib/session-server/')
+        }
+    }
+
+    return {
+        name: 'copy-session-server-public',
+        buildStart() {
+            copyPublic()
+        },
+        closeBundle() {
+            copyPublic()
+        }
+    }
+}
+
 export default defineConfig({
     main: {
         envPrefix: ['MAIN_VITE_', 'VITE_'],
@@ -85,7 +109,8 @@ export default defineConfig({
                     'remark-breaks'
                 ]
             }),
-            copyTrayIcons()
+            copyTrayIcons(),
+            copySessionServerPublic()
         ],
         resolve: {
             alias: {
@@ -154,7 +179,7 @@ export default defineConfig({
         },
         plugins: [
             react({
-                // In dev mode, use WDYR as JSX import source to track ALL component re-renders
+                // WDYR: Track React re-renders in dev mode (set WDYR_ENABLED=true in wdyr.ts)
                 // See apps/electron/renderer/DEBUG-WDYR.md for usage
                 jsxImportSource: isDev ? '@welldone-software/why-did-you-render' : undefined,
             }),

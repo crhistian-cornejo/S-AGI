@@ -331,7 +331,7 @@ function PageItem({
               )}
             </div>
           </TooltipTrigger>
-          <TooltipContent side="right">
+          <TooltipContent side="top">
             {page.pinned ? "Unpin" : "Pin"}
           </TooltipContent>
         </Tooltip>

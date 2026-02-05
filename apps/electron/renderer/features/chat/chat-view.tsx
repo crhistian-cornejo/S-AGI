@@ -67,6 +67,7 @@ import { useStreamingStatusStore } from "./stores/streaming-status-store";
 import { useSendCallbackStore } from "./stores/send-callback-store";
 import { generateQueueId, createQueueItem } from "./lib/queue-utils";
 import { useOpenSettingsPage } from "@/features/settings/use-open-settings-page";
+import { ShareSessionButton } from "@/features/chat/share-session-dialog";
 
 export function ChatView() {
   // Sound effects preference
@@ -617,6 +618,16 @@ export function ChatView() {
       let collectedDocumentCitations: DocumentCitation[] = [];
       // Collect suggestions to persist them with the message
       let collectedSuggestions: string[] = [];
+      // Collect web searches to persist them with the message
+      let collectedWebSearches: Array<{
+        searchId: string;
+        query?: string;
+        status: 'searching' | 'done';
+        action?: 'search' | 'open_page' | 'find_in_page';
+        domains?: string[];
+        url?: string;
+        sources?: Array<{ url: string; title?: string }>;
+      }> = [];
 
       try {
         const streamStartedAt = Date.now();
@@ -635,6 +646,7 @@ export function ChatView() {
 
               case "reasoning-summary-delta": {
                 fullReasoning += event.delta;
+                console.log("[ChatView] Reasoning delta received, total length:", fullReasoning.length);
                 setStreamingReasoning((prev) => prev + event.delta);
                 setIsReasoning(true);
                 break;
@@ -647,6 +659,12 @@ export function ChatView() {
 
               case "web-search-start": {
                 console.log("[ChatView] Web search start:", event);
+                // Deduplicate by searchId - don't add if already exists
+                const alreadyExists = collectedWebSearches.some(ws => ws.searchId === event.searchId);
+                if (alreadyExists) {
+                  console.log("[ChatView] Web search already exists, skipping:", event.searchId);
+                  break;
+                }
                 actionCounts.webSearch += 1;
                 const newSearch: WebSearchInfo = {
                   searchId: event.searchId,
@@ -655,8 +673,17 @@ export function ChatView() {
                   action: event.action,
                   domains: event.domains,
                   url: event.url,
+                  sources: event.sources,
                 };
-                setStreamingWebSearches((prev) => [...prev, newSearch]);
+                setStreamingWebSearches((prev) => {
+                  // Also deduplicate in state
+                  if (prev.some(ws => ws.searchId === event.searchId)) {
+                    return prev;
+                  }
+                  return [...prev, newSearch];
+                });
+                // Also collect for persistence
+                collectedWebSearches.push(newSearch);
                 break;
               }
 
@@ -691,10 +718,40 @@ export function ChatView() {
                           query: event.query || ws.query,
                           domains: event.domains ?? ws.domains,
                           url: event.url ?? ws.url,
+                          sources: event.sources ?? ws.sources,
                         }
                       : ws
                   )
                 );
+
+                // Also update collected web searches for persistence
+                const existingIdx = collectedWebSearches.findIndex(ws => ws.searchId === event.searchId);
+                if (existingIdx >= 0) {
+                  collectedWebSearches[existingIdx] = {
+                    ...collectedWebSearches[existingIdx],
+                    status: "done",
+                    action: event.action ?? collectedWebSearches[existingIdx].action,
+                    query: event.query || collectedWebSearches[existingIdx].query,
+                    domains: event.domains ?? collectedWebSearches[existingIdx].domains,
+                    url: event.url ?? collectedWebSearches[existingIdx].url,
+                    sources: event.sources ?? collectedWebSearches[existingIdx].sources,
+                  };
+                }
+
+                // If we got sources with titles, also emit them as annotations for display
+                if (event.sources && event.sources.length > 0) {
+                  console.log("[ChatView] Converting sources to annotations:", event.sources);
+                  const sourcesAsAnnotations = event.sources.map((s: any, idx: number) => ({
+                    type: "url_citation" as const,
+                    url: s.url,
+                    title: s.title,
+                    startIndex: idx,
+                    endIndex: idx + 1,
+                  }));
+                  setStreamingAnnotations((prev) => [...prev, ...sourcesAsAnnotations]);
+                  // Also collect annotations for persistence
+                  collectedAnnotations = [...collectedAnnotations, ...sourcesAsAnnotations];
+                }
                 break;
               }
 
@@ -999,6 +1056,8 @@ export function ChatView() {
               }
 
               case "finish": {
+                console.log("[ChatView] FINISH event - fullReasoning length:", fullReasoning?.length || 0);
+                console.log("[ChatView] FINISH event - fullReasoning preview:", fullReasoning?.substring(0, 100) || "(empty)");
                 const durationMs = Date.now() - streamStartedAt;
                 const rawUsage = event.usage;
                 const usage = {
@@ -1085,6 +1144,7 @@ export function ChatView() {
                     "[ChatView] Saving message with tool calls:",
                     JSON.stringify(toolCallsArray, null, 2)
                   );
+                  console.log("[ChatView] Saving message with reasoning:", fullReasoning?.length || 0, "chars");
 
                   await addMessage.mutateAsync({
                     chatId: chatIdForStream,
@@ -1107,6 +1167,11 @@ export function ChatView() {
                       documentCitations:
                         collectedDocumentCitations.length > 0
                           ? collectedDocumentCitations
+                          : undefined,
+                      // Persist web searches for display in reasoning
+                      webSearches:
+                        collectedWebSearches.length > 0
+                          ? collectedWebSearches
                           : undefined,
                       // Persist suggestions for later retrieval
                       suggestions:
@@ -1137,8 +1202,12 @@ export function ChatView() {
                 smoothStream.stopStream();
                 setStreamingToolCalls([]);
                 // Save reasoning from local variable before clearing
+                console.log("[ChatView] About to set lastReasoning:", fullReasoning?.length || 0, "chars");
                 if (fullReasoning) {
                   setLastReasoning(fullReasoning);
+                  console.log("[ChatView] lastReasoning SET successfully");
+                } else {
+                  console.log("[ChatView] WARNING: fullReasoning is empty, not setting lastReasoning");
                 }
                 setStreamingReasoning("");
                 setIsReasoning(false);
@@ -1192,6 +1261,9 @@ export function ChatView() {
           ? `[Focus on document: "${targetDocumentForSearch.filename}"]\n\n${userMessage}`
           : userMessage;
 
+        // Get user's timezone for accurate date/time context
+        const userTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+
         await chatMutation.mutateAsync({
           chatId: chatIdForStream,
           prompt: promptWithDocContext,
@@ -1222,6 +1294,8 @@ export function ChatView() {
           imageSize,
           // Target document for focused file search
           targetDocument: targetDocumentForSearch || undefined,
+          // User's timezone for accurate date/time in AI responses
+          timezone: userTimezone,
         });
       } catch (error) {
         cleanupListener?.();
@@ -1685,6 +1759,11 @@ export function ChatView() {
       <div className="flex-1 relative overflow-hidden">
         {/* Top Fade Overlay */}
         <div className="absolute top-0 left-0 right-0 h-12 bg-gradient-to-b from-[hsl(var(--chat-background))] via-[hsl(var(--chat-background)/0.8)] to-transparent pointer-events-none z-10" />
+
+        {/* Share Session Button - Top Right Corner */}
+        <div className="absolute top-2 right-4 z-20">
+          <ShareSessionButton />
+        </div>
 
         <ScrollArea className="h-full w-full" ref={scrollContainerRef}>
           <div className="pb-16 w-full overflow-hidden">

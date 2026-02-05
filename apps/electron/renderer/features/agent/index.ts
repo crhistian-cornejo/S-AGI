@@ -39,8 +39,8 @@ export type { BashToolResult, AgentBashProps_Legacy } from './agent-bash'
 export { AgentWebFetch } from './agent-web-fetch'
 export type { WebFetchResult, AgentWebFetchProps_Legacy } from './agent-web-fetch'
 
-export { AgentWebSearch, ConsolidatedWebSearch } from './agent-web-search'
-export type { WebSearchResult, AgentWebSearchProps_Legacy } from './agent-web-search'
+export { AgentWebSearch, ConsolidatedWebSearch, IndividualWebSearchCard } from './agent-web-search'
+export type { WebSearchResult, AgentWebSearchProps_Legacy, WebSearchItem, UrlCitationSource } from './agent-web-search'
 
 export { AgentFileSearch } from './agent-file-search'
 

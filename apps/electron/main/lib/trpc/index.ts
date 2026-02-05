@@ -23,6 +23,7 @@ import { userFilesRouter } from "./routers/user-files";
 import { aiProvidersRouter } from "./routers/ai-providers";
 import { checkpointsRouter } from "./routers/checkpoints";
 import { projectsRouter } from "./routers/projects";
+import { sessionRouter } from "./routers/session";
 
 // Main app router
 export const appRouter = router({
@@ -46,6 +47,7 @@ export const appRouter = router({
   aiProviders: aiProvidersRouter,
   checkpoints: checkpointsRouter,
   projects: projectsRouter,
+  session: sessionRouter,
 });
 
 // Export type for client

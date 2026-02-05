@@ -162,6 +162,7 @@ export interface WebSearchInfo {
   action?: 'search' | 'open_page' | 'find_in_page'
   domains?: string[]
   url?: string
+  sources?: Array<{ url: string; title?: string }>
 }
 
 export interface UrlCitation {

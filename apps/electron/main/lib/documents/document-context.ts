@@ -5,6 +5,7 @@
  * This implements a hybrid RAG strategy:
  * - OpenAI: Uses native file_search with Vector Stores
  * - Other providers: Uses extracted text + local FTS search
+ * - Local mode: Uses local vector search with sqlite-vec
  *
  * Adapted from Midday's approach of passing document context directly to models.
  */
@@ -17,6 +18,11 @@ import {
   type PageContent,
   type BoundingBox,
 } from "./document-processor";
+import { isLocalStorageMode, getStorageAdapter } from "../storage";
+import {
+  getLocalVectorSearch,
+  buildDocumentContextFromResults,
+} from "../vector";
 
 // ============================================================================
 // Configuration
@@ -46,6 +52,8 @@ export interface DocumentContextOptions {
   searchContent?: boolean;
   /** Maximum context length */
   maxLength?: number;
+  /** Whether to prefer local vector search (auto-detected if not specified) */
+  useLocalVectorSearch?: boolean;
 }
 
 export interface CitationWithPosition {
@@ -105,31 +113,64 @@ export async function getDocumentContext(
     userId,
     searchContent = true,
     maxLength = MAX_CONTEXT_LENGTH,
+    useLocalVectorSearch,
   } = options;
 
   try {
-    // Get all documents for this chat
-    const { data: documents, error } = await supabase
-      .from("chat_files")
-      .select(
-        `
-                id,
-                filename,
-                content_type,
-                file_size,
-                extracted_content,
-                pages,
-                metadata,
-                processing_status
-            `,
-      )
-      .eq("chat_id", chatId)
-      .eq("user_id", userId)
-      .eq("processing_status", "completed")
-      .order("created_at", { ascending: false });
+    // Determine if we should use local vector search
+    const shouldUseLocalVector = useLocalVectorSearch ?? isLocalStorageMode();
 
-    if (error) {
-      log.error("[DocumentContext] Failed to fetch documents:", error);
+    // Try local vector search first if in local mode
+    if (shouldUseLocalVector && searchContent && query.trim()) {
+      const localResult = await getLocalVectorContext(chatId, query, userId);
+      if (localResult.hasContext) {
+        log.info(`[DocumentContext] Using local vector search: ${localResult.citations?.length || 0} citations`);
+        return localResult;
+      }
+      log.info("[DocumentContext] Local vector search returned no results, falling back to text search");
+    }
+
+    // Fallback: Get documents from storage (Supabase or local SQLite)
+    let documents: DocumentFile[] = [];
+
+    if (shouldUseLocalVector) {
+      // Local mode: Get from SQLite via storage adapter
+      documents = await getLocalDocuments(chatId, userId);
+    } else {
+      // Cloud mode: Get from Supabase
+      const { data, error } = await supabase
+        .from("chat_files")
+        .select(
+          `
+                  id,
+                  filename,
+                  content_type,
+                  file_size,
+                  extracted_content,
+                  pages,
+                  metadata,
+                  processing_status
+              `,
+        )
+        .eq("chat_id", chatId)
+        .eq("user_id", userId)
+        .eq("processing_status", "completed")
+        .order("created_at", { ascending: false });
+
+      if (error) {
+        log.error("[DocumentContext] Failed to fetch documents:", error);
+        return {
+          hasContext: false,
+          contextText: "",
+          documentNames: [],
+          totalDocuments: 0,
+        };
+      }
+
+      documents = (data || []) as DocumentFile[];
+    }
+
+    if (documents.length === 0) {
       return {
         hasContext: false,
         contextText: "",
@@ -137,25 +178,14 @@ export async function getDocumentContext(
         totalDocuments: 0,
       };
     }
-
-    if (!documents || documents.length === 0) {
-      return {
-        hasContext: false,
-        contextText: "",
-        documentNames: [],
-        totalDocuments: 0,
-      };
-    }
-
-    const docFiles = documents as DocumentFile[];
 
     // If search is enabled, search within documents
     if (searchContent && query.trim()) {
-      return await searchDocumentsForContext(docFiles, query, maxLength);
+      return await searchDocumentsForContext(documents, query, maxLength);
     }
 
     // Otherwise, return document summaries
-    return getDocumentSummaries(docFiles, maxLength);
+    return getDocumentSummaries(documents, maxLength);
   } catch (error) {
     log.error("[DocumentContext] Error getting context:", error);
     return {
@@ -164,6 +194,109 @@ export async function getDocumentContext(
       documentNames: [],
       totalDocuments: 0,
     };
+  }
+}
+
+/**
+ * Get document context using local vector search
+ */
+async function getLocalVectorContext(
+  chatId: string,
+  query: string,
+  _userId: string,
+): Promise<DocumentContext> {
+  try {
+    const vectorSearch = getLocalVectorSearch();
+
+    // Check if chat has vectors
+    if (!vectorSearch.chatHasSearch(chatId)) {
+      return {
+        hasContext: false,
+        contextText: "",
+        documentNames: [],
+        totalDocuments: 0,
+      };
+    }
+
+    // Perform vector search
+    const searchResponse = await vectorSearch.search(chatId, query, {
+      limit: MAX_SEARCH_RESULTS,
+      minScore: 0.3,
+    });
+
+    if (searchResponse.results.length === 0) {
+      return {
+        hasContext: false,
+        contextText: "",
+        documentNames: [],
+        totalDocuments: 0,
+      };
+    }
+
+    // Get unique document names
+    const documentNames = [...new Set(searchResponse.results.map((r) => r.filename))];
+
+    // Convert vector results to citations
+    const citations: CitationWithPosition[] = searchResponse.results.map((r, i) => ({
+      text: r.text,
+      filename: r.filename,
+      pageNumber: r.pageNumber,
+      citation: r.citation,
+      citationId: i + 1,
+      citationMarker: `[[cite:${i + 1}|${r.filename}|${r.pageNumber || ""}|${r.text.replace(/\|/g, "¦").replace(/\]/g, "⟧")}]]`,
+      boundingBox: r.boundingBox,
+      pageWidth: r.pageWidth,
+      pageHeight: r.pageHeight,
+    }));
+
+    // Build context text
+    const contextText = buildDocumentContextFromResults(searchResponse.results, documentNames);
+
+    log.info(
+      `[DocumentContext] Local vector search: ${searchResponse.results.length} results from ${documentNames.length} docs in ${searchResponse.searchTimeMs}ms`
+    );
+
+    return {
+      hasContext: true,
+      contextText,
+      documentNames,
+      citations,
+      totalDocuments: searchResponse.documentsSearched,
+    };
+  } catch (error) {
+    log.error("[DocumentContext] Local vector search failed:", error);
+    return {
+      hasContext: false,
+      contextText: "",
+      documentNames: [],
+      totalDocuments: 0,
+    };
+  }
+}
+
+/**
+ * Get documents from local SQLite storage
+ */
+async function getLocalDocuments(chatId: string, userId: string): Promise<DocumentFile[]> {
+  try {
+    const adapter = await getStorageAdapter();
+    const files = await adapter.chatFiles.list(chatId, userId);
+
+    return files
+      .filter((f) => f.processingStatus === "completed")
+      .map((f) => ({
+        id: f.id,
+        filename: f.filename,
+        content_type: f.contentType || null,
+        file_size: f.fileSize || null,
+        extracted_content: f.extractedContent || null,
+        pages: (f.pages as PageContent[]) || null,
+        metadata: (f.metadata as Record<string, unknown>) || null,
+        processing_status: f.processingStatus || null,
+      }));
+  } catch (error) {
+    log.error("[DocumentContext] Failed to get local documents:", error);
+    return [];
   }
 }
 

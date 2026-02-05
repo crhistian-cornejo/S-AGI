@@ -17,12 +17,15 @@ import {
 import { getCredentialManager } from '../../shared/credentials'
 import {
     writeBinaryFileToLocal,
-    getLocalUserFilesDir,
     ensureLocalUserFilesDir
 } from '../../storage/local-user-files'
 import { getStorageAdapter, isLocalStorageMode, LOCAL_USER_ID } from '../../storage'
 import { randomUUID } from 'crypto'
 import { readFile } from 'fs/promises'
+import {
+    getLocalVectorSearch,
+    deleteEmbeddings as deleteLocalVectorEmbeddings
+} from '../../vector'
 
 // Supported file types for OpenAI file search
 const SUPPORTED_FILE_TYPES = [
@@ -1375,7 +1378,7 @@ export const filesRouter = router({
                         const result = await processDocument(fileData, input.fileName, 'application/pdf')
                         if (result.success && result.pages) {
                             pages = result.pages
-                            pageCount = result.pageCount || pages.length
+                            pageCount = pages.length
                         }
                     } catch (processErr) {
                         log.warn('[FilesRouter] Failed to process PDF:', processErr)
@@ -1396,6 +1399,291 @@ export const filesRouter = router({
             } catch (error) {
                 log.error('[FilesRouter] copyPdfToLocal error:', error)
                 throw new Error(error instanceof Error ? error.message : 'Failed to copy PDF to local folder')
+            }
+        }),
+
+    // ========================================================================
+    // Local Vector Search Endpoints
+    // ========================================================================
+
+    /**
+     * Upload a file for local vector search (no OpenAI Vector Store)
+     * Processes the document, generates embeddings, and stores locally
+     */
+    uploadForChatLocal: protectedProcedure
+        .input(z.object({
+            chatId: z.string().uuid(),
+            fileName: z.string(),
+            fileBase64: z.string()
+        }))
+        .mutation(async ({ ctx, input }) => {
+            try {
+                log.info('[FilesRouter] uploadForChatLocal called:', {
+                    chatId: input.chatId,
+                    fileName: input.fileName,
+                    userId: ctx.userId
+                })
+
+                const buffer = Buffer.from(input.fileBase64, 'base64')
+                const fileSize = buffer.length
+
+                // Generate content hash for deduplication
+                const fileHash = fileSize > 1024 * 1024
+                    ? quickHash(buffer)
+                    : hashBuffer(buffer)
+
+                // Get storage adapter
+                const adapter = await getStorageAdapter()
+
+                // Check for duplicates by hash
+                const existingFiles = await adapter.chatFiles.list(input.chatId, ctx.userId || LOCAL_USER_ID)
+                const existingByHash = existingFiles.find(f => f.fileHash === fileHash)
+
+                if (existingByHash) {
+                    log.info('[FilesRouter] Duplicate file detected by hash, skipping upload:', {
+                        fileName: input.fileName,
+                        existingFileName: existingByHash.filename
+                    })
+                    return {
+                        success: true,
+                        fileId: existingByHash.id,
+                        skipped: true,
+                        reason: 'duplicate_hash'
+                    }
+                }
+
+                // Determine content type
+                const ext = input.fileName.split('.').pop()?.toLowerCase() || ''
+                const mimeTypes: Record<string, string> = {
+                    'pdf': 'application/pdf',
+                    'txt': 'text/plain',
+                    'md': 'text/markdown',
+                    'csv': 'text/csv',
+                    'json': 'application/json',
+                    'html': 'text/html',
+                }
+                const contentType = mimeTypes[ext] || 'application/octet-stream'
+
+                // Write file to local storage
+                const fileId = randomUUID()
+                const storagePath = await writeBinaryFileToLocal({
+                    data: buffer,
+                    id: fileId,
+                    name: input.fileName.replace(/\.[^.]+$/, ''),
+                    type: ext as any
+                })
+
+                // Process document for text extraction
+                let processingStatus: FileProcessingStatus = 'pending'
+                let extractedContent: string | null = null
+                let documentMetadata: DocumentMetadata | Record<string, unknown> = {}
+                let documentPages: PageContent[] | null = null
+
+                if (isProcessableDocument(contentType)) {
+                    try {
+                        processingStatus = 'processing'
+                        log.info('[FilesRouter] Processing document for text extraction...')
+
+                        const processed = await processDocument(buffer, input.fileName, contentType)
+
+                        if (processed.success && processed.content) {
+                            extractedContent = processed.content
+                            documentMetadata = processed.metadata
+                            documentPages = processed.pages || null
+                            processingStatus = 'completed'
+                            log.info('[FilesRouter] Document processed successfully:', {
+                                wordCount: processed.metadata.wordCount,
+                                pageCount: processed.pages?.length || 0
+                            })
+                        } else {
+                            processingStatus = 'failed'
+                            documentMetadata = { error: processed.error }
+                            log.warn('[FilesRouter] Document processing failed:', processed.error)
+                        }
+                    } catch (procError) {
+                        processingStatus = 'failed'
+                        documentMetadata = { error: procError instanceof Error ? procError.message : 'Unknown error' }
+                        log.error('[FilesRouter] Document processing error:', procError)
+                    }
+                } else {
+                    processingStatus = 'completed'
+                }
+
+                // Save to local database
+                const chatFile = await adapter.chatFiles.create({
+                    chatId: input.chatId,
+                    userId: ctx.userId || LOCAL_USER_ID,
+                    filename: input.fileName,
+                    storagePath,
+                    fileSize,
+                    fileHash,
+                    contentType,
+                    processingStatus,
+                    extractedContent: extractedContent || undefined,
+                    metadata: documentMetadata as Record<string, unknown>,
+                    pages: documentPages || undefined
+                })
+
+                // Process local vectors if document was extracted successfully
+                let vectorResult: { success: boolean; chunkCount: number; tokensUsed: number; error?: string } | null = null
+                if (processingStatus === 'completed' && documentPages && documentPages.length > 0) {
+                    try {
+                        log.info('[FilesRouter] Processing local vectors...')
+                        const vectorSearch = getLocalVectorSearch()
+                        vectorResult = await vectorSearch.processDocument(chatFile.id, documentPages)
+                        log.info('[FilesRouter] Local vector processing result:', vectorResult)
+                    } catch (vecError) {
+                        log.error('[FilesRouter] Local vector processing error:', vecError)
+                        vectorResult = {
+                            success: false,
+                            chunkCount: 0,
+                            tokensUsed: 0,
+                            error: vecError instanceof Error ? vecError.message : 'Unknown error'
+                        }
+                    }
+                }
+
+                return {
+                    success: true,
+                    fileId: chatFile.id,
+                    processingStatus,
+                    hasExtractedContent: !!extractedContent,
+                    vectorProcessing: vectorResult
+                }
+            } catch (error) {
+                const errorMessage = error instanceof Error ? error.message : 'Unknown error'
+                log.error('[FilesRouter] uploadForChatLocal error:', error)
+                throw new Error(errorMessage || 'Failed to upload file locally')
+            }
+        }),
+
+    /**
+     * Process local vectors for an existing file
+     * Used to manually trigger vector processing or re-process
+     */
+    processLocalVectors: protectedProcedure
+        .input(z.object({
+            fileId: z.string().uuid(),
+            chatId: z.string().uuid()
+        }))
+        .mutation(async ({ ctx, input }) => {
+            try {
+                log.info('[FilesRouter] processLocalVectors called:', {
+                    fileId: input.fileId,
+                    chatId: input.chatId
+                })
+
+                const adapter = await getStorageAdapter()
+
+                // Get the file
+                const files = await adapter.chatFiles.list(input.chatId, ctx.userId || LOCAL_USER_ID)
+                const file = files.find(f => f.id === input.fileId)
+
+                if (!file) {
+                    throw new Error('File not found')
+                }
+
+                // Get pages from the file
+                const pages = file.pages as PageContent[] | null
+
+                if (!pages || pages.length === 0) {
+                    throw new Error('File has no extracted pages for vector processing')
+                }
+
+                // Process vectors
+                const vectorSearch = getLocalVectorSearch()
+                const result = await vectorSearch.processDocument(input.fileId, pages)
+
+                log.info('[FilesRouter] Local vector processing result:', result)
+
+                return {
+                    success: result.success,
+                    chunkCount: result.chunkCount,
+                    tokensUsed: result.tokensUsed,
+                    processingTimeMs: result.processingTimeMs,
+                    error: result.error
+                }
+            } catch (error) {
+                const errorMessage = error instanceof Error ? error.message : 'Unknown error'
+                log.error('[FilesRouter] processLocalVectors error:', error)
+                throw new Error(errorMessage)
+            }
+        }),
+
+    /**
+     * Delete local vectors for a file
+     */
+    deleteLocalVectors: protectedProcedure
+        .input(z.object({
+            fileId: z.string().uuid()
+        }))
+        .mutation(async ({ input }) => {
+            try {
+                const success = await deleteLocalVectorEmbeddings(input.fileId)
+                return { success }
+            } catch (error) {
+                log.error('[FilesRouter] deleteLocalVectors error:', error)
+                return { success: false }
+            }
+        }),
+
+    /**
+     * Search documents using local vector search
+     */
+    searchLocalVectors: protectedProcedure
+        .input(z.object({
+            chatId: z.string().uuid(),
+            query: z.string().min(1),
+            limit: z.number().min(1).max(20).default(10),
+            minScore: z.number().min(0).max(1).default(0.3)
+        }))
+        .query(async ({ input }) => {
+            try {
+                const vectorSearch = getLocalVectorSearch()
+                const response = await vectorSearch.search(input.chatId, input.query, {
+                    limit: input.limit,
+                    minScore: input.minScore
+                })
+
+                return {
+                    results: response.results.map(r => ({
+                        text: r.text,
+                        filename: r.filename,
+                        pageNumber: r.pageNumber,
+                        score: r.score,
+                        citation: r.citation
+                    })),
+                    documentsSearched: response.documentsSearched,
+                    chunksSearched: response.chunksSearched,
+                    searchTimeMs: response.searchTimeMs
+                }
+            } catch (error) {
+                log.error('[FilesRouter] searchLocalVectors error:', error)
+                return {
+                    results: [],
+                    documentsSearched: 0,
+                    chunksSearched: 0,
+                    searchTimeMs: 0,
+                    error: error instanceof Error ? error.message : 'Unknown error'
+                }
+            }
+        }),
+
+    /**
+     * Check if a chat has local vector search available
+     */
+    hasLocalVectors: protectedProcedure
+        .input(z.object({
+            chatId: z.string().uuid()
+        }))
+        .query(async ({ input }) => {
+            try {
+                const vectorSearch = getLocalVectorSearch()
+                return {
+                    hasVectors: vectorSearch.chatHasSearch(input.chatId)
+                }
+            } catch {
+                return { hasVectors: false }
             }
         }),
 

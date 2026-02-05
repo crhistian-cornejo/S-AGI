@@ -18,7 +18,7 @@ import { electronApp, optimizer, is } from "@electron-toolkit/utils";
 import { createIPCHandler } from "trpc-electron/main";
 import { appRouter } from "./lib/trpc";
 import { createContext } from "./lib/trpc/trpc";
-import { supabase } from "./lib/supabase/client";
+import { supabase, initializeAuth } from "./lib/supabase/client";
 import { setMainWindow } from "./lib/window-manager";
 import { initializeStorage, closeStorage } from "./lib/storage";
 import { getHotkeyManager, getHotkeyStore } from "./lib/hotkeys";
@@ -1593,6 +1593,14 @@ app.whenReady().then(async () => {
         }\n\nThe app may not function correctly.`
       );
     }
+  }
+
+  // Initialize auth and restore session from encrypted storage
+  try {
+    await initializeAuth();
+    log.info("[App] Auth system initialized");
+  } catch (error) {
+    log.error("[App] Failed to initialize auth:", error);
   }
 
   // Set app icon for macOS dock in development

@@ -52,6 +52,7 @@ import {
 import { excelSidebarOpenAtom, docSidebarOpenAtom } from "@/lib/atoms";
 import { Sidebar } from "@/features/sidebar/sidebar";
 import { ChatView } from "@/features/chat/chat-view";
+import { ShareSessionButton } from "@/features/chat/share-session-dialog";
 import { GalleryView } from "@/features/gallery/gallery-view";
 import { SettingsPage } from "@/features/settings/settings-page";
 import { useOpenSettingsPage } from "@/features/settings/use-open-settings-page";
@@ -932,6 +933,9 @@ export function MainLayout() {
                           </kbd>
                         </TooltipContent>
                       </Tooltip>
+
+                      {/* Share Session Button */}
+                      <ShareSessionButton />
                     </div>
                   )}
                 </>

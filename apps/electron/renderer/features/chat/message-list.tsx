@@ -44,7 +44,6 @@ import {
   AgentToolCallsGroup,
   AgentWebFetch,
   AgentWebSearch,
-  ConsolidatedWebSearch,
   AgentFileSearch,
   AgentTodoTool,
   AgentExitPlanModeTool,
@@ -483,6 +482,16 @@ interface Message {
     >;
     /** Document citations from local RAG (non-OpenAI providers) */
     documentCitations?: DocumentCitation[];
+    /** Web searches performed during the response */
+    webSearches?: Array<{
+      searchId: string;
+      query?: string;
+      status: "searching" | "done";
+      action?: "search" | "open_page" | "find_in_page";
+      domains?: string[];
+      url?: string;
+      sources?: Array<{ url: string; title?: string }>;
+    }>;
   };
   attachments?: Array<{
     id: string;
@@ -510,6 +519,7 @@ interface StreamingWebSearch {
   action?: "search" | "open_page" | "find_in_page";
   domains?: string[];
   url?: string;
+  sources?: Array<{ url: string; title?: string }>;
 }
 
 interface StreamingFileSearch {
@@ -624,13 +634,23 @@ export const MessageList = memo(function MessageList({
           <MessageItem
             message={message}
             onViewArtifact={onViewArtifact}
-            reasoning={
-              !isLoading &&
-              message.role === "assistant" &&
-              index === messages.length - 1
-                ? lastReasoning || message.metadata?.reasoning
-                : message.metadata?.reasoning
-            }
+            reasoning={(() => {
+              const reasoning = !isLoading &&
+                message.role === "assistant" &&
+                index === messages.length - 1
+                  ? lastReasoning || message.metadata?.reasoning
+                  : message.metadata?.reasoning;
+              // Debug log for last assistant message
+              if (message.role === "assistant" && index === messages.length - 1) {
+                console.log("[MessageList] Last assistant msg reasoning:", {
+                  isLoading,
+                  lastReasoningLen: lastReasoning?.length || 0,
+                  metadataReasoningLen: (message.metadata?.reasoning as string)?.length || 0,
+                  finalReasoningLen: (reasoning as string)?.length || 0,
+                });
+              }
+              return reasoning;
+            })()}
           />
         </div>
       ))}
@@ -907,6 +927,7 @@ const MessageItem = memo(function MessageItem({
             durationMs={message.metadata?.durationMs}
             actions={message.metadata?.actions}
             annotations={message.metadata?.annotations}
+            webSearches={message.metadata?.webSearches}
             modelId={modelId}
             modelName={modelName}
           />

@@ -306,7 +306,14 @@ export interface ChatFile {
   processingStatus: string;
   extractedContent: string | null;
   metadata: Record<string, unknown> | null;
-  pages: number | null;
+  /** Page content array for document context (JSON in DB) */
+  pages: unknown[] | null;
+  /** Local vector search status */
+  localVectorStatus?: string | null;
+  /** Embedding model used for local vectors */
+  localEmbeddingModel?: string | null;
+  /** Number of chunks created for vector search */
+  chunkCount?: number | null;
   createdAt: Date;
 }
 
@@ -320,7 +327,11 @@ export interface CreateChatFileInput {
   contentType?: string;
   openaiFileId?: string;
   openaiVectorStoreFileId?: string;
-  pages?: number;
+  processingStatus?: string;
+  extractedContent?: string;
+  metadata?: Record<string, unknown>;
+  /** Page content array for document context */
+  pages?: unknown[];
 }
 
 // ============ FILE STORAGE TYPES ============

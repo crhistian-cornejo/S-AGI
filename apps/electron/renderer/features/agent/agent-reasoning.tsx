@@ -21,7 +21,7 @@ import {
   ClaudeIcon,
 } from "@/components/icons/model-icons";
 import { AgentToolCallFlat, type ToolCall } from "./agent-tool-call-flat";
-import { IndividualWebSearchCard } from "./agent-web-search";
+import { ConsolidatedWebSearchTimeline } from "./agent-web-search";
 import { CompactMarkdownRenderer } from "@/components/chat-markdown-renderer";
 
 /** Strip markdown bold from title so **text** renders as plain bold text */
@@ -79,6 +79,7 @@ export interface WebSearchData {
   status: "searching" | "done";
   action?: "search" | "open_page" | "find_in_page";
   domains?: string[];
+  sources?: Array<{ url: string; title?: string }>;
 }
 
 /** URL citation from the response */
@@ -434,13 +435,14 @@ export function AgentReasoning({
               </div>
             )}
 
-            {/* Web searches - each rendered individually with query and sources */}
+            {/* Web searches - consolidated into ONE component with all sources */}
             {hasWebSearches && (
-              <div className="space-y-2">
-                {webSearches.map((search) => (
-                  <IndividualWebSearchCard key={search.searchId} search={search} />
-                ))}
-              </div>
+              <ConsolidatedWebSearchTimeline
+                searches={webSearches}
+                annotations={annotations?.filter(
+                  (a): a is UrlCitationData => a.type === "url_citation"
+                ) || []}
+              />
             )}
 
             {/* "Listo" when done - only show when not streaming AND all web searches are done */}

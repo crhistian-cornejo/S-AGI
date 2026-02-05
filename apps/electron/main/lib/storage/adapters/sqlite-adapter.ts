@@ -1121,8 +1121,12 @@ export class SQLiteAdapter implements IStorageAdapter {
       const now = Math.floor(Date.now() / 1000);
 
       db.prepare(`
-        INSERT INTO chat_files (id, chat_id, user_id, filename, storage_path, file_size, file_hash, content_type, openai_file_id, openai_vector_store_file_id, pages, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO chat_files (
+          id, chat_id, user_id, filename, storage_path, file_size, file_hash,
+          content_type, openai_file_id, openai_vector_store_file_id,
+          processing_status, extracted_content, metadata, pages, created_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         id,
         data.chatId,
@@ -1134,7 +1138,10 @@ export class SQLiteAdapter implements IStorageAdapter {
         data.contentType || null,
         data.openaiFileId || null,
         data.openaiVectorStoreFileId || null,
-        data.pages || null,
+        data.processingStatus || "pending",
+        data.extractedContent || null,
+        data.metadata ? JSON.stringify(data.metadata) : null,
+        data.pages ? JSON.stringify(data.pages) : null,
         now
       );
 
@@ -1170,7 +1177,10 @@ export class SQLiteAdapter implements IStorageAdapter {
     processingStatus: row.processing_status || "pending",
     extractedContent: row.extracted_content,
     metadata: parseJson(row.metadata),
-    pages: row.pages,
+    pages: parseJson(row.pages),
+    localVectorStatus: row.local_vector_status,
+    localEmbeddingModel: row.local_embedding_model,
+    chunkCount: row.chunk_count,
     createdAt: toDate(row.created_at) || new Date(),
   });
 

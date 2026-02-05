@@ -396,7 +396,7 @@ function ChatItem({
                 )}
               </button>
             </TooltipTrigger>
-            <TooltipContent side="top" align="end">
+            <TooltipContent side="top" align="center">
               {chat.pinned ? "Unpin" : "Pin"}
             </TooltipContent>
           </Tooltip>
@@ -415,7 +415,7 @@ function ChatItem({
                   <IconArchive size={14} />
                 </button>
               </TooltipTrigger>
-              <TooltipContent side="top" align="end">
+              <TooltipContent side="top" align="center">
                 Archive
               </TooltipContent>
             </Tooltip>

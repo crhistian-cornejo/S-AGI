@@ -384,7 +384,7 @@ export type AIStreamEvent =
     // Native tool events (web search, code interpreter, file search)
     | { type: 'web-search-start'; searchId: string; action?: 'search' | 'open_page' | 'find_in_page'; query?: string; domains?: string[]; url?: string }
     | { type: 'web-search-searching'; searchId: string; action?: 'search' | 'open_page' | 'find_in_page'; query?: string; domains?: string[]; url?: string }
-    | { type: 'web-search-done'; searchId: string; action?: 'search' | 'open_page' | 'find_in_page'; query?: string; domains?: string[]; url?: string }
+    | { type: 'web-search-done'; searchId: string; action?: 'search' | 'open_page' | 'find_in_page'; query?: string; domains?: string[]; url?: string; sources?: Array<{ url: string; title?: string }> }
     | { type: 'annotations'; annotations: Annotation[] }
     | { type: 'code-interpreter-start'; executionId: string }
     | { type: 'code-interpreter-interpreting'; executionId: string }
