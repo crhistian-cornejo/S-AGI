@@ -1,119 +1,27 @@
 /**
  * Message queue store for chat
- * Adapted from 1code's message queue store
+ * Uses the generic createQueueStore factory
  */
 
-import { create } from 'zustand'
-import { subscribeWithSelector } from 'zustand/middleware'
+import { createQueueStore, createEmptyQueueConstant } from '../../../lib/stores/create-queue-store'
 import type { ChatQueueItem } from '../lib/queue-utils'
-import { removeQueueItem } from '../lib/queue-utils'
 
 // Empty array constant to avoid creating new arrays on each call
 // Exported for use in selectors to maintain stable reference
-export const EMPTY_QUEUE: ChatQueueItem[] = []
+export const EMPTY_QUEUE = createEmptyQueueConstant<ChatQueueItem>()
 
-interface MessageQueueState {
-  // Map: chatId -> queue items
-  queues: Record<string, ChatQueueItem[]>
-
-  // Actions
-  addToQueue: (chatId: string, item: ChatQueueItem) => void
-  removeFromQueue: (chatId: string, itemId: string) => void
-  getQueue: (chatId: string) => ChatQueueItem[]
-  getNextItem: (chatId: string) => ChatQueueItem | null
-  clearQueue: (chatId: string) => void
-  // Returns and removes the item from queue (atomic operation)
-  popItem: (chatId: string, itemId: string) => ChatQueueItem | null
-  // Add item to front of queue (for error recovery)
-  prependItem: (chatId: string, item: ChatQueueItem) => void
-
-  // Cleanup methods to prevent unbounded growth
-  cleanup: (chatId: string) => void
-  clearAll: () => void
-}
-
-export const useMessageQueueStore = create<MessageQueueState>()(
-  subscribeWithSelector((set, get) => ({
-    queues: {},
-
-    addToQueue: (chatId, item) => {
-      set((state) => ({
-        queues: {
-          ...state.queues,
-          [chatId]: [...(state.queues[chatId] || []), item],
-        },
-      }))
-    },
-
-    removeFromQueue: (chatId, itemId) => {
-      set((state) => {
-        const currentQueue = state.queues[chatId] || []
-        return {
-          queues: {
-            ...state.queues,
-            [chatId]: removeQueueItem(currentQueue, itemId),
-          },
-        }
-      })
-    },
-
-    getQueue: (chatId) => {
-      return get().queues[chatId] ?? EMPTY_QUEUE
-    },
-
-    getNextItem: (chatId) => {
-      const queue = get().queues[chatId] || []
-      return queue.find((item) => item.status === 'pending') || null
-    },
-
-    clearQueue: (chatId) => {
-      set((state) => ({
-        queues: {
-          ...state.queues,
-          [chatId]: [],
-        },
-      }))
-    },
-
-    // Atomic pop: find and remove in single set() call to prevent race conditions
-    popItem: (chatId, itemId) => {
-      let foundItem: ChatQueueItem | null = null
-      set((state) => {
-        const currentQueue = state.queues[chatId] || []
-        foundItem = currentQueue.find((i) => i.id === itemId) || null
-        if (!foundItem) return state
-        return {
-          queues: {
-            ...state.queues,
-            [chatId]: currentQueue.filter((i) => i.id !== itemId),
-          },
-        }
-      })
-      return foundItem
-    },
-
-    // Add item to front of queue (used for error recovery - requeue failed items)
-    prependItem: (chatId, item) => {
-      set((state) => ({
-        queues: {
-          ...state.queues,
-          [chatId]: [item, ...(state.queues[chatId] || [])],
-        },
-      }))
-    },
-
-    // Remove queue for a deleted chat to prevent memory leak
-    cleanup: (chatId) => {
-      set((state) => {
-        const newQueues = { ...state.queues }
-        delete newQueues[chatId]
-        return { queues: newQueues }
-      })
-    },
-
-    // Clear all queues (useful for logout or full reset)
-    clearAll: () => {
-      set({ queues: {} })
-    },
-  }))
-)
+/**
+ * Chat message queue store
+ *
+ * Manages message queues for chat sessions. Each chat has its own queue
+ * of pending messages that are processed sequentially.
+ *
+ * Features:
+ * - Entity-scoped queues (keyed by chatId)
+ * - Atomic popItem operation to prevent race conditions
+ * - Memory cleanup methods (cleanup, clearAll)
+ * - subscribeWithSelector for reactive patterns
+ */
+export const useMessageQueueStore = createQueueStore<ChatQueueItem>({
+  name: 'chat-message-queue',
+})

@@ -616,7 +616,7 @@ function ProjectFolder({
   return (
     <div ref={setNodeRef} style={style} className="mb-1">
       {/* Project header */}
-      <div className="flex items-center group/project">
+      <div className="flex items-center group/project rounded-md hover:bg-muted/30 transition-colors">
         {/* Drag handle for project */}
         <div
           {...attributes}
@@ -627,7 +627,7 @@ function ProjectFolder({
         </div>
         <button
           type="button"
-          className="flex-1 min-w-0 flex items-center gap-1.5 px-1.5 py-1 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors rounded-md hover:bg-muted/30"
+          className="flex-1 min-w-0 flex items-center gap-1.5 px-1.5 py-1 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors"
           onClick={onToggleCollapse}
           aria-expanded={!project.is_collapsed}
         >
@@ -647,7 +647,7 @@ function ProjectFolder({
           <TooltipTrigger asChild>
             <button
               type="button"
-              className="opacity-0 group-hover/project:opacity-100 p-1 text-muted-foreground/60 hover:text-foreground hover:bg-muted/30 rounded-md transition-all"
+              className="p-1 text-muted-foreground/60 hover:text-foreground hover:bg-accent/50 rounded-md transition-all"
               onClick={(e) => {
                 e.stopPropagation();
                 onCreateChat();
@@ -662,7 +662,7 @@ function ProjectFolder({
           <DropdownMenuTrigger asChild>
             <button
               type="button"
-              className="opacity-0 group-hover/project:opacity-100 p-1 text-muted-foreground/60 hover:text-foreground hover:bg-muted/30 rounded-md transition-all"
+              className="p-1 text-muted-foreground/60 hover:text-foreground hover:bg-accent/50 rounded-md transition-all"
               onClick={(e) => e.stopPropagation()}
             >
               <IconDots size={12} />
@@ -1576,7 +1576,7 @@ export function Sidebar() {
                         >
                           {emoji}
                         </AvatarFallback>
-                      ) : avatarUrl && !activeAccount?.isLocal ? (
+                      ) : avatarUrl ? (
                         <AvatarImage src={avatarUrl} />
                       ) : null}
                       <AvatarFallback className="bg-primary/10">
@@ -1646,7 +1646,7 @@ export function Sidebar() {
                                 >
                                   {emoji}
                                 </AvatarFallback>
-                              ) : account.avatarUrl && !account.isLocal ? (
+                              ) : account.avatarUrl ? (
                                 <AvatarImage src={account.avatarUrl} />
                               ) : null}
                               <AvatarFallback className="text-[10px] bg-primary/10">

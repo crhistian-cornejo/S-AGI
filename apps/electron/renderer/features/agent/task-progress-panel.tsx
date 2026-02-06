@@ -58,6 +58,7 @@ export const TaskProgressPanel = memo(function TaskProgressPanel({
   const completedCount = tasks.filter((t) => t.status === "completed").length;
   const totalCount = tasks.length;
   const hasInProgress = tasks.some((t) => t.status === "in_progress");
+  const currentTask = tasks.find((t) => t.status === "in_progress");
 
   return (
     <div
@@ -97,9 +98,16 @@ export const TaskProgressPanel = memo(function TaskProgressPanel({
           </div>
 
           {/* Progress text */}
-          <span className="text-sm font-medium text-foreground">
-            {completedCount} of {totalCount} tasks completed
-          </span>
+          <div className="min-w-0">
+            <div className="text-sm font-medium text-foreground">
+              {completedCount} of {totalCount} tasks completed
+            </div>
+            {currentTask && (
+              <div className="text-[11px] text-muted-foreground truncate max-w-[230px]">
+                In progress: {currentTask.content}
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Expand/Collapse chevron */}

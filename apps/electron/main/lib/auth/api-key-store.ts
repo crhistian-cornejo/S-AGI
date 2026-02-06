@@ -7,7 +7,6 @@ import log from 'electron-log'
 interface ApiKeyStore {
     openai?: string
     anthropic?: string
-    tavily?: string
     zai?: string
 }
 
@@ -127,35 +126,6 @@ export class SecureApiKeyStore {
         const data = cached || this.loadFromDisk()
         if (!cached) this.setCache(data)
         return !!data.anthropic
-    }
-
-    setTavilyKey(key: string | null): void {
-        const current = this.getCached() || this.loadFromDisk()
-        if (key) {
-            current.tavily = key
-            log.info('[SecureApiKeyStore] Tavily key updated (length:', key.length, ')')
-        } else {
-            delete current.tavily
-            log.info('[SecureApiKeyStore] Tavily key cleared')
-        }
-        this.setCache(current)
-        this.saveToDisk(current)
-    }
-
-    getTavilyKey(): string | null {
-        const cached = this.getCached()
-        if (cached) return cached.tavily || null
-
-        const data = this.loadFromDisk()
-        this.setCache(data)
-        return data.tavily || null
-    }
-
-    hasTavilyKey(): boolean {
-        const cached = this.getCached()
-        const data = cached || this.loadFromDisk()
-        if (!cached) this.setCache(data)
-        return !!data.tavily
     }
 
     setZaiKey(key: string | null): void {

@@ -73,7 +73,7 @@ function toToolPart(tc: ToolCall): ToolPart {
 
   const stateMap: Record<string, ToolPart["state"]> = {
     streaming: "input-streaming",
-    done: "input-available",
+    done: "output-available",
     executing: "input-available",
     complete: "output-available",
     error: "output-error",

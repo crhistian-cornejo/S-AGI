@@ -597,9 +597,9 @@ export function MainLayout() {
         if (supportsReasoning) {
           setReasoningEffort(
             (prev) =>
-              ({ low: "medium", medium: "high", high: "low" }[
-                prev
-              ] as ReasoningEffort)
+            ({ low: "medium", medium: "high", high: "low" }[
+              prev
+            ] as ReasoningEffort)
           );
         }
       }),
@@ -805,9 +805,9 @@ export function MainLayout() {
       if (!supportsReasoning) return;
       setReasoningEffort(
         (prev) =>
-          ({ low: "medium", medium: "high", high: "low" }[
-            prev
-          ] as ReasoningEffort)
+        ({ low: "medium", medium: "high", high: "low" }[
+          prev
+        ] as ReasoningEffort)
       );
     },
     {
@@ -956,10 +956,10 @@ export function MainLayout() {
         {/* Zen Title Bar */}
         <div
           className={cn(
-            "h-9 shrink-0 px-2 flex items-center relative drag-region",
+            "h-9 shrink-0 flex items-center relative drag-region",
             isMacDesktop
-              ? "bg-background/60 backdrop-blur-2xl border-b border-border/50"
-              : "bg-background"
+              ? "px-2 bg-background/60 backdrop-blur-2xl border-b border-border/50"
+              : "pl-2 pr-0 bg-background"
           )}
           style={{ WebkitAppRegion: "drag" } as CSSProperties}
         >
@@ -995,27 +995,12 @@ export function MainLayout() {
           {/* Spacer */}
           {!isMacDesktop && <div className="flex-1 drag-region" aria-hidden />}
 
-          {/* Window controls (Windows/Linux) */}
+          {/* Window controls (Windows/Linux) - Only close button in Zen Mode */}
           {showWindowControls && (
             <div
               className="flex items-center no-drag"
               style={{ WebkitAppRegion: "no-drag" } as CSSProperties}
             >
-              <Button
-                variant="ghost"
-                className="h-9 w-10 rounded-none hover:bg-accent"
-                onClick={() => window.desktopApi?.minimize()}
-              >
-                <IconMinus size={16} />
-              </Button>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-9 w-10 rounded-none hover:bg-accent"
-                onClick={() => window.desktopApi?.maximize()}
-              >
-                <IconSquare size={14} />
-              </Button>
               <Button
                 variant="ghost"
                 size="icon"
@@ -1047,24 +1032,24 @@ export function MainLayout() {
           (activeTab === "chat" || activeTab === "gallery") && sidebarOpen
             ? "left-72"
             : activeTab === "ideas" && sidebarOpen && notesSidebarOpen
-            ? "left-[36rem]"
-            : activeTab === "ideas" && (sidebarOpen || notesSidebarOpen)
-            ? "left-72"
-            : activeTab === "pdf" && sidebarOpen && pdfSidebarOpen
-            ? "left-[36rem]"
-            : activeTab === "pdf" && (sidebarOpen || pdfSidebarOpen)
-            ? "left-72"
-            : activeTab === "excel" && sidebarOpen && excelSidebarOpen
-            ? "left-[36rem]"
-            : activeTab === "excel" && (sidebarOpen || excelSidebarOpen)
-            ? "left-72"
-            : activeTab === "doc" && sidebarOpen && docSidebarOpen
-            ? "left-[36rem]"
-            : activeTab === "doc" && (sidebarOpen || docSidebarOpen)
-            ? "left-72"
-            : activeTab === "settings"
-            ? "left-72"
-            : "left-0"
+              ? "left-[36rem]"
+              : activeTab === "ideas" && (sidebarOpen || notesSidebarOpen)
+                ? "left-72"
+                : activeTab === "pdf" && sidebarOpen && pdfSidebarOpen
+                  ? "left-[36rem]"
+                  : activeTab === "pdf" && (sidebarOpen || pdfSidebarOpen)
+                    ? "left-72"
+                    : activeTab === "excel" && sidebarOpen && excelSidebarOpen
+                      ? "left-[36rem]"
+                      : activeTab === "excel" && (sidebarOpen || excelSidebarOpen)
+                        ? "left-72"
+                        : activeTab === "doc" && sidebarOpen && docSidebarOpen
+                          ? "left-[36rem]"
+                          : activeTab === "doc" && (sidebarOpen || docSidebarOpen)
+                            ? "left-72"
+                            : activeTab === "settings"
+                              ? "left-72"
+                              : "left-0"
         )}
         noTrafficLightSpace={
           ((activeTab === "chat" || activeTab === "gallery") && sidebarOpen) ||
@@ -1299,8 +1284,8 @@ export function MainLayout() {
                               isLocalStorageMode
                                 ? getLocalPath(currentExcelFile)
                                   ? `Guardado en ${getLocalPath(
-                                      currentExcelFile
-                                    )}`
+                                    currentExcelFile
+                                  )}`
                                   : "Guardado en este dispositivo"
                                 : "Guardado en la nube con historial de versiones"
                             }
@@ -1347,13 +1332,10 @@ export function MainLayout() {
                         <Suspense fallback={<PanelLoadingFallback />}>
                           <UniverSpreadsheet
                             ref={univerSpreadsheetRef}
-                            key={`spreadsheet-${
-                              currentExcelFileId || excelScratchId
-                            }-v${
-                              validExcelPreviewData?.versionNumber || "current"
-                            }-${validExcelPreviewData?.fileId || "none"}-vc${
-                              currentExcelFile?.version_count || 0
-                            }`}
+                            key={`spreadsheet-${currentExcelFileId || excelScratchId
+                              }-v${validExcelPreviewData?.versionNumber || "current"
+                              }-${validExcelPreviewData?.fileId || "none"}-vc${currentExcelFile?.version_count || 0
+                              }`}
                             fileId={
                               validExcelPreviewData
                                 ? undefined // Don't save when previewing
@@ -1477,8 +1459,8 @@ export function MainLayout() {
                               isLocalStorageMode
                                 ? getLocalPath(currentDocFile)
                                   ? `Guardado en ${getLocalPath(
-                                      currentDocFile
-                                    )}`
+                                    currentDocFile
+                                  )}`
                                   : "Guardado en este dispositivo"
                                 : "Guardado en la nube con historial de versiones"
                             }
@@ -1526,11 +1508,9 @@ export function MainLayout() {
                       <Suspense fallback={<PanelLoadingFallback />}>
                         <UniverDocument
                           ref={univerDocumentRef}
-                          key={`document-${currentDocFileId || docScratchId}-v${
-                            validDocPreviewData?.versionNumber || "current"
-                          }-${validDocPreviewData?.fileId || "none"}-vc${
-                            currentDocFile?.version_count || 0
-                          }`}
+                          key={`document-${currentDocFileId || docScratchId}-v${validDocPreviewData?.versionNumber || "current"
+                            }-${validDocPreviewData?.fileId || "none"}-vc${currentDocFile?.version_count || 0
+                            }`}
                           fileId={
                             validDocPreviewData
                               ? undefined

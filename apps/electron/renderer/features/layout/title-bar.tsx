@@ -10,7 +10,6 @@ import {
   notesSidebarOpenAtom,
   pdfSidebarOpenAtom,
   agentPanelOpenAtom,
-  shortcutsDialogOpenAtom,
   excelSidebarOpenAtom,
   docSidebarOpenAtom,
   selectedChatIdAtom,
@@ -37,7 +36,6 @@ import {
   IconMinus,
   IconSquare,
   IconX,
-  IconCommand,
   IconMessages,
   IconPhoto,
   IconSearch,
@@ -60,6 +58,7 @@ import {
 } from "@/components/ui/tooltip";
 import { cn, isMacOS, isElectron, isWindows } from "@/lib/utils";
 import { HamburgerMenu } from "./hamburger-menu";
+import { ShareSessionButton } from "@/features/chat/share-session-dialog";
 
 export interface TitleBarProps {
   className?: string;
@@ -72,7 +71,6 @@ export function TitleBar({ className, noTrafficLightSpace }: TitleBarProps) {
   );
   const [activeTab, setActiveTab] = useAtom(activeTabAtom);
   const openSettingsPage = useOpenSettingsPage();
-  const setShortcutsOpen = useSetAtom(shortcutsDialogOpenAtom);
   const setCommandKOpen = useSetAtom(commandKOpenAtom);
   const selectedArtifact = useAtomValue(selectedArtifactAtom);
   const isDesktop = isElectron();
@@ -805,6 +803,11 @@ export function TitleBar({ className, noTrafficLightSpace }: TitleBarProps) {
           </Tooltip>
         )}
 
+        {/* Share Session button - only on chat tab */}
+        {activeTab === "chat" && (
+          <ShareSessionButton styleVariant="zen" />
+        )}
+
         {/* Zen Mode button - only on chat tab */}
         {activeTab === "chat" && (
           <Tooltip>
@@ -827,21 +830,6 @@ export function TitleBar({ className, noTrafficLightSpace }: TitleBarProps) {
             </TooltipContent>
           </Tooltip>
         )}
-
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-8 w-8 mr-1"
-              onClick={() => setShortcutsOpen(true)}
-              aria-label="Shortcuts"
-            >
-              <IconCommand size={16} />
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent side="bottom">Shortcuts</TooltipContent>
-        </Tooltip>
 
         {isElectron() && !isMacOS() && (
           <div className="flex items-center">

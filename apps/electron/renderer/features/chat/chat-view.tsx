@@ -34,6 +34,7 @@ import {
   streamingFileSearchesAtom,
   streamingDocumentCitationsAtom,
   streamingSuggestionsAtom,
+  streamingCodeInterpreterExecsAtom,
   imageEditDialogAtom,
   pendingQuickPromptMessageAtom,
   chatSoundsEnabledAtom,
@@ -44,6 +45,7 @@ import {
   type FileCitation,
   type Annotation,
   type DocumentCitation,
+  type CodeInterpreterExec,
 } from "@/lib/atoms";
 import { trpc, trpcClient } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
@@ -68,7 +70,6 @@ import { useStreamingStatusStore } from "./stores/streaming-status-store";
 import { useSendCallbackStore } from "./stores/send-callback-store";
 import { generateQueueId, createQueueItem } from "./lib/queue-utils";
 import { useOpenSettingsPage } from "@/features/settings/use-open-settings-page";
-import { ShareSessionButton } from "@/features/chat/share-session-dialog";
 import zenBackgroundUrl from "@/assets/zen-background.png";
 
 export function ChatView() {
@@ -127,6 +128,9 @@ export function ChatView() {
   const [streamingSuggestions, setStreamingSuggestions] = useAtom(
     streamingSuggestionsAtom
   );
+  // Code interpreter state (for OpenAI code_interpreter)
+  const streamingCodeInterpreterExecs = useAtomValue(streamingCodeInterpreterExecsAtom);
+  const setStreamingCodeInterpreterExecs = useSetAtom(streamingCodeInterpreterExecsAtom);
 
   // Settings state
   const setSelectedArtifact = useSetAtom(selectedArtifactAtom);
@@ -166,8 +170,10 @@ export function ChatView() {
   // Refs for batching streaming state updates (OPT 6)
   const webSearchesRef = useRef<WebSearchInfo[]>([]);
   const annotationsRef = useRef<Annotation[]>([]);
+  const codeInterpreterRef = useRef<CodeInterpreterExec[]>([]);
   const wsFlushScheduled = useRef(false);
   const annFlushScheduled = useRef(false);
+  const ciFlushScheduled = useRef(false);
 
   const flushWebSearches = useCallback(() => {
     if (!wsFlushScheduled.current) {
@@ -188,6 +194,16 @@ export function ChatView() {
       });
     }
   }, [setStreamingAnnotations]);
+
+  const flushCodeInterpreter = useCallback(() => {
+    if (!ciFlushScheduled.current) {
+      ciFlushScheduled.current = true;
+      requestAnimationFrame(() => {
+        setStreamingCodeInterpreterExecs([...codeInterpreterRef.current]);
+        ciFlushScheduled.current = false;
+      });
+    }
+  }, [setStreamingCodeInterpreterExecs]);
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
   const [activeMessageId, setActiveMessageId] = useState<string | null>(null);
 
@@ -206,6 +222,8 @@ export function ChatView() {
     annotationsRef.current = [];
     setStreamingDocumentCitations([]);
     setStreamingSuggestions([]);
+    setStreamingCodeInterpreterExecs([]);
+    codeInterpreterRef.current = [];
     smoothStream.reset();
   }, [selectedChatId]);
 
@@ -398,6 +416,8 @@ export function ChatView() {
     annotationsRef.current = [];
     setStreamingDocumentCitations([]); // Clear previous citations
     setStreamingSuggestions([]); // Clear previous suggestions
+    setStreamingCodeInterpreterExecs([]); // Clear previous code interpreter execs
+    codeInterpreterRef.current = [];
 
     // Play thinking sound (single, not loop)
     stopThinkingRef.current = chatSounds.playThinking(false);
@@ -591,8 +611,6 @@ export function ChatView() {
         apiKey = undefined;
       }
 
-      // Tavily key availability is checked in main process
-
       // Auto-generate title for first message (backend handles API key)
       if (isFirstMessage) {
         generateAutoTitle(chatIdForStream, userMessage, provider);
@@ -662,6 +680,8 @@ export function ChatView() {
         url?: string;
         sources?: Array<{ url: string; title?: string }>;
       }> = [];
+      // Collect code interpreter executions to persist them
+      let collectedCodeInterpreterExecs: CodeInterpreterExec[] = [];
 
       try {
         const streamStartedAt = Date.now();
@@ -905,6 +925,127 @@ export function ChatView() {
 
               case "code-interpreter-start": {
                 actionCounts.codeInterpreter += 1;
+                const newExec: CodeInterpreterExec = {
+                  executionId: event.executionId || `ci-${Date.now()}`,
+                  status: 'running',
+                  code: '',
+                  output: '',
+                };
+                codeInterpreterRef.current = [...codeInterpreterRef.current, newExec];
+                collectedCodeInterpreterExecs.push(newExec);
+                flushCodeInterpreter();
+                break;
+              }
+
+              case "code-interpreter-interpreting": {
+                codeInterpreterRef.current = codeInterpreterRef.current.map((ci) =>
+                  ci.executionId === event.executionId
+                    ? { ...ci, status: 'interpreting' as const }
+                    : ci
+                );
+                flushCodeInterpreter();
+                break;
+              }
+
+              case "code-interpreter-code-delta": {
+                codeInterpreterRef.current = codeInterpreterRef.current.map((ci) =>
+                  ci.executionId === event.executionId
+                    ? { ...ci, code: ci.code + (event.delta || '') }
+                    : ci
+                );
+                flushCodeInterpreter();
+                break;
+              }
+
+              case "code-interpreter-code-done": {
+                codeInterpreterRef.current = codeInterpreterRef.current.map((ci) =>
+                  ci.executionId === event.executionId
+                    ? { ...ci, code: event.code || ci.code }
+                    : ci
+                );
+                // Update collected for persistence
+                collectedCodeInterpreterExecs = collectedCodeInterpreterExecs.map((ci) =>
+                  ci.executionId === event.executionId
+                    ? { ...ci, code: event.code || ci.code }
+                    : ci
+                );
+                flushCodeInterpreter();
+                break;
+              }
+
+              case "code-interpreter-done": {
+                const doneUpdate = {
+                  status: 'done' as const,
+                  output: event.output || '',
+                  images: event.images || undefined,
+                };
+                codeInterpreterRef.current = codeInterpreterRef.current.map((ci) =>
+                  ci.executionId === event.executionId
+                    ? { ...ci, ...doneUpdate }
+                    : ci
+                );
+                // Update collected for persistence
+                collectedCodeInterpreterExecs = collectedCodeInterpreterExecs.map((ci) =>
+                  ci.executionId === event.executionId
+                    ? { ...ci, ...doneUpdate }
+                    : ci
+                );
+                flushCodeInterpreter();
+                break;
+              }
+
+              case "code-interpreter-container-images": {
+                // Images downloaded from container file citations
+                // Append to the last code interpreter exec's images
+                const containerImages = event.images as Array<{
+                  mimeType: string;
+                  data: string;
+                  filename: string;
+                }>;
+                if (containerImages && containerImages.length > 0) {
+                  const lastExecIdx =
+                    codeInterpreterRef.current.length - 1;
+                  if (lastExecIdx >= 0) {
+                    const lastExec =
+                      codeInterpreterRef.current[lastExecIdx];
+                    const existingImages = lastExec.images || [];
+                    const updatedImages = [
+                      ...existingImages,
+                      ...containerImages,
+                    ];
+                    codeInterpreterRef.current =
+                      codeInterpreterRef.current.map((ci, idx) =>
+                        idx === lastExecIdx
+                          ? { ...ci, images: updatedImages }
+                          : ci
+                      );
+                    collectedCodeInterpreterExecs =
+                      collectedCodeInterpreterExecs.map((ci, idx) =>
+                        idx ===
+                        collectedCodeInterpreterExecs.length - 1
+                          ? { ...ci, images: updatedImages }
+                          : ci
+                      );
+                  } else {
+                    // No code interpreter execs yet, create one
+                    const newExec: CodeInterpreterExec = {
+                      executionId: `container-images-${Date.now()}`,
+                      status: "done",
+                      code: "",
+                      output: "",
+                      images: containerImages,
+                    };
+                    codeInterpreterRef.current = [
+                      ...codeInterpreterRef.current,
+                      newExec,
+                    ];
+                    collectedCodeInterpreterExecs = [
+                      ...collectedCodeInterpreterExecs,
+                      newExec,
+                    ];
+                  }
+                  flushCodeInterpreter();
+                }
                 break;
               }
 
@@ -1058,6 +1199,8 @@ export function ChatView() {
                 setStreamingAnnotations([]);
                 annotationsRef.current = [];
                 setStreamingDocumentCitations([]);
+                setStreamingCodeInterpreterExecs([]);
+                codeInterpreterRef.current = [];
                 cleanupListener?.();
                 abortRef.current = null;
                 break;
@@ -1184,6 +1327,11 @@ export function ChatView() {
                         collectedSuggestions.length > 0
                           ? collectedSuggestions
                           : undefined,
+                      // Persist code interpreter executions
+                      codeInterpreterExecs:
+                        collectedCodeInterpreterExecs.length > 0
+                          ? collectedCodeInterpreterExecs
+                          : undefined,
                       ...(event.responseId && {
                         openaiResponseId: event.responseId,
                       }),
@@ -1220,6 +1368,8 @@ export function ChatView() {
                 setStreamingAnnotations([]);
                 annotationsRef.current = [];
                 setStreamingDocumentCitations([]);
+                setStreamingCodeInterpreterExecs([]);
+                codeInterpreterRef.current = [];
 
                 // Stop thinking sound and play response done sound
                 stopThinkingRef.current?.();
@@ -1274,7 +1424,6 @@ export function ChatView() {
           mode,
           provider,
           apiKey,
-          // SECURITY: Tavily key is fetched by main process from credential manager
           model: selectedModel,
           messages: messageHistory,
           images:
@@ -1288,10 +1437,11 @@ export function ChatView() {
             summary: "concise", // Always generate reasoning summaries
           },
           // Enable file search if there are files in vector store OR if targeting a specific document
-          nativeTools:
-            hasFilesInVectorStore || targetDocumentForSearch
-              ? { fileSearch: true }
-              : undefined,
+          // Enable code interpreter for models that support it
+          nativeTools: {
+            ...(hasFilesInVectorStore || targetDocumentForSearch ? { fileSearch: true } : {}),
+            ...(AI_MODELS[selectedModel]?.supportsCodeInterpreter ? { codeInterpreter: true } : {}),
+          },
           // Image generation mode - forces use of generate_image tool with gpt-image-1.5
           generateImage: shouldGenerateImage,
           // Image size based on selected aspect ratio
@@ -1777,13 +1927,6 @@ export function ChatView() {
         {/* Top Fade Overlay */}
         <div className="absolute top-0 left-0 right-0 h-12 bg-gradient-to-b from-[hsl(var(--chat-background))] via-[hsl(var(--chat-background)/0.8)] to-transparent pointer-events-none z-10" />
 
-        {/* Share Session Button - Top Right Corner (non-zen only) */}
-        {!zenMode && (
-          <div className="absolute top-2 right-4 z-20">
-            <ShareSessionButton />
-          </div>
-        )}
-
         <ScrollArea className="h-full w-full" ref={scrollContainerRef}>
           <div className="pb-16 w-full overflow-hidden">
             {/* Safe area is now handled by MainLayout */}
@@ -1800,6 +1943,7 @@ export function ChatView() {
               streamingFileSearches={streamingFileSearches}
               streamingAnnotations={streamingAnnotations}
               streamingDocumentCitations={streamingDocumentCitations}
+              streamingCodeInterpreterExecs={streamingCodeInterpreterExecs}
               streamingError={streamingError}
             />
             <div ref={messagesEndRef} className="h-px" />

@@ -16,6 +16,7 @@ import {
     checkRateLimit
 } from '../../auth/rate-limiter'
 import { getStorageMode, getLocalFileStorage, LOCAL_USER_ID } from '../../storage'
+import { readFileSync, existsSync } from 'fs'
 
 // ========== Local Mode Helpers ==========
 
@@ -60,7 +61,7 @@ function createLocalUser() {
     const fullName = profile.fullName ?? account?.displayName ?? 'Local User'
     const avatarPath = typeof profile.avatarPath === 'string' ? profile.avatarPath : null
     const avatarUrl = avatarPath
-        ? getLocalFileStorage().getUrl('images', avatarPath)
+        ? (readLocalAvatarAsDataUri(avatarPath) ?? getLocalFileStorage().getUrl('images', avatarPath))
         : account?.avatarUrl ?? null
     const avatarProviderUrl = profile.avatarProviderUrl ?? null
     const email = account?.email ?? 'local@localhost'
@@ -88,6 +89,28 @@ function createLocalUser() {
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
         is_local: true
+    }
+}
+
+/**
+ * Read a local avatar file and return a data URI.
+ * Sandboxed Electron renderers cannot load file:// URLs in <img> tags,
+ * so we inline the image as base64.
+ */
+function readLocalAvatarAsDataUri(avatarPath: string): string | null {
+    try {
+        const fileStorage = getLocalFileStorage()
+        const filePath = fileStorage.getFilePath('images', avatarPath)
+        if (!existsSync(filePath)) return null
+        const buffer = readFileSync(filePath)
+        if (!buffer.length) return null
+        const ext = avatarPath.split('.').pop()?.toLowerCase() || 'webp'
+        const mimeType = ext === 'png' ? 'image/png'
+            : ext === 'jpg' || ext === 'jpeg' ? 'image/jpeg'
+            : 'image/webp'
+        return `data:${mimeType};base64,${buffer.toString('base64')}`
+    } catch {
+        return null
     }
 }
 
@@ -327,7 +350,7 @@ export const authRouter = router({
                         await fileStorage.deleteFile('images', existingAvatarPath)
                     }
                     nextAvatarPath = storagePath
-                    nextAvatarUrl = fileStorage.getUrl('images', storagePath)
+                    nextAvatarUrl = null // resolved at read time via readLocalAvatarAsDataUri
                     nextAvatarProviderUrl = null
                 }
 
@@ -513,7 +536,6 @@ export const authRouter = router({
         const accounts = authStorage.getAccounts()
         const activeId = authStorage.getActiveAccountId()
         const activeAccount = accounts.find(a => a.id === activeId)
-        const fileStorage = getLocalFileStorage()
 
         // For active cloud account, refresh avatar from Supabase
         let refreshedAvatarUrl: string | undefined
@@ -553,7 +575,9 @@ export const authRouter = router({
                 displayName: acc.displayName,
                 avatarUrl: acc.id === activeId && refreshedAvatarUrl
                     ? refreshedAvatarUrl
-                    : acc.avatarUrl ?? (acc.isLocal && acc.profile?.avatarPath ? fileStorage.getUrl('images', acc.profile.avatarPath) : undefined),
+                    : acc.isLocal && acc.profile?.avatarPath
+                        ? (readLocalAvatarAsDataUri(acc.profile.avatarPath) ?? undefined)
+                        : acc.avatarUrl,
                 isLocal: acc.isLocal,
                 provider: acc.provider,
                 connectedAt: acc.connectedAt,

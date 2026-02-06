@@ -101,6 +101,15 @@ export interface FileCitationData {
 
 export type CitationData = UrlCitationData | FileCitationData;
 
+/** Code interpreter execution with code and output */
+export interface CodeInterpreterExecData {
+  executionId: string;
+  status: "running" | "interpreting" | "done";
+  code: string;
+  output: string;
+  images?: Array<{ mimeType: string; data: string }>;
+}
+
 export interface AgentReasoningProps {
   /** The reasoning content (thinking process) */
   content: string;
@@ -120,6 +129,8 @@ export interface AgentReasoningProps {
   webSearches?: WebSearchData[];
   /** Citations collected from the response (URL and file citations) */
   annotations?: CitationData[];
+  /** Code interpreter executions with code and output */
+  codeInterpreterExecs?: CodeInterpreterExecData[];
   /** Model ID used for this response */
   modelId?: string;
   /** Model name used for this response */
@@ -191,6 +202,67 @@ function formatDuration(ms: number): string {
   return `${minutes}m ${remainingSeconds}s`;
 }
 
+/** Collapsible block showing code interpreter code + output */
+function CodeInterpreterBlock({ exec }: { exec: CodeInterpreterExecData }) {
+  const [isOpen, setIsOpen] = useState(exec.status !== "done");
+  const isDone = exec.status === "done";
+
+  return (
+    <div className="relative">
+      <CustomTerminalIcon
+        className={cn(
+          "absolute -left-5 top-[3px] w-3.5 h-3.5 shrink-0",
+          isDone ? "text-muted-foreground/70" : "text-primary"
+        )}
+      />
+      <button
+        type="button"
+        onClick={() => setIsOpen(!isOpen)}
+        className="flex items-center gap-1.5 text-xs text-muted-foreground/80 hover:text-foreground transition-colors"
+      >
+        {!isDone && <IconSpinner className="w-3 h-3 animate-spin text-primary" />}
+        <span>
+          {isDone
+            ? "Ejecutó código"
+            : exec.status === "interpreting"
+              ? "Interpretando..."
+              : "Ejecutando código..."}
+        </span>
+        <IconChevronDown
+          size={12}
+          className={cn(
+            "opacity-60 transition-transform duration-200",
+            !isOpen && "-rotate-90"
+          )}
+        />
+      </button>
+      {isOpen && exec.code && (
+        <div className="mt-1.5 space-y-1.5">
+          <pre className={cn(
+            "text-[11px] leading-relaxed p-2.5 rounded-md overflow-x-auto",
+            "bg-muted/50 border border-border/30",
+            "text-muted-foreground font-mono",
+            "max-h-60 overflow-y-auto"
+          )}>
+            <code>{exec.code}</code>
+          </pre>
+          {isDone && exec.output && (
+            <div className={cn(
+              "text-[11px] leading-relaxed p-2.5 rounded-md overflow-x-auto",
+              "bg-green-500/5 border border-green-500/20",
+              "text-muted-foreground font-mono",
+              "max-h-40 overflow-y-auto"
+            )}>
+              <div className="text-[10px] text-green-600 dark:text-green-500 font-semibold mb-1">Output</div>
+              <pre className="whitespace-pre-wrap">{exec.output}</pre>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function AgentReasoning({
   content,
   isStreaming = false,
@@ -201,6 +273,7 @@ export function AgentReasoning({
   actions = [],
   webSearches = [],
   annotations = [],
+  codeInterpreterExecs = [],
   modelId: _modelId,
   modelName: _modelName,
 }: AgentReasoningProps) {
@@ -246,11 +319,14 @@ export function AgentReasoning({
   const hasActions = actions.length > 0;
   const hasWebSearches = webSearches.length > 0;
   const hasAnnotations = annotations.length > 0;
+  const hasCodeInterpreter = codeInterpreterExecs.length > 0;
   const canToggle =
-    hasContent || hasActions || hasWebSearches || hasAnnotations;
+    hasContent || hasActions || hasWebSearches || hasAnnotations || hasCodeInterpreter;
 
   // Check if all web searches are done (not still searching)
   const allSearchesDone = webSearches.every((ws) => ws.status === "done");
+  // Check if all code interpreter executions are done
+  const allCodeInterpreterDone = codeInterpreterExecs.every((ci) => ci.status === "done");
 
   if (!canToggle && !isStreaming) return null;
 
@@ -406,6 +482,12 @@ export function AgentReasoning({
                         <div className="flex-1 min-w-0">
                           <AgentToolCallFlat
                             toolCalls={[item.toolCall]}
+                            chatStatus={
+                              item.toolCall.status === "executing" ||
+                              item.toolCall.status === "streaming"
+                                ? "streaming"
+                                : "ready"
+                            }
                             isStreaming={
                               item.toolCall.status === "executing" ||
                               item.toolCall.status === "streaming"
@@ -414,12 +496,6 @@ export function AgentReasoning({
                         </div>
                       ) : (
                         <div className="flex items-center gap-2 text-xs text-muted-foreground/80">
-                          <ItemIcon
-                            className={cn(
-                              "w-3.5 h-3.5 shrink-0",
-                              item.isActive && "text-primary"
-                            )}
-                          />
                           <span>{item.label}</span>
                           {item.badge && (
                             <span className="px-1.5 py-0.5 rounded bg-muted text-[10px] font-mono">
@@ -444,8 +520,17 @@ export function AgentReasoning({
               />
             )}
 
-            {/* "Listo" when done - only show when not streaming AND all web searches are done */}
-            {!isStreaming && hasContent && (!hasWebSearches || allSearchesDone) && (
+            {/* Code interpreter executions */}
+            {hasCodeInterpreter && (
+              <div className="space-y-2">
+                {codeInterpreterExecs.map((exec) => (
+                  <CodeInterpreterBlock key={exec.executionId} exec={exec} />
+                ))}
+              </div>
+            )}
+
+            {/* "Listo" when done - only show when not streaming AND all async tasks are done */}
+            {!isStreaming && hasContent && (!hasWebSearches || allSearchesDone) && (!hasCodeInterpreter || allCodeInterpreterDone) && (
               <div className="relative flex items-center gap-1.5 text-[13px] text-green-600 dark:text-green-500">
                 <IconCheck className="absolute -left-5 top-[3px] w-3.5 h-3.5 shrink-0 text-green-500" />
                 <span className="font-medium">Listo</span>

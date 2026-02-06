@@ -632,7 +632,6 @@ export const AIChatInputSchema = z.object({
     mode: z.enum(['plan', 'agent']).default('agent'),
     provider: AIProviderSchema.default('openai'),
     apiKey: z.string(),
-    tavilyApiKey: z.string().optional(),
     model: z.string().optional(),
     messages: z.array(ChatMessageSchema).optional(),
     images: z.array(ImageAttachmentSchema).optional(),

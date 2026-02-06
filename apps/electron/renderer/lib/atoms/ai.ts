@@ -39,17 +39,6 @@ export const selectedModelAtom = atomWithStorage<string>(
   DEFAULT_MODELS.openai
 )
 
-/**
- * Tavily API key for web search (stored in renderer for now)
- * TODO: SECURITY - This API key is stored in renderer localStorage which is insecure.
- * It should be moved to the main process with secure storage (e.g., Electron's safeStorage API)
- * to prevent exposure to renderer process and potential XSS attacks.
- */
-export const tavilyApiKeyAtom = atomWithStorage<string | null>(
-  'tavily-api-key',
-  null
-)
-
 // === COMPUTED MODEL ATOMS ===
 
 /** Available models for current provider */
@@ -80,13 +69,6 @@ export const supportsReasoningAtom = atom((get) => {
   return model?.supportsReasoning ?? false
 })
 
-// === API KEY STATUS ===
-// These atoms track whether keys are configured, not the keys themselves
-
-export const hasOpenaiKeyAtom = atom(false)
-export const hasAnthropicKeyAtom = atom(false)
-export const hasZaiKeyAtom = atom(false)
-
 /** ChatGPT Plus connection info */
 export interface ChatGPTPlusStatus {
   isConnected: boolean
@@ -94,10 +76,11 @@ export interface ChatGPTPlusStatus {
   accountId?: string
   connectedAt?: string
 }
-export const hasChatGPTPlusAtom = atom(false)
 export const chatGPTPlusStatusAtom = atom<ChatGPTPlusStatus>({
   isConnected: false,
 })
+/** Derived: Whether ChatGPT Plus is connected */
+export const hasChatGPTPlusAtom = atom((get) => get(chatGPTPlusStatusAtom).isConnected)
 
 /** Gemini Advanced connection info - DISABLED */
 export interface GeminiAdvancedStatus {
@@ -105,20 +88,11 @@ export interface GeminiAdvancedStatus {
   email?: string
   connectedAt?: string
 }
-export const hasGeminiAdvancedAtom = atom(false)
 export const geminiAdvancedStatusAtom = atom<GeminiAdvancedStatus>({
   isConnected: false,
 })
-
-/** Legacy atoms for backward compatibility */
-export const openaiApiKeyAtom = atom<string | null>(null)
-export const anthropicApiKeyAtom = atom<string | null>(null)
-
-// === CONNECTION STATUS ===
-
-export const aiConnectionStatusAtom = atom<
-  'connected' | 'disconnected' | 'error'
->('disconnected')
+/** Derived: Whether Gemini Advanced is connected */
+export const hasGeminiAdvancedAtom = atom((get) => get(geminiAdvancedStatusAtom).isConnected)
 
 // === STREAMING STATE ===
 
@@ -203,6 +177,18 @@ export interface FileSearchInfo {
 
 export const streamingFileSearchesAtom = atom<FileSearchInfo[]>([])
 
+// === CODE INTERPRETER STATE (for OpenAI code_interpreter) ===
+
+export interface CodeInterpreterExec {
+  executionId: string
+  status: 'running' | 'interpreting' | 'done'
+  code: string
+  output: string
+  images?: Array<{ mimeType: string; data: string }>
+}
+
+export const streamingCodeInterpreterExecsAtom = atom<CodeInterpreterExec[]>([])
+
 // === DOCUMENT CITATIONS STATE (for local RAG) ===
 
 export interface DocumentCitation {
@@ -277,11 +263,3 @@ export const setAuthErrorAtom = atom(
     }
   }
 )
-
-// === LEGACY ALIASES ===
-
-export const isLoadingAtom = isStreamingAtom
-export const claudeCodeConnectedAtom = atom((get) => {
-  const hasKey = get(hasOpenaiKeyAtom)
-  return hasKey
-})

@@ -41,25 +41,17 @@ export {
   // Provider & Model
   currentProviderAtom,
   selectedModelAtom,
-  tavilyApiKeyAtom,
   availableModelsAtom,
   allModelsGroupedAtom,
   currentModelAtom,
   supportsReasoningAtom,
-  // API Key Status
-  hasOpenaiKeyAtom,
-  hasAnthropicKeyAtom,
-  hasZaiKeyAtom,
+  // API Key Status (derived from status atoms)
   hasChatGPTPlusAtom,
   chatGPTPlusStatusAtom,
   type ChatGPTPlusStatus,
   hasGeminiAdvancedAtom,
   geminiAdvancedStatusAtom,
   type GeminiAdvancedStatus,
-  openaiApiKeyAtom,
-  anthropicApiKeyAtom,
-  // Connection
-  aiConnectionStatusAtom,
   // Streaming
   isStreamingAtom,
   streamingToolCallsAtom,
@@ -86,6 +78,9 @@ export {
   type DocumentCitation,
   streamingDocumentCitationsAtom,
   streamingSuggestionsAtom,
+  // Code Interpreter
+  type CodeInterpreterExec,
+  streamingCodeInterpreterExecsAtom,
   // Auth Refresh
   authRefreshingAtom,
   type AuthError,
@@ -93,9 +88,6 @@ export {
   isAnyAuthRefreshingAtom,
   setAuthRefreshingAtom,
   setAuthErrorAtom,
-  // Legacy
-  isLoadingAtom,
-  claudeCodeConnectedAtom,
 } from './ai'
 
 // === UI STATE ===

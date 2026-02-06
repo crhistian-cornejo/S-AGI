@@ -62,7 +62,6 @@ export type CredentialType =
     | 'openai_api_key'        // Global: OpenAI API key
     | 'chatgpt_oauth'         // Global: ChatGPT Plus OAuth token
     | 'zai_api_key'           // Global: Z.AI API key
-    | 'tavily_api_key'        // Global: Tavily search API key
     | 'gemini_oauth'          // Global: Gemini OAuth token
     | 'workspace_oauth'       // Workspace-scoped: MCP server OAuth
     | 'source_oauth'          // Source-scoped: Individual source tokens

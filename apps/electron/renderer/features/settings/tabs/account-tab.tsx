@@ -92,10 +92,12 @@ export function AccountTab() {
     }
 
     const updateProfile = trpc.auth.updateProfile.useMutation({
-        onSuccess: () => {
+        onSuccess: async () => {
             toast.success('Profile updated successfully')
-            utils.auth.getUser.invalidate()
-            utils.auth.getSession.invalidate()
+            await utils.auth.getUser.invalidate()
+            await utils.auth.getSession.invalidate()
+            // Only clear avatar update after data is refreshed
+            setAvatarUpdate(null)
         },
         onError: (error) => {
             toast.error(error.message || 'Failed to update profile')
@@ -128,8 +130,6 @@ export function AccountTab() {
                 timezone: timezone.trim() || null,
                 avatar: avatarUpdate ?? undefined
             })
-            setAvatarUpdate(null)
-            await utils.auth.getUser.invalidate()
         } catch (error) {
         } finally {
             setIsSaving(false)

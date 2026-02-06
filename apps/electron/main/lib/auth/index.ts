@@ -1,3 +1,4 @@
+export * from './oauth-base-manager'
 export * from './claude-code-store'
 export * from './claude-code-manager'
 export * from './claude-cli-import'

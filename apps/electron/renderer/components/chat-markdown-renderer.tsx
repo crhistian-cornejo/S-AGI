@@ -1337,6 +1337,13 @@ function preprocessLatex(content: string): string {
 }
 
 function sanitizeMarkdown(content: string): string {
+  const generatedFileHint = (label: string) => {
+    const text = label.trim();
+    if (!text) return "Generated file (use chat download button)";
+    if (/download button|generated file/i.test(text)) return text;
+    return `${text} (use chat download button)`;
+  };
+
   // First preprocess LaTeX
   const withLatex = preprocessLatex(content);
 
@@ -1345,6 +1352,9 @@ function sanitizeMarkdown(content: string): string {
     .replace(/^[\t ]*[-*+][\t ]+(?:\s|\u200B|\u200C|\u200D|\uFEFF)*$/gm, "")
     .replace(/^[\t ]*\d+\.[\t ]*$/gm, "")
     .replace(/^[\t ]*\d+\.[\t ]+(?:\s|\u200B|\u200C|\u200D|\uFEFF)*$/gm, "")
+    // Remove code interpreter sandbox file links (unsupported protocol, renders as [blocked])
+    .replace(/\[([^\]]*)\]\(sandbox:\/[^)]*\)/g, (_m, label) => generatedFileHint(label))
+    .replace(/\[([^\]]*)\]\(\/mnt\/data\/[^)]*\)/g, (_m, label) => generatedFileHint(label))
     .replace(/\n{3,}/g, "\n\n")
     .trim();
 }

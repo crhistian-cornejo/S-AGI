@@ -556,6 +556,10 @@ export const AgentToolRegistry: Record<string, ToolMeta> = {
   "tool-get_spreadsheet_summary": {
     icon: EyeIcon,
     title: (part) => {
+      const output = part.output as { success?: boolean; error?: string } | undefined
+      if (output?.success === false && /no active|no open|no spreadsheet|no worksheet/i.test(output.error || "")) {
+        return "No active spreadsheet"
+      }
       const isPending =
         part.state !== "output-available" && part.state !== "output-error"
       return isPending ? "Reading spreadsheet" : "Read spreadsheet"

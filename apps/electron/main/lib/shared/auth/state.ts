@@ -32,10 +32,6 @@ export interface AuthState {
     zai: {
         hasCredentials: boolean
     }
-    // Tavily
-    tavily: {
-        hasCredentials: boolean
-    }
     // Overall status
     hasAnyAIProvider: boolean
     hasPrimaryProvider: boolean  // Claude or ChatGPT
@@ -71,8 +67,6 @@ export async function getAuthState(): Promise<AuthState> {
         manager.hasOpenAIKey(),
         manager.hasZaiKey(),
     ])
-    const hasTavily = false
-
     // Determine Claude auth type and source
     let claudeType: AuthType | null = null
     let claudeSource: 'api_key' | 'oauth' | 'cli_import' | undefined
@@ -107,9 +101,6 @@ export async function getAuthState(): Promise<AuthState> {
         },
         zai: {
             hasCredentials: hasZai,
-        },
-        tavily: {
-            hasCredentials: hasTavily,
         },
         hasAnyAIProvider,
         hasPrimaryProvider,

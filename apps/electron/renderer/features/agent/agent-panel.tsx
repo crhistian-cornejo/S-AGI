@@ -45,6 +45,7 @@ import {
   IconListDetails,
   IconPencil,
   IconNotes,
+  IconCube,
 } from "@tabler/icons-react";
 import { cn } from "@/lib/utils";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -62,7 +63,6 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { ModelIcon } from "@/components/icons/model-icons";
-import { LogoOutline } from "@/components/ui/logo";
 import {
   AgentReasoning,
   type AgentReasoningAction,
@@ -399,11 +399,11 @@ const AgentMessage = memo(function AgentMessage({
         isUser ? "justify-end" : "justify-start",
       )}
     >
-      {/* Assistant avatar - LogoOutline with spinner when executing */}
+      {/* Assistant avatar - cube icon with spinner when executing */}
       {!isUser && (
         <div className="shrink-0 w-7 h-7 rounded-lg bg-primary/10 flex items-center justify-center mt-0.5">
-          <LogoOutline
-            size={16}
+          <IconCube
+            size={14}
             className={cn(
               "text-primary transition-transform",
               isExecuting && "animate-spin",
@@ -1033,6 +1033,13 @@ export function AgentPanel() {
           setMessages((prev: AgentPanelMessage[]) => {
             const last = prev[prev.length - 1];
             if (last && last.role === "assistant" && last.toolCalls) {
+              const resultObj =
+                event.result && typeof event.result === "object"
+                  ? (event.result as { success?: boolean })
+                  : null;
+              const nextStatus: "done" | "error" =
+                resultObj?.success === false ? "error" : "done";
+
               return [
                 ...prev.slice(0, -1),
                 {
@@ -1047,7 +1054,7 @@ export function AgentPanel() {
                       tc.toolCallId === event.toolCallId
                         ? {
                             ...tc,
-                            status: "done" as const,
+                            status: nextStatus,
                             result: event.result,
                           }
                         : tc,
@@ -1865,9 +1872,9 @@ export function AgentPanel() {
                   <h1 className="text-[22px] font-semibold text-foreground tracking-tight whitespace-nowrap">
                     Welcome to {agentContext.title}
                   </h1>
-                  <LogoOutline
-                    size={22}
-                    className="text-foreground/70 hover:text-primary transition-all duration-200 hover:rotate-180"
+                  <IconCube
+                    size={18}
+                    className="text-foreground/70 hover:text-primary transition-colors duration-200"
                   />
                 </div>
 

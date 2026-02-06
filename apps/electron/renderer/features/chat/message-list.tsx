@@ -10,6 +10,7 @@ import {
   IconFile,
   IconAlertCircle,
   IconChartBar,
+  IconDownload,
 } from "@tabler/icons-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAtomValue, useSetAtom } from "jotai";
@@ -492,6 +493,14 @@ interface Message {
       url?: string;
       sources?: Array<{ url: string; title?: string }>;
     }>;
+    /** Code interpreter executions with code and output */
+    codeInterpreterExecs?: Array<{
+      executionId: string;
+      status: "running" | "interpreting" | "done";
+      code: string;
+      output: string;
+      images?: Array<{ mimeType: string; data: string }>;
+    }>;
   };
   attachments?: Array<{
     id: string;
@@ -526,6 +535,14 @@ interface StreamingFileSearch {
   searchId: string;
   status: "searching" | "done";
   filename?: string;
+}
+
+interface StreamingCodeInterpreterExec {
+  executionId: string;
+  status: "running" | "interpreting" | "done";
+  code: string;
+  output: string;
+  images?: Array<{ mimeType: string; data: string }>;
 }
 
 /** Document citation from local RAG */
@@ -563,6 +580,8 @@ interface MessageListProps {
   >;
   /** Document citations from local RAG (for non-OpenAI providers) */
   streamingDocumentCitations?: DocumentCitation[];
+  /** Active code interpreter executions during streaming */
+  streamingCodeInterpreterExecs?: StreamingCodeInterpreterExec[];
   /** Error message from streaming */
   streamingError?: string | null;
 }
@@ -570,6 +589,81 @@ interface MessageListProps {
 // ============================================================================
 // Components
 // ============================================================================
+
+/** Renders code interpreter output images inline with download button */
+const CodeInterpreterImages = memo(function CodeInterpreterImages({
+  execs,
+}: {
+  execs: Array<{
+    executionId: string;
+    status: string;
+    images?: Array<{ mimeType: string; data: string }>;
+  }>;
+}) {
+  const allImages = execs.flatMap((exec) =>
+    (exec.images || []).map((img, i) => ({
+      key: `${exec.executionId}-${i}`,
+      src: `data:${img.mimeType};base64,${img.data}`,
+      mimeType: img.mimeType,
+    }))
+  );
+
+  if (allImages.length === 0) return null;
+
+  const handleDownload = (src: string, mimeType: string, index: number) => {
+    const ext = mimeType.split("/")[1] || "png";
+    const a = document.createElement("a");
+    a.href = src;
+    a.download = `code-output-${Date.now()}-${index}.${ext}`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  };
+
+  return (
+    <div className="space-y-3 mt-2">
+      {allImages.map((img, i) => (
+        <div key={img.key} className="relative group inline-block">
+          <img
+            src={img.src}
+            alt="Code interpreter output"
+            className="max-w-lg rounded-xl border border-border/30 shadow-sm"
+          />
+          <div className={cn(
+            "absolute top-2 right-2",
+            "opacity-100",
+            "transition-opacity duration-200"
+          )}>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="secondary"
+                  size="icon"
+                  className="h-8 w-8 bg-background/80 backdrop-blur-sm shadow-md"
+                  onClick={() => handleDownload(img.src, img.mimeType, i)}
+                >
+                  <IconDownload size={16} />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Download</TooltipContent>
+            </Tooltip>
+          </div>
+          <div className="mt-2 flex">
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-1.5"
+              onClick={() => handleDownload(img.src, img.mimeType, i)}
+            >
+              <IconDownload size={14} />
+              Download image
+            </Button>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+});
 
 /** Error notification component - shows error messages in the chat */
 const ErrorNotification = memo(function ErrorNotification({
@@ -605,6 +699,7 @@ export const MessageList = memo(function MessageList({
   streamingFileSearches,
   streamingAnnotations,
   streamingDocumentCitations,
+  streamingCodeInterpreterExecs,
   streamingError,
 }: MessageListProps) {
   if (messages.length === 0 && !isLoading && !lastReasoning) {
@@ -661,7 +756,8 @@ export const MessageList = memo(function MessageList({
           streamingReasoning ||
           (streamingToolCalls && streamingToolCalls.length > 0) ||
           (streamingWebSearches && streamingWebSearches.length > 0) ||
-          (streamingFileSearches && streamingFileSearches.length > 0)) && (
+          (streamingFileSearches && streamingFileSearches.length > 0) ||
+          (streamingCodeInterpreterExecs && streamingCodeInterpreterExecs.length > 0)) && (
           <div className="animate-in fade-in duration-300 w-full overflow-hidden">
             <div className="flex-1 min-w-0 space-y-2 pt-0.5 overflow-hidden">
                 {/* Reasoning section - shows ABOVE the text */}
@@ -670,12 +766,15 @@ export const MessageList = memo(function MessageList({
                   (streamingAnnotations &&
                     streamingAnnotations.length > 0) ||
                   (streamingWebSearches &&
-                    streamingWebSearches.length > 0)) && (
+                    streamingWebSearches.length > 0) ||
+                  (streamingCodeInterpreterExecs &&
+                    streamingCodeInterpreterExecs.length > 0)) && (
                   <AgentReasoning
                     content={streamingReasoning || ""}
                     isStreaming={isReasoning}
                     annotations={streamingAnnotations}
                     webSearches={streamingWebSearches}
+                    codeInterpreterExecs={streamingCodeInterpreterExecs}
                   />
                 )}
 
@@ -689,6 +788,11 @@ export const MessageList = memo(function MessageList({
                     />
                     <span className="inline-block w-1.5 h-4 bg-primary/40 animate-pulse ml-1 align-middle rounded-sm" />
                   </div>
+                )}
+
+                {/* Code interpreter output images - shown inline in chat */}
+                {streamingCodeInterpreterExecs && streamingCodeInterpreterExecs.length > 0 && (
+                  <CodeInterpreterImages execs={streamingCodeInterpreterExecs} />
                 )}
 
                 {streamingFileSearches && streamingFileSearches.length > 0 && (
@@ -724,7 +828,8 @@ export const MessageList = memo(function MessageList({
         !streamingReasoning &&
         (!streamingToolCalls || streamingToolCalls.length === 0) &&
         (!streamingWebSearches || streamingWebSearches.length === 0) &&
-        (!streamingFileSearches || streamingFileSearches.length === 0) && (
+        (!streamingFileSearches || streamingFileSearches.length === 0) &&
+        (!streamingCodeInterpreterExecs || streamingCodeInterpreterExecs.length === 0) && (
           <div className="animate-in fade-in duration-300">
             <div className="flex-1 pt-1 space-y-3">
               {/* Skeleton lines mimicking text response */}
@@ -932,6 +1037,7 @@ const MessageItem = memo(function MessageItem({
             actions={message.metadata?.actions}
             annotations={message.metadata?.annotations}
             webSearches={message.metadata?.webSearches}
+            codeInterpreterExecs={message.metadata?.codeInterpreterExecs}
             modelId={modelId}
             modelName={modelName}
           />
@@ -965,6 +1071,12 @@ const MessageItem = memo(function MessageItem({
                 />
               )}
           </div>
+        )}
+
+        {/* Code interpreter output images - shown inline */}
+        {message.metadata?.codeInterpreterExecs &&
+          message.metadata.codeInterpreterExecs.length > 0 && (
+          <CodeInterpreterImages execs={message.metadata.codeInterpreterExecs} />
         )}
 
         {/* Show attachments for assistant messages */}
