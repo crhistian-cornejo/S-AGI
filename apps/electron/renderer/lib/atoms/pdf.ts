@@ -347,9 +347,24 @@ export const addLocalPdfAtom = atom(null, (get, set, pdf: PdfSource) => {
 
 /**
  * Remove a local PDF from the session list
+ * Also revokes the associated blob URL to prevent memory leaks
  */
 export const removeLocalPdfAtom = atom(null, (get, set, pdfId: string) => {
   const current = get(localPdfsAtom);
+  const blobCache = get(localPdfBlobCacheAtom);
+
+  // Find the PDF being removed to revoke its blob URL
+  const pdfToRemove = current.find((p) => p.id === pdfId);
+  if (pdfToRemove?.metadata?.localPath) {
+    const blobUrl = blobCache[pdfToRemove.metadata.localPath];
+    if (blobUrl) {
+      URL.revokeObjectURL(blobUrl);
+      // Remove from cache
+      const { [pdfToRemove.metadata.localPath]: _, ...remainingCache } = blobCache;
+      set(localPdfBlobCacheAtom, remainingCache);
+    }
+  }
+
   set(
     localPdfsAtom,
     current.filter((p) => p.id !== pdfId),
@@ -358,9 +373,18 @@ export const removeLocalPdfAtom = atom(null, (get, set, pdfId: string) => {
 
 /**
  * Clear all local PDFs
+ * Also revokes all associated blob URLs to prevent memory leaks
  */
-export const clearLocalPdfsAtom = atom(null, (_get, set) => {
+export const clearLocalPdfsAtom = atom(null, (get, set) => {
+  const blobCache = get(localPdfBlobCacheAtom);
+
+  // Revoke all blob URLs
+  Object.values(blobCache).forEach((blobUrl) => {
+    URL.revokeObjectURL(blobUrl);
+  });
+
   set(localPdfsAtom, []);
+  set(localPdfBlobCacheAtom, {});
 });
 
 /**
@@ -379,6 +403,7 @@ export const getLocalPdfBlobAtom = atom(
 
 /**
  * Set cached blob URL for a local PDF
+ * Revokes the old blob URL if one exists to prevent memory leaks
  */
 export const setLocalPdfBlobAtom = atom(
   null,
@@ -388,6 +413,13 @@ export const setLocalPdfBlobAtom = atom(
     { localPath, blobUrl }: { localPath: string; blobUrl: string },
   ) => {
     const cache = get(localPdfBlobCacheAtom);
+
+    // Revoke old blob URL if it exists
+    const oldBlobUrl = cache[localPath];
+    if (oldBlobUrl) {
+      URL.revokeObjectURL(oldBlobUrl);
+    }
+
     set(localPdfBlobCacheAtom, { ...cache, [localPath]: blobUrl });
   },
 );

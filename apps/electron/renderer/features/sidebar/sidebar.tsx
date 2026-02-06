@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import type { MouseEvent as ReactMouseEvent, ReactNode } from "react";
 import {
   useState,
   useMemo,
@@ -75,6 +75,15 @@ import { useOpenSettingsPage } from "@/features/settings/use-open-settings-page"
 import { HamburgerMenu } from "@/features/layout/hamburger-menu";
 
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 import {
   Tooltip,
   TooltipContent,
@@ -748,6 +757,9 @@ export function Sidebar() {
   const [editingTitle, setEditingTitle] = useState("");
   const [isCreatingProject, setIsCreatingProject] = useState(false);
   const [newProjectName, setNewProjectName] = useState("");
+  const [isRenameProjectDialogOpen, setIsRenameProjectDialogOpen] = useState(false);
+  const [projectToRename, setProjectToRename] = useState<Project | null>(null);
+  const [renameProjectName, setRenameProjectName] = useState("");
   const newProjectInputRef = useRef<HTMLInputElement>(null);
 
   // Drag state
@@ -828,6 +840,19 @@ export function Sidebar() {
       refetchProjects();
       refetch();
       toast.success("Project deleted");
+    },
+  });
+
+  const updateProject = trpc.projects.update.useMutation({
+    onSuccess: () => {
+      refetchProjects();
+      setIsRenameProjectDialogOpen(false);
+      setProjectToRename(null);
+      setRenameProjectName("");
+      toast.success("Project renamed");
+    },
+    onError: (error) => {
+      toast.error(`Failed to rename project: ${error.message}`);
     },
   });
 
@@ -1140,6 +1165,40 @@ export function Sidebar() {
     setEditingTitle("");
   };
 
+  const openRenameProjectDialog = (project: Project) => {
+    setProjectToRename(project);
+    setRenameProjectName(project.name);
+    setIsRenameProjectDialogOpen(true);
+  };
+
+  const closeRenameProjectDialog = () => {
+    if (updateProject.isPending) return;
+    setIsRenameProjectDialogOpen(false);
+    setProjectToRename(null);
+    setRenameProjectName("");
+  };
+
+  const handleRenameProject = () => {
+    const trimmedName = renameProjectName.trim();
+    if (!projectToRename) return;
+    if (!trimmedName) {
+      toast.error("Project name cannot be empty");
+      return;
+    }
+    if (trimmedName === projectToRename.name) {
+      closeRenameProjectDialog();
+      return;
+    }
+    updateProject.mutate({ id: projectToRename.id, name: trimmedName });
+  };
+
+  const handleHeaderDoubleClick = (event: ReactMouseEvent<HTMLDivElement>) => {
+    if (!isWindows()) return;
+    const target = event.target as HTMLElement | null;
+    if (target?.closest(".no-drag")) return;
+    window.desktopApi?.maximize?.();
+  };
+
   return (
     <div className="flex flex-col h-full">
       {/* Header - Native titlebar area */}
@@ -1150,6 +1209,7 @@ export function Sidebar() {
           // macOS: leave space for traffic lights (80px padding)
           isMacOS() ? "pl-20" : "",
         )}
+        onDoubleClick={handleHeaderDoubleClick}
       >
         <div className="flex w-full items-center justify-between">
           {/* Left side: Windows has Hamburger + Logo, macOS has spacer */}
@@ -1351,9 +1411,7 @@ export function Sidebar() {
                       setPendingProjectId(project.id);
                       createChat.mutate({ title: "New Chat" });
                     }}
-                    onRenameProject={() => {
-                      toast.info("Rename project coming soon");
-                    }}
+                    onRenameProject={() => openRenameProjectDialog(project)}
                     onDeleteProject={() => deleteProject.mutate({ id: project.id })}
                   />
                 ))}
@@ -1397,6 +1455,57 @@ export function Sidebar() {
           )}
         </div>
       </FadeScrollArea>
+
+      <Dialog
+        open={isRenameProjectDialogOpen}
+        onOpenChange={(open) => {
+          if (!open) {
+            closeRenameProjectDialog();
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle>Rename Project</DialogTitle>
+            <DialogDescription className="sr-only">
+              Enter a new name for your project.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-2">
+            <Input
+              value={renameProjectName}
+              onChange={(event) => setRenameProjectName(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  handleRenameProject();
+                } else if (event.key === "Escape") {
+                  event.preventDefault();
+                  closeRenameProjectDialog();
+                }
+              }}
+              maxLength={100}
+              placeholder="Project name..."
+              autoFocus
+            />
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={closeRenameProjectDialog}
+              disabled={updateProject.isPending}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleRenameProject}
+              disabled={updateProject.isPending || !renameProjectName.trim()}
+            >
+              {updateProject.isPending ? "Saving..." : "Save changes"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Footer */}
       <div className="px-4 py-3 border-t border-border space-y-3">

@@ -18,7 +18,6 @@ import {
   IconMinus,
   IconSquare,
   IconX,
-  IconArrowsDiagonalMinimize2,
 } from "@tabler/icons-react";
 import { ChatQueueProcessor } from "@/features/chat/components/queue-processor";
 import { trpc } from "@/lib/trpc";
@@ -58,8 +57,7 @@ import {
 import { excelSidebarOpenAtom, docSidebarOpenAtom } from "@/lib/atoms";
 import { Sidebar } from "@/features/sidebar/sidebar";
 import { ChatView } from "@/features/chat/chat-view";
-import { GalleryView } from "@/features/gallery/gallery-view";
-import { SettingsPage } from "@/features/settings/settings-page";
+import { ShareSessionButton } from "@/features/chat/share-session-dialog";
 import { useOpenSettingsPage } from "@/features/settings/use-open-settings-page";
 import { TitleBar } from "./title-bar";
 import { cn, isMacOS, isElectron } from "@/lib/utils";
@@ -70,8 +68,6 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { Button } from "@/components/ui/button";
-import { ShortcutsDialog } from "@/features/help/shortcuts-dialog";
-import { CommandKDialog } from "@/features/chat/command-k-dialog";
 import { useHotkeys } from "react-hotkeys-hook";
 import { useUniverTheme } from "@/features/univer/use-univer-theme";
 import {
@@ -79,7 +75,6 @@ import {
   exportToExcelBuffer,
 } from "@/features/univer/excel-exchange";
 import { toast } from "sonner";
-import { FileVersionHistoryPanel } from "@/components/file-version-history-panel-compact";
 import { useCacheMaintenance } from "@/hooks/use-cache-maintenance";
 import { VersionPreviewBanner } from "@/components/version-preview-banner";
 
@@ -132,6 +127,31 @@ const PdfSidebar = lazy(() =>
     default: m.PdfSidebar,
   }))
 );
+const GalleryView = lazy(() =>
+  import("@/features/gallery/gallery-view").then((m) => ({
+    default: m.GalleryView,
+  }))
+);
+const SettingsPage = lazy(() =>
+  import("@/features/settings/settings-page").then((m) => ({
+    default: m.SettingsPage,
+  }))
+);
+const ShortcutsDialog = lazy(() =>
+  import("@/features/help/shortcuts-dialog").then((m) => ({
+    default: m.ShortcutsDialog,
+  }))
+);
+const CommandKDialog = lazy(() =>
+  import("@/features/chat/command-k-dialog").then((m) => ({
+    default: m.CommandKDialog,
+  }))
+);
+const FileVersionHistoryPanel = lazy(() =>
+  import("@/components/file-version-history-panel-compact").then((m) => ({
+    default: m.FileVersionHistoryPanel,
+  }))
+);
 const settingsTabs: SettingsTab[] = [
   "account",
   "archived-chats",
@@ -169,6 +189,14 @@ export function MainLayout() {
   const zenPrevBoundsRef = useRef<{
     x: number;
     y: number;
+    width: number;
+    height: number;
+  } | null>(null);
+  const zenPrevMinSizeRef = useRef<{
+    width: number;
+    height: number;
+  } | null>(null);
+  const zenPrevMaxSizeRef = useRef<{
     width: number;
     height: number;
   } | null>(null);
@@ -790,32 +818,109 @@ export function MainLayout() {
   );
   // Zen Mode: resize window when toggling
   useEffect(() => {
+    if (!isElectron() || !isMacOS()) return;
+
+    const html = document.documentElement;
+    const body = document.body;
+
+    html.classList.toggle("zen-vibrancy-active", zenMode);
+    body.classList.toggle("zen-vibrancy-active", zenMode);
+
+    void window.desktopApi?.setZenModeVibrancy?.(zenMode);
+
+    return () => {
+      html.classList.remove("zen-vibrancy-active");
+      body.classList.remove("zen-vibrancy-active");
+    };
+  }, [zenMode]);
+
+  useEffect(() => {
+    if (!isElectron() || !isMacOS()) return;
+
+    return () => {
+      document.documentElement.classList.remove("zen-vibrancy-active");
+      document.body.classList.remove("zen-vibrancy-active");
+      void window.desktopApi?.setZenModeVibrancy?.(false);
+    };
+  }, []);
+
+  useEffect(() => {
     const api = window.desktopApi;
     if (!api?.getBounds || !api?.setBounds) return;
 
-    const ZEN_WIDTH = 220;
-    const ZEN_MIN_HEIGHT = 600;
+    const ZEN_WIDTH = 420;
+    const ZEN_HEIGHT = 750;
+    const ZEN_MAX_GROWTH = 100;
+    const ZEN_MAX_WIDTH = ZEN_WIDTH + ZEN_MAX_GROWTH;
+    const ZEN_MAX_HEIGHT = ZEN_HEIGHT + ZEN_MAX_GROWTH;
+    let cancelled = false;
 
     if (zenMode) {
       // Entering zen mode: save current bounds, resize window to narrow
       (async () => {
-        const bounds = await api.getBounds();
+        const [bounds, minSize, maxSize] = await Promise.all([
+          api.getBounds(),
+          api.getMinimumSize?.(),
+          api.getMaximumSize?.(),
+        ]);
+        if (cancelled) return;
         if (!bounds) return;
         zenPrevBoundsRef.current = bounds;
 
-        const height = Math.max(bounds.height, ZEN_MIN_HEIGHT);
+        if (minSize) {
+          zenPrevMinSizeRef.current = minSize;
+          await api.setMinimumSize?.({
+            width: ZEN_WIDTH,
+            height: minSize.height,
+          });
+          if (cancelled) return;
+        }
+
+        if (maxSize) {
+          zenPrevMaxSizeRef.current = maxSize;
+          await api.setMaximumSize?.({
+            width: ZEN_MAX_WIDTH,
+            height: ZEN_MAX_HEIGHT,
+          });
+          if (cancelled) return;
+        }
+
+        const height = ZEN_HEIGHT;
         // Center on current position
         const x = bounds.x + Math.round((bounds.width - ZEN_WIDTH) / 2);
         const y = bounds.y + Math.round((bounds.height - height) / 2);
 
+        if (cancelled) return;
         await api.setBounds({ x, y, width: ZEN_WIDTH, height });
       })();
-    } else if (zenPrevBoundsRef.current) {
-      // Exiting zen mode: restore previous bounds
-      const prev = zenPrevBoundsRef.current;
-      zenPrevBoundsRef.current = null;
-      api.setBounds(prev);
+    } else {
+      // Exiting zen mode: restore previous window constraints and bounds
+      (async () => {
+        const prevMinSize = zenPrevMinSizeRef.current;
+        zenPrevMinSizeRef.current = null;
+        if (prevMinSize) {
+          await api.setMinimumSize?.(prevMinSize);
+          if (cancelled) return;
+        }
+
+        const prevMaxSize = zenPrevMaxSizeRef.current;
+        zenPrevMaxSizeRef.current = null;
+        if (prevMaxSize) {
+          await api.setMaximumSize?.(prevMaxSize);
+          if (cancelled) return;
+        }
+
+        const prev = zenPrevBoundsRef.current;
+        zenPrevBoundsRef.current = null;
+        if (prev) {
+          await api.setBounds(prev);
+        }
+      })();
     }
+
+    return () => {
+      cancelled = true;
+    };
   }, [zenMode]);
 
   // Zen Mode toggle: Cmd+Shift+Z (Mac) / Ctrl+Shift+Z (Windows)
@@ -834,45 +939,61 @@ export function MainLayout() {
   // === ZEN MODE LAYOUT ===
   if (zenMode) {
     const showTrafficLights = isMacOS() && isElectron();
+    const isMacDesktop = isMacOS() && isElectron();
     const showWindowControls = isElectron() && !isMacOS();
 
     return (
-      <div className="h-screen w-screen bg-background relative overflow-hidden">
+      <div
+        className={cn(
+          "h-screen w-screen relative overflow-hidden",
+          isMacDesktop ? "bg-transparent" : "bg-background"
+        )}
+      >
         <ChatQueueProcessor />
-        <ShortcutsDialog />
-        <CommandKDialog />
+        <Suspense fallback={null}><ShortcutsDialog /></Suspense>
+        <Suspense fallback={null}><CommandKDialog /></Suspense>
 
         {/* Zen Title Bar */}
         <div
-          className="h-9 bg-background shrink-0 px-2 flex items-center relative drag-region"
+          className={cn(
+            "h-9 shrink-0 px-2 flex items-center relative drag-region",
+            isMacDesktop
+              ? "bg-background/60 backdrop-blur-2xl border-b border-border/50"
+              : "bg-background"
+          )}
           style={{ WebkitAppRegion: "drag" } as CSSProperties}
         >
           {/* macOS traffic light space */}
           {showTrafficLights && <div className="w-[70px] shrink-0" />}
 
+          {/* Push exit button to the right on macOS */}
+          {isMacDesktop && <div className="flex-1 drag-region" aria-hidden />}
+
           {/* Back to App button */}
           <div
-            className="flex items-center no-drag pointer-events-auto"
+            className="flex items-center gap-2 no-drag pointer-events-auto"
             style={{ WebkitAppRegion: "no-drag" } as CSSProperties}
           >
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
                   variant="ghost"
-                  size="sm"
-                  className="h-7 px-2.5 gap-1.5 text-muted-foreground hover:text-foreground rounded-lg"
+                  size="icon"
+                  className="h-7 w-7 text-muted-foreground hover:text-foreground rounded-lg"
                   onClick={() => setZenMode(false)}
+                  aria-label="Exit Zen Mode"
                 >
                   <IconArrowLeft size={14} />
-                  <span className="text-xs font-medium">App</span>
                 </Button>
               </TooltipTrigger>
               <TooltipContent side="bottom">Exit Zen Mode</TooltipContent>
             </Tooltip>
+
+            <ShareSessionButton styleVariant="zen" />
           </div>
 
           {/* Spacer */}
-          <div className="flex-1 drag-region" aria-hidden />
+          {!isMacDesktop && <div className="flex-1 drag-region" aria-hidden />}
 
           {/* Window controls (Windows/Linux) */}
           {showWindowControls && (
@@ -954,8 +1075,8 @@ export function MainLayout() {
           activeTab === "settings"
         }
       />
-      <ShortcutsDialog />
-      <CommandKDialog />
+      <Suspense fallback={null}><ShortcutsDialog /></Suspense>
+      <Suspense fallback={null}><CommandKDialog /></Suspense>
 
       <div className="flex h-full w-full overflow-hidden relative">
         {/* Sidebar & Main Content (Chat / Gallery) */}
@@ -1079,7 +1200,7 @@ export function MainLayout() {
 
               <div className="flex-1 flex flex-col min-w-0 overflow-hidden px-2 pb-2">
                 <div className="flex-1 flex flex-col min-w-0 overflow-hidden rounded-2xl border border-sidebar-border/40 bg-sidebar">
-                  {activeTab === "chat" ? <ChatView /> : <GalleryView />}
+                  {activeTab === "chat" ? <ChatView /> : <Suspense fallback={<PanelLoadingFallback />}><GalleryView /></Suspense>}
                 </div>
               </div>
             </div>
@@ -1105,7 +1226,7 @@ export function MainLayout() {
         )}
 
         {/* Settings Page */}
-        {activeTab === "settings" && <SettingsPage />}
+        {activeTab === "settings" && <Suspense fallback={<PanelLoadingFallback />}><SettingsPage /></Suspense>}
 
         {/*
          * Excel Tab - Persistent file system with sidebar
@@ -1609,20 +1730,22 @@ export function MainLayout() {
         )}
 
         {/* Version History Panel - Compact Design */}
-        <FileVersionHistoryPanel
-          fileId={versionHistoryFileId}
-          fileType={versionHistoryFileType}
-          open={versionHistoryOpen}
-          onOpenChange={(open) => {
-            setVersionHistoryOpen(open);
-            if (!open) {
-              setVersionHistoryFileId(null);
-              // Reset preview when closing
-              handlePreviewVersion(null);
-            }
-          }}
-          onPreviewVersion={handlePreviewVersion}
-        />
+        <Suspense fallback={null}>
+          <FileVersionHistoryPanel
+            fileId={versionHistoryFileId}
+            fileType={versionHistoryFileType}
+            open={versionHistoryOpen}
+            onOpenChange={(open) => {
+              setVersionHistoryOpen(open);
+              if (!open) {
+                setVersionHistoryFileId(null);
+                // Reset preview when closing
+                handlePreviewVersion(null);
+              }
+            }}
+            onPreviewVersion={handlePreviewVersion}
+          />
+        </Suspense>
       </div>
     </div>
   );

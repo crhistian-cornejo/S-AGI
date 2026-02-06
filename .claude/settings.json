@@ -3,5 +3,9 @@
     "allow": [
       "WebFetch(domain:docs.univer.ai)"
     ]
-  }
+  },
+  "env": {
+    "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1"
+  
+    }
 }

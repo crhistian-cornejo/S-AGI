@@ -39,7 +39,12 @@ export const selectedModelAtom = atomWithStorage<string>(
   DEFAULT_MODELS.openai
 )
 
-/** Tavily API key for web search (stored in renderer for now) */
+/**
+ * Tavily API key for web search (stored in renderer for now)
+ * TODO: SECURITY - This API key is stored in renderer localStorage which is insecure.
+ * It should be moved to the main process with secure storage (e.g., Electron's safeStorage API)
+ * to prevent exposure to renderer process and potential XSS attacks.
+ */
 export const tavilyApiKeyAtom = atomWithStorage<string | null>(
   'tavily-api-key',
   null

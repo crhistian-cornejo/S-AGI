@@ -1651,7 +1651,7 @@ export const ChatMarkdownRenderer = memo(function ChatMarkdownRenderer({
 
           // Images
           img: ({ src, alt, ...props }: any) => (
-            <img src={src} alt={alt} loading="lazy" {...props} />
+            <img src={src} alt={alt} loading="lazy" decoding="async" {...props} />
           ),
         }}
       >

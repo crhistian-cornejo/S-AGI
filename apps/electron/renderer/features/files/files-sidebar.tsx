@@ -323,8 +323,8 @@ function FileItem({
               )}
             </DropdownMenuItem>
             <DropdownMenuItem
+              variant="destructive"
               onClick={onDelete}
-              className="text-destructive focus:text-destructive"
             >
               <IconTrash size={14} className="mr-2" />
               Eliminar

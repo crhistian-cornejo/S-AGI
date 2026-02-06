@@ -20,6 +20,10 @@ interface StreamingStatusState {
 
   // Get all chats that are ready (not streaming)
   getReadyChats: () => string[]
+
+  // Cleanup methods to prevent unbounded growth
+  cleanup: (chatId: string) => void
+  clearAll: () => void
 }
 
 export const useStreamingStatusStore = create<StreamingStatusState>()(
@@ -57,6 +61,20 @@ export const useStreamingStatusStore = create<StreamingStatusState>()(
       return Object.entries(statuses)
         .filter(([_, status]) => status === 'ready')
         .map(([chatId]) => chatId)
+    },
+
+    // Remove status for a deleted chat to prevent memory leak
+    cleanup: (chatId) => {
+      set((state) => {
+        const newStatuses = { ...state.statuses }
+        delete newStatuses[chatId]
+        return { statuses: newStatuses }
+      })
+    },
+
+    // Clear all statuses (useful for logout or full reset)
+    clearAll: () => {
+      set({ statuses: {} })
     },
   }))
 )

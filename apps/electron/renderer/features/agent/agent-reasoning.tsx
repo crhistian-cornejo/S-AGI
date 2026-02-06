@@ -240,17 +240,9 @@ export function AgentReasoning({
     return parseReasoningContent(summary || content);
   }, [summary, content]);
 
-  // If title is extracted from content, remove it from display text to avoid duplication
-  const displayText = summary || content;
-  const lines = displayText.split("\n").map((l) => l.trim());
-  const hasTitleInContent =
-    parsedReasoning.title &&
-    lines.length > 0 &&
-    lines[0] === parsedReasoning.title.trim();
-  const contentWithoutTitle = hasTitleInContent
-    ? lines.slice(1).join("\n").trim()
-    : displayText;
-  const hasContent = contentWithoutTitle.length > 0;
+  // Always show full reasoning content in the expanded area
+  const displayText = (summary || content).trim();
+  const hasContent = displayText.length > 0;
   const hasActions = actions.length > 0;
   const hasWebSearches = webSearches.length > 0;
   const hasAnnotations = annotations.length > 0;
@@ -263,8 +255,15 @@ export function AgentReasoning({
   if (!canToggle && !isStreaming) return null;
 
   // Use parsed title as header, or fallback to default
-  const headerLabel =
-    parsedReasoning.title || (isStreaming ? "Pensando..." : "Razonamiento");
+  // During streaming: show the LATEST reasoning step (progress indicator)
+  // After streaming: show the first line as summary title
+  const headerLabel = (() => {
+    if (isStreaming) {
+      const lines = (summary || content).split("\n").map(l => l.trim()).filter(l => l.length > 0);
+      return lines[lines.length - 1] || "Pensando...";
+    }
+    return parsedReasoning.title || "Razonamiento";
+  })();
 
   const normalizedActions = hasWebSearches
     ? actions.filter((a) => a.type !== "web-search")
@@ -365,7 +364,7 @@ export function AgentReasoning({
                       : "max-h-20 overflow-hidden"
                   )}
                 >
-                  <CompactMarkdownRenderer content={contentWithoutTitle} />
+                  <CompactMarkdownRenderer content={displayText} />
                 </div>
               </div>
             )}

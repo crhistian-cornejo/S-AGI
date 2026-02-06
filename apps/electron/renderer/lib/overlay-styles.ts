@@ -37,15 +37,16 @@ export const overlayItemBase =
     "flex items-center gap-1.5 min-h-[32px] py-[6px] px-2 mx-1 rounded-lg text-sm cursor-default select-none outline-none"
 
 /** Item hover state */
-export const overlayItemHover = "hover:bg-accent hover:text-accent-foreground"
+export const overlayItemHover =
+    "hover:bg-accent hover:text-accent-foreground dark:hover:bg-sidebar-accent dark:hover:text-sidebar-accent-foreground"
 
 /** Item focus state (keyboard navigation) */
 export const overlayItemFocus =
-    "focus:bg-accent focus:text-accent-foreground"
+    "focus:bg-accent focus:text-accent-foreground dark:focus:bg-sidebar-accent dark:focus:text-sidebar-accent-foreground"
 
 /** Radix data-highlighted state (used by DropdownMenu, Select, ContextMenu) */
 export const overlayItemHighlighted =
-    "data-[highlighted]:bg-accent data-[highlighted]:text-accent-foreground"
+    "data-[highlighted]:bg-accent data-[highlighted]:text-accent-foreground dark:data-[highlighted]:bg-sidebar-accent dark:data-[highlighted]:text-sidebar-accent-foreground"
 
 /** Item disabled state */
 export const overlayItemDisabled =
@@ -58,7 +59,8 @@ export const overlayItemTransition = "transition-colors"
 export const overlayItem = `${overlayItemBase} ${overlayItemHover} ${overlayItemFocus} ${overlayItemHighlighted} ${overlayItemDisabled} ${overlayItemTransition}`
 
 /** Destructive item variant */
-export const overlayItemDestructive = "text-destructive focus:bg-destructive/10 focus:text-destructive data-[highlighted]:bg-destructive/10 data-[highlighted]:text-destructive"
+export const overlayItemDestructive =
+    "text-destructive hover:bg-destructive/10 hover:text-destructive focus:bg-destructive/10 focus:text-destructive data-[highlighted]:bg-destructive/10 data-[highlighted]:text-destructive"
 
 /** Item with icon styles (includes svg handling) */
 export const overlayItemWithIcon = `${overlayItem} [&_svg]:pointer-events-none [&_svg]:shrink-0`
@@ -69,7 +71,7 @@ export const overlayItemWithIcon = `${overlayItem} [&_svg]:pointer-events-none [
 
 /** Sub-trigger open state */
 export const overlaySubTriggerOpen =
-    "data-[state=open]:bg-accent/50"
+    "data-[state=open]:bg-accent/50 dark:data-[state=open]:bg-sidebar-accent"
 
 /** Combined sub-trigger styles */
 export const overlaySubTrigger = `${overlayItemWithIcon} ${overlaySubTriggerOpen}`
@@ -80,7 +82,7 @@ export const overlaySubTrigger = `${overlayItemWithIcon} ${overlaySubTriggerOpen
 
 /** Checkbox/Radio item base (with left padding for indicator) */
 export const overlayCheckableItem =
-    "relative flex items-center gap-1.5 min-h-[32px] py-[6px] pl-8 pr-2 mx-1 rounded-lg text-sm cursor-default select-none outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground data-[highlighted]:bg-accent data-[highlighted]:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50"
+    "relative flex items-center gap-1.5 min-h-[32px] py-[6px] pl-8 pr-2 mx-1 rounded-lg text-sm cursor-default select-none outline-none transition-colors hover:bg-accent hover:text-accent-foreground dark:hover:bg-sidebar-accent dark:hover:text-sidebar-accent-foreground focus:bg-accent focus:text-accent-foreground dark:focus:bg-sidebar-accent dark:focus:text-sidebar-accent-foreground data-[highlighted]:bg-accent data-[highlighted]:text-accent-foreground dark:data-[highlighted]:bg-sidebar-accent dark:data-[highlighted]:text-sidebar-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50"
 
 /** Indicator container (positioned left) */
 export const overlayItemIndicator =

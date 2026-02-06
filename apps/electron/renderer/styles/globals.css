@@ -102,26 +102,9 @@
     text-size-adjust: 100%;
   }
 
-  /* Optimize animations for GPU */
-  *,
-  *::before,
-  *::after {
-    /* Use GPU for transforms and opacity changes */
-    transform: translateZ(0);
-    backface-visibility: hidden;
-  }
-
-  /* Reset transform for elements that don't need GPU layer */
-  body,
-  main,
-  article,
-  section,
-  p,
-  span,
-  a {
-    transform: none;
-    backface-visibility: visible;
-  }
+  /* GPU acceleration applied selectively via Tailwind's transform-gpu utility.
+     Avoid global translateZ(0) which creates compositor layers for EVERY element,
+     overwhelming VRAM (50-200MB wasted). Only promote elements that animate. */
 
   /* Optimize scrollable containers */
   [data-radix-scroll-area-viewport],
@@ -158,6 +141,14 @@
     font-family: var(--font-family);
     font-size: var(--font-size-primary);
     font-feature-settings: "rlig" 1, "calt" 1;
+  }
+
+  /* macOS Zen Mode: allow NSVisualEffectView (vibrancy) to show through */
+  html.zen-vibrancy-active,
+  body.zen-vibrancy-active,
+  body.zen-vibrancy-active #root {
+    background: transparent !important;
+    background-color: transparent !important;
   }
 
   /* Secondary text size utility */

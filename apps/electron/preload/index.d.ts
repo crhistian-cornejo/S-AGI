@@ -42,12 +42,24 @@ export interface DesktopApi {
     width: number;
     height: number;
   } | null>;
+  getMinimumSize: () => Promise<{
+    width: number;
+    height: number;
+  } | null>;
+  getMaximumSize: () => Promise<{
+    width: number;
+    height: number;
+  } | null>;
   setBounds: (bounds: {
     x?: number;
     y?: number;
     width?: number;
     height?: number;
   }) => Promise<void>;
+  setMinimumSize: (size: { width: number; height: number }) => Promise<void>;
+  setMaximumSize: (size: { width: number; height: number }) => Promise<void>;
+  setWindowButtonVisibility: (visible: boolean) => Promise<void>;
+  setZenModeVibrancy: (enabled: boolean) => Promise<boolean>;
   onMaximizeChange: (callback: (maximized: boolean) => void) => () => void;
   getVersion: () => Promise<string>;
   setSession: (

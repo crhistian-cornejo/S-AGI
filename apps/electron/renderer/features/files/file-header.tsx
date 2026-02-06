@@ -372,8 +372,8 @@ export function FileHeader({
                             {file.is_archived ? "Desarchivar" : "Archivar"}
                         </DropdownMenuItem>
                         <DropdownMenuItem
+                            variant="destructive"
                             onClick={onDelete}
-                            className="text-destructive focus:text-destructive"
                         >
                             <IconTrash size={16} className="mr-2" />
                             Eliminar

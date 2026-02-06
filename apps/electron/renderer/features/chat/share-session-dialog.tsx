@@ -310,9 +310,14 @@ export function ShareSessionDialog({
 /**
  * Share Session Button - Use this in chat header
  */
-export function ShareSessionButton() {
+interface ShareSessionButtonProps {
+  styleVariant?: 'default' | 'zen'
+}
+
+export function ShareSessionButton({ styleVariant = 'default' }: ShareSessionButtonProps) {
   const [open, setOpen] = useState(false)
   const chatId = useAtomValue(selectedChatIdAtom)
+  const isZenStyle = styleVariant === 'zen'
   
   // Get current chat data
   const { data: chat } = trpc.chats.get.useQuery(
@@ -331,13 +336,18 @@ export function ShareSessionButton() {
       <Tooltip>
         <TooltipTrigger asChild>
           <Button
-            variant="outline"
+            variant={isZenStyle ? 'ghost' : 'outline'}
             size="sm"
             onClick={() => setOpen(true)}
-            className="h-8 px-3 gap-1.5 bg-background/80 backdrop-blur-sm border-border/50 hover:bg-accent hover:border-border text-sm font-medium"
+            className={
+              isZenStyle
+                ? 'h-7 w-7 p-0 text-muted-foreground hover:text-foreground rounded-lg'
+                : 'h-8 px-3 gap-1.5 bg-background/80 backdrop-blur-sm border-border/50 hover:bg-accent hover:border-border text-sm font-medium'
+            }
+            aria-label="Compartir"
           >
             <IconShare size={14} />
-            Compartir
+            {!isZenStyle && 'Compartir'}
           </Button>
         </TooltipTrigger>
         <TooltipContent side="bottom">

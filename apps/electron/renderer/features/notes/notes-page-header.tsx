@@ -386,7 +386,7 @@ export function NotesPageHeader({ className }: NotesPageHeaderProps) {
               <DropdownMenuItem>Duplicate</DropdownMenuItem>
               <DropdownMenuItem>Move to</DropdownMenuItem>
               <DropdownMenuSeparator />
-              <DropdownMenuItem className="text-destructive">
+              <DropdownMenuItem variant="destructive">
                 Delete
               </DropdownMenuItem>
             </DropdownMenuContent>

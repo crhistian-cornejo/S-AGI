@@ -176,15 +176,39 @@ export const ChatInput = memo(function ChatInput({
     }));
   }, [documentUpload.files]);
 
+  const resizeTextareaToContent = useCallback(() => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+
+    textarea.style.height = "auto";
+    textarea.style.height = `${Math.min(textarea.scrollHeight, 300)}px`;
+  }, []);
+
   // Auto-resize textarea when value changes
   // biome-ignore lint/correctness/useExhaustiveDependencies: value is intentionally in deps to trigger resize
   useEffect(() => {
-    const textarea = textareaRef.current;
-    if (textarea) {
-      textarea.style.height = "auto";
-      textarea.style.height = `${Math.min(textarea.scrollHeight, 300)}px`;
-    }
-  }, [value]);
+    resizeTextareaToContent();
+  }, [value, resizeTextareaToContent]);
+
+  // Recalculate textarea height when window size changes (e.g. exit Zen Mode)
+  useEffect(() => {
+    const handleResize = () => resizeTextareaToContent();
+    window.addEventListener("resize", handleResize);
+    return () => {
+      window.removeEventListener("resize", handleResize);
+    };
+  }, [resizeTextareaToContent]);
+
+  // Ensure a second pass after Zen toggle once layout/bounds settle
+  useEffect(() => {
+    const rafId = window.requestAnimationFrame(() => resizeTextareaToContent());
+    const timeoutId = window.setTimeout(() => resizeTextareaToContent(), 280);
+
+    return () => {
+      window.cancelAnimationFrame(rafId);
+      window.clearTimeout(timeoutId);
+    };
+  }, [zenMode, resizeTextareaToContent]);
 
   // Focus textarea on mount
   useEffect(() => {
@@ -992,23 +1016,14 @@ export const ChatInput = memo(function ChatInput({
                     </div>
                   </TooltipTrigger>
                   <TooltipContent className="flex flex-col gap-1.5">
-                    <p>
-                      Modo:{" "}
-                      {responseMode === "instant"
-                        ? "Instant"
-                        : responseMode === "thinking"
-                          ? "Thinking"
-                          : "Auto"}{" "}
-                      (velocidad vs calidad)
-                    </p>
                     <p className="text-xs text-muted-foreground">
-                      Instant→rápido, Thinking→2 pasos, Auto→elige por
-                      heurísticas. El effort se fija por modo.
+                      Instant = rapido. Thinking = mas analisis. Auto =
+                      equilibrio.
                     </p>
                     <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                      Cycle{" "}
-                      <kbd className="pointer-events-none inline-flex h-5 select-none items-center gap-1 rounded border bg-muted px-1.5 font-mono text-[10px] font-medium text-muted-foreground">
-                        {isMacOS() ? "⌃" : "Ctrl"} Tab
+                      Atajo
+                      <kbd className="pointer-events-none inline-flex h-5 select-none items-center gap-0 rounded border bg-muted px-1 font-mono text-[10px] font-medium text-muted-foreground">
+                        {isMacOS() ? "⌃Tab" : "Ctrl+Tab"}
                       </kbd>
                     </p>
                   </TooltipContent>

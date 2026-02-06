@@ -69,6 +69,7 @@ import { useSendCallbackStore } from "./stores/send-callback-store";
 import { generateQueueId, createQueueItem } from "./lib/queue-utils";
 import { useOpenSettingsPage } from "@/features/settings/use-open-settings-page";
 import { ShareSessionButton } from "@/features/chat/share-session-dialog";
+import zenBackgroundUrl from "@/assets/zen-background.png";
 
 export function ChatView() {
   // Sound effects preference
@@ -685,6 +686,10 @@ export function ChatView() {
               }
 
               case "reasoning-summary-done": {
+                // Add newline separator so next summary starts on a new line
+                // This prevents titles from concatenating into one long string
+                fullReasoning += "\n";
+                setStreamingReasoning((prev) => prev + "\n");
                 setIsReasoning(false);
                 break;
               }
@@ -1280,7 +1285,7 @@ export function ChatView() {
           // Always pass reasoning configuration
           reasoning: {
             effort: reasoningEffort,
-            summary: "auto", // Required to receive reasoning summary events
+            summary: "concise", // Always generate reasoning summaries
           },
           // Enable file search if there are files in vector store OR if targeting a specific document
           nativeTools:
@@ -1702,11 +1707,24 @@ export function ChatView() {
   // Check if this is an empty chat (no messages and not streaming)
   const isEmptyChat =
     (!messages || messages.length === 0) && !isStreaming && !lastReasoning;
+  const showZenEmptyBackground = zenMode && isEmptyChat;
 
   // Empty chat state - centered welcome + input
   if (isEmptyChat) {
     return (
-      <div className="flex-1 flex flex-col items-center justify-center overflow-hidden relative px-4 bg-[hsl(var(--chat-background))]">
+      <div
+        className="flex-1 flex flex-col items-center justify-center overflow-hidden relative px-4 bg-[hsl(var(--chat-background))]"
+        style={
+          showZenEmptyBackground
+            ? {
+                backgroundImage: `linear-gradient(to bottom, hsl(var(--chat-background) / 0.42), hsl(var(--chat-background) / 0.7)), url(${zenBackgroundUrl})`,
+                backgroundSize: "cover",
+                backgroundPosition: "center",
+                backgroundRepeat: "no-repeat",
+              }
+            : undefined
+        }
+      >
         <div className="w-full max-w-[740px] flex flex-col items-center">
           {/* Welcome message */}
           <div className="flex flex-col items-center text-muted-foreground mb-8 animate-in fade-in duration-700">
@@ -1759,10 +1777,12 @@ export function ChatView() {
         {/* Top Fade Overlay */}
         <div className="absolute top-0 left-0 right-0 h-12 bg-gradient-to-b from-[hsl(var(--chat-background))] via-[hsl(var(--chat-background)/0.8)] to-transparent pointer-events-none z-10" />
 
-        {/* Share Session Button - Top Right Corner */}
-        <div className="absolute top-2 right-4 z-20">
-          <ShareSessionButton />
-        </div>
+        {/* Share Session Button - Top Right Corner (non-zen only) */}
+        {!zenMode && (
+          <div className="absolute top-2 right-4 z-20">
+            <ShareSessionButton />
+          </div>
+        )}
 
         <ScrollArea className="h-full w-full" ref={scrollContainerRef}>
           <div className="pb-16 w-full overflow-hidden">

@@ -27,6 +27,30 @@ interface DesktopApi {
     close: () => Promise<void>
     quit?: () => Promise<void>
     isMaximized: () => Promise<boolean>
+    getBounds: () => Promise<{
+        x: number
+        y: number
+        width: number
+        height: number
+    } | null>
+    setBounds: (bounds: {
+        x?: number
+        y?: number
+        width?: number
+        height?: number
+    }) => Promise<void>
+    getMinimumSize?: () => Promise<{
+        width: number
+        height: number
+    } | null>
+    getMaximumSize?: () => Promise<{
+        width: number
+        height: number
+    } | null>
+    setMinimumSize?: (size: { width: number; height: number }) => Promise<void>
+    setMaximumSize?: (size: { width: number; height: number }) => Promise<void>
+    setWindowButtonVisibility?: (visible: boolean) => Promise<void>
+    setZenModeVibrancy?: (enabled: boolean) => Promise<boolean>
     onMaximizeChange: (callback: (maximized: boolean) => void) => () => void
     getVersion: () => Promise<string>
     getTheme: () => Promise<'system' | 'light' | 'dark'>

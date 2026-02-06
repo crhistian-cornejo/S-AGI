@@ -26,6 +26,10 @@ interface MessageQueueState {
   popItem: (chatId: string, itemId: string) => ChatQueueItem | null
   // Add item to front of queue (for error recovery)
   prependItem: (chatId: string, item: ChatQueueItem) => void
+
+  // Cleanup methods to prevent unbounded growth
+  cleanup: (chatId: string) => void
+  clearAll: () => void
 }
 
 export const useMessageQueueStore = create<MessageQueueState>()(
@@ -96,6 +100,20 @@ export const useMessageQueueStore = create<MessageQueueState>()(
           [chatId]: [item, ...(state.queues[chatId] || [])],
         },
       }))
+    },
+
+    // Remove queue for a deleted chat to prevent memory leak
+    cleanup: (chatId) => {
+      set((state) => {
+        const newQueues = { ...state.queues }
+        delete newQueues[chatId]
+        return { queues: newQueues }
+      })
+    },
+
+    // Clear all queues (useful for logout or full reset)
+    clearAll: () => {
+      set({ queues: {} })
     },
   }))
 )

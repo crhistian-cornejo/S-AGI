@@ -642,6 +642,15 @@ export const MessageList = memo(function MessageList({
                   : message.metadata?.reasoning;
               return reasoning;
             })()}
+            reasoningDefaultCollapsed={
+              // Don't collapse reasoning for the most recent message that was just streamed
+              !(
+                !isLoading &&
+                message.role === "assistant" &&
+                index === messages.length - 1 &&
+                !!lastReasoning
+              )
+            }
           />
         </div>
       ))}
@@ -734,10 +743,12 @@ const MessageItem = memo(function MessageItem({
   message,
   onViewArtifact,
   reasoning,
+  reasoningDefaultCollapsed = true,
 }: {
   message: Message;
   onViewArtifact?: (id: string) => void;
   reasoning?: string;
+  reasoningDefaultCollapsed?: boolean;
 }) {
   const isUser = message.role === "user";
   const content = parseContent(message.content);
@@ -916,7 +927,7 @@ const MessageItem = memo(function MessageItem({
           <AgentReasoning
             content={reasoning}
             isStreaming={false}
-            defaultCollapsed
+            defaultCollapsed={reasoningDefaultCollapsed}
             durationMs={message.metadata?.durationMs}
             actions={message.metadata?.actions}
             annotations={message.metadata?.annotations}

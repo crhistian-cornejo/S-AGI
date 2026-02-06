@@ -206,17 +206,33 @@ export default defineConfig({
                             if (id.includes('@radix-ui')) {
                                 return 'vendor-radix';
                             }
-                            // Charts (recharts is heavy)
+                            // Charts (recharts + d3 - depends on React, keep together)
                             if (id.includes('recharts') || id.includes('d3-')) {
-                                return 'vendor-charts';
+                                return 'vendor-react';
                             }
-                            // Shiki (syntax highlighting)
+                            // Shiki (syntax highlighting - shares deps with React ecosystem)
                             if (id.includes('shiki') || id.includes('@shikijs')) {
-                                return 'vendor-shiki';
+                                return 'vendor-react';
                             }
                             // Univer (spreadsheets)
                             if (id.includes('@univerjs')) {
                                 return 'vendor-univer';
+                            }
+                            // Terminal emulator (no circular deps - standalone)
+                            if (id.includes('@xterm') || id.includes('xterm')) {
+                                return 'vendor-xterm';
+                            }
+                            // PDF engine - PDFium WASM (standalone, no React dependency)
+                            if (id.includes('@embedpdf') || id.includes('embedpdf')) {
+                                return 'vendor-pdf';
+                            }
+                            // Export utilities (standalone)
+                            if (id.includes('html2canvas') || id.includes('jspdf')) {
+                                return 'vendor-export';
+                            }
+                            // Icon library (standalone SVGs)
+                            if (id.includes('@tabler/icons')) {
+                                return 'vendor-icons';
                             }
                         }
                     }

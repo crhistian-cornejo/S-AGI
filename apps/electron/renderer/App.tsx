@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { Provider as JotaiProvider, useSetAtom } from "jotai";
+import { Provider as JotaiProvider, useAtomValue, useSetAtom } from "jotai";
 import { ThemeProvider, useTheme } from "next-themes";
 import { Toaster } from "sonner";
 import { TRPCProvider, trpc } from "./lib/trpc";
@@ -22,6 +22,7 @@ import {
   sidebarOpenAtom,
   activeTabAtom,
   pendingQuickPromptMessageAtom,
+  zenModeAtom,
 } from "./lib/atoms";
 import { toast } from "sonner";
 
@@ -201,6 +202,24 @@ function QuickPromptHandler() {
   return null;
 }
 
+function AppViewport() {
+  const zenMode = useAtomValue(zenModeAtom);
+
+  return (
+    <div
+      data-sagi-app
+      className="h-screen w-screen bg-background text-foreground overflow-hidden"
+      style={{ minWidth: zenMode ? "420px" : "835px" }}
+    >
+      <AuthGuard>
+        <OnboardingGuard>
+          <MainLayout />
+        </OnboardingGuard>
+      </AuthGuard>
+    </div>
+  );
+}
+
 /**
  * Main App component with all providers
  */
@@ -227,17 +246,7 @@ export function App() {
             <QuickPromptHandler />
             <TooltipProvider delayDuration={50} skipDelayDuration={0}>
               <OAuthCallbackHandler />
-              <div
-                data-sagi-app
-                className="h-screen w-screen bg-background text-foreground overflow-hidden"
-                style={{ minWidth: "835px" }}
-              >
-                <AuthGuard>
-                  <OnboardingGuard>
-                    <MainLayout />
-                  </OnboardingGuard>
-                </AuthGuard>
-              </div>
+              <AppViewport />
               <AuthDialog />
               <AboutDialog />
               <ThemedToaster />

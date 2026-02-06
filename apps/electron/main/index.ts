@@ -27,7 +27,7 @@ import { registerSecurityIpc } from "./lib/security/ipc";
 import { getFileManager } from "./lib/file-manager/file-manager";
 import { lockSensitiveNow } from "./lib/security/sensitive-lock";
 import { getPreferencesStore } from "./lib/preferences-store";
-import { startAIServer, stopAIServer, waitForAIServerReady } from "./lib/ai";
+import { startAIServer, stopAIServer, waitForAIServerReady } from "./lib/ai/blocknote-server";
 import { initAutoUpdater } from "./lib/auto-updater";
 import log from "electron-log";
 
@@ -1436,7 +1436,7 @@ function createWindow(): void {
       sandbox: true,
       contextIsolation: true,
       nodeIntegration: false,
-      backgroundThrottling: false, // Keep responsive when app is visible
+      backgroundThrottling: true, // Throttle renderer when minimized/hidden to save CPU/memory
       v8CacheOptions: "bypassHeatCheck", // Faster V8 compilation caching
       spellcheck: false, // Disable browser spellcheck (app handles it)
       webgl: true, // Enable GPU acceleration for WebGL
@@ -1855,12 +1855,84 @@ ipcMain.handle("window:getBounds", (event) => {
   return mainWindow?.getBounds() ?? null;
 });
 
+ipcMain.handle("window:getMinimumSize", (event) => {
+  if (!validateIPCSender(event.sender)) return null;
+  if (!mainWindow) return null;
+  const [width, height] = mainWindow.getMinimumSize();
+  return { width, height };
+});
+
+ipcMain.handle("window:getMaximumSize", (event) => {
+  if (!validateIPCSender(event.sender)) return null;
+  if (!mainWindow) return null;
+  const [width, height] = mainWindow.getMaximumSize();
+  return { width, height };
+});
+
 ipcMain.handle(
   "window:setBounds",
   (event, bounds: { x?: number; y?: number; width?: number; height?: number }) => {
     if (!validateIPCSender(event.sender)) return;
     if (!mainWindow) return;
     mainWindow.setBounds(bounds);
+  }
+);
+
+ipcMain.handle(
+  "window:setMinimumSize",
+  (event, size: { width: number; height: number }) => {
+    if (!validateIPCSender(event.sender)) return;
+    if (!mainWindow) return;
+
+    const width = Number(size?.width);
+    const height = Number(size?.height);
+    if (!Number.isFinite(width) || !Number.isFinite(height)) return;
+
+    mainWindow.setMinimumSize(Math.max(0, Math.round(width)), Math.max(0, Math.round(height)));
+  }
+);
+
+ipcMain.handle(
+  "window:setMaximumSize",
+  (event, size: { width: number; height: number }) => {
+    if (!validateIPCSender(event.sender)) return;
+    if (!mainWindow) return;
+
+    const width = Number(size?.width);
+    const height = Number(size?.height);
+    if (!Number.isFinite(width) || !Number.isFinite(height)) return;
+
+    mainWindow.setMaximumSize(Math.max(0, Math.round(width)), Math.max(0, Math.round(height)));
+  }
+);
+
+ipcMain.handle(
+  "window:setWindowButtonVisibility",
+  (event, visible: boolean) => {
+    if (!validateIPCSender(event.sender)) return;
+    if (!mainWindow) return;
+    if (process.platform !== "darwin") return;
+    if (typeof mainWindow.setWindowButtonVisibility !== "function") return;
+    mainWindow.setWindowButtonVisibility(Boolean(visible));
+  }
+);
+
+ipcMain.handle(
+  "window:setZenModeVibrancy",
+  (event, enabled: boolean) => {
+    if (!validateIPCSender(event.sender)) return false;
+    if (!mainWindow) return false;
+    if (process.platform !== "darwin") return false;
+    if (typeof mainWindow.setVibrancy !== "function") return false;
+
+    try {
+      // `under-window` is more reliable with frameless + custom title bars.
+      mainWindow.setVibrancy(enabled ? "under-window" : null);
+      return true;
+    } catch (error) {
+      log.warn("[Window] Failed to toggle Zen vibrancy:", error);
+      return false;
+    }
   }
 );
 

@@ -382,8 +382,8 @@ function PageItem({
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem
+              variant="destructive"
               onClick={onDelete}
-              className="text-destructive focus:text-destructive"
             >
               <IconTrash size={14} className="mr-2" />
               Delete
@@ -517,8 +517,8 @@ function SpaceSection({
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem
+              variant="destructive"
               onClick={() => onDeleteSpace(space.id)}
-              className="text-destructive focus:text-destructive"
             >
               <IconTrash size={14} className="mr-2" />
               Delete Space
