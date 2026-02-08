@@ -71,8 +71,8 @@ mac:
 
 dmg:
   artifactName: "S-AGI-${version}-macOS-${arch}.dmg"
-  # Paths are relative to buildResources (apps/electron/build)
-  background: dmg-background.png
+  # Use full path from project root (electron-builder resolves relative to root, not buildResources)
+  background: apps/electron/build/dmg-background.png
   icon: icon.icns
   iconSize: 100
   window:
