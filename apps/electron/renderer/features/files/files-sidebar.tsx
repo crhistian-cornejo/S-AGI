@@ -57,6 +57,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import {
   Dialog,
   DialogContent,
@@ -66,76 +67,13 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { FadeScrollArea } from "@/components/ui/fade-scroll-area";
 import { cn, isMacOS, isElectron } from "@/lib/utils";
 import { toast } from "sonner";
 import { importFromExcel } from "@/features/univer/excel-exchange";
 import { formatTimeAgo } from "@/utils/time-format";
 import { FontWarningDialog } from "@/components/font-warning-dialog";
 import { ExcelIcon, DocIcon, PdfIcon, NotesIcon } from "@/features/agent/icons";
-
-// ============================================================================
-// FadeScrollArea
-// ============================================================================
-interface FadeScrollAreaProps {
-  children: React.ReactNode;
-  className?: string;
-}
-
-function FadeScrollArea({ children, className }: FadeScrollAreaProps) {
-  const scrollRef = useRef<HTMLDivElement>(null);
-  const [canScrollUp, setCanScrollUp] = useState(false);
-  const [canScrollDown, setCanScrollDown] = useState(false);
-
-  const checkScroll = useCallback(() => {
-    const el = scrollRef.current;
-    if (!el) return;
-
-    const { scrollTop, scrollHeight, clientHeight } = el;
-    setCanScrollUp(scrollTop > 0);
-    setCanScrollDown(scrollTop + clientHeight < scrollHeight - 1);
-  }, []);
-
-  useEffect(() => {
-    const el = scrollRef.current;
-    if (!el) return;
-
-    checkScroll();
-    el.addEventListener("scroll", checkScroll, { passive: true });
-
-    const resizeObserver = new ResizeObserver(checkScroll);
-    resizeObserver.observe(el);
-
-    return () => {
-      el.removeEventListener("scroll", checkScroll);
-      resizeObserver.disconnect();
-    };
-  }, [checkScroll]);
-
-  return (
-    <div className={cn("relative flex-1 overflow-hidden w-full", className)}>
-      <div
-        className={cn(
-          "absolute top-0 left-0 right-0 h-8 z-10 pointer-events-none transition-opacity duration-200",
-          "bg-gradient-to-b from-sidebar to-transparent",
-          canScrollUp ? "opacity-100" : "opacity-0",
-        )}
-      />
-      <div
-        ref={scrollRef}
-        className="h-full overflow-y-auto overflow-x-hidden scrollbar-thin scrollbar-thumb-border scrollbar-track-transparent w-full"
-      >
-        {children}
-      </div>
-      <div
-        className={cn(
-          "absolute bottom-0 left-0 right-0 h-8 z-10 pointer-events-none transition-opacity duration-200",
-          "bg-gradient-to-t from-sidebar to-transparent",
-          canScrollDown ? "opacity-100" : "opacity-0",
-        )}
-      />
-    </div>
-  );
-}
 
 // ============================================================================
 // FileItem - Individual file item
@@ -473,6 +411,7 @@ export function FilesSidebar({ type, onToggle }: FilesSidebarProps) {
         : "Nueva nota",
   );
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const filesScrollRef = useRef<HTMLDivElement | null>(null);
 
   const utils = trpc.useUtils();
 
@@ -484,16 +423,21 @@ export function FilesSidebar({ type, onToggle }: FilesSidebarProps) {
       limit: 100,
     },
     {
-      // Refetch when files are updated
       refetchOnWindowFocus: false,
-      staleTime: 30000, // 30 seconds
+      staleTime: 60_000,
+      gcTime: 1000 * 60 * 30,
+      placeholderData: (previous) => previous,
     },
   );
 
   // Fetch file data when selected
   const { data: selectedFileData } = trpc.userFiles.get.useQuery(
     { id: currentFileId! },
-    { enabled: !!currentFileId },
+    {
+      enabled: !!currentFileId,
+      staleTime: 120_000,
+      gcTime: 1000 * 60 * 30,
+    },
   );
 
   // Update current file atom when data is fetched
@@ -506,7 +450,11 @@ export function FilesSidebar({ type, onToggle }: FilesSidebarProps) {
   // Load last opened file on mount if no file is selected
   const { data: lastOpenedFile } = trpc.userFiles.getLastOpened.useQuery(
     { type },
-    { enabled: !currentFileId },
+    {
+      enabled: !currentFileId,
+      staleTime: 60_000,
+      gcTime: 1000 * 60 * 30,
+    },
   );
 
   useEffect(() => {
@@ -590,6 +538,13 @@ export function FilesSidebar({ type, onToggle }: FilesSidebarProps) {
       return new Date(dateB).getTime() - new Date(dateA).getTime();
     });
 
+  const regularFilesVirtualizer = useVirtualizer({
+    count: regularFiles.length,
+    getScrollElement: () => filesScrollRef.current,
+    estimateSize: () => 58,
+    overscan: 10,
+  });
+
   // Handlers
   const handleSelectFile = useCallback(
     (fileId: string) => {
@@ -602,10 +557,17 @@ export function FilesSidebar({ type, onToggle }: FilesSidebarProps) {
         );
         setCurrentFile(null);
       }
+      void utils.userFiles.get.prefetch({ id: fileId });
       setCurrentFileId(fileId);
       markOpenedMutation.mutate({ id: fileId });
     },
-    [setCurrentFileId, setCurrentFile, currentFileId, markOpenedMutation],
+    [
+      setCurrentFileId,
+      setCurrentFile,
+      currentFileId,
+      markOpenedMutation,
+      utils.userFiles.get,
+    ],
   );
 
   // Create a new file when clicking "Hoja nueva"
@@ -872,7 +834,7 @@ export function FilesSidebar({ type, onToggle }: FilesSidebarProps) {
         </div>
 
         {/* Files List */}
-        <FadeScrollArea>
+        <FadeScrollArea scrollRef={filesScrollRef}>
           <div className="px-2 py-2 space-y-1">
             {/* Scratch section */}
             <div className="mb-3">
@@ -919,24 +881,47 @@ export function FilesSidebar({ type, onToggle }: FilesSidebarProps) {
                 <div className="px-2 py-1 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
                   Recientes
                 </div>
-                <div className="space-y-0.5">
-                  {regularFiles.map((file) => (
-                    <FileItem
-                      key={file.id}
-                      file={file as UserFile}
-                      isSelected={currentFileId === file.id}
-                      isEditing={editingFileId === file.id}
-                      editingName={editingName}
-                      onSelect={() => handleSelectFile(file.id)}
-                      onStartRename={() => handleStartRename(file.id)}
-                      onSaveRename={(name) => handleSaveRename(file.id, name)}
-                      onCancelRename={handleCancelRename}
-                      onSetEditingName={setEditingName}
-                      onDelete={() => handleDeleteFile(file.id)}
-                      onTogglePin={() => handleTogglePin(file.id)}
-                      onToggleArchive={() => handleToggleArchive(file.id)}
-                    />
-                  ))}
+                <div
+                  className="relative w-full"
+                  style={{
+                    height: `${regularFilesVirtualizer.getTotalSize()}px`,
+                  }}
+                >
+                  {regularFilesVirtualizer.getVirtualItems().map(
+                    (virtualItem) => {
+                      const file = regularFiles[virtualItem.index];
+                      if (!file) return null;
+
+                      return (
+                        <div
+                          key={file.id}
+                          ref={regularFilesVirtualizer.measureElement}
+                          data-index={virtualItem.index}
+                          className="absolute left-0 top-0 w-full pb-0.5"
+                          style={{
+                            transform: `translateY(${virtualItem.start}px)`,
+                          }}
+                        >
+                          <FileItem
+                            file={file as UserFile}
+                            isSelected={currentFileId === file.id}
+                            isEditing={editingFileId === file.id}
+                            editingName={editingName}
+                            onSelect={() => handleSelectFile(file.id)}
+                            onStartRename={() => handleStartRename(file.id)}
+                            onSaveRename={(name) =>
+                              handleSaveRename(file.id, name)
+                            }
+                            onCancelRename={handleCancelRename}
+                            onSetEditingName={setEditingName}
+                            onDelete={() => handleDeleteFile(file.id)}
+                            onTogglePin={() => handleTogglePin(file.id)}
+                            onToggleArchive={() => handleToggleArchive(file.id)}
+                          />
+                        </div>
+                      );
+                    },
+                  )}
                 </div>
               </div>
             )}

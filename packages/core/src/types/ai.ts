@@ -260,7 +260,7 @@ export const AI_MODELS: Record<string, ModelDefinition> = {
  * Default models per provider
  */
 export const DEFAULT_MODELS: Record<AIProvider, string> = {
-    openai: 'gpt-5',
+    openai: 'gpt-5.2-openai',
     'chatgpt-plus': 'gpt-5.1-codex-max',
     zai: 'GLM-4.7-Flash',
     claude: 'claude-sonnet-4-5-20250929'
@@ -270,7 +270,14 @@ export const DEFAULT_MODELS: Record<AIProvider, string> = {
  * Get models by provider
  */
 export function getModelsByProvider(provider: AIProvider): ModelDefinition[] {
-    return Object.values(AI_MODELS).filter((m) => m.provider === provider)
+    const models = Object.values(AI_MODELS).filter((m) => m.provider === provider)
+
+    // Hide legacy GPT-5 in OpenAI API model selectors.
+    if (provider === 'openai') {
+        return models.filter((m) => m.id !== 'gpt-5')
+    }
+
+    return models
 }
 
 /**

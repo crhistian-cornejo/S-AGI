@@ -56,6 +56,7 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import { trpc } from "@/lib/trpc";
 import {
   selectedChatIdAtom,
@@ -105,79 +106,10 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { Separator } from "@/components/ui/separator";
+import { FadeScrollArea } from "@/components/ui/fade-scroll-area";
 import { cn, detectLanguage, isMacOS, isWindows } from "@/lib/utils";
 import { PageNav } from "@/features/sidebar/page-nav";
 import { useStreamingStatusStore } from "@/features/chat/stores";
-
-// ============================================================================
-// FadeScrollArea - Scroll area with fade effect at top/bottom when content overflows
-// ============================================================================
-interface FadeScrollAreaProps {
-  children: React.ReactNode;
-  className?: string;
-}
-
-function FadeScrollArea({ children, className }: FadeScrollAreaProps) {
-  const scrollRef = useRef<HTMLDivElement>(null);
-  const [canScrollUp, setCanScrollUp] = useState(false);
-  const [canScrollDown, setCanScrollDown] = useState(false);
-
-  const checkScroll = useCallback(() => {
-    const el = scrollRef.current;
-    if (!el) return;
-
-    const { scrollTop, scrollHeight, clientHeight } = el;
-    setCanScrollUp(scrollTop > 0);
-    setCanScrollDown(scrollTop + clientHeight < scrollHeight - 1);
-  }, []);
-
-  useEffect(() => {
-    const el = scrollRef.current;
-    if (!el) return;
-
-    checkScroll();
-    el.addEventListener("scroll", checkScroll, { passive: true });
-
-    // Also check on resize
-    const resizeObserver = new ResizeObserver(checkScroll);
-    resizeObserver.observe(el);
-
-    return () => {
-      el.removeEventListener("scroll", checkScroll);
-      resizeObserver.disconnect();
-    };
-  }, [checkScroll]);
-
-  return (
-    <div className={cn("relative flex-1 overflow-hidden w-full", className)}>
-      {/* Top fade */}
-      <div
-        className={cn(
-          "absolute top-0 left-0 right-0 h-8 z-10 pointer-events-none transition-opacity duration-200",
-          "bg-gradient-to-b from-sidebar to-transparent",
-          canScrollUp ? "opacity-100" : "opacity-0",
-        )}
-      />
-
-      {/* Scrollable content */}
-      <div
-        ref={scrollRef}
-        className="h-full overflow-y-auto overflow-x-hidden scrollbar-thin scrollbar-thumb-border scrollbar-track-transparent w-full pr-1"
-      >
-        {children}
-      </div>
-
-      {/* Bottom fade */}
-      <div
-        className={cn(
-          "absolute bottom-0 left-0 right-0 h-8 z-10 pointer-events-none transition-opacity duration-200",
-          "bg-gradient-to-t from-sidebar to-transparent",
-          canScrollDown ? "opacity-100" : "opacity-0",
-        )}
-      />
-    </div>
-  );
-}
 
 interface Chat {
   id: string;
@@ -227,6 +159,7 @@ interface ChatItemProps {
   isArchived?: boolean;
   projects?: Project[];
   onMoveToProject?: (projectId: string | null) => void;
+  onPrefetch?: () => void;
 }
 
 function formatRelativeTimeCompact(date: Date | string | null | undefined) {
@@ -266,6 +199,7 @@ function ChatItem({
   isArchived,
   projects,
   onMoveToProject,
+  onPrefetch,
 }: ChatItemProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const isStreaming = useStreamingStatusStore((state) =>
@@ -333,6 +267,8 @@ function ChatItem({
           : "text-foreground/80 hover:bg-muted/30",
       )}
       onClick={onSelect}
+      onMouseEnter={onPrefetch}
+      onFocus={onPrefetch}
       onKeyDown={(e) => {
         if (e.key === "Enter" || e.key === " ") {
           e.preventDefault();
@@ -565,6 +501,7 @@ interface ProjectFolderProps {
   onDeleteChat: (chatId: string) => void;
   onTogglePin: (chatId: string) => void;
   onMoveChat: (chatId: string, projectId: string | null) => void;
+  onPrefetchChat: (chatId: string) => void;
   onCreateChat: () => void;
   onRenameProject: () => void;
   onDeleteProject: () => void;
@@ -587,6 +524,7 @@ function ProjectFolder({
   onDeleteChat,
   onTogglePin,
   onMoveChat,
+  onPrefetchChat,
   onCreateChat,
   onRenameProject,
   onDeleteProject,
@@ -706,6 +644,7 @@ function ProjectFolder({
               onTogglePin={() => onTogglePin(chat.id)}
               projects={allProjects}
               onMoveToProject={(projectId) => onMoveChat(chat.id, projectId)}
+              onPrefetch={() => onPrefetchChat(chat.id)}
             />
           ))}
           {hasMoreChats && !showAllChats && (
@@ -761,6 +700,7 @@ export function Sidebar() {
   const [projectToRename, setProjectToRename] = useState<Project | null>(null);
   const [renameProjectName, setRenameProjectName] = useState("");
   const newProjectInputRef = useRef<HTMLInputElement>(null);
+  const sidebarScrollRef = useRef<HTMLDivElement | null>(null);
 
   // Drag state
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -781,7 +721,15 @@ export function Sidebar() {
   );
 
   // Get API key status from main process
-  const { data: keyStatus } = trpc.settings.getApiKeyStatus.useQuery();
+  const { data: keyStatus } = trpc.settings.getApiKeyStatus.useQuery(
+    undefined,
+    {
+      staleTime: 60_000,
+      gcTime: 1000 * 60 * 30,
+      refetchOnWindowFocus: false,
+      placeholderData: (previous) => previous,
+    },
+  );
 
   // Determine connection status based on provider
   // NOTE: gemini-advanced disabled
@@ -797,11 +745,21 @@ export function Sidebar() {
             : keyStatus?.hasAnthropic;
 
   // Fetch session
-  const { data: session } = trpc.auth.getSession.useQuery();
+  const { data: session } = trpc.auth.getSession.useQuery(undefined, {
+    staleTime: 60_000,
+    gcTime: 1000 * 60 * 30,
+    refetchOnWindowFocus: false,
+    placeholderData: (previous) => previous,
+  });
   const user = session?.user;
 
   // Fetch all connected accounts (multi-account support)
-  const { data: accountsData } = trpc.auth.getAccounts.useQuery();
+  const { data: accountsData } = trpc.auth.getAccounts.useQuery(undefined, {
+    staleTime: 60_000,
+    gcTime: 1000 * 60 * 30,
+    refetchOnWindowFocus: false,
+    placeholderData: (previous) => previous,
+  });
   const accounts = accountsData?.accounts || [];
   const hasMultipleAccounts = accounts.length > 1;
 
@@ -813,6 +771,8 @@ export function Sidebar() {
   } = trpc.chats.list.useQuery(undefined, {
     staleTime: 60_000,
     gcTime: 1000 * 60 * 30,
+    refetchOnWindowFocus: false,
+    placeholderData: (previous) => previous,
   });
 
   // Fetch projects
@@ -820,6 +780,8 @@ export function Sidebar() {
     trpc.projects.list.useQuery(undefined, {
       staleTime: 60_000,
       gcTime: 1000 * 60 * 30,
+      refetchOnWindowFocus: false,
+      placeholderData: (previous) => previous,
     });
 
   // Project mutations
@@ -907,6 +869,14 @@ export function Sidebar() {
     return grouped;
   }, [sortedChats, projects]);
 
+  const unassignedChats = chatsByProject.unassigned ?? [];
+  const unassignedChatsVirtualizer = useVirtualizer({
+    count: unassignedChats.length,
+    getScrollElement: () => sidebarScrollRef.current,
+    estimateSize: () => 48,
+    overscan: 12,
+  });
+
   // DnD handlers for project reordering
   const handleDragStart = (event: DragStartEvent) => {
     setActiveId(event.active.id as string);
@@ -938,6 +908,12 @@ export function Sidebar() {
   };
 
   const utils = trpc.useUtils();
+  const prefetchChatMessages = useCallback(
+    (chatId: string) => {
+      void utils.messages.list.prefetch({ chatId });
+    },
+    [utils.messages.list],
+  );
 
   const [undoStack, setUndoStack] = useAtom(undoStackAtom);
 
@@ -1125,6 +1101,7 @@ export function Sidebar() {
   };
 
   const handleChatSelect = (chatId: string) => {
+    prefetchChatMessages(chatId);
     setSelectedChatId(chatId);
     setSelectedArtifact(null);
     setArtifactPanelOpen(false);
@@ -1338,7 +1315,11 @@ export function Sidebar() {
       </div>
 
       {/* Chat list with fade scroll effect */}
-      <FadeScrollArea className="flex-1 pl-2 pr-2">
+      <FadeScrollArea
+        className="flex-1 pl-2 pr-2"
+        scrollViewportClassName="pr-1"
+        scrollRef={sidebarScrollRef}
+      >
         <div className="pb-4 pr-1">
           {isLoading ? (
             <div className="flex items-center justify-center py-8">
@@ -1407,6 +1388,7 @@ export function Sidebar() {
                     onDeleteChat={handleDeleteChat}
                     onTogglePin={handleTogglePin}
                     onMoveChat={(chatId, projectId) => moveChat.mutate({ chatId, projectId })}
+                    onPrefetchChat={prefetchChatMessages}
                     onCreateChat={() => {
                       setPendingProjectId(project.id);
                       createChat.mutate({ title: "New Chat" });
@@ -1418,25 +1400,53 @@ export function Sidebar() {
               </SortableContext>
 
               {/* Unassigned chats - displayed directly without wrapper */}
-              {chatsByProject.unassigned?.map((chat) => (
-                <ChatItem
-                  key={chat.id}
-                  chat={chat}
-                  isSelected={selectedChatId === chat.id}
-                  isEditing={editingChatId === chat.id}
-                  editingTitle={editingTitle}
-                  onSelect={() => handleChatSelect(chat.id)}
-                  onStartRename={() => handleStartRename(chat.id, chat.title || "")}
-                  onSaveRename={handleSaveRename}
-                  onCancelRename={handleCancelRename}
-                  onSetEditingTitle={setEditingTitle}
-                  onArchive={() => handleArchiveChat(chat.id)}
-                  onDelete={() => handleDeleteChat(chat.id)}
-                  onTogglePin={() => handleTogglePin(chat.id)}
-                  projects={projects || []}
-                  onMoveToProject={(projectId) => moveChat.mutate({ chatId: chat.id, projectId })}
-                />
-              ))}
+              {unassignedChats.length > 0 && (
+                <div
+                  className="relative w-full"
+                  style={{
+                    height: `${unassignedChatsVirtualizer.getTotalSize()}px`,
+                  }}
+                >
+                  {unassignedChatsVirtualizer.getVirtualItems().map((virtualItem) => {
+                    const chat = unassignedChats[virtualItem.index];
+                    if (!chat) return null;
+
+                    return (
+                      <div
+                        key={chat.id}
+                        ref={unassignedChatsVirtualizer.measureElement}
+                        data-index={virtualItem.index}
+                        className="absolute left-0 top-0 w-full pb-0.5"
+                        style={{
+                          transform: `translateY(${virtualItem.start}px)`,
+                        }}
+                      >
+                        <ChatItem
+                          chat={chat}
+                          isSelected={selectedChatId === chat.id}
+                          isEditing={editingChatId === chat.id}
+                          editingTitle={editingTitle}
+                          onSelect={() => handleChatSelect(chat.id)}
+                          onStartRename={() =>
+                            handleStartRename(chat.id, chat.title || "")
+                          }
+                          onSaveRename={handleSaveRename}
+                          onCancelRename={handleCancelRename}
+                          onSetEditingTitle={setEditingTitle}
+                          onArchive={() => handleArchiveChat(chat.id)}
+                          onDelete={() => handleDeleteChat(chat.id)}
+                          onTogglePin={() => handleTogglePin(chat.id)}
+                          projects={projects || []}
+                          onMoveToProject={(projectId) =>
+                            moveChat.mutate({ chatId: chat.id, projectId })
+                          }
+                          onPrefetch={() => prefetchChatMessages(chat.id)}
+                        />
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
 
               {/* Drag overlay for projects */}
               <DragOverlay>

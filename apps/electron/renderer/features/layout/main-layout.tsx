@@ -14,9 +14,8 @@ import {
   IconTable,
   IconFileText,
   IconPhoto,
+  IconSearch,
   IconArrowLeft,
-  IconMinus,
-  IconSquare,
   IconX,
 } from "@tabler/icons-react";
 import { ChatQueueProcessor } from "@/features/chat/components/queue-processor";
@@ -588,6 +587,9 @@ export function MainLayout() {
       api.menu.onCommandK(() => {
         setCommandKOpen(true);
       }),
+      (api.menu as any).onToggleZenMode?.(() => {
+        setZenMode((prev) => !prev);
+      }),
       // Chat menu
       api.menu.onStopGeneration(() => {
         // Send event to chat view to stop generation
@@ -1060,6 +1062,81 @@ export function MainLayout() {
           activeTab === "settings"
         }
       />
+
+      {/* macOS: Chat/Gallery toolbar buttons rendered OUTSIDE the title bar drag hierarchy
+          to avoid the native hiddenInset hit area that swallows clicks near traffic lights */}
+      {isMacOS() && isElectron() && (activeTab === "chat" || activeTab === "gallery") && !sidebarOpen && (
+        <div
+          className="absolute top-0 left-[76px] z-[60] h-9 flex items-center gap-0.5 pointer-events-auto"
+          style={{ WebkitAppRegion: "no-drag" } as CSSProperties}
+        >
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                className="flex items-center justify-center w-7 h-7 rounded-md transition-all duration-200 hover:bg-accent/50 text-muted-foreground hover:text-foreground"
+                onClick={() => setActiveTab("gallery")}
+                aria-label="Open gallery"
+              >
+                <IconPhoto size={16} />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">Gallery</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                className="flex items-center justify-center w-7 h-7 rounded-md transition-all duration-200 hover:bg-accent/50 text-muted-foreground hover:text-foreground"
+                onClick={handleNewChat}
+                disabled={createChat.isPending}
+                aria-label="New chat"
+              >
+                <IconPlus size={16} />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">
+              New Chat
+              <kbd className="ml-2 pointer-events-none inline-flex h-4 select-none items-center rounded border bg-muted px-1 font-mono text-[10px] font-medium text-muted-foreground">
+                ⌘N
+              </kbd>
+            </TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                className="flex items-center justify-center w-7 h-7 rounded-md transition-all duration-200 hover:bg-accent/50 text-muted-foreground hover:text-foreground"
+                onClick={() => setCommandKOpen(true)}
+                aria-label="Search"
+              >
+                <IconSearch size={16} />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">
+              Search
+              <kbd className="ml-2 pointer-events-none inline-flex h-4 select-none items-center rounded border bg-muted px-1 font-mono text-[10px] font-medium text-muted-foreground">
+                ⌘K
+              </kbd>
+            </TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                className="flex items-center justify-center w-7 h-7 rounded-md transition-all duration-200 hover:bg-accent/50 text-muted-foreground hover:text-foreground"
+                onClick={() => setSidebarOpen(true)}
+                aria-label="Open sidebar"
+              >
+                <IconLayoutSidebarLeftExpand size={16} />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">
+              Mostrar sidebar
+              <kbd className="ml-2 pointer-events-none inline-flex h-4 select-none items-center rounded border bg-muted px-1 font-mono text-[10px] font-medium text-muted-foreground">
+                ⌘\
+              </kbd>
+            </TooltipContent>
+          </Tooltip>
+        </div>
+      )}
+
       <Suspense fallback={null}><ShortcutsDialog /></Suspense>
       <Suspense fallback={null}><CommandKDialog /></Suspense>
 

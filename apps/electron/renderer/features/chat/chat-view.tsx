@@ -1,5 +1,6 @@
 import { useEffect, useRef, useCallback, useState, useMemo } from "react";
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
+import { useTheme } from "next-themes";
 import {
   IconSparkles,
   IconBrandOpenai,
@@ -70,7 +71,8 @@ import { useStreamingStatusStore } from "./stores/streaming-status-store";
 import { useSendCallbackStore } from "./stores/send-callback-store";
 import { generateQueueId, createQueueItem } from "./lib/queue-utils";
 import { useOpenSettingsPage } from "@/features/settings/use-open-settings-page";
-import zenBackgroundUrl from "@/assets/zen-background.png";
+import zenBackgroundDarkUrl from "@/assets/zen-background.png";
+import zenBackgroundLightUrl from "@/assets/zen-background-light.svg";
 
 export function ChatView() {
   // Sound effects preference
@@ -79,6 +81,9 @@ export function ChatView() {
   const chatSounds = useChatSounds(soundsEnabled);
   // Zen mode
   const zenMode = useAtomValue(zenModeAtom);
+  const { resolvedTheme } = useTheme();
+  const zenBackgroundUrl =
+    resolvedTheme === "dark" ? zenBackgroundDarkUrl : zenBackgroundLightUrl;
 
   // Force rebuild - useAtomValue for read-only, useSetAtom for write-only
   const selectedChatId = useAtomValue(selectedChatIdAtom);
@@ -1867,7 +1872,7 @@ export function ChatView() {
         style={
           showZenEmptyBackground
             ? {
-                backgroundImage: `linear-gradient(to bottom, hsl(var(--chat-background) / 0.42), hsl(var(--chat-background) / 0.7)), url(${zenBackgroundUrl})`,
+                backgroundImage: `linear-gradient(to bottom, hsl(var(--zen-empty-overlay) / var(--zen-empty-overlay-top-alpha)), hsl(var(--zen-empty-overlay) / var(--zen-empty-overlay-bottom-alpha))), url(${zenBackgroundUrl})`,
                 backgroundSize: "cover",
                 backgroundPosition: "center",
                 backgroundRepeat: "no-repeat",
@@ -1951,7 +1956,7 @@ export function ChatView() {
         </ScrollArea>
 
         {showScrollToBottom && (
-          <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-[100] pointer-events-auto">
+          <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-30 pointer-events-auto">
             <Tooltip>
               <TooltipTrigger asChild>
                 <div className="rounded-full bg-background/95 border border-border shadow-lg backdrop-blur-sm">

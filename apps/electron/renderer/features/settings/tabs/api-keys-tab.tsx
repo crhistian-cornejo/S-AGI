@@ -36,13 +36,11 @@ import {
   OpenAIIcon,
   ChatGPTPlusIcon,
 } from "@/components/icons/model-icons";
-import { useAtom, useAtomValue, useSetAtom } from "jotai";
+import { useAtom, useAtomValue } from "jotai";
 import {
   availableModelsAtom,
   selectedModelAtom,
   allModelsGroupedAtom,
-  hasChatGPTPlusAtom,
-  chatGPTPlusStatusAtom,
   currentProviderAtom,
 } from "@/lib/atoms";
 import { DEFAULT_MODELS, resolveModelForProvider } from "@s-agi/core/types/ai";
@@ -53,28 +51,12 @@ export function ApiKeysTab() {
   const [currentProvider, setCurrentProvider] = useAtom(currentProviderAtom);
   const availableModels = useAtomValue(availableModelsAtom);
   const allModelsGrouped = useAtomValue(allModelsGroupedAtom);
-  const setHasChatGPTPlus = useSetAtom(hasChatGPTPlusAtom);
-  const setChatGPTPlusStatus = useSetAtom(chatGPTPlusStatusAtom);
-
   const utils = trpc.useUtils();
 
   // Get status queries
   const { data: keyStatus } = trpc.settings.getApiKeyStatus.useQuery();
   const { data: chatGPTStatus } = trpc.auth.getChatGPTStatus.useQuery();
   const { data: claudeCodeStatus } = trpc.auth.getClaudeCodeStatus.useQuery();
-
-  // Sync atoms with queries
-  useEffect(() => {
-    if (chatGPTStatus) {
-      setHasChatGPTPlus(chatGPTStatus.isConnected);
-      setChatGPTPlusStatus({
-        isConnected: chatGPTStatus.isConnected,
-        email: chatGPTStatus.email ?? undefined,
-        accountId: chatGPTStatus.accountId ?? undefined,
-        connectedAt: chatGPTStatus.connectedAt ?? undefined,
-      });
-    }
-  }, [chatGPTStatus, setHasChatGPTPlus, setChatGPTPlusStatus]);
 
   // Mutations for API Keys
   const setOpenAIKeyMutation = trpc.settings.setOpenAIKey.useMutation({
@@ -214,6 +196,19 @@ export function ApiKeysTab() {
       setCurrentProvider("openai");
     }
   }, [claudeCodeStatus?.isConnected, currentProvider, setCurrentProvider]);
+
+  // Ensure selected model stays valid for the active provider.
+  useEffect(() => {
+    if (availableModels.length === 0) return;
+    const exists = availableModels.some((model) => model.id === selectedModel);
+    if (!exists) {
+      const preferred = resolveModelForProvider(currentProvider).id;
+      const fallback = availableModels.some((model) => model.id === preferred)
+        ? preferred
+        : availableModels[0].id;
+      setSelectedModel(fallback);
+    }
+  }, [availableModels, selectedModel, setSelectedModel, currentProvider]);
 
   return (
     <div className="space-y-6 p-6">
@@ -432,7 +427,7 @@ export function ApiKeysTab() {
             </h4>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4">
             {/* OpenAI API */}
             <div className="h-full rounded-lg border border-border bg-muted/20 p-4">
               <div className="flex h-full flex-col gap-4">

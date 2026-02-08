@@ -7,6 +7,9 @@ import {
   importClaudeFromCli,
 } from "../../shared/auth";
 import { getChatGPTAuthManager, getClaudeCodeAuthManager } from "../../auth";
+import { getZaiAuthManager } from "../../auth/zai-manager";
+import { getSecureApiKeyStore } from "../../auth/api-key-store";
+import { invalidateProviderRegistry } from "../../ai/providers";
 import { supabase } from "../../supabase/client";
 import os from "os";
 import { app, shell } from "electron";
@@ -114,6 +117,9 @@ export const settingsRouter = router({
     .mutation(async ({ input }) => {
       const manager = getCredentialManager();
       await manager.setOpenAIKey(input.key);
+      // Sync to legacy SecureApiKeyStore (used by isProviderAvailable / agent panel)
+      getSecureApiKeyStore().setOpenAIKey(input.key);
+      invalidateProviderRegistry();
       return { success: true };
     }),
 
@@ -123,6 +129,9 @@ export const settingsRouter = router({
     .mutation(async ({ input }) => {
       const manager = getCredentialManager();
       await manager.setAnthropicKey(input.key);
+      // Sync to legacy SecureApiKeyStore (used by isProviderAvailable / agent panel)
+      getSecureApiKeyStore().setAnthropicKey(input.key);
+      invalidateProviderRegistry();
       return { success: true };
     }),
 
@@ -132,6 +141,9 @@ export const settingsRouter = router({
     .mutation(async ({ input }) => {
       const manager = getCredentialManager();
       await manager.setZaiKey(input.key);
+      // Sync to legacy ZaiAuthManager (used by isProviderAvailable / agent panel)
+      getZaiAuthManager().setApiKey(input.key);
+      invalidateProviderRegistry();
       return { success: true };
     }),
 
@@ -139,6 +151,11 @@ export const settingsRouter = router({
   clearAllKeys: publicProcedure.mutation(async () => {
     const manager = getCredentialManager();
     await manager.clearAll();
+    // Sync to legacy stores
+    getZaiAuthManager().clear();
+    getSecureApiKeyStore().setOpenAIKey(null);
+    getSecureApiKeyStore().setAnthropicKey(null);
+    invalidateProviderRegistry();
     return { success: true };
   }),
 

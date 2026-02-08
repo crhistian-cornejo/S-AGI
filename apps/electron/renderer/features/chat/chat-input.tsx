@@ -68,7 +68,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { ModelIcon } from "@/components/icons/model-icons";
-import { getModelById } from "@s-agi/core/types/ai";
+import { getModelById, resolveModelForProvider } from "@s-agi/core/types/ai";
 import { trpc } from "@/lib/trpc";
 
 interface ChatInputProps {
@@ -123,6 +123,23 @@ export const ChatInput = memo(function ChatInput({
   const supportsResponseMode = !!(
     currentModelInfo as { supportsResponseMode?: boolean } | undefined
   )?.supportsResponseMode;
+
+  // Keep selected model consistent with current provider list.
+  useEffect(() => {
+    const providerModels = allModelsGrouped[_provider] || [];
+    if (providerModels.length === 0) return;
+
+    const hasSelectedModel = providerModels.some(
+      (model) => model.id === selectedModel,
+    );
+    if (!hasSelectedModel) {
+      const preferred = resolveModelForProvider(_provider).id;
+      const fallback = providerModels.some((model) => model.id === preferred)
+        ? preferred
+        : providerModels[0].id;
+      setSelectedModel(fallback);
+    }
+  }, [_provider, allModelsGrouped, selectedModel, setSelectedModel]);
 
   // Sync isPlanMode with mode
   useEffect(() => {

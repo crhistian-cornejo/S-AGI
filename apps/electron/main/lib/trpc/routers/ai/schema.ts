@@ -153,6 +153,7 @@ export function extractWebSearchDetails(wsEvent: any): {
   query?: string;
   domains?: string[];
   url?: string;
+  sources?: Array<{ url: string; title?: string }>;
 } {
   const actionValue = wsEvent?.action;
   const actionObj =
@@ -181,7 +182,7 @@ export function extractWebSearchDetails(wsEvent: any): {
         ? wsEvent.query
         : queries?.[0];
 
-  const domains = Array.isArray(actionObj.domains)
+  let domains = Array.isArray(actionObj.domains)
     ? actionObj.domains
     : Array.isArray(wsEvent?.domains)
       ? wsEvent.domains
@@ -194,10 +195,52 @@ export function extractWebSearchDetails(wsEvent: any): {
         ? wsEvent.url
         : undefined;
 
+  let sources: Array<{ url: string; title?: string }> | undefined;
+  const results = wsEvent?.results || actionObj?.results;
+  if (Array.isArray(results)) {
+    sources = results
+      .filter((r: any) => r?.url)
+      .map((r: any) => ({
+        url: r.url,
+        title: r.title || r.name || undefined,
+      }));
+
+    if (!domains && sources.length > 0) {
+      domains = sources.map((s) => {
+        try {
+          return new URL(s.url).hostname;
+        } catch {
+          return s.url;
+        }
+      });
+    }
+  }
+
+  const outputResults = wsEvent?.output?.results;
+  if (Array.isArray(outputResults) && !sources) {
+    sources = outputResults
+      .filter((r: any) => r?.url)
+      .map((r: any) => ({
+        url: r.url,
+        title: r.title || r.name || undefined,
+      }));
+
+    if (!domains && sources.length > 0) {
+      domains = sources.map((s) => {
+        try {
+          return new URL(s.url).hostname;
+        } catch {
+          return s.url;
+        }
+      });
+    }
+  }
+
   return {
     action: actionType,
     query,
     domains,
     url,
+    sources,
   };
 }

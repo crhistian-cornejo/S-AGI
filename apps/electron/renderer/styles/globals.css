@@ -32,6 +32,10 @@
 
     /* Chat content area - #F9F9FA */
     --chat-background: 240 14% 98%;
+    /* Zen empty-state overlay (light): explicit white wash */
+    --zen-empty-overlay: 0 0% 100%;
+    --zen-empty-overlay-top-alpha: 0.12;
+    --zen-empty-overlay-bottom-alpha: 0.22;
 
     /* Sidebar */
     --sidebar-background: 0 0% 98.8%;
@@ -73,6 +77,9 @@
 
     /* Chat content area - dark equivalent */
     --chat-background: 240 6% 10%;
+    --zen-empty-overlay: var(--chat-background);
+    --zen-empty-overlay-top-alpha: 0.42;
+    --zen-empty-overlay-bottom-alpha: 0.7;
 
     /* Sidebar */
     --sidebar-background: 0 0% 12.2%;

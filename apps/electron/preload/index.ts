@@ -262,6 +262,13 @@ const desktopApi = {
         ipcRenderer.removeListener("menu:command-k", handler);
       };
     },
+    onToggleZenMode: (callback: () => void) => {
+      const handler = () => callback();
+      ipcRenderer.on("menu:toggle-zen-mode", handler);
+      return () => {
+        ipcRenderer.removeListener("menu:toggle-zen-mode", handler);
+      };
+    },
     // Chat menu actions
     onStopGeneration: (callback: () => void) => {
       const handler = () => callback();

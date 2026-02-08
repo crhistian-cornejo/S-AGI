@@ -121,10 +121,20 @@ import { PdfOutlineEditor } from "./components/pdf-outline-editor";
 import { PdfMergeTool } from "./components/pdf-merge-tool";
 import { PdfAttachmentEditor } from "./components/pdf-attachment-editor";
 import { trpc } from "@/lib/trpc";
+import { decodeBase64InWorker } from "./lib/base64-decode-worker";
 
 interface PdfViewerEnhancedProps {
   source: PdfSource | null;
   className?: string;
+}
+
+function decodeBase64OnMainThread(base64: string): Uint8Array {
+  const binary = window.atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i += 1) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return bytes;
 }
 
 /**
@@ -243,14 +253,22 @@ export const PdfViewerEnhanced = memo(function PdfViewerEnhanced({
           if (result?.success && result.data) {
             // Convert base64 to blob URL using a more robust method
             const convertStart = performance.now();
-
-            // Convert base64 to Uint8Array directly
-            const binaryString = window.atob(result.data);
-            const bytes = new Uint8Array(binaryString.length);
-            for (let i = 0; i < binaryString.length; i++) {
-              bytes[i] = binaryString.charCodeAt(i);
+            let bytes: Uint8Array;
+            try {
+              bytes = await decodeBase64InWorker(result.data);
+            } catch (workerError) {
+              console.warn(
+                "[PDF Local] Worker decode failed, falling back to main thread:",
+                workerError,
+              );
+              bytes = decodeBase64OnMainThread(result.data);
             }
-            const blob = new Blob([bytes], { type: "application/pdf" });
+
+            const blobBytes = new Uint8Array(bytes.length);
+            blobBytes.set(bytes);
+            const blob = new Blob([blobBytes.buffer], {
+              type: "application/pdf",
+            });
 
             const convertTime = performance.now() - convertStart;
             console.log(

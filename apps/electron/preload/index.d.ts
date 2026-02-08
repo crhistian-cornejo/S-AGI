@@ -235,6 +235,7 @@ export interface DesktopApi {
     onShowShortcuts: (callback: () => void) => () => void;
     onGoToTab: (callback: (data: { tab: string }) => void) => () => void;
     onCommandK: (callback: () => void) => () => void;
+    onToggleZenMode: (callback: () => void) => () => void;
     // Chat menu actions
     onStopGeneration: (callback: () => void) => () => void;
     onCycleReasoning: (callback: () => void) => () => void;

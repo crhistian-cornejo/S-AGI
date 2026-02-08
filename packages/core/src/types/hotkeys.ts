@@ -5,7 +5,7 @@
  */
 
 // Available hotkey IDs - expandable for future shortcuts
-export type HotkeyId = 'quick-prompt'
+export type HotkeyId = 'quick-prompt' | 'toggle-main-window' | 'new-chat' | 'toggle-zen-mode' | 'global-search'
 
 // Platform shortcuts - maps platform to Electron accelerator string
 export interface PlatformShortcuts {
@@ -50,6 +50,50 @@ export const HOTKEY_DEFINITIONS: Record<HotkeyId, HotkeyDefinition> = {
             win32: 'Super+Alt+Space',
             linux: 'Super+Alt+Space',
             fallback: 'Control+Shift+Space'
+        }
+    },
+    'toggle-main-window': {
+        id: 'toggle-main-window',
+        name: 'Toggle Window',
+        description: 'Show or hide the main S-AGI window',
+        defaults: {
+            darwin: 'Command+Option+S',
+            win32: 'Super+Alt+S',
+            linux: 'Super+Alt+S',
+            fallback: 'Control+Shift+S'
+        }
+    },
+    'new-chat': {
+        id: 'new-chat',
+        name: 'New Chat',
+        description: 'Create a new chat and bring window to front',
+        defaults: {
+            darwin: 'Command+Option+N',
+            win32: 'Super+Alt+N',
+            linux: 'Super+Alt+N',
+            fallback: 'Control+Shift+N'
+        }
+    },
+    'toggle-zen-mode': {
+        id: 'toggle-zen-mode',
+        name: 'Toggle Zen Mode',
+        description: 'Toggle Zen Mode for distraction-free work',
+        defaults: {
+            darwin: 'Command+Option+Z',
+            win32: 'Super+Alt+Z',
+            linux: 'Super+Alt+Z',
+            fallback: 'Control+Shift+Z'
+        }
+    },
+    'global-search': {
+        id: 'global-search',
+        name: 'Command Palette',
+        description: 'Open the Command Palette from anywhere',
+        defaults: {
+            darwin: 'Command+Option+K',
+            win32: 'Super+Alt+K',
+            linux: 'Super+Alt+K',
+            fallback: 'Control+Shift+K'
         }
     }
 }

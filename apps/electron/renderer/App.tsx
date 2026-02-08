@@ -12,9 +12,7 @@ import { VSCodeThemeProvider } from "./lib/themes";
 import { appStore } from "./lib/stores/jotai-store";
 import "@/features/univer/univer-tooltip-fix.css";
 import {
-  hasChatGPTPlusAtom,
   chatGPTPlusStatusAtom,
-  hasGeminiAdvancedAtom,
   geminiAdvancedStatusAtom,
   selectedChatIdAtom,
   selectedArtifactAtom,
@@ -45,9 +43,7 @@ function ThemedToaster() {
  * Synchronize OAuth connection statuses to Jotai atoms on app load
  */
 function ConnectionStatusSync() {
-  const setHasChatGPTPlus = useSetAtom(hasChatGPTPlusAtom);
   const setChatGPTPlusStatus = useSetAtom(chatGPTPlusStatusAtom);
-  const setHasGeminiAdvanced = useSetAtom(hasGeminiAdvancedAtom);
   const setGeminiAdvancedStatus = useSetAtom(geminiAdvancedStatusAtom);
 
   // Query connection statuses
@@ -57,7 +53,6 @@ function ConnectionStatusSync() {
   // Sync ChatGPT Plus status
   useEffect(() => {
     if (chatGPTStatus) {
-      setHasChatGPTPlus(chatGPTStatus.isConnected);
       setChatGPTPlusStatus({
         isConnected: chatGPTStatus.isConnected,
         email: chatGPTStatus.email ?? undefined,
@@ -65,19 +60,18 @@ function ConnectionStatusSync() {
         connectedAt: chatGPTStatus.connectedAt ?? undefined,
       });
     }
-  }, [chatGPTStatus, setHasChatGPTPlus, setChatGPTPlusStatus]);
+  }, [chatGPTStatus, setChatGPTPlusStatus]);
 
   // Sync Gemini Advanced status
   useEffect(() => {
     if (geminiStatus) {
-      setHasGeminiAdvanced(geminiStatus.isConnected);
       setGeminiAdvancedStatus({
         isConnected: geminiStatus.isConnected,
         email: geminiStatus.email ?? undefined,
         connectedAt: geminiStatus.connectedAt ?? undefined,
       });
     }
-  }, [geminiStatus, setHasGeminiAdvanced, setGeminiAdvancedStatus]);
+  }, [geminiStatus, setGeminiAdvancedStatus]);
 
   return null;
 }

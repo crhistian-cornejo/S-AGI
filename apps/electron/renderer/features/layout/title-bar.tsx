@@ -13,6 +13,8 @@ import {
   excelSidebarOpenAtom,
   docSidebarOpenAtom,
   selectedChatIdAtom,
+  authDialogOpenAtom,
+  settingsActiveTabAtom,
   zenModeAtom,
 } from "@/lib/atoms";
 import { useOpenSettingsPage } from "@/features/settings/use-open-settings-page";
@@ -29,7 +31,9 @@ import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import {
   IconSettings,
   IconLogout,
+  IconCheck,
   IconChevronDown,
+  IconDeviceDesktop,
   IconLayoutSidebarLeftExpand,
   IconLayoutSidebarRightCollapse,
   IconArrowsDiagonalMinimize2,
@@ -42,6 +46,8 @@ import {
   IconTable,
   IconFileText,
   IconPlus,
+  IconUser,
+  IconUsers,
   IconLeaf,
 } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
@@ -59,6 +65,7 @@ import {
 import { cn, isMacOS, isElectron, isWindows } from "@/lib/utils";
 import { HamburgerMenu } from "./hamburger-menu";
 import { ShareSessionButton } from "@/features/chat/share-session-dialog";
+import { toast } from "sonner";
 
 export interface TitleBarProps {
   className?: string;
@@ -87,13 +94,48 @@ export function TitleBar({ className, noTrafficLightSpace }: TitleBarProps) {
   });
   const { data: session } = trpc.auth.getSession.useQuery();
   const user = session?.user;
+  const { data: accountsData } = trpc.auth.getAccounts.useQuery();
+  const accounts = accountsData?.accounts || [];
+  const hasMultipleAccounts = accounts.length > 1;
+  const activeAccount = accounts.find((account) => account.isActive);
+  const activeAvatarUrl = activeAccount?.avatarUrl || "";
+  const activeAvatarIsEmoji = activeAvatarUrl.startsWith("emoji://");
+  const activeAvatarEmoji = activeAvatarIsEmoji
+    ? decodeURIComponent(activeAvatarUrl.split("://")[1]?.split("?")[0] || "👤")
+    : null;
+  const activeAvatarBgColor = activeAvatarIsEmoji
+    ? decodeURIComponent(activeAvatarUrl.split("bg=")[1] || "#6366f1")
+    : null;
   const userDisplayName =
-    user?.user_metadata?.full_name || user?.email || "Not logged in";
+    activeAccount?.isLocal
+      ? activeAccount.displayName || "Cuenta Local"
+      : activeAccount?.email ||
+        user?.user_metadata?.full_name ||
+        user?.email ||
+        "Not logged in";
 
   const signOut = trpc.auth.signOut.useMutation({
     onSuccess: () => {
       window.desktopApi?.setSession(null);
       utils.auth.getSession.invalidate();
+      utils.auth.getAccounts.invalidate();
+      setSelectedChatId(null);
+    },
+  });
+
+  const switchAccount = trpc.auth.switchAccount.useMutation({
+    onSuccess: () => {
+      // Keep titlebar account switch behavior aligned with Sidebar.
+      utils.auth.getSession.invalidate();
+      utils.auth.getUser.invalidate();
+      utils.auth.getAccounts.invalidate();
+      utils.chats.list.invalidate();
+      utils.chats.listArchived.invalidate();
+      utils.gallery.list.invalidate();
+      utils.artifacts.list.invalidate();
+      utils.userFiles.list.invalidate();
+      setSelectedChatId(null);
+      toast.success("Switched account");
     },
   });
 
@@ -117,6 +159,8 @@ export function TitleBar({ className, noTrafficLightSpace }: TitleBarProps) {
   const [excelSidebarOpen, setExcelSidebarOpen] = useAtom(excelSidebarOpenAtom);
   const [docSidebarOpen, setDocSidebarOpen] = useAtom(docSidebarOpenAtom);
   const setZenMode = useSetAtom(zenModeAtom);
+  const setAuthDialogOpen = useSetAtom(authDialogOpenAtom);
+  const setSettingsTab = useSetAtom(settingsActiveTabAtom);
   const { data: keyStatus } = trpc.settings.getApiKeyStatus.useQuery();
 
   const isWindowsApp = isWindows();
@@ -176,23 +220,26 @@ export function TitleBar({ className, noTrafficLightSpace }: TitleBarProps) {
   return (
     <div
       className={cn(
-        "h-9 bg-sidebar shrink-0 px-2 transition-all duration-300 relative drag-region",
-        showTrafficLights && !noTrafficLightSpace && "pl-20",
+        "h-9 bg-sidebar shrink-0 px-2 transition-all duration-300 relative",
         !showTrafficLights && "pr-0",
         className
       )}
-      style={{ WebkitAppRegion: "drag" } as React.CSSProperties}
     >
       <div className="flex h-full w-full items-center">
+      {/* Traffic light spacer — keeps buttons away from macOS semaphore zone */}
+      {showTrafficLights && !noTrafficLightSpace && (
+        <div className="w-[68px] shrink-0 drag-region h-full" style={{ WebkitAppRegion: "drag" } as React.CSSProperties} />
+      )}
+      {/* Left flex spacer — centers tab buttons when sidebar collapsed on macOS */}
+      {showTrafficLights && !noTrafficLightSpace && !sidebarOpen && (
+        <div className="flex-1 drag-region h-full" style={{ WebkitAppRegion: "drag" } as React.CSSProperties} />
+      )}
       {/* Left side - Ideas tab with sidebar toggles (like Excel) */}
       {activeTab === "ideas" && (!sidebarOpen || !notesSidebarOpen) && (
         <div
           className={cn(
             "flex items-center gap-1.5 shrink-0 z-[200] no-drag pointer-events-auto",
-            // Center buttons on macOS when main sidebar is collapsed, otherwise left-aligned
-            showTrafficLights && !sidebarOpen
-              ? "absolute left-1/2 -translate-x-1/2"
-              : showTrafficLights
+            showTrafficLights
               ? "ml-1"
               : "ml-2"
           )}
@@ -291,9 +338,7 @@ export function TitleBar({ className, noTrafficLightSpace }: TitleBarProps) {
           className={cn(
             "flex items-center gap-1.5 shrink-0 z-[200] no-drag pointer-events-auto",
             // Center buttons on macOS when main sidebar is collapsed, otherwise left-aligned
-            showTrafficLights && !sidebarOpen
-              ? "absolute left-1/2 -translate-x-1/2"
-              : showTrafficLights
+            showTrafficLights
               ? "ml-1"
               : "ml-2"
           )}
@@ -392,9 +437,7 @@ export function TitleBar({ className, noTrafficLightSpace }: TitleBarProps) {
           className={cn(
             "flex items-center gap-1.5 shrink-0 z-[200] no-drag pointer-events-auto",
             // Center buttons on macOS when main sidebar is collapsed, otherwise left-aligned
-            showTrafficLights && !sidebarOpen
-              ? "absolute left-1/2 -translate-x-1/2"
-              : showTrafficLights
+            showTrafficLights
               ? "ml-1"
               : "ml-2"
           )}
@@ -493,9 +536,7 @@ export function TitleBar({ className, noTrafficLightSpace }: TitleBarProps) {
           className={cn(
             "flex items-center gap-1.5 shrink-0 z-[200] no-drag pointer-events-auto",
             // Center buttons on macOS when main sidebar is collapsed, otherwise left-aligned
-            showTrafficLights && !sidebarOpen
-              ? "absolute left-1/2 -translate-x-1/2"
-              : showTrafficLights
+            showTrafficLights
               ? "ml-1"
               : "ml-2"
           )}
@@ -610,83 +651,8 @@ export function TitleBar({ className, noTrafficLightSpace }: TitleBarProps) {
               </div>
             )}
 
-            {/* macOS: chat controls beside traffic lights */}
-            {showTrafficLights && (
-              <>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-7 w-7 text-muted-foreground hover:text-foreground hover:bg-accent/50 rounded-md no-drag"
-                      onClick={() => setActiveTab("gallery")}
-                      aria-label="Open gallery"
-                    >
-                      <IconPhoto size={16} />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent side="bottom">Gallery</TooltipContent>
-                </Tooltip>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-7 w-7 text-muted-foreground hover:text-foreground hover:bg-accent/50 rounded-md no-drag"
-                      onClick={handleNewChat}
-                      aria-label="New chat"
-                      disabled={createChat.isPending}
-                    >
-                      <IconPlus size={16} />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent side="bottom">
-                    New Chat
-                    <kbd className="ml-2 pointer-events-none inline-flex h-4 select-none items-center rounded border bg-muted px-1 font-mono text-[10px] font-medium text-muted-foreground">
-                      {isMacOS() ? "⌘" : "Ctrl"}N
-                    </kbd>
-                  </TooltipContent>
-                </Tooltip>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-7 w-7 text-muted-foreground hover:text-foreground hover:bg-accent/50 rounded-md no-drag"
-                      onClick={() => setCommandKOpen(true)}
-                      aria-label="Search chats"
-                    >
-                      <IconSearch size={16} />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent side="bottom">
-                    Search
-                    <kbd className="ml-2 pointer-events-none inline-flex h-4 select-none items-center rounded border bg-muted px-1 font-mono text-[10px] font-medium text-muted-foreground">
-                      {isMacOS() ? "⌘" : "Ctrl"}K
-                    </kbd>
-                  </TooltipContent>
-                </Tooltip>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-7 w-7 text-muted-foreground hover:text-foreground hover:bg-accent/50 rounded-md no-drag"
-                      onClick={() => setSidebarOpen(true)}
-                      aria-label="Open sidebar"
-                    >
-                      <IconLayoutSidebarLeftExpand size={16} />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent side="bottom">
-                    Mostrar sidebar
-                    <kbd className="ml-2 pointer-events-none inline-flex h-4 select-none items-center rounded border bg-muted px-1 font-mono text-[10px] font-medium text-muted-foreground">
-                      {isMacOS() ? "⌘" : "Ctrl"}\
-                    </kbd>
-                  </TooltipContent>
-                </Tooltip>
-              </>
-            )}
+            {/* macOS: chat controls are rendered in main-layout.tsx as an overlay
+                outside the drag region hierarchy to avoid macOS hiddenInset hit area issues */}
           </div>
         )}
       {activeTab !== "ideas" &&
@@ -741,7 +707,7 @@ export function TitleBar({ className, noTrafficLightSpace }: TitleBarProps) {
         )}
 
       {/* Spacer for right-side items */}
-      <div className="flex-1 drag-region" aria-hidden />
+      <div className="flex-1 drag-region h-full" style={{ WebkitAppRegion: "drag" } as React.CSSProperties} aria-hidden />
 
       <div className="flex items-center no-drag pr-0">
         {showTrafficLights && (
@@ -871,15 +837,23 @@ export function TitleBar({ className, noTrafficLightSpace }: TitleBarProps) {
                 className="h-8 flex items-center gap-1.5 p-1 hover:bg-accent rounded-lg transition-colors no-drag ml-1 relative"
               >
                 <Avatar className="h-6 w-6 border border-border/50">
-                  <AvatarImage
-                    src={
-                      user?.user_metadata?.avatar_url ||
-                      user?.user_metadata?.picture
-                    }
-                  />
+                  {activeAvatarIsEmoji ? (
+                    <AvatarFallback
+                      className="text-sm"
+                      style={{ backgroundColor: activeAvatarBgColor || undefined }}
+                    >
+                      {activeAvatarEmoji}
+                    </AvatarFallback>
+                  ) : activeAvatarUrl ? (
+                    <AvatarImage src={activeAvatarUrl} />
+                  ) : null}
                   <AvatarFallback className="bg-primary/10 text-[10px]">
-                    {user?.email?.charAt(0).toUpperCase() || (
-                      <OpenAIIcon size={12} className="text-muted-foreground" />
+                    {activeAccount?.isLocal ? (
+                      <IconDeviceDesktop size={12} />
+                    ) : (
+                      (activeAccount?.email || user?.email)?.charAt(0).toUpperCase() || (
+                        <IconUser size={12} />
+                      )
                     )}
                   </AvatarFallback>
                 </Avatar>
@@ -889,14 +863,14 @@ export function TitleBar({ className, noTrafficLightSpace }: TitleBarProps) {
                 />
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-56 mt-1">
+            <DropdownMenuContent align="end" className="w-64 mt-1">
               <DropdownMenuLabel className="flex items-center justify-between">
                 <div className="flex flex-col min-w-0">
                   <span className="text-sm font-semibold truncate">
                     {userDisplayName}
                   </span>
                   <span className="text-[10px] text-muted-foreground truncate font-normal">
-                    {user?.email}
+                    {activeAccount?.isLocal ? "Modo offline" : activeAccount?.email || user?.email}
                   </span>
                 </div>
                 {isConnected && (
@@ -912,18 +886,123 @@ export function TitleBar({ className, noTrafficLightSpace }: TitleBarProps) {
                 )}
               </DropdownMenuLabel>
               <DropdownMenuSeparator />
+
+              {accounts.length > 0 && (
+                <>
+                  <DropdownMenuLabel className="flex items-center justify-between">
+                    <span className="flex items-center gap-1.5">
+                      <IconUsers size={12} />
+                      Cuentas
+                    </span>
+                    {hasMultipleAccounts && (
+                      <span className="text-[9px] text-muted-foreground">
+                        {accounts.length} conectadas
+                      </span>
+                    )}
+                  </DropdownMenuLabel>
+                  <div className="max-h-40 overflow-y-auto">
+                    {accounts.map((account) => {
+                      const isEmoji = account.avatarUrl?.startsWith("emoji://");
+                      const emoji = isEmoji
+                        ? decodeURIComponent(
+                            account.avatarUrl!.split("://")[1]?.split("?")[0] || "👤"
+                          )
+                        : null;
+                      const bgColor = isEmoji
+                        ? decodeURIComponent(account.avatarUrl!.split("bg=")[1] || "#6366f1")
+                        : null;
+
+                      return (
+                        <DropdownMenuItem
+                          key={account.id}
+                          onClick={() => {
+                            if (!account.isActive) {
+                              switchAccount.mutate({ accountId: account.id });
+                            }
+                          }}
+                          className={cn(
+                            "flex items-center gap-2 cursor-pointer",
+                            account.isActive && "bg-accent/50"
+                          )}
+                        >
+                          <div className="relative">
+                            <Avatar className="h-5 w-5">
+                              {isEmoji ? (
+                                <AvatarFallback
+                                  className="text-xs"
+                                  style={{ backgroundColor: bgColor || undefined }}
+                                >
+                                  {emoji}
+                                </AvatarFallback>
+                              ) : account.avatarUrl ? (
+                                <AvatarImage src={account.avatarUrl} />
+                              ) : null}
+                              <AvatarFallback className="text-[10px] bg-primary/10">
+                                {account.isLocal ? (
+                                  <IconDeviceDesktop size={12} />
+                                ) : (
+                                  account.email?.charAt(0).toUpperCase() || "?"
+                                )}
+                              </AvatarFallback>
+                            </Avatar>
+                            {account.isActive && (
+                              <span className="absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full bg-green-500 border border-background" />
+                            )}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs font-medium truncate">
+                              {account.isLocal
+                                ? account.displayName || "Cuenta Local"
+                                : account.email}
+                            </p>
+                            <p className="text-[10px] text-muted-foreground truncate">
+                              {account.isLocal ? "Modo offline" : account.provider || "Cloud"}
+                            </p>
+                          </div>
+                          {account.isActive && (
+                            <IconCheck size={14} className="text-green-500 shrink-0" />
+                          )}
+                        </DropdownMenuItem>
+                      );
+                    })}
+                  </div>
+                  <DropdownMenuSeparator />
+                </>
+              )}
+
+              <DropdownMenuItem
+                onClick={() => setAuthDialogOpen(true)}
+                className="gap-2"
+              >
+                <IconPlus size={14} />
+                Agregar cuenta
+              </DropdownMenuItem>
+
+              {hasMultipleAccounts && (
+                <DropdownMenuItem
+                  onClick={() => {
+                    setSettingsTab("account");
+                    openSettingsPage();
+                  }}
+                  className="gap-2"
+                >
+                  <IconUsers size={14} />
+                  Administrar cuentas...
+                </DropdownMenuItem>
+              )}
+
+              <DropdownMenuSeparator />
+
               <DropdownMenuItem
                 onClick={() => openSettingsPage()}
                 className="justify-between cursor-pointer"
               >
                 <span className="flex items-center">
                   <IconSettings size={14} className="mr-2" />
-                  Settings
+                  Configuración
                 </span>
                 <kbd className="ml-auto text-[10px] font-medium text-muted-foreground bg-muted/50 px-1.5 py-0.5 rounded border border-border/50">
-                  {navigator.platform.toLowerCase().includes("mac")
-                    ? "⌘,"
-                    : "Ctrl+,"}
+                  {isMacOS() ? "⌘," : "Ctrl+,"}
                 </kbd>
               </DropdownMenuItem>
               <DropdownMenuSeparator />
@@ -933,7 +1012,7 @@ export function TitleBar({ className, noTrafficLightSpace }: TitleBarProps) {
                 className="cursor-pointer"
               >
                 <IconLogout size={14} className="mr-2" />
-                Sign out
+                {hasMultipleAccounts ? "Cerrar sesión actual" : "Cerrar sesión"}
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>

@@ -1474,6 +1474,14 @@ function createWindow(): void {
     mainWindow?.webContents.send("window:maximize-changed", false)
   );
 
+  // Fix zoom out on non-US keyboard layouts (e.g. Spanish) where Cmd+- may not register
+  mainWindow.webContents.on("before-input-event", (event, input) => {
+    if ((input.meta || input.control) && !input.shift && !input.alt && input.key === "-") {
+      mainWindow?.webContents.setZoomLevel(mainWindow.webContents.getZoomLevel() - 0.5);
+      event.preventDefault();
+    }
+  });
+
   // DevTools: use View > Toggle DevTools (Ctrl+Shift+I). No auto-open to avoid
   // Chromium console noise (language-mismatch, Autofill.enable, etc.).
 }
@@ -1679,6 +1687,35 @@ app.whenReady().then(async () => {
   // Register handler for Quick Prompt
   hotkeyManager.setHandler("quick-prompt", () => {
     showQuickPromptWindow();
+  });
+
+  // Toggle Main Window — show/focus if hidden, hide if focused
+  hotkeyManager.setHandler("toggle-main-window", () => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      if (mainWindow.isVisible() && mainWindow.isFocused()) {
+        mainWindow.hide();
+      } else {
+        showMainWindow();
+      }
+    }
+  });
+
+  // New Chat — bring window to front and create a new chat
+  hotkeyManager.setHandler("new-chat", () => {
+    showMainWindow();
+    sendToMainWindow("menu:new-chat");
+  });
+
+  // Toggle Zen Mode
+  hotkeyManager.setHandler("toggle-zen-mode", () => {
+    showMainWindow();
+    sendToMainWindow("menu:toggle-zen-mode");
+  });
+
+  // Command Palette (Command K)
+  hotkeyManager.setHandler("global-search", () => {
+    showMainWindow();
+    sendToMainWindow("menu:command-k");
   });
 
   // Register all configured hotkeys

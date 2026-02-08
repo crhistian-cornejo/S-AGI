@@ -1,0 +1,99 @@
+<svg width="420" height="750" viewBox="0 0 420 750" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="750" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FFFFFF" />
+      <stop offset="0.52" stop-color="#F7F9FF" />
+      <stop offset="1" stop-color="#EEF2FF" />
+    </linearGradient>
+    <radialGradient id="glowTopLeft" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(44 78) rotate(24) scale(190 168)">
+      <stop stop-color="#D8E2FF" stop-opacity="0.76" />
+      <stop offset="1" stop-color="#D8E2FF" stop-opacity="0" />
+    </radialGradient>
+    <radialGradient id="glowBottomLeft" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(4 696) rotate(-19) scale(170 160)">
+      <stop stop-color="#FFE1FA" stop-opacity="0.85" />
+      <stop offset="1" stop-color="#FFE1FA" stop-opacity="0" />
+    </radialGradient>
+    <radialGradient id="glowBottomRight" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(418 688) rotate(200) scale(182 152)">
+      <stop stop-color="#DDE5FF" stop-opacity="0.72" />
+      <stop offset="1" stop-color="#DDE5FF" stop-opacity="0" />
+    </radialGradient>
+    <radialGradient id="centerSoft" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(210 348) rotate(90) scale(278 252)">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.56" />
+      <stop offset="1" stop-color="#FFFFFF" stop-opacity="0" />
+    </radialGradient>
+    <filter id="sparkBlur" x="-24" y="-24" width="468" height="798" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feGaussianBlur stdDeviation="0.8" />
+    </filter>
+    <filter id="sparkSoft" x="-24" y="-24" width="468" height="798" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feGaussianBlur stdDeviation="1.2" />
+    </filter>
+  </defs>
+
+  <rect width="420" height="750" fill="url(#bg)" />
+  <rect width="420" height="750" fill="url(#glowTopLeft)" />
+  <rect width="420" height="750" fill="url(#glowBottomLeft)" />
+  <rect width="420" height="750" fill="url(#glowBottomRight)" />
+  <rect width="420" height="750" fill="url(#centerSoft)" />
+
+  <g filter="url(#sparkSoft)" fill="#B8C7FF" opacity="0.44">
+    <circle cx="46" cy="58" r="1.4" />
+    <circle cx="72" cy="44" r="1.1" />
+    <circle cx="95" cy="61" r="1.2" />
+    <circle cx="118" cy="89" r="1.3" />
+    <circle cx="143" cy="74" r="1.1" />
+    <circle cx="170" cy="52" r="1.4" />
+    <circle cx="194" cy="70" r="1.2" />
+    <circle cx="220" cy="57" r="1.1" />
+    <circle cx="248" cy="76" r="1.2" />
+    <circle cx="273" cy="63" r="1.3" />
+    <circle cx="301" cy="86" r="1.2" />
+    <circle cx="326" cy="58" r="1.1" />
+    <circle cx="354" cy="79" r="1.2" />
+    <circle cx="378" cy="66" r="1.1" />
+  </g>
+
+  <g filter="url(#sparkBlur)" fill="#FFFFFF" opacity="0.95">
+    <circle cx="32" cy="96" r="0.9" />
+    <circle cx="57" cy="122" r="0.9" />
+    <circle cx="80" cy="101" r="0.8" />
+    <circle cx="106" cy="131" r="0.9" />
+    <circle cx="131" cy="108" r="0.8" />
+    <circle cx="156" cy="143" r="0.9" />
+    <circle cx="182" cy="118" r="0.9" />
+    <circle cx="207" cy="137" r="0.8" />
+    <circle cx="233" cy="112" r="0.9" />
+    <circle cx="259" cy="141" r="0.8" />
+    <circle cx="284" cy="119" r="0.9" />
+    <circle cx="312" cy="146" r="0.8" />
+    <circle cx="337" cy="121" r="0.9" />
+    <circle cx="363" cy="138" r="0.8" />
+    <circle cx="389" cy="114" r="0.9" />
+    <circle cx="44" cy="176" r="0.9" />
+    <circle cx="71" cy="198" r="0.8" />
+    <circle cx="98" cy="183" r="0.9" />
+    <circle cx="126" cy="208" r="0.8" />
+    <circle cx="154" cy="186" r="0.9" />
+    <circle cx="182" cy="210" r="0.8" />
+    <circle cx="209" cy="189" r="0.9" />
+    <circle cx="237" cy="212" r="0.8" />
+    <circle cx="264" cy="191" r="0.9" />
+    <circle cx="292" cy="214" r="0.8" />
+    <circle cx="319" cy="194" r="0.9" />
+    <circle cx="347" cy="216" r="0.8" />
+    <circle cx="374" cy="196" r="0.9" />
+    <circle cx="398" cy="218" r="0.8" />
+  </g>
+
+  <g fill="#D1DCFF" opacity="0.6">
+    <circle cx="52" cy="268" r="0.9" />
+    <circle cx="86" cy="292" r="0.8" />
+    <circle cx="121" cy="274" r="0.9" />
+    <circle cx="156" cy="301" r="0.8" />
+    <circle cx="191" cy="279" r="0.9" />
+    <circle cx="226" cy="305" r="0.8" />
+    <circle cx="261" cy="283" r="0.9" />
+    <circle cx="296" cy="309" r="0.8" />
+    <circle cx="332" cy="286" r="0.9" />
+    <circle cx="367" cy="312" r="0.8" />
+  </g>
+</svg>

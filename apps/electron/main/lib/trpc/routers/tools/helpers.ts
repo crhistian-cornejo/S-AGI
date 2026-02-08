@@ -34,18 +34,7 @@ export function notifyArtifactUpdate(
 export async function getArtifactWithOwnership(
     artifactId: string,
     userId: string
-): Promise<{
-    id: string
-    chat_id: string
-    user_id: string
-    type: string
-    name: string
-    content: unknown
-    univer_data: any
-    created_at: string
-    updated_at: string
-    chats?: { user_id: string } | { user_id: string }[]
-}> {
+): Promise<any> {
     const { data: artifact, error } = await supabase
         .from('artifacts')
         .select('*, chats(user_id)')
