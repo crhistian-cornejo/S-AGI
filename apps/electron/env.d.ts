@@ -171,6 +171,31 @@ interface DesktopApi {
         set: (data: { trayEnabled?: boolean; quickPromptEnabled?: boolean; autoSaveDelay?: number }) => Promise<{ trayEnabled: boolean; quickPromptEnabled: boolean; autoSaveDelay: number }>
         onPreferencesUpdated: (callback: (data: { trayEnabled: boolean; quickPromptEnabled: boolean; autoSaveDelay: number }) => void) => () => void
     }
+    update: {
+        checkForUpdates: () => Promise<{ success: boolean; error?: string }>
+        downloadUpdate: () => Promise<{ success: boolean; error?: string }>
+        installUpdate: () => Promise<{ success: boolean; error?: string }>
+        getVersion: () => Promise<string>
+        onChecking: (callback: () => void) => () => void
+        onAvailable: (callback: (data: {
+            version: string
+            releaseDate?: string
+            releaseNotes?: string | { version: string; note: string }[]
+        }) => void) => () => void
+        onNotAvailable: (callback: (data: { version: string }) => void) => () => void
+        onDownloadProgress: (callback: (data: {
+            percent: number
+            transferred: number
+            total: number
+            bytesPerSecond: number
+        }) => void) => () => void
+        onDownloaded: (callback: (data: {
+            version: string
+            releaseDate?: string
+            releaseNotes?: string | { version: string; note: string }[]
+        }) => void) => () => void
+        onError: (callback: (data: { message: string }) => void) => () => void
+    }
     menu?: {
         onNewChat: (callback: () => void) => () => void
         onNewSpreadsheet: (callback: () => void) => () => void

@@ -7,19 +7,26 @@
  */
 
 import { autoUpdater, UpdateInfo } from "electron-updater";
-import { BrowserWindow, ipcMain, dialog } from "electron";
+import { app, BrowserWindow, ipcMain, dialog } from "electron";
 import log from "electron-log";
+
+const INITIAL_CHECK_DELAY_MS = 5000;
+const PERIODIC_CHECK_INTERVAL_MS = 4 * 60 * 60 * 1000;
 
 // Configure electron-updater logging
 autoUpdater.logger = log;
 (autoUpdater.logger as typeof log).transports.file.level = "info";
 
-// Disable auto-download - we want to prompt the user first
-autoUpdater.autoDownload = false;
+// Download updates automatically once found; ask user before restart.
+autoUpdater.autoDownload = true;
 autoUpdater.autoInstallOnAppQuit = true;
 
 // Store reference to main window for IPC communication
 let mainWindow: BrowserWindow | null = null;
+let initialized = false;
+let ipcHandlersRegistered = false;
+let checkInProgress = false;
+let updateDownloaded = false;
 
 /**
  * Initialize the auto-updater
@@ -27,33 +34,60 @@ let mainWindow: BrowserWindow | null = null;
  */
 export function initAutoUpdater(window: BrowserWindow): void {
   mainWindow = window;
+  window.once("closed", () => {
+    if (mainWindow === window) {
+      mainWindow = null;
+    }
+  });
 
-  // Check for updates on startup (with a delay to not block app launch)
-  setTimeout(() => {
-    checkForUpdates();
-  }, 5000);
+  if (process.mas) {
+    log.info("[AutoUpdater] Disabled in Mac App Store builds.");
+    return;
+  }
 
-  // Check for updates every 4 hours
-  setInterval(
-    () => {
-      checkForUpdates();
-    },
-    4 * 60 * 60 * 1000
-  );
+  if (initialized) {
+    return;
+  }
+  initialized = true;
 
   setupAutoUpdaterEvents();
   setupIpcHandlers();
+  scheduleUpdateChecks();
+}
+
+function scheduleUpdateChecks(): void {
+  setTimeout(() => {
+    void checkForUpdates();
+  }, INITIAL_CHECK_DELAY_MS);
+
+  setInterval(() => {
+    void checkForUpdates();
+  }, PERIODIC_CHECK_INTERVAL_MS);
 }
 
 /**
  * Check for available updates
  */
 export async function checkForUpdates(): Promise<void> {
+  if (!initialized) {
+    log.warn("[AutoUpdater] checkForUpdates called before initialization");
+    return;
+  }
+
+  if (checkInProgress) {
+    log.info("[AutoUpdater] Check already in progress, skipping.");
+    return;
+  }
+
   try {
+    checkInProgress = true;
     log.info("[AutoUpdater] Checking for updates...");
     await autoUpdater.checkForUpdates();
   } catch (error) {
     log.error("[AutoUpdater] Error checking for updates:", error);
+    throw error;
+  } finally {
+    checkInProgress = false;
   }
 }
 
@@ -61,11 +95,22 @@ export async function checkForUpdates(): Promise<void> {
  * Download the available update
  */
 export async function downloadUpdate(): Promise<void> {
+  if (!initialized) {
+    log.warn("[AutoUpdater] downloadUpdate called before initialization");
+    return;
+  }
+
+  if (updateDownloaded) {
+    log.info("[AutoUpdater] Update is already downloaded.");
+    return;
+  }
+
   try {
     log.info("[AutoUpdater] Starting download...");
     await autoUpdater.downloadUpdate();
   } catch (error) {
     log.error("[AutoUpdater] Error downloading update:", error);
+    throw error;
   }
 }
 
@@ -87,6 +132,7 @@ function setupAutoUpdaterEvents(): void {
   });
 
   autoUpdater.on("update-available", (info: UpdateInfo) => {
+    updateDownloaded = false;
     log.info("[AutoUpdater] Update available:", info.version);
     sendToRenderer("update:available", {
       version: info.version,
@@ -96,6 +142,7 @@ function setupAutoUpdaterEvents(): void {
   });
 
   autoUpdater.on("update-not-available", (info: UpdateInfo) => {
+    updateDownloaded = false;
     log.info("[AutoUpdater] No update available. Current version:", info.version);
     sendToRenderer("update:not-available", { version: info.version });
   });
@@ -113,6 +160,7 @@ function setupAutoUpdaterEvents(): void {
   });
 
   autoUpdater.on("update-downloaded", (info: UpdateInfo) => {
+    updateDownloaded = true;
     log.info("[AutoUpdater] Update downloaded:", info.version);
     sendToRenderer("update:downloaded", {
       version: info.version,
@@ -126,7 +174,7 @@ function setupAutoUpdaterEvents(): void {
 
   autoUpdater.on("error", (error) => {
     log.error("[AutoUpdater] Error:", error);
-    sendToRenderer("update:error", { message: error.message });
+    sendToRenderer("update:error", { message: getErrorMessage(error) });
   });
 }
 
@@ -134,23 +182,39 @@ function setupAutoUpdaterEvents(): void {
  * Set up IPC handlers for renderer process communication
  */
 function setupIpcHandlers(): void {
+  if (ipcHandlersRegistered) {
+    return;
+  }
+  ipcHandlersRegistered = true;
+
   ipcMain.handle("update:check", async () => {
-    await checkForUpdates();
-    return { success: true };
+    try {
+      await checkForUpdates();
+      return { success: true };
+    } catch (error) {
+      return { success: false, error: getErrorMessage(error) };
+    }
   });
 
   ipcMain.handle("update:download", async () => {
-    await downloadUpdate();
-    return { success: true };
+    try {
+      await downloadUpdate();
+      return { success: true };
+    } catch (error) {
+      return { success: false, error: getErrorMessage(error) };
+    }
   });
 
   ipcMain.handle("update:install", () => {
-    installUpdate();
-    return { success: true };
+    try {
+      installUpdate();
+      return { success: true };
+    } catch (error) {
+      return { success: false, error: getErrorMessage(error) };
+    }
   });
 
   ipcMain.handle("update:get-version", () => {
-    const { app } = require("electron");
     return app.getVersion();
   });
 }
@@ -183,6 +247,13 @@ function sendToRenderer(channel: string, data?: unknown): void {
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send(channel, data);
   }
+}
+
+function getErrorMessage(error: unknown): string {
+  if (error instanceof Error && error.message) {
+    return error.message;
+  }
+  return String(error);
 }
 
 /**

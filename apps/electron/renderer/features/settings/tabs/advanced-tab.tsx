@@ -1,5 +1,5 @@
 import { useAtom } from "jotai";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   reasoningEffortAtom,
   chatModeAtom,
@@ -23,8 +23,18 @@ import {
   IconMessage,
   IconDeviceDesktop,
   IconDeviceFloppy,
+  IconDownload,
   IconSettings,
 } from "@tabler/icons-react";
+
+type UpdateState =
+  | "idle"
+  | "checking"
+  | "available"
+  | "downloading"
+  | "downloaded"
+  | "up-to-date"
+  | "error";
 
 export function AdvancedTab() {
   const [reasoningEffort, setReasoningEffort] = useAtom(reasoningEffortAtom);
@@ -33,8 +43,15 @@ export function AdvancedTab() {
   const [trayEnabled, setTrayEnabled] = useState(true);
   const [quickPromptEnabled, setQuickPromptEnabled] = useState(true);
   const [autoSaveDelay, setAutoSaveDelay] = useState(300000);
+  const [appVersion, setAppVersion] = useState("0.0.0");
+  const [updateState, setUpdateState] = useState<UpdateState>("idle");
+  const [latestVersion, setLatestVersion] = useState<string | null>(null);
+  const [downloadPercent, setDownloadPercent] = useState(0);
+  const [updateError, setUpdateError] = useState<string | null>(null);
   const preferencesAvailable =
     typeof window !== "undefined" && !!window.desktopApi?.preferences;
+  const updateApi = typeof window !== "undefined" ? window.desktopApi?.update : undefined;
+  const updateAvailable = !!updateApi;
 
   const handleResetOnboarding = () => {
     setOnboardingCompleted(false);
@@ -42,6 +59,66 @@ export function AdvancedTab() {
       "Onboarding has been reset. It will appear on next launch or refresh.",
     );
   };
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !window.desktopApi) return;
+
+    window.desktopApi
+      .getVersion()
+      .then((version) => {
+        if (version) {
+          setAppVersion(version);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    if (!updateApi) return;
+
+    const onChecking = updateApi.onChecking(() => {
+      setUpdateState("checking");
+      setUpdateError(null);
+    });
+    const onAvailable = updateApi.onAvailable((data) => {
+      setUpdateState("available");
+      setLatestVersion(data.version);
+      setUpdateError(null);
+    });
+    const onNotAvailable = updateApi.onNotAvailable(() => {
+      setUpdateState("up-to-date");
+      setLatestVersion(null);
+      setDownloadPercent(0);
+    });
+    const onDownloadProgress = updateApi.onDownloadProgress(
+      (data) => {
+        setUpdateState("downloading");
+        setDownloadPercent(data.percent);
+      },
+    );
+    const onDownloaded = updateApi.onDownloaded((data) => {
+      setUpdateState("downloaded");
+      setLatestVersion(data.version);
+      setDownloadPercent(100);
+      toast.success(
+        `Update ${data.version} downloaded. Restart the app to apply it.`,
+      );
+    });
+    const onError = updateApi.onError((data) => {
+      setUpdateState("error");
+      setUpdateError(data.message);
+      toast.error(`Update error: ${data.message}`);
+    });
+
+    return () => {
+      onChecking?.();
+      onAvailable?.();
+      onNotAvailable?.();
+      onDownloadProgress?.();
+      onDownloaded?.();
+      onError?.();
+    };
+  }, [updateApi]);
 
   useEffect(() => {
     if (!preferencesAvailable) return;
@@ -70,6 +147,32 @@ export function AdvancedTab() {
     };
   }, [preferencesAvailable]);
 
+  const updateDescription = useMemo(() => {
+    switch (updateState) {
+      case "checking":
+        return "Checking for updates from GitHub Releases...";
+      case "available":
+        return latestVersion
+          ? `Update ${latestVersion} found. Download starting automatically...`
+          : "Update found. Download starting automatically...";
+      case "downloading":
+        return `Downloading update... ${Math.max(
+          0,
+          Math.min(100, Math.round(downloadPercent)),
+        )}%`;
+      case "downloaded":
+        return latestVersion
+          ? `Update ${latestVersion} is ready. Restart to install.`
+          : "Update is ready. Restart to install.";
+      case "up-to-date":
+        return "You are using the latest version.";
+      case "error":
+        return updateError || "Unable to check for updates.";
+      default:
+        return "Automatic updates are enabled via GitHub Releases.";
+    }
+  }, [downloadPercent, latestVersion, updateError, updateState]);
+
   const updatePreferences = async (patch: {
     trayEnabled?: boolean;
     quickPromptEnabled?: boolean;
@@ -84,6 +187,26 @@ export function AdvancedTab() {
         setAutoSaveDelay(next.autoSaveDelay || 300000);
       }
     } catch {}
+  };
+
+  const handleCheckForUpdates = async () => {
+    if (!updateApi) return;
+
+    setUpdateState("checking");
+    setUpdateError(null);
+    const result = await updateApi.checkForUpdates();
+
+    if (!result?.success) {
+      const message = result.error || "Unable to check for updates.";
+      setUpdateState("error");
+      setUpdateError(message);
+      toast.error(message);
+    }
+  };
+
+  const handleInstallUpdate = async () => {
+    if (!updateApi) return;
+    await updateApi.installUpdate();
   };
 
   return (
@@ -239,6 +362,43 @@ export function AdvancedTab() {
             }
           />
 
+          {/* App Updates */}
+          <SettingsRow
+            icon={<IconDownload size={16} className="text-muted-foreground" />}
+            title="App Updates"
+            description={updateDescription}
+            action={
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  onClick={handleCheckForUpdates}
+                  size="sm"
+                  className="h-8 text-xs"
+                  disabled={
+                    !updateAvailable ||
+                    updateState === "checking" ||
+                    updateState === "downloading"
+                  }
+                >
+                  <IconRefresh
+                    size={14}
+                    className={`mr-1.5 ${
+                      updateState === "checking" || updateState === "downloading"
+                        ? "animate-spin"
+                        : ""
+                    }`}
+                  />
+                  Check
+                </Button>
+                {updateState === "downloaded" ? (
+                  <Button onClick={handleInstallUpdate} size="sm" className="h-8 text-xs">
+                    Restart
+                  </Button>
+                ) : null}
+              </div>
+            }
+          />
+
           {/* Reset Onboarding */}
           <SettingsRow
             icon={<IconRotate2 size={16} className="text-muted-foreground" />}
@@ -262,7 +422,7 @@ export function AdvancedTab() {
       {/* App Version Info */}
       <div className="pt-2 text-center">
         <p className="text-[10px] text-muted-foreground font-mono">
-          S-AGI v1.0.0 • Production Build
+          S-AGI v{appVersion} • {updateAvailable ? "Auto Updates Enabled" : "Updates Unavailable"}
         </p>
       </div>
     </div>

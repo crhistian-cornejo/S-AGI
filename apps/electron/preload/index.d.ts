@@ -2,8 +2,7 @@
  * DesktopApi type declaration for window.desktopApi.
  * Implementation: preload/index.ts
  *
- * Planned / not yet implemented (kept as reference for future): checkForUpdates,
- * downloadUpdate, installUpdate, onUpdate*, window* (minimize/maximize/close
+ * Planned / not yet implemented (kept as reference for future): window* (minimize/maximize/close
  * variants, fullscreen, traffic lights), zoom*, toggleDevTools, setAnalyticsOptOut,
  * setBadge, showNotification, openExternal, getApiBaseUrl, getUser, isAuthenticated,
  * logout, startAuthFlow, submitAuthCode, updateUser, onAuthSuccess, onAuthError,
@@ -190,9 +189,9 @@ export interface DesktopApi {
   };
   // Auto-update API
   update: {
-    checkForUpdates: () => Promise<{ success: boolean }>;
-    downloadUpdate: () => Promise<{ success: boolean }>;
-    installUpdate: () => Promise<{ success: boolean }>;
+    checkForUpdates: () => Promise<{ success: boolean; error?: string }>;
+    downloadUpdate: () => Promise<{ success: boolean; error?: string }>;
+    installUpdate: () => Promise<{ success: boolean; error?: string }>;
     getVersion: () => Promise<string>;
     onChecking: (callback: () => void) => () => void;
     onAvailable: (

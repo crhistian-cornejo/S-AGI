@@ -1,6 +1,8 @@
+import { spawn } from 'child_process'
 import { existsSync } from 'fs'
 import { join } from 'path'
 import log from 'electron-log'
+import type { SpawnOptions, SpawnedProcess } from '@anthropic-ai/claude-agent-sdk'
 import { sendToRenderer } from '../window-manager'
 import type { AIStreamEvent } from '@s-agi/core/types/ai'
 
@@ -8,37 +10,104 @@ import type { AIStreamEvent } from '@s-agi/core/types/ai'
  * Craft-style SDK options: pathToClaudeCodeExecutable, executableArgs (--env-file=/dev/null),
  * executable. Prevents subprocess from loading .env and overriding OAuth with API key.
  */
-function getClaudeSdkDefaults(): {
+type ClaudeSdkSpawnOptions = SpawnOptions
+
+type ClaudeSdkDefaults = {
     pathToClaudeCodeExecutable?: string
     executable: 'bun' | 'node'
     executableArgs: string[]
     cwd: string
-} {
+    spawnClaudeCodeProcess?: (options: ClaudeSdkSpawnOptions) => SpawnedProcess
+}
+
+const CLAUDE_SDK_CLI_SEGMENT = join('node_modules', '@anthropic-ai', 'claude-agent-sdk', 'cli.js')
+
+function toAsarUnpackedPath(filePath: string): string {
+    return filePath.replace(/([\\/])app\.asar([\\/])/i, '$1app.asar.unpacked$2')
+}
+
+function spawnClaudeWithElectronRuntime({
+    args,
+    cwd,
+    env,
+    signal,
+}: ClaudeSdkSpawnOptions): SpawnedProcess {
+    const child = spawn(process.execPath, args, {
+        cwd,
+        env: {
+            ...env,
+            ELECTRON_RUN_AS_NODE: '1',
+        },
+        signal,
+        stdio: 'pipe',
+    })
+
+    if (!child.stdin || !child.stdout || !child.stderr) {
+        throw new Error('Failed to initialize Claude SDK subprocess streams')
+    }
+
+    return child as unknown as SpawnedProcess
+}
+
+function getClaudeSdkDefaults(): ClaudeSdkDefaults {
     // Import app at runtime to avoid "app is undefined" during module init
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { app } = require('electron')
     const isPackaged = app?.isPackaged ?? false
 
-    const basePath = isPackaged ? app.getAppPath() : process.cwd()
-    const cliPath = join(basePath, 'node_modules', '@anthropic-ai', 'claude-agent-sdk', 'cli.js')
-    const hasCli = existsSync(cliPath)
+    // Resolve CLI to a child-process-safe path.
+    // Paths under app.asar are virtual and can fail when invoked by external runtimes.
+    const cliCandidates = isPackaged
+        ? [
+              join(process.resourcesPath, 'app.asar.unpacked', CLAUDE_SDK_CLI_SEGMENT),
+              join(process.resourcesPath, 'app.asar', CLAUDE_SDK_CLI_SEGMENT),
+              join(app.getAppPath(), CLAUDE_SDK_CLI_SEGMENT),
+          ]
+        : [join(process.cwd(), CLAUDE_SDK_CLI_SEGMENT), join(app.getAppPath(), CLAUDE_SDK_CLI_SEGMENT)]
 
-    // Disable .env loading in subprocess so OAuth token isn't overridden by user's .env
-    // /dev/null exists on darwin/linux only; skip on Windows
-    const executableArgs =
-        process.platform !== 'win32' ? ['--env-file=/dev/null'] : []
+    const seenCandidates = new Set<string>()
+    let cliPath: string | undefined
+    for (const candidate of cliCandidates) {
+        const normalizedCandidates = [candidate, toAsarUnpackedPath(candidate)]
+        for (const normalizedCandidate of normalizedCandidates) {
+            if (seenCandidates.has(normalizedCandidate)) {
+                continue
+            }
+            seenCandidates.add(normalizedCandidate)
+            if (existsSync(normalizedCandidate)) {
+                cliPath = normalizedCandidate
+                break
+            }
+        }
+        if (cliPath) {
+            break
+        }
+    }
 
-    // Windows dev: use node (Craft does this); elsewhere use bun
-    const executable = process.platform === 'win32' && !isPackaged ? 'node' : 'bun'
+    // Use Node-compatible args by default. Bun-specific args are only needed if explicitly selected.
+    const executableArgs: string[] = []
+
+    // Use Node runtime for reliable production behavior.
+    const executable: 'node' = 'node'
 
     // cwd for session storage
     const cwd = isPackaged ? app.getPath('userData') : process.cwd()
 
+    const spawnClaudeCodeProcess = isPackaged ? spawnClaudeWithElectronRuntime : undefined
+
+    if (!cliPath) {
+        log.warn('[Claude SDK] Could not resolve claude-agent-sdk CLI path.', {
+            isPackaged,
+            checkedCandidates: [...seenCandidates],
+        })
+    }
+
     return {
-        ...(hasCli ? { pathToClaudeCodeExecutable: cliPath } : {}),
+        ...(cliPath ? { pathToClaudeCodeExecutable: cliPath } : {}),
         executable,
         executableArgs,
-        cwd
+        cwd,
+        ...(spawnClaudeCodeProcess ? { spawnClaudeCodeProcess } : {}),
     }
 }
 
@@ -227,6 +296,7 @@ export async function streamWithClaudeAgentSDK(options: ClaudeStreamingOptions):
             pathToClaudeCodeExecutable: sdkDefaults.pathToClaudeCodeExecutable || '(default)',
             executable: sdkDefaults.executable,
             executableArgs: sdkDefaults.executableArgs,
+            spawnOverride: !!sdkDefaults.spawnClaudeCodeProcess,
             hasOAuthToken: !!authToken,
             hasApiKey: !!apiKey
         })
@@ -935,6 +1005,9 @@ export async function streamClaudeForAgentPanel(options: AgentPanelClaudeOptions
         log.info('[Claude SDK AgentPanel] Options:', {
             sessionId,
             modelId,
+            pathToClaudeCodeExecutable: sdkDefaults.pathToClaudeCodeExecutable || '(default)',
+            executable: sdkDefaults.executable,
+            spawnOverride: !!sdkDefaults.spawnClaudeCodeProcess,
             hasOAuthToken: !!authToken,
             hasApiKey: !!apiKey,
             mcpToolsCount: mcpTools?.length || 0

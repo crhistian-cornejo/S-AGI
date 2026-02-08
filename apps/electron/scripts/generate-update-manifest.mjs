@@ -3,19 +3,19 @@
 /**
  * Generate update manifest files for electron-updater
  *
- * This script generates `latest-mac.yml` and `latest-win.yml` files
+ * This script generates `latest-mac.yml` and `latest.yml` files
  * that electron-updater uses to check for and download updates.
  *
  * Usage:
- *   node apps/electron/scripts/generate-update-manifest.mjs
- *   node apps/electron/scripts/generate-update-manifest.mjs --channel=beta
+ *   bun apps/electron/scripts/generate-update-manifest.mjs
+ *   bun apps/electron/scripts/generate-update-manifest.mjs --channel=beta
  *
  * The script expects ZIP/exe files to exist in apps/electron/release/
  */
 
 import { createHash } from "crypto"
-import { readFileSync, writeFileSync, existsSync, readdirSync, statSync, mkdirSync } from "fs"
-import { join, dirname } from "path"
+import { readFileSync, writeFileSync, existsSync, readdirSync, statSync } from "fs"
+import { basename, join, dirname } from "path"
 import { fileURLToPath } from "url"
 
 const __filename = fileURLToPath(import.meta.url)
@@ -70,45 +70,115 @@ function findFile(pattern, extension) {
 }
 
 /**
- * Generate macOS manifest for a specific architecture
+ * Find all files matching pattern in release directory
  */
-function generateMacManifest(arch) {
-  // S-AGI naming: S-AGI-{version}-macOS-{arch}.zip
-  const pattern = `macOS-${arch}`
-  const zipPath = findFile(pattern, ".zip")
-
-  if (!zipPath) {
-    console.warn(`Warning: ZIP file not found for macOS ${arch}`)
-    return null
+function findFiles(pattern, extension) {
+  if (!existsSync(releaseDir)) {
+    console.error(`Release directory not found: ${releaseDir}`)
+    return []
   }
 
-  const zipName = zipPath.split("/").pop()
-  const sha512 = calculateSha512(zipPath)
-  const size = getFileSize(zipPath)
+  const files = readdirSync(releaseDir)
+  return files
+    .filter((f) => f.includes(pattern) && f.endsWith(extension))
+    .map((f) => join(releaseDir, f))
+}
+
+/**
+ * Build manifest file entry from a file path
+ */
+function toManifestFileEntry(filePath) {
+  return {
+    url: basename(filePath),
+    sha512: calculateSha512(filePath),
+    size: getFileSize(filePath),
+  }
+}
+
+/**
+ * Generate macOS manifest for all available architectures
+ */
+function generateMacManifest() {
+  // S-AGI naming: S-AGI-{version}-macOS-{arch}.zip
+  const zipPaths = findFiles("macOS-", ".zip")
+
+  if (zipPaths.length === 0) {
+    console.warn("Warning: No macOS ZIP files found")
+    return []
+  }
+
+  const files = zipPaths
+    .map((zipPath) => toManifestFileEntry(zipPath))
+    .sort((a, b) => a.url.localeCompare(b.url))
+  const arm64File = files.find((file) => file.url.endsWith("arm64.zip"))
+  const x64File = files.find((file) => file.url.endsWith("x64.zip"))
+
+  // Keep deprecated fields for backward compatibility in old clients.
+  const preferredSuffix = process.arch === "arm64" ? "arm64.zip" : "x64.zip"
+  const preferred = files.find((file) => file.url.endsWith(preferredSuffix)) ?? files[0]
+  const releaseDate = new Date().toISOString()
+  const prefix = channel === "beta" ? "beta" : "latest"
+  const generatedPaths = []
 
   const manifest = {
     version,
-    files: [{ url: zipName, sha512, size }],
-    path: zipName,
-    sha512,
-    releaseDate: new Date().toISOString(),
+    files,
+    path: preferred.url,
+    sha512: preferred.sha512,
+    releaseDate,
   }
 
-  const prefix = channel === "beta" ? "beta" : "latest"
-  const manifestFileName = arch === "arm64" ? `${prefix}-mac.yml` : `${prefix}-mac-x64.yml`
+  const manifestFileName = `${prefix}-mac.yml`
   const manifestPath = join(releaseDir, manifestFileName)
 
   const yaml = objectToYaml(manifest)
   writeFileSync(manifestPath, yaml)
+  generatedPaths.push(manifestPath)
 
   console.log(`Generated ${manifestFileName}:`)
   console.log(`  Version: ${version}`)
-  console.log(`  File: ${zipName}`)
-  console.log(`  Size: ${formatBytes(size)}`)
-  console.log(`  SHA512: ${sha512.substring(0, 20)}...`)
+  for (const file of files) {
+    console.log(`  File: ${file.url} (${formatBytes(file.size)})`)
+  }
   console.log()
 
-  return manifestPath
+  // Keep x64-specific manifest for clients expecting latest-mac-x64.yml
+  if (x64File) {
+    const x64Manifest = {
+      version,
+      files: [x64File],
+      path: x64File.url,
+      sha512: x64File.sha512,
+      releaseDate,
+    }
+    const x64ManifestFileName = `${prefix}-mac-x64.yml`
+    const x64ManifestPath = join(releaseDir, x64ManifestFileName)
+    writeFileSync(x64ManifestPath, objectToYaml(x64Manifest))
+    generatedPaths.push(x64ManifestPath)
+    console.log(`Generated ${x64ManifestFileName}:`)
+    console.log(`  File: ${x64File.url} (${formatBytes(x64File.size)})`)
+    console.log()
+  }
+
+  // Optional arm64-specific manifest for parity/safe fallback behavior.
+  if (arm64File) {
+    const arm64Manifest = {
+      version,
+      files: [arm64File],
+      path: arm64File.url,
+      sha512: arm64File.sha512,
+      releaseDate,
+    }
+    const arm64ManifestFileName = `${prefix}-mac-arm64.yml`
+    const arm64ManifestPath = join(releaseDir, arm64ManifestFileName)
+    writeFileSync(arm64ManifestPath, objectToYaml(arm64Manifest))
+    generatedPaths.push(arm64ManifestPath)
+    console.log(`Generated ${arm64ManifestFileName}:`)
+    console.log(`  File: ${arm64File.url} (${formatBytes(arm64File.size)})`)
+    console.log()
+  }
+
+  return generatedPaths
 }
 
 /**
@@ -123,7 +193,7 @@ function generateWinManifest() {
     return null
   }
 
-  const exeName = exePath.split("/").pop()
+  const exeName = basename(exePath)
   const sha512 = calculateSha512(exePath)
   const size = getFileSize(exePath)
 
@@ -212,11 +282,10 @@ if (!existsSync(releaseDir)) {
 }
 
 // Generate manifests
-const arm64Manifest = generateMacManifest("arm64")
-const x64Manifest = generateMacManifest("x64")
+const macManifests = generateMacManifest()
 const winManifest = generateWinManifest()
 
-const generated = [arm64Manifest, x64Manifest, winManifest].filter(Boolean)
+const generated = [...macManifests, winManifest].filter(Boolean)
 
 if (generated.length === 0) {
   console.error("No manifest files were generated!")

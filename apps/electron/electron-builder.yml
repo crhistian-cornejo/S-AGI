@@ -36,6 +36,7 @@ asarUnpack:
   - "**/node_modules/better-sqlite3/**/*"
   - "**/node_modules/sharp/**/*"
   - "**/node_modules/@img/**/*"
+  - "**/node_modules/@anthropic-ai/claude-agent-sdk/**/*"
 
 # Disable npm rebuild - we bundle pre-built node_modules from monorepo root
 npmRebuild: false
