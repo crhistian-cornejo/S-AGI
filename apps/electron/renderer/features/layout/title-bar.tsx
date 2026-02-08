@@ -6,7 +6,6 @@ import {
   activeTabAtom,
   currentProviderAtom,
   sidebarOpenAtom,
-  commandKOpenAtom,
   notesSidebarOpenAtom,
   pdfSidebarOpenAtom,
   agentPanelOpenAtom,
@@ -41,8 +40,6 @@ import {
   IconSquare,
   IconX,
   IconMessages,
-  IconPhoto,
-  IconSearch,
   IconTable,
   IconFileText,
   IconPlus,
@@ -78,20 +75,12 @@ export function TitleBar({ className, noTrafficLightSpace }: TitleBarProps) {
   );
   const [activeTab, setActiveTab] = useAtom(activeTabAtom);
   const openSettingsPage = useOpenSettingsPage();
-  const setCommandKOpen = useSetAtom(commandKOpenAtom);
   const selectedArtifact = useAtomValue(selectedArtifactAtom);
   const isDesktop = isElectron();
   const showTrafficLights = isMacOS() && isDesktop;
 
   const utils = trpc.useUtils();
   const setSelectedChatId = useSetAtom(selectedChatIdAtom);
-  const createChat = trpc.chats.create.useMutation({
-    onSuccess: (chat) => {
-      setSelectedChatId(chat.id);
-      setActiveTab("chat");
-      utils.chats.list.invalidate();
-    },
-  });
   const { data: session } = trpc.auth.getSession.useQuery();
   const user = session?.user;
   const { data: accountsData } = trpc.auth.getAccounts.useQuery();
@@ -179,11 +168,6 @@ export function TitleBar({ className, noTrafficLightSpace }: TitleBarProps) {
     setActiveTab("chat");
     setSidebarOpen(true);
   }, [setSelectedChatId, setActiveTab, setSidebarOpen]);
-
-  const handleNewChat = useCallback(() => {
-    setActiveTab("chat");
-    createChat.mutate({ title: "New Chat" });
-  }, [createChat, setActiveTab]);
 
   // Agent panel is available for excel, doc, pdf tabs (not notes/ideas)
   const isAgentEnabled =
