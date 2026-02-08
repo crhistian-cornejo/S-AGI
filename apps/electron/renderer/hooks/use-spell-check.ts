@@ -44,7 +44,9 @@ function getBaseUrl(): string {
     if (import.meta.env.DEV) {
       return "http://localhost:5173";
     }
-    return "";
+    // In production with file:// protocol, use "." so paths resolve
+    // relative to the HTML file location (inside ASAR)
+    return ".";
   }
   return origin;
 }

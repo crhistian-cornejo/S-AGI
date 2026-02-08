@@ -63,6 +63,7 @@ import { MessageTableOfContents } from "./message-table-of-contents";
 import { ChatInput } from "./chat-input";
 import { SuggestedPrompts } from "./suggested-prompts";
 import { ChatFilesPanel } from "./chat-files-panel";
+import { SnakeGame } from "./snake-game";
 import { ImageEditDialog } from "@/features/agent/image-edit-dialog";
 import { useSmoothStream, useDocumentUpload, useChatSounds } from "@/hooks";
 import { AI_MODELS } from "@s-agi/core/types/ai";
@@ -211,9 +212,11 @@ export function ChatView() {
   }, [setStreamingCodeInterpreterExecs]);
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
   const [activeMessageId, setActiveMessageId] = useState<string | null>(null);
+  const [showSnakeGame, setShowSnakeGame] = useState(false);
 
   // Reset streaming state when chat changes
   useEffect(() => {
+    setShowSnakeGame(false);
     // Clear all streaming-related state when switching to a new chat
     setLastReasoning("");
     setStreamingReasoning("");
@@ -1866,6 +1869,17 @@ export function ChatView() {
 
   // Empty chat state - centered welcome + input
   if (isEmptyChat) {
+    if (showSnakeGame) {
+      return (
+        <div className="flex-1 flex flex-col items-center justify-center overflow-hidden relative px-4 bg-[hsl(var(--chat-background))]">
+          <SnakeGame
+            onGameOver={() => setShowSnakeGame(false)}
+            onCancel={() => setShowSnakeGame(false)}
+          />
+        </div>
+      );
+    }
+
     return (
       <div
         className="flex-1 flex flex-col items-center justify-center overflow-hidden relative px-4 bg-[hsl(var(--chat-background))]"
@@ -1884,13 +1898,23 @@ export function ChatView() {
           {/* Welcome message */}
           <div className="flex flex-col items-center text-muted-foreground mb-8 animate-in fade-in duration-700">
             <div className="mb-6">
-              <Logo size={64} />
+              <button
+                type="button"
+                onClick={() => setShowSnakeGame(true)}
+                className="rounded-2xl p-2 transition-colors hover:bg-muted/50"
+                aria-label="Play snake game"
+              >
+                <Logo size={64} />
+              </button>
             </div>
             <h1 className="text-2xl font-semibold text-foreground tracking-tight">
               How can I help you today?
             </h1>
             <p className="text-sm text-muted-foreground mt-2 max-w-[280px] text-center leading-relaxed">
               Describe a spreadsheet or ask a question to get started.
+            </p>
+            <p className="text-xs text-muted-foreground mt-2">
+              Click the icon to play Snake.
             </p>
           </div>
 

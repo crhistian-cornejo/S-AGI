@@ -185,8 +185,6 @@ export default defineConfig({
             }),
         ],
         build: {
-            // Optimize chunk size warnings
-            chunkSizeWarningLimit: 1500,
             rollupOptions: {
                 input: {
                     index: resolve(__dirname, 'apps/electron/renderer/index.html'),
@@ -198,41 +196,49 @@ export default defineConfig({
                     manualChunks(id) {
                         // Split large vendor libraries into separate chunks
                         if (id.includes('node_modules')) {
-                            // React ecosystem
-                            if (id.includes('react') || id.includes('react-dom') || id.includes('scheduler')) {
-                                return 'vendor-react';
+                            // React core (react, react-dom, scheduler)
+                            if (id.includes('react-dom') || (id.includes('/react/') && !id.includes('recharts')) || id.includes('scheduler')) {
+                                return 'vendor-react'
                             }
                             // Radix UI
                             if (id.includes('@radix-ui')) {
-                                return 'vendor-radix';
+                                return 'vendor-radix'
                             }
-                            // Charts (recharts + d3 - depends on React, keep together)
+                            // Charts (recharts + d3) - separate from React core
                             if (id.includes('recharts') || id.includes('d3-')) {
-                                return 'vendor-react';
+                                return 'vendor-charts'
                             }
-                            // Shiki (syntax highlighting - shares deps with React ecosystem)
+                            // Syntax highlighting (large, lazy-loadable)
                             if (id.includes('shiki') || id.includes('@shikijs')) {
-                                return 'vendor-react';
+                                return 'vendor-shiki'
+                            }
+                            // Markdown/streaming (streamdown, remark, etc.)
+                            if (id.includes('streamdown') || id.includes('remark') || id.includes('micromark') || id.includes('mdast') || id.includes('unified') || id.includes('unist')) {
+                                return 'vendor-markdown'
                             }
                             // Univer (spreadsheets)
                             if (id.includes('@univerjs')) {
-                                return 'vendor-univer';
+                                return 'vendor-univer'
                             }
-                            // Terminal emulator (no circular deps - standalone)
+                            // Terminal emulator
                             if (id.includes('@xterm') || id.includes('xterm')) {
-                                return 'vendor-xterm';
+                                return 'vendor-xterm'
                             }
-                            // PDF engine - PDFium WASM (standalone, no React dependency)
+                            // PDF engine - PDFium WASM
                             if (id.includes('@embedpdf') || id.includes('embedpdf')) {
-                                return 'vendor-pdf';
+                                return 'vendor-pdf'
                             }
-                            // Export utilities (standalone)
+                            // Export utilities
                             if (id.includes('html2canvas') || id.includes('jspdf')) {
-                                return 'vendor-export';
+                                return 'vendor-export'
                             }
-                            // Icon library (standalone SVGs)
+                            // Icon library
                             if (id.includes('@tabler/icons')) {
-                                return 'vendor-icons';
+                                return 'vendor-icons'
+                            }
+                            // BlockNote (document editor)
+                            if (id.includes('@blocknote') || id.includes('prosemirror') || id.includes('@mantine')) {
+                                return 'vendor-blocknote'
                             }
                         }
                     }
@@ -240,7 +246,12 @@ export default defineConfig({
             },
             // Minification optimizations
             minify: 'esbuild',
-            target: 'esnext',
+            // Target Electron 33's Chromium for optimal output (no unnecessary polyfills)
+            target: 'chrome128',
+            // Increase limit - Univer and React ecosystems are inherently large
+            chunkSizeWarningLimit: 2000,
+            // Enable source maps for production debugging
+            sourcemap: false,
         }
     }
 })
