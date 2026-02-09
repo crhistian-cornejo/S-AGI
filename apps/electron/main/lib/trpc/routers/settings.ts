@@ -9,6 +9,7 @@ import {
 import { getChatGPTAuthManager, getClaudeCodeAuthManager } from "../../auth";
 import { getZaiAuthManager } from "../../auth/zai-manager";
 import { getCerebrasAuthManager } from "../../auth/cerebras-manager";
+import { getGroqAuthManager } from "../../auth/groq-manager";
 import { getSecureApiKeyStore } from "../../auth/api-key-store";
 import { invalidateProviderRegistry } from "../../ai/providers";
 import { supabase } from "../../supabase/client";
@@ -36,6 +37,7 @@ export const settingsRouter = router({
       hasAnthropic: status.hasAnthropicKey,
       hasZai: status.hasZaiKey,
       hasCerebras: status.hasCerebrasKey,
+      hasGroq: status.hasGroqKey,
       hasClaudeOAuth: status.hasClaudeOAuth,
       isClaudeTokenExpired: status.isClaudeTokenExpired,
       hasChatGPTOAuth: status.hasChatGPTOAuth,
@@ -161,6 +163,18 @@ export const settingsRouter = router({
       return { success: true };
     }),
 
+  // Set Groq API key (secure - key stored in encrypted storage)
+  setGroqKey: publicProcedure
+    .input(z.object({ key: z.string().nullable() }))
+    .mutation(async ({ input }) => {
+      const manager = getCredentialManager();
+      await manager.setGroqKey(input.key);
+      // Sync to legacy GroqAuthManager (used by isProviderAvailable)
+      getGroqAuthManager().setApiKey(input.key);
+      invalidateProviderRegistry();
+      return { success: true };
+    }),
+
   // Clear all API keys (secure - clears encrypted storage)
   clearAllKeys: publicProcedure.mutation(async () => {
     const manager = getCredentialManager();
@@ -168,6 +182,7 @@ export const settingsRouter = router({
     // Sync to legacy stores
     getZaiAuthManager().clear();
     getCerebrasAuthManager().clear();
+    getGroqAuthManager().clear();
     getSecureApiKeyStore().setOpenAIKey(null);
     getSecureApiKeyStore().setAnthropicKey(null);
     invalidateProviderRegistry();
@@ -191,6 +206,11 @@ export const settingsRouter = router({
   getCerebrasKey: publicProcedure.query(async () => {
     const manager = getCredentialManager();
     return await manager.getCerebrasKey();
+  }),
+
+  getGroqKey: publicProcedure.query(async () => {
+    const manager = getCredentialManager();
+    return await manager.getGroqKey();
   }),
 
   openLocalFolder: publicProcedure.mutation(async () => {

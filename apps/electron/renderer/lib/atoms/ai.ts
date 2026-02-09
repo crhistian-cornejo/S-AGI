@@ -55,6 +55,7 @@ export const allModelsGroupedAtom = atom(() => {
     zai: getModelsByProvider('zai'),
     claude: getModelsByProvider('claude'),
     cerebras: getModelsByProvider('cerebras'),
+    groq: getModelsByProvider('groq'),
   }
 })
 
@@ -96,17 +97,31 @@ export const geminiAdvancedStatusAtom = atom<GeminiAdvancedStatus>({
 export const hasGeminiAdvancedAtom = atom((get) => get(geminiAdvancedStatusAtom).isConnected)
 
 // === CEREBRAS FREE TIER USAGE TRACKING ===
+// Data comes from backend rate-limit-warning events (per-model, multi-dimension)
 
-/** Cerebras daily usage tracker (resets each day, client-side) */
 export interface CerebrasUsageState {
-  tokensUsed: number
-  date: string // YYYY-MM-DD
+  /** Highest usage % across all dimensions (TPM/TPH/TPD/RPM/RPH/RPD) */
+  usagePercent: number
+  /** Remaining daily tokens (TPD) */
+  remainingTokens: number
+  /** Human-readable message from backend */
+  message: string
 }
 export const cerebrasUsageAtom = atom<CerebrasUsageState>({
-  tokensUsed: 0,
-  date: new Date().toISOString().split('T')[0],
+  usagePercent: 0,
+  remainingTokens: 1_000_000,
+  message: '',
 })
-export const CEREBRAS_DAILY_LIMIT = 1_000_000
+
+// === GROQ PER-MODEL USAGE TRACKING ===
+
+export interface GroqModelUsageEntry {
+  model: string
+  tpdUsed: number
+  tpdLimit: number
+  tpmPct: number
+}
+export const groqModelUsageAtom = atom<GroqModelUsageEntry[]>([])
 
 // === STREAMING STATE ===
 

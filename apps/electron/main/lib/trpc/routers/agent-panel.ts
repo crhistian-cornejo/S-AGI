@@ -158,7 +158,7 @@ export const agentPanelRouter = router({
         tabType: z.enum(["excel", "doc", "pdf", "ideas"]),
         prompt: z.string(),
         provider: z
-          .enum(["openai", "chatgpt-plus", "zai", "claude", "cerebras"])
+          .enum(["openai", "chatgpt-plus", "zai", "claude", "cerebras", "groq"])
           .default("openai"),
         modelId: z.string().optional(),
         messages: z

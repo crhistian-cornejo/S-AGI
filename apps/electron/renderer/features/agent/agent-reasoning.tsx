@@ -19,6 +19,7 @@ import {
   OpenAIIcon,
   ZaiIcon,
   ClaudeIcon,
+  GroqIcon,
 } from "@/components/icons/model-icons";
 import { AgentToolCallFlat, type ToolCall } from "./agent-tool-call-flat";
 import { ConsolidatedWebSearchTimeline } from "./agent-web-search";
@@ -181,6 +182,7 @@ function getActionIcon(action: AgentReasoningAction) {
       const p = getModelById(action.modelId || "")?.provider;
       if (p === "zai") return ZaiIcon;
       if (p === "claude") return ClaudeIcon;
+      if (p === "groq") return GroqIcon;
       return OpenAIIcon;
     }
     default:
@@ -330,15 +332,16 @@ export function AgentReasoning({
 
   if (!canToggle && !isStreaming) return null;
 
-  // Use parsed title as header, or fallback to default
-  // During streaming: show the LATEST reasoning step (progress indicator)
-  // After streaming: show the first line as summary title
+  // Use a generic label as header to avoid duplicating the reasoning content
+  // The full content is shown inside the expanded area with the clock icon
   const headerLabel = (() => {
     if (isStreaming) {
-      const lines = (summary || content).split("\n").map(l => l.trim()).filter(l => l.length > 0);
-      return lines[lines.length - 1] || "Pensando...";
+      return "Pensando...";
     }
-    return parsedReasoning.title || "Razonamiento";
+    if (durationMs !== undefined && durationMs > 0) {
+      return `Thought for ${formatDuration(durationMs)}`;
+    }
+    return "Thought";
   })();
 
   const normalizedActions = hasWebSearches
@@ -387,15 +390,8 @@ export function AgentReasoning({
           <IconBrain className="w-3.5 h-3.5 shrink-0" />
         )}
 
-        {/* Title/Summary text - strip ** so it renders clean */}
-        <span className="font-semibold">{stripTitleMarkdown(headerLabel)}</span>
-
-        {/* Duration time next to title */}
-        {!isStreaming && durationMs !== undefined && durationMs > 0 && (
-          <span className="text-muted-foreground/60 font-normal">
-            {formatDuration(durationMs)}
-          </span>
-        )}
+        {/* Title/Summary text */}
+        <span className="font-semibold">{headerLabel}</span>
 
         {/* Chevron icon for collapse/expand */}
         {canToggle && (

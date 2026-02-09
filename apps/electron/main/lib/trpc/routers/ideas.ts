@@ -21,7 +21,7 @@ export const ideasRouter = router({
         prompt: z.string(),
         context: z.string().optional(),
         provider: z
-          .enum(["openai", "chatgpt-plus", "zai", "claude", "cerebras"])
+          .enum(["openai", "chatgpt-plus", "zai", "claude", "cerebras", "groq"])
           .default("openai"),
         modelId: z.string().optional(),
       })

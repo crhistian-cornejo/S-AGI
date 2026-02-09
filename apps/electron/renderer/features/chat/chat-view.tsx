@@ -39,6 +39,7 @@ import {
   imageEditDialogAtom,
   pendingQuickPromptMessageAtom,
   cerebrasUsageAtom,
+  groqModelUsageAtom,
   chatSoundsEnabledAtom,
   zenModeAtom,
   type WebSearchInfo,
@@ -144,6 +145,7 @@ export function ChatView() {
   const setArtifactPanelOpen = useSetAtom(artifactPanelOpenAtom);
   const [activeTab, setActiveTab] = useAtom(activeTabAtom);
   const setCerebrasUsage = useSetAtom(cerebrasUsageAtom);
+  const setGroqModelUsage = useSetAtom(groqModelUsageAtom);
 
   // Image edit dialog state
   const imageEditDialog = useAtomValue(imageEditDialogAtom);
@@ -250,6 +252,8 @@ export function ChatView() {
       ? keyStatus?.hasZai
       : provider === "cerebras"
       ? keyStatus?.hasCerebras
+      : provider === "groq"
+      ? keyStatus?.hasGroq
       : provider === "claude"
       ? keyStatus?.hasClaudeCode
       : keyStatus?.hasAnthropic;
@@ -501,6 +505,7 @@ export function ChatView() {
                   size: uploaded.size,
                   type: uploaded.type,
                   url: uploaded.url,
+                  preview: `data:${img.mediaType};base64,${img.base64Data}`, // Store base64 for historical image context
                   storagePath: uploaded.storagePath, // Store path for URL regeneration
                 });
 
@@ -600,6 +605,18 @@ export function ChatView() {
         const status = await trpcClient.settings.getApiKeyStatus.query();
         if (!status.hasCerebras) {
           setStreamingError("Cerebras API key not configured");
+          setIsStreaming(false);
+          setStreamingStatus(chatId, "error");
+          chatSounds.playError();
+          return;
+        }
+        // API key is fetched by main process
+        apiKey = undefined;
+      } else if (provider === "groq") {
+        // SECURITY: Credentials are managed in main process only
+        const status = await trpcClient.settings.getApiKeyStatus.query();
+        if (!status.hasGroq) {
+          setStreamingError("Groq API key not configured");
           setIsStreaming(false);
           setStreamingStatus(chatId, "error");
           chatSounds.playError();
@@ -1204,13 +1221,25 @@ export function ChatView() {
               }
 
               case "rate-limit-warning": {
-                // Show toast for approaching rate limits
-                const pct = event.usagePercent;
-                if (pct >= 100) {
-                  toast.error(event.message, { duration: 10000 });
-                } else {
-                  toast.warning(event.message, { duration: 8000 });
+                // Update atom with backend-provided usage data
+                setCerebrasUsage({
+                  usagePercent: event.usagePercent,
+                  remainingTokens: event.remainingTokens,
+                  message: event.message,
+                });
+                // Show toast only when there's an actual warning (>= 90%)
+                if (event.message) {
+                  if (event.usagePercent >= 100) {
+                    toast.error(event.message, { duration: 10000 });
+                  } else {
+                    toast.warning(event.message, { duration: 8000 });
+                  }
                 }
+                break;
+              }
+
+              case "groq-model-usage": {
+                setGroqModelUsage(event.models ?? []);
                 break;
               }
 
@@ -1254,15 +1283,6 @@ export function ChatView() {
                     (rawUsage?.reasoningTokens || 0),
                 };
                 const contextWindow = AI_MODELS[selectedModel]?.contextWindow;
-
-                // Track Cerebras free tier daily usage
-                if (provider === "cerebras" && usage.totalTokens > 0) {
-                  setCerebrasUsage((prev) => {
-                    const today = new Date().toISOString().split("T")[0];
-                    const base = prev.date === today ? prev.tokensUsed : 0;
-                    return { tokensUsed: base + usage.totalTokens, date: today };
-                  });
-                }
 
                 // Save assistant message to database
                 if (fullText || toolCalls.size > 0) {

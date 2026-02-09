@@ -874,7 +874,9 @@ export const ChatInput = memo(function ChatInput({
                 </span>
               </SelectTrigger>
               <SelectContent className="rounded-xl shadow-xl border-border/50 min-w-[200px]">
-                {/* ChatGPT Plus models (show first if connected) */}
+                {/* ============ SUBSCRIPTIONS FIRST ============ */}
+
+                {/* ChatGPT Plus models (Subscription) */}
                 {keyStatus?.hasChatGPTPlus &&
                   allModelsGrouped["chatgpt-plus"]?.length > 0 && (
                     <>
@@ -900,39 +902,13 @@ export const ChatInput = memo(function ChatInput({
                     </>
                   )}
 
-                {/* OpenAI API models - only show if API key is configured */}
-                {keyStatus?.hasOpenAI &&
-                  allModelsGrouped.openai?.length > 0 && (
-                    <>
-                      <div className="text-[10px] font-bold uppercase text-muted-foreground/50 px-3 py-2 flex items-center gap-1.5">
-                        <ModelIcon provider="openai" size={12} />
-                        OpenAI API
-                        <span className="ml-auto text-[9px] font-medium text-primary bg-primary/10 px-1.5 py-0.5 rounded">
-                          Pay per use
-                        </span>
-                      </div>
-                      {allModelsGrouped.openai.map((model) => (
-                        <SelectItem
-                          key={model.id}
-                          value={model.id}
-                          className="rounded-lg"
-                        >
-                          <div className="flex items-center gap-2">
-                            <span>{model.name}</span>
-                          </div>
-                        </SelectItem>
-                      ))}
-                    </>
-                  )}
-
-                {/* Z.AI models - only show if API key is configured */}
+                {/* Z.AI models (Subscription) */}
                 {keyStatus?.hasZai && allModelsGrouped.zai?.length > 0 && (
                   <>
-                    <div className="h-px bg-border/40 my-1.5 mx-2" />
                     <div className="text-[10px] font-bold uppercase text-muted-foreground/50 px-3 py-2 flex items-center gap-1.5">
                       <ModelIcon provider="zai" size={12} />
                       Z.AI Subscription
-                      <span className="ml-auto text-[9px] font-medium text-amber-500 bg-amber-500/10 px-1.5 py-0.5 rounded">
+                      <span className="ml-auto text-[9px] font-medium text-emerald-500 bg-emerald-500/10 px-1.5 py-0.5 rounded">
                         Subscription
                       </span>
                     </div>
@@ -947,17 +923,70 @@ export const ChatInput = memo(function ChatInput({
                         </div>
                       </SelectItem>
                     ))}
+                    <div className="h-px bg-border/40 my-1.5 mx-2" />
                   </>
                 )}
 
-                {/* Cerebras models - only show if API key is configured */}
+                {/* Claude Pro/Max models (Subscription) */}
+                {keyStatus?.hasClaudeCode && allModelsGrouped.claude?.length > 0 && (
+                  <>
+                    <div className="text-[10px] font-bold uppercase text-muted-foreground/50 px-3 py-2 flex items-center gap-1.5">
+                      <ModelIcon provider="claude" size={12} />
+                      Claude Pro/Max
+                      <span className="ml-auto text-[9px] font-medium text-emerald-500 bg-emerald-500/10 px-1.5 py-0.5 rounded">
+                        Subscription
+                      </span>
+                    </div>
+                    {allModelsGrouped.claude.map((model) => (
+                      <SelectItem
+                        key={model.id}
+                        value={model.id}
+                        className="rounded-lg"
+                      >
+                        <div className="flex items-center gap-2">
+                          <span>{model.name}</span>
+                        </div>
+                      </SelectItem>
+                    ))}
+                    <div className="h-px bg-border/40 my-1.5 mx-2" />
+                  </>
+                )}
+
+                {/* ============ PAY PER USE ============ */}
+
+                {/* OpenAI API models (Pay per use) */}
+                {keyStatus?.hasOpenAI &&
+                  allModelsGrouped.openai?.length > 0 && (
+                    <>
+                      <div className="text-[10px] font-bold uppercase text-muted-foreground/50 px-3 py-2 flex items-center gap-1.5">
+                        <ModelIcon provider="openai" size={12} />
+                        OpenAI API
+                        <span className="ml-auto text-[9px] font-medium text-amber-500 bg-amber-500/10 px-1.5 py-0.5 rounded">
+                          Pay per use
+                        </span>
+                      </div>
+                      {allModelsGrouped.openai.map((model) => (
+                        <SelectItem
+                          key={model.id}
+                          value={model.id}
+                          className="rounded-lg"
+                        >
+                          <div className="flex items-center gap-2">
+                            <span>{model.name}</span>
+                          </div>
+                        </SelectItem>
+                      ))}
+                      <div className="h-px bg-border/40 my-1.5 mx-2" />
+                    </>
+                  )}
+
+                {/* Cerebras models (Pay per use) */}
                 {keyStatus?.hasCerebras && allModelsGrouped.cerebras?.length > 0 && (
                   <>
-                    <div className="h-px bg-border/40 my-1.5 mx-2" />
                     <div className="text-[10px] font-bold uppercase text-muted-foreground/50 px-3 py-2 flex items-center gap-1.5">
                       <ModelIcon provider="cerebras" size={12} />
                       Cerebras
-                      <span className="ml-auto text-[9px] font-medium text-green-500 bg-green-500/10 px-1.5 py-0.5 rounded">
+                      <span className="ml-auto text-[9px] font-medium text-amber-500 bg-amber-500/10 px-1.5 py-0.5 rounded">
                         Pay per use
                       </span>
                     </div>
@@ -972,21 +1001,21 @@ export const ChatInput = memo(function ChatInput({
                         </div>
                       </SelectItem>
                     ))}
+                    <div className="h-px bg-border/40 my-1.5 mx-2" />
                   </>
                 )}
 
-                {/* Claude Pro/Max models (via Claude Code OAuth) */}
-                {keyStatus?.hasClaudeCode && allModelsGrouped.claude?.length > 0 && (
+                {/* Groq models (Pay per use) */}
+                {keyStatus?.hasGroq && allModelsGrouped.groq?.length > 0 && (
                   <>
-                    <div className="h-px bg-border/40 my-1.5 mx-2" />
                     <div className="text-[10px] font-bold uppercase text-muted-foreground/50 px-3 py-2 flex items-center gap-1.5">
-                      <ModelIcon provider="claude" size={12} />
-                      Claude Pro/Max
-                      <span className="ml-auto text-[9px] font-medium text-orange-500 bg-orange-500/10 px-1.5 py-0.5 rounded">
-                        Subscription
+                      <ModelIcon provider="groq" size={12} mono />
+                      Groq
+                      <span className="ml-auto text-[9px] font-medium text-amber-500 bg-amber-500/10 px-1.5 py-0.5 rounded">
+                        Pay per use
                       </span>
                     </div>
-                    {allModelsGrouped.claude.map((model) => (
+                    {allModelsGrouped.groq.map((model) => (
                       <SelectItem
                         key={model.id}
                         value={model.id}

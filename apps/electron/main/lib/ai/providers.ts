@@ -8,6 +8,7 @@ import { getClaudeCodeAuthManager } from '../auth/claude-code-manager'
 import { getZaiAuthManager } from '../auth/zai-manager'
 import { getSecureApiKeyStore } from '../auth/api-key-store'
 import { getCerebrasAuthManager } from '../auth/cerebras-manager'
+import { getGroqAuthManager } from '../auth/groq-manager'
 import { resolveModelIdForApi } from '@s-agi/core/types/ai'
 import type { AIProvider } from '@s-agi/core/types/ai'
 
@@ -17,6 +18,14 @@ import type { AIProvider } from '@s-agi/core/types/ai'
  */
 const CEREBRAS_CONFIG = {
     baseURL: 'https://api.cerebras.ai/v1'
+}
+
+/**
+ * Groq API configuration (OpenAI-compatible)
+ * @see https://console.groq.com/docs
+ */
+const GROQ_CONFIG = {
+    baseURL: 'https://api.groq.com/openai/v1'
 }
 
 /**
@@ -258,6 +267,46 @@ function createCerebrasProvider() {
 }
 
 /**
+ * Create Groq provider with OpenAI-compatible endpoint
+ * @see https://console.groq.com/docs
+ *
+ * Available models:
+ * - openai/gpt-oss-120b: Reasoning model (low/medium/high effort)
+ * - moonshotai/kimi-k2-instruct-0905: Moonshot instruction model
+ * - qwen/qwen3-32b: Qwen 3 with reasoning (none/default)
+ * - llama-3.3-70b-versatile: Meta Llama 3.3 70B
+ *
+ * Reasoning params (passed in Chat Completions):
+ * - GPT-OSS: include_reasoning, reasoning_effort ('low'|'medium'|'high')
+ * - Qwen 3: reasoning_format ('parsed'|'raw'|'hidden'), reasoning_effort ('none'|'default')
+ */
+function createGroqProvider() {
+    const groqManager = getGroqAuthManager()
+
+    return createOpenAI({
+        baseURL: GROQ_CONFIG.baseURL,
+        apiKey: 'dummy', // Will be overridden by fetch
+        fetch: async (url: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+            const apiKey = groqManager.getApiKey()
+
+            if (!apiKey) {
+                throw new Error('Groq API key not configured. Please add your API key in Settings.')
+            }
+
+            const headers = new Headers(init?.headers)
+            headers.set('Authorization', `Bearer ${apiKey}`)
+
+            log.debug(`[AI] Groq request to ${url}, key: ${sanitizeToken(apiKey)}`)
+
+            return fetch(url, {
+                ...init,
+                headers
+            })
+        }
+    })
+}
+
+/**
  * S-AGI Provider Registry
  *
  * Provides access to all supported AI providers:
@@ -265,6 +314,7 @@ function createCerebrasProvider() {
  * - chatgpt-plus: ChatGPT Plus/Pro via Codex OAuth (subscription)
  * - zai: Z.AI GLM models (OpenAI-compatible)
  * - cerebras: Cerebras inference (OpenAI-compatible, fastest inference)
+ * - groq: Groq inference (OpenAI-compatible, ultra-fast inference)
  */
 let registryInstance: ReturnType<typeof createProviderRegistry> | null = null
 
@@ -275,7 +325,8 @@ export function getSagiProviderRegistry() {
             'chatgpt-plus': createChatGPTPlusProvider(),
             zai: createZaiProvider(),
             claude: createClaudeProvider(),
-            cerebras: createCerebrasProvider()
+            cerebras: createCerebrasProvider(),
+            groq: createGroqProvider()
         })
     }
     return registryInstance
@@ -306,6 +357,12 @@ export function getLanguageModel(provider: AIProvider, modelId: string) {
         return cerebras(apiModelId)
     }
 
+    // For Groq, use the provider directly
+    if (provider === 'groq') {
+        const groq = createGroqProvider()
+        return groq(apiModelId)
+    }
+
     // For other providers, use the registry
     return registry.languageModel(`${provider}:${apiModelId}`)
 }
@@ -328,6 +385,8 @@ export function isProviderAvailable(provider: AIProvider): boolean {
             return getClaudeCodeAuthManager().isConnected() || getSecureApiKeyStore().hasAnthropicKey()
         case 'cerebras':
             return !!getCerebrasAuthManager().getApiKey()
+        case 'groq':
+            return !!getGroqAuthManager().getApiKey()
         default:
             return false
     }
@@ -377,6 +436,13 @@ export function getProviderStatus(provider: AIProvider): {
             return {
                 available,
                 message: available ? undefined : 'Add your Cerebras API key in Settings'
+            }
+        }
+        case 'groq': {
+            const available = isProviderAvailable('groq')
+            return {
+                available,
+                message: available ? undefined : 'Add your Groq API key in Settings'
             }
         }
         default:

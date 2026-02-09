@@ -91,7 +91,9 @@ export {
   // Cerebras Free Tier
   type CerebrasUsageState,
   cerebrasUsageAtom,
-  CEREBRAS_DAILY_LIMIT,
+  // Groq per-model usage
+  type GroqModelUsageEntry,
+  groqModelUsageAtom,
 } from './ai'
 
 // === UI STATE ===

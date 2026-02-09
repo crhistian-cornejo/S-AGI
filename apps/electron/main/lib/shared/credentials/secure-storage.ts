@@ -63,6 +63,7 @@ export type CredentialType =
     | 'chatgpt_oauth'         // Global: ChatGPT Plus OAuth token
     | 'zai_api_key'           // Global: Z.AI API key
     | 'cerebras_api_key'      // Global: Cerebras API key
+    | 'groq_api_key'          // Global: Groq API key
     | 'gemini_oauth'          // Global: Gemini OAuth token
     | 'workspace_oauth'       // Workspace-scoped: MCP server OAuth
     | 'source_oauth'          // Source-scoped: Individual source tokens

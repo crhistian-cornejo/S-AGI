@@ -21,7 +21,7 @@ import {
   selectedArtifactAtom,
   artifactPanelOpenAtom,
   cerebrasUsageAtom,
-  CEREBRAS_DAILY_LIMIT,
+  groqModelUsageAtom,
 } from "@/lib/atoms";
 import { getModelById } from "@s-agi/core/types/ai";
 import { ModelIcon } from "@/components/icons/model-icons";
@@ -139,7 +139,7 @@ function calculateCost(
 }
 
 /** Providers that use a free tier (no per-token billing) */
-const FREE_TIER_PROVIDERS = new Set(["cerebras"]);
+const FREE_TIER_PROVIDERS = new Set(["cerebras", "groq"]);
 
 /** Format cost as currency string */
 function formatCost(cost: number, provider?: string): string {
@@ -891,6 +891,7 @@ const MessageItem = memo(function MessageItem({
   const modelIdForCost =
     message.model_id ?? message.metadata?.model_id ?? selectedModel;
   const cerebrasUsage = useAtomValue(cerebrasUsageAtom);
+  const groqModelUsage = useAtomValue(groqModelUsageAtom);
   const cost = calculateCost(
     modelIdForCost,
     inputTokens,
@@ -1229,15 +1230,58 @@ const MessageItem = memo(function MessageItem({
                       </span>
                     </div>
                     {FREE_TIER_PROVIDERS.has(modelProvider) && (() => {
-                      const today = new Date().toISOString().split("T")[0];
-                      const used = cerebrasUsage.date === today ? cerebrasUsage.tokensUsed : 0;
-                      const pct = Math.min(Math.round((used / CEREBRAS_DAILY_LIMIT) * 100), 100);
-                      const remaining = Math.max(0, CEREBRAS_DAILY_LIMIT - used);
+                      // Groq: show per-model TPD bars
+                      if (modelProvider === "groq" && groqModelUsage.length > 0) {
+                        const shortName = (m: string) => {
+                          const map: Record<string, string> = {
+                            "openai/gpt-oss-120b": "GPT-OSS 120B",
+                            "openai/gpt-oss-20b": "GPT-OSS 20B",
+                            "moonshotai/kimi-k2-instruct-0905": "Kimi K2",
+                            "qwen/qwen3-32b": "Qwen3 32B",
+                            "llama-3.3-70b-versatile": "Llama 3.3 70B",
+                            "meta-llama/llama-4-scout-17b-16e-instruct": "Llama 4 Scout",
+                            "meta-llama/llama-4-maverick-17b-128e-instruct": "Llama 4 Maverick",
+                            "llama-3.1-8b-instant": "Llama 3.1 8B",
+                          };
+                          return map[m] || m.split("/").pop() || m;
+                        };
+                        return (
+                          <div className="space-y-1.5 pt-1 border-t border-border/50">
+                            <span className="text-muted-foreground text-[10px]">Groq TPD Limits:</span>
+                            {groqModelUsage.map((entry) => {
+                              const pct = Math.min(Math.round((entry.tpdUsed / entry.tpdLimit) * 100), 100);
+                              const remaining = Math.max(0, entry.tpdLimit - entry.tpdUsed);
+                              const barColor = pct >= 90 ? "bg-red-500" : pct >= 70 ? "bg-yellow-500" : "bg-emerald-500";
+                              return (
+                                <div key={entry.model} className="space-y-0.5">
+                                  <div className="flex justify-between gap-2">
+                                    <span className="text-muted-foreground text-[10px] truncate max-w-[100px]">
+                                      {shortName(entry.model)}
+                                    </span>
+                                    <span className="font-mono text-[10px] text-muted-foreground whitespace-nowrap">
+                                      {pct}% · {(remaining / 1000).toFixed(0)}K left
+                                    </span>
+                                  </div>
+                                  <div className="h-1 w-full bg-muted rounded-full overflow-hidden">
+                                    <div
+                                      className={`h-full ${barColor} rounded-full transition-all`}
+                                      style={{ width: `${pct}%` }}
+                                    />
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        );
+                      }
+                      // Cerebras / fallback: single global bar
+                      const pct = Math.min(cerebrasUsage.usagePercent, 100);
+                      const remaining = cerebrasUsage.remainingTokens;
                       const barColor = pct >= 90 ? "bg-red-500" : pct >= 70 ? "bg-yellow-500" : "bg-emerald-500";
                       return (
                         <div className="space-y-1 pt-1 border-t border-border/50">
                           <div className="flex justify-between gap-4">
-                            <span className="text-muted-foreground text-[10px]">Daily:</span>
+                            <span className="text-muted-foreground text-[10px]">Limits:</span>
                             <span className="font-mono text-[10px] text-muted-foreground">
                               {pct}% · {(remaining / 1000).toFixed(0)}K left
                             </span>
@@ -1248,9 +1292,11 @@ const MessageItem = memo(function MessageItem({
                               style={{ width: `${pct}%` }}
                             />
                           </div>
-                          <div className="text-[9px] text-muted-foreground/70 text-center">
-                            {used.toLocaleString()} / 1M tokens today
-                          </div>
+                          {cerebrasUsage.message && (
+                            <div className="text-[9px] text-muted-foreground/70 text-center">
+                              {cerebrasUsage.message}
+                            </div>
+                          )}
                         </div>
                       );
                     })()}

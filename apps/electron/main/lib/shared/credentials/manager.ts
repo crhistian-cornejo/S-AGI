@@ -295,6 +295,37 @@ export class CredentialManager {
   }
 
   // ============================================================
+  // Groq API Key
+  // ============================================================
+
+  async getGroqKey(): Promise<string | null> {
+    const cached = this.getCached("groq_api_key");
+    if (cached !== undefined) return cached;
+    const cred = await this.storage.get({ type: "groq_api_key" });
+    const value = cred?.value || null;
+    this.setCache("groq_api_key", value);
+    return value;
+  }
+
+  async setGroqKey(key: string | null): Promise<void> {
+    this.invalidateCache("groq_api_key");
+    if (key) {
+      await this.storage.set(
+        { type: "groq_api_key" },
+        { value: key, metadata: { source: "manual" } },
+      );
+      log.info("[CredentialManager] Groq API key saved");
+    } else {
+      await this.storage.delete({ type: "groq_api_key" });
+      log.info("[CredentialManager] Groq API key removed");
+    }
+  }
+
+  async hasGroqKey(): Promise<boolean> {
+    return this.storage.has({ type: "groq_api_key" });
+  }
+
+  // ============================================================
   // Utility Methods
   // ============================================================
 
@@ -310,6 +341,7 @@ export class CredentialManager {
     isChatGPTTokenExpired: boolean;
     hasZaiKey: boolean;
     hasCerebrasKey: boolean;
+    hasGroqKey: boolean;
   }> {
     const [
       hasAnthropicKey,
@@ -320,6 +352,7 @@ export class CredentialManager {
       isChatGPTTokenExpired,
       hasZaiKey,
       hasCerebrasKey,
+      hasGroqKey,
     ] = await Promise.all([
       this.hasAnthropicKey(),
       this.hasClaudeOAuth(),
@@ -329,6 +362,7 @@ export class CredentialManager {
       this.isChatGPTTokenExpired(),
       this.hasZaiKey(),
       this.hasCerebrasKey(),
+      this.hasGroqKey(),
     ]);
 
     return {
@@ -340,6 +374,7 @@ export class CredentialManager {
       isChatGPTTokenExpired,
       hasZaiKey,
       hasCerebrasKey,
+      hasGroqKey,
     };
   }
 
@@ -355,6 +390,7 @@ export class CredentialManager {
       "chatgpt_oauth",
       "zai_api_key",
       "cerebras_api_key",
+      "groq_api_key",
       "gemini_oauth",
     ];
 

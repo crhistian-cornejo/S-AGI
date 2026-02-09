@@ -86,41 +86,220 @@ export type { AIStreamEvent } from "@s-agi/core/types/ai";
 const activeStreams = new Map<string, AbortController>();
 
 // ============================================================================
-// Cerebras Free Tier Usage Tracker
-// Tracks daily token usage to warn users before hitting the 1M tokens/day limit
-// Resets at midnight UTC (Cerebras uses UTC-based daily limits)
+// Cerebras Free Tier Usage Tracker (per-model, multi-dimension)
+// Tracks TPM/TPH/TPD and RPM/RPH/RPD per model using sliding windows.
+// Limits are the same for all models on the free tier:
+//   60K TPM, 1M TPH, 1M TPD, 30 RPM, 900 RPH, 14400 RPD
 // ============================================================================
-const CEREBRAS_DAILY_LIMIT = 1_000_000; // 1M tokens/day on free tier
-const CEREBRAS_WARNING_THRESHOLD = 0.90; // Warn at 90%
-
-const cerebrasUsage = {
-  tokensUsed: 0,
-  date: new Date().toISOString().split("T")[0], // YYYY-MM-DD in UTC
-
-  track(promptTokens: number, completionTokens: number) {
-    const today = new Date().toISOString().split("T")[0];
-    if (today !== this.date) {
-      // New day - reset counter
-      this.tokensUsed = 0;
-      this.date = today;
-    }
-    this.tokensUsed += promptTokens + completionTokens;
-  },
-
-  getUsagePercent(): number {
-    const today = new Date().toISOString().split("T")[0];
-    if (today !== this.date) return 0;
-    return this.tokensUsed / CEREBRAS_DAILY_LIMIT;
-  },
-
-  shouldWarn(): boolean {
-    return this.getUsagePercent() >= CEREBRAS_WARNING_THRESHOLD;
-  },
-
-  remaining(): number {
-    return Math.max(0, CEREBRAS_DAILY_LIMIT - this.tokensUsed);
-  },
+const CEREBRAS_LIMITS = {
+  TPM: 60_000,      // tokens per minute
+  TPH: 1_000_000,   // tokens per hour
+  TPD: 1_000_000,   // tokens per day
+  RPM: 30,          // requests per minute
+  RPH: 900,         // requests per hour
+  RPD: 14_400,      // requests per day
 };
+const CEREBRAS_WARNING_THRESHOLD = 0.90; // Warn at 90%
+const ONE_MINUTE = 60_000;
+const ONE_HOUR = 3_600_000;
+
+interface CerebrasModelUsage {
+  tokenEntries: Array<{ ts: number; tokens: number }>;
+  requestTimestamps: number[];
+}
+
+const cerebrasUsage = new Map<string, CerebrasModelUsage>();
+
+function getCerebrasModel(model: string): CerebrasModelUsage {
+  let usage = cerebrasUsage.get(model);
+  if (!usage) {
+    usage = { tokenEntries: [], requestTimestamps: [] };
+    cerebrasUsage.set(model, usage);
+  }
+  return usage;
+}
+
+/** Purge entries older than the given window from arrays. */
+function purgeOld(usage: CerebrasModelUsage, now: number) {
+  const dayStart = now - 24 * ONE_HOUR;
+  usage.tokenEntries = usage.tokenEntries.filter((e) => e.ts > dayStart);
+  usage.requestTimestamps = usage.requestTimestamps.filter((ts) => ts > dayStart);
+}
+
+/** Sum tokens within a time window ending at `now`. */
+function sumTokens(entries: Array<{ ts: number; tokens: number }>, now: number, windowMs: number): number {
+  const cutoff = now - windowMs;
+  let sum = 0;
+  for (const e of entries) {
+    if (e.ts > cutoff) sum += e.tokens;
+  }
+  return sum;
+}
+
+/** Count requests within a time window ending at `now`. */
+function countRequests(timestamps: number[], now: number, windowMs: number): number {
+  const cutoff = now - windowMs;
+  let count = 0;
+  for (const ts of timestamps) {
+    if (ts > cutoff) count++;
+  }
+  return count;
+}
+
+/** Record token usage and a request for a model. */
+function cerebrasTrack(model: string, promptTokens: number, completionTokens: number) {
+  const usage = getCerebrasModel(model);
+  const now = Date.now();
+  usage.tokenEntries.push({ ts: now, tokens: promptTokens + completionTokens });
+  usage.requestTimestamps.push(now);
+  purgeOld(usage, now);
+}
+
+/** Get usage percentages across all dimensions for a model. */
+function cerebrasStatus(model: string): {
+  tpmPct: number; tphPct: number; tpdPct: number;
+  rpmPct: number; rphPct: number; rpdPct: number;
+  maxPct: number; maxDimension: string;
+  tpmUsed: number; tpdUsed: number; rpmUsed: number;
+} {
+  const usage = getCerebrasModel(model);
+  const now = Date.now();
+  const tpmUsed = sumTokens(usage.tokenEntries, now, ONE_MINUTE);
+  const tphUsed = sumTokens(usage.tokenEntries, now, ONE_HOUR);
+  const tpdUsed = sumTokens(usage.tokenEntries, now, 24 * ONE_HOUR);
+  const rpmUsed = countRequests(usage.requestTimestamps, now, ONE_MINUTE);
+  const rphUsed = countRequests(usage.requestTimestamps, now, ONE_HOUR);
+  const rpdUsed = countRequests(usage.requestTimestamps, now, 24 * ONE_HOUR);
+
+  const dims: Array<[string, number]> = [
+    ["TPM", tpmUsed / CEREBRAS_LIMITS.TPM],
+    ["TPH", tphUsed / CEREBRAS_LIMITS.TPH],
+    ["TPD", tpdUsed / CEREBRAS_LIMITS.TPD],
+    ["RPM", rpmUsed / CEREBRAS_LIMITS.RPM],
+    ["RPH", rphUsed / CEREBRAS_LIMITS.RPH],
+    ["RPD", rpdUsed / CEREBRAS_LIMITS.RPD],
+  ];
+  let maxPct = 0;
+  let maxDimension = "TPD";
+  for (const [name, pct] of dims) {
+    if (pct > maxPct) { maxPct = pct; maxDimension = name; }
+  }
+  return {
+    tpmPct: tpmUsed / CEREBRAS_LIMITS.TPM,
+    tphPct: tphUsed / CEREBRAS_LIMITS.TPH,
+    tpdPct: tpdUsed / CEREBRAS_LIMITS.TPD,
+    rpmPct: rpmUsed / CEREBRAS_LIMITS.RPM,
+    rphPct: rphUsed / CEREBRAS_LIMITS.RPH,
+    rpdPct: rpdUsed / CEREBRAS_LIMITS.RPD,
+    maxPct, maxDimension,
+    tpmUsed, tpdUsed, rpmUsed,
+  };
+}
+
+/** Pre-check: returns an error message if local tracking suggests limits are exhausted, else null. */
+function cerebrasCheck(model: string): string | null {
+  const s = cerebrasStatus(model);
+  if (s.rpmPct >= 1) return `Cerebras RPM limit reached for ${model} (${CEREBRAS_LIMITS.RPM} req/min). Wait a moment.`;
+  if (s.tpmPct >= 1) return `Cerebras TPM limit reached for ${model} (${CEREBRAS_LIMITS.TPM.toLocaleString()} tokens/min). Wait a moment.`;
+  if (s.tpdPct >= 1) return `Cerebras daily token limit reached for ${model} (${CEREBRAS_LIMITS.TPD.toLocaleString()} tokens/day). Switch provider or wait.`;
+  return null;
+}
+
+// ============================================================================
+// Groq Free Tier Usage Tracker (per-model, multi-dimension)
+// Each model has its own limits on RPM/RPD/TPM/TPD.
+// @see https://console.groq.com/docs/rate-limits
+// ============================================================================
+const GROQ_MODEL_LIMITS: Record<string, { RPM: number; RPD: number; TPM: number; TPD: number }> = {
+  "openai/gpt-oss-120b":                  { RPM: 30,  RPD: 1_000, TPM: 8_000,  TPD: 200_000 },
+  "openai/gpt-oss-20b":                   { RPM: 30,  RPD: 1_000, TPM: 8_000,  TPD: 200_000 },
+  "moonshotai/kimi-k2-instruct-0905":     { RPM: 60,  RPD: 1_000, TPM: 10_000, TPD: 300_000 },
+  "qwen/qwen3-32b":                       { RPM: 60,  RPD: 1_000, TPM: 6_000,  TPD: 500_000 },
+  "llama-3.3-70b-versatile":              { RPM: 30,  RPD: 1_000, TPM: 12_000, TPD: 100_000 },
+  "meta-llama/llama-4-scout-17b-16e-instruct":    { RPM: 30, RPD: 1_000, TPM: 30_000, TPD: 500_000 },
+  "meta-llama/llama-4-maverick-17b-128e-instruct": { RPM: 30, RPD: 1_000, TPM: 30_000, TPD: 500_000 },
+  "llama-3.1-8b-instant":                 { RPM: 30,  RPD: 14_400, TPM: 6_000, TPD: 500_000 },
+};
+const GROQ_DEFAULT_LIMITS = { RPM: 30, RPD: 1_000, TPM: 6_000, TPD: 200_000 };
+const GROQ_WARNING_THRESHOLD = 0.90;
+
+interface GroqModelUsage {
+  tokenEntries: Array<{ ts: number; tokens: number }>;
+  requestTimestamps: number[];
+}
+
+const groqUsage = new Map<string, GroqModelUsage>();
+
+function getGroqModelUsage(model: string): GroqModelUsage {
+  let usage = groqUsage.get(model);
+  if (!usage) {
+    usage = { tokenEntries: [], requestTimestamps: [] };
+    groqUsage.set(model, usage);
+  }
+  return usage;
+}
+
+function groqPurgeOld(usage: GroqModelUsage, now: number) {
+  const dayStart = now - 24 * ONE_HOUR;
+  usage.tokenEntries = usage.tokenEntries.filter((e) => e.ts > dayStart);
+  usage.requestTimestamps = usage.requestTimestamps.filter((ts) => ts > dayStart);
+}
+
+function groqTrack(model: string, promptTokens: number, completionTokens: number) {
+  const usage = getGroqModelUsage(model);
+  const now = Date.now();
+  usage.tokenEntries.push({ ts: now, tokens: promptTokens + completionTokens });
+  usage.requestTimestamps.push(now);
+  groqPurgeOld(usage, now);
+}
+
+function groqGetLimits(model: string) {
+  return GROQ_MODEL_LIMITS[model] || GROQ_DEFAULT_LIMITS;
+}
+
+function groqStatus(model: string): {
+  tpmPct: number; tpdPct: number;
+  rpmPct: number; rpdPct: number;
+  maxPct: number; maxDimension: string;
+  tpmUsed: number; tpdUsed: number; rpmUsed: number; rpdUsed: number;
+} {
+  const usage = getGroqModelUsage(model);
+  const limits = groqGetLimits(model);
+  const now = Date.now();
+  const tpmUsed = sumTokens(usage.tokenEntries, now, ONE_MINUTE);
+  const tpdUsed = sumTokens(usage.tokenEntries, now, 24 * ONE_HOUR);
+  const rpmUsed = countRequests(usage.requestTimestamps, now, ONE_MINUTE);
+  const rpdUsed = countRequests(usage.requestTimestamps, now, 24 * ONE_HOUR);
+
+  const dims: Array<[string, number]> = [
+    ["TPM", tpmUsed / limits.TPM],
+    ["TPD", tpdUsed / limits.TPD],
+    ["RPM", rpmUsed / limits.RPM],
+    ["RPD", rpdUsed / limits.RPD],
+  ];
+  let maxPct = 0;
+  let maxDimension = "TPD";
+  for (const [name, pct] of dims) {
+    if (pct > maxPct) { maxPct = pct; maxDimension = name; }
+  }
+  return {
+    tpmPct: tpmUsed / limits.TPM,
+    tpdPct: tpdUsed / limits.TPD,
+    rpmPct: rpmUsed / limits.RPM,
+    rpdPct: rpdUsed / limits.RPD,
+    maxPct, maxDimension,
+    tpmUsed, tpdUsed, rpmUsed, rpdUsed,
+  };
+}
+
+function groqCheck(model: string): string | null {
+  const s = groqStatus(model);
+  const limits = groqGetLimits(model);
+  if (s.rpmPct >= 1) return `Groq RPM limit reached for ${model} (${limits.RPM} req/min). Wait a moment.`;
+  if (s.tpmPct >= 1) return `Groq TPM limit reached for ${model} (${limits.TPM.toLocaleString()} tokens/min). Wait a moment.`;
+  if (s.tpdPct >= 1) return `Groq daily token limit reached for ${model} (${limits.TPD.toLocaleString()} tokens/day). Switch provider or wait.`;
+  return null;
+}
 
 // Shared constants/helpers/schemas now live in ./ai/*
 
@@ -674,14 +853,26 @@ function toChatMessages(
   messages: Array<MessageWithImages>,
   currentPrompt: string,
   currentImages?: ImageAttachment[],
-  options?: { maxHistoricalImages?: number; supportsImages?: boolean },
+  options?: { maxHistoricalImages?: number; supportsImages?: boolean; includeImageDetail?: boolean },
 ): Array<OpenAI.ChatCompletionMessageParam> {
   const result: Array<OpenAI.ChatCompletionMessageParam> = [
     { role: "system", content: systemPrompt },
   ];
   const maxHistoricalImages = options?.maxHistoricalImages ?? 10;
   const supportsImages = options?.supportsImages ?? true;
+  // Groq does not support the `detail` parameter in image_url
+  const includeDetail = options?.includeImageDetail ?? true;
   let historicalImageCount = 0;
+
+  const buildImagePart = (img: ImageAttachment) => {
+    const imageUrl: Record<string, string> = {
+      url: `data:${img.mediaType};base64,${img.data}`,
+    };
+    if (includeDetail) {
+      imageUrl.detail = "auto";
+    }
+    return { type: "image_url" as const, image_url: imageUrl };
+  };
 
   for (const msg of messages) {
     if (msg.role === "user" || msg.role === "assistant") {
@@ -696,14 +887,8 @@ function toChatMessages(
 
       if (msg.role === "user" && imagesToInclude.length > 0) {
         // User message with images - use multimodal content array
-        const content: Array<OpenAI.ChatCompletionContentPart> = [
-          ...imagesToInclude.map((img) => ({
-            type: "image_url" as const,
-            image_url: {
-              url: `data:${img.mediaType};base64,${img.data}`,
-              detail: "auto" as const,
-            },
-          })),
+        const content: Array<any> = [
+          ...imagesToInclude.map(buildImagePart),
           { type: "text" as const, text: msg.content },
         ];
         result.push({ role: "user", content });
@@ -715,14 +900,8 @@ function toChatMessages(
 
   // Add current message with optional images
   if (currentImages?.length && supportsImages) {
-    const content: Array<OpenAI.ChatCompletionContentPart> = [
-      ...currentImages.map((img) => ({
-        type: "image_url" as const,
-        image_url: {
-          url: `data:${img.mediaType};base64,${img.data}`,
-          detail: "auto" as const,
-        },
-      })),
+    const content: Array<any> = [
+      ...currentImages.map(buildImagePart),
       { type: "text" as const, text: currentPrompt },
     ];
     result.push({ role: "user", content });
@@ -774,7 +953,7 @@ export const aiRouter = router({
     .query(({ input }) => {
       const chatGPTAuth = getChatGPTAuthManager();
       return {
-        availableProviders: ["openai", "chatgpt-plus", "zai", "claude", "cerebras"] as const,
+        availableProviders: ["openai", "chatgpt-plus", "zai", "claude", "cerebras", "groq"] as const,
         availableModels: AI_MODELS,
         availableTools: getAllToolNames({
           modelId: input?.modelId,
@@ -801,7 +980,7 @@ export const aiRouter = router({
         prompt: z.string(),
         mode: z.enum(["plan", "agent"]).default("agent"),
         provider: z
-          .enum(["openai", "chatgpt-plus", "zai", "claude", "cerebras"])
+          .enum(["openai", "chatgpt-plus", "zai", "claude", "cerebras", "groq"])
           .default("openai"),
         apiKey: z.string().optional(), // Optional for chatgpt-plus provider
         model: z.string().optional(),
@@ -1072,7 +1251,7 @@ export const aiRouter = router({
             );
 
           log.info(
-            `[AI] Starting ${provider === "zai" || provider === "cerebras" ? "Chat Completions" : "Responses API"} agent loop with ${modelId} (provider: ${provider})`,
+            `[AI] Starting ${provider === "zai" || provider === "cerebras" || provider === "groq" ? "Chat Completions" : "Responses API"} agent loop with ${modelId} (provider: ${provider})`,
           );
           log.info(`[AI] Reasoning config:`, input.reasoning);
           if (hasImages) {
@@ -1303,6 +1482,25 @@ export const aiRouter = router({
             input.apiKey = cerebrasApiKey;
 
             log.info(`[AI] Using Cerebras provider (key: ${cerebrasApiKey.substring(0, 8)}...${cerebrasApiKey.substring(cerebrasApiKey.length - 4)}, length: ${cerebrasApiKey.length})`);
+          } else if (provider === "groq") {
+            // Groq - OpenAI-compatible Chat Completions API
+            const credentialManager = getCredentialManager();
+            const groqApiKey = input.apiKey || await credentialManager.getGroqKey();
+
+            if (!groqApiKey) {
+              throw new Error("Groq API key is required. Please configure it in Settings.");
+            }
+
+            client = getOrCreateClient({
+              apiKey: groqApiKey,
+              baseURL: "https://api.groq.com/openai/v1",
+              maxRetries: 0,
+            });
+
+            // Update apiKey for tool context
+            input.apiKey = groqApiKey;
+
+            log.info(`[AI] Using Groq provider (key: ${groqApiKey.substring(0, 8)}...${groqApiKey.substring(groqApiKey.length - 4)}, length: ${groqApiKey.length})`);
           } else if (provider === "claude") {
             // Claude uses AI SDK streaming path below (no OpenAI client needed)
             client = null;
@@ -1329,7 +1527,8 @@ export const aiRouter = router({
             (provider === "openai" ||
               provider === "chatgpt-plus" ||
               provider === "zai" ||
-              provider === "cerebras") &&
+              provider === "cerebras" ||
+              provider === "groq") &&
             !openaiClient
           ) {
             throw new Error("OpenAI client not initialized");
@@ -1955,10 +2154,10 @@ CITATION REQUIREMENTS (MANDATORY):
             input.images,
           );
 
-          // For Chat Completions providers (Z.AI, Cerebras), check if model supports images
+          // For Chat Completions providers (Z.AI, Cerebras, Groq), check if model supports images
           const chatCompletionsSupportsImages = modelDef?.supportsImages ?? true;
           const chatMessages =
-            provider === "zai" || provider === "cerebras"
+            provider === "zai" || provider === "cerebras" || provider === "groq"
               ? toChatMessages(
                   systemPrompt,
                   input.messages || [],
@@ -1967,6 +2166,8 @@ CITATION REQUIREMENTS (MANDATORY):
                   {
                     supportsImages: chatCompletionsSupportsImages,
                     maxHistoricalImages: 10,
+                    // Groq does not support the `detail` parameter in image_url
+                    includeImageDetail: provider !== "groq",
                   },
                 )
               : null;
@@ -2007,6 +2208,16 @@ CITATION REQUIREMENTS (MANDATORY):
               log.info(
                 `[AI] ${provider} processing ${input.images.length} image(s) in multimodal format`,
               );
+              // Log image details for debugging
+              for (const img of input.images) {
+                const sizeKB = Math.round((img.data.length * 3) / 4 / 1024);
+                log.info(`[AI] Image: ${img.mediaType}, ~${sizeKB}KB base64, model supportsImages=${modelDef?.supportsImages}`);
+              }
+              // Log whether chatMessages includes multimodal content
+              if (chatMessages) {
+                const multimodalMsgs = chatMessages.filter((m: any) => Array.isArray(m.content));
+                log.info(`[AI] chatMessages total=${chatMessages.length}, multimodal=${multimodalMsgs.length}`);
+              }
             }
 
             // When web search is enabled for Z.AI, exclude function tools
@@ -2064,7 +2275,7 @@ CITATION REQUIREMENTS (MANDATORY):
               }
 
               const params: any = {
-                model: modelId,
+                model: apiModelId,
                 messages: chatMessages || [],
                 tools: chatTools.length > 0 ? chatTools : undefined,
                 tool_choice: chatToolChoice,
@@ -2094,6 +2305,48 @@ CITATION REQUIREMENTS (MANDATORY):
                 }
               }
 
+              // Groq reasoning params
+              // @see https://console.groq.com/docs/reasoning
+              if (provider === "groq" && modelDef?.supportsReasoning) {
+                const apiModel = modelDef.modelIdForApi || modelId;
+                // GPT-OSS models: use include_reasoning + reasoning_effort (low/medium/high)
+                if (apiModel.startsWith("openai/gpt-oss")) {
+                  params.include_reasoning = true;
+                  if (reasoningConfig?.effort && reasoningConfig.effort !== "none") {
+                    params.reasoning_effort = reasoningConfig.effort;
+                  }
+                }
+                // Qwen 3: use reasoning_format ('parsed') + reasoning_effort ('none'|'default')
+                else if (apiModel.startsWith("qwen/")) {
+                  params.reasoning_format = "parsed";
+                  // Map our effort levels to Qwen's supported values
+                  if (reasoningConfig?.effort === "none") {
+                    params.reasoning_effort = "none";
+                  } else {
+                    params.reasoning_effort = "default";
+                  }
+                }
+              }
+
+              // Pre-check Cerebras rate limits before making the request
+              if (provider === "cerebras") {
+                const limitMsg = cerebrasCheck(modelId);
+                if (limitMsg) {
+                  log.warn(`[AI] Cerebras pre-check failed for ${modelId}: ${limitMsg}`);
+                  throw new Error(limitMsg);
+                }
+              }
+
+              // Pre-check Groq rate limits before making the request
+              if (provider === "groq") {
+                const apiModel = modelDef?.modelIdForApi || modelId;
+                const limitMsg = groqCheck(apiModel);
+                if (limitMsg) {
+                  log.warn(`[AI] Groq pre-check failed for ${apiModel}: ${limitMsg}`);
+                  throw new Error(limitMsg);
+                }
+              }
+
               let stream: any;
               try {
                 stream = await withRetry(
@@ -2116,9 +2369,18 @@ CITATION REQUIREMENTS (MANDATORY):
                 }
                 // Handle Cerebras 429 Rate Limit errors
                 if (provider === "cerebras" && err instanceof Error && (err as any).status === 429) {
-                  log.warn("[AI] Cerebras rate limit hit - try a lighter model");
+                  log.warn(`[AI] Cerebras 429 rate limit hit for model ${modelId}`);
                   throw new Error(
-                    "Cerebras rate limit exceeded (60K tokens/min on free tier). Wait a moment and try again, or switch to a lighter model like llama3.1-8b."
+                    "Cerebras rate limit exceeded. Free tier limits per model: 60K tokens/min, 30 requests/min, 1M tokens/day. Wait a moment or switch to another model."
+                  );
+                }
+                // Handle Groq 429 Rate Limit errors
+                if (provider === "groq" && err instanceof Error && (err as any).status === 429) {
+                  const apiModel = modelDef?.modelIdForApi || modelId;
+                  const limits = groqGetLimits(apiModel);
+                  log.warn(`[AI] Groq 429 rate limit hit for model ${apiModel}`);
+                  throw new Error(
+                    `Groq rate limit exceeded for ${apiModel}. Limits: ${limits.TPM.toLocaleString()} tokens/min, ${limits.RPM} requests/min, ${limits.TPD.toLocaleString()} tokens/day. Wait a moment or switch to another model.`
                   );
                 }
                 // Handle Z.AI billing/quota errors with graceful fallbacks
@@ -2443,7 +2705,11 @@ CITATION REQUIREMENTS (MANDATORY):
                     suggestionApiKey,
                     (provider as string) === "zai"
                       ? zaiBaseURL || undefined
-                      : undefined,
+                      : (provider as string) === "cerebras"
+                        ? "https://api.cerebras.ai/v1"
+                        : (provider as string) === "groq"
+                          ? "https://api.groq.com/openai/v1"
+                          : undefined,
                   );
                   if (
                     suggestions.length > 0 &&
@@ -2477,23 +2743,76 @@ CITATION REQUIREMENTS (MANDATORY):
               }
             }
 
-            // Track Cerebras daily usage and emit warning if approaching limit
+            // Track Cerebras per-model usage and always emit status to frontend
             if (provider === "cerebras") {
-              cerebrasUsage.track(usageTotals.promptTokens, usageTotals.completionTokens);
-              log.info(`[AI] Cerebras daily usage: ${cerebrasUsage.tokensUsed.toLocaleString()}/${CEREBRAS_DAILY_LIMIT.toLocaleString()} tokens (${Math.round(cerebrasUsage.getUsagePercent() * 100)}%)`);
+              cerebrasTrack(modelId, usageTotals.promptTokens, usageTotals.completionTokens);
+              const status = cerebrasStatus(modelId);
+              const pct = Math.round(status.maxPct * 100);
+              const remainingTPD = Math.max(0, CEREBRAS_LIMITS.TPD - status.tpdUsed);
+              log.info(`[AI] Cerebras usage for ${modelId}: TPM ${Math.round(status.tpmPct * 100)}%, TPD ${Math.round(status.tpdPct * 100)}%, RPM ${Math.round(status.rpmPct * 100)}% (highest: ${status.maxDimension} at ${pct}%)`);
 
-              if (cerebrasUsage.shouldWarn()) {
-                const pct = Math.round(cerebrasUsage.getUsagePercent() * 100);
-                const remaining = cerebrasUsage.remaining();
+              const dimLabels: Record<string, string> = {
+                TPM: "tokens/min", TPH: "tokens/hour", TPD: "tokens/day",
+                RPM: "requests/min", RPH: "requests/hour", RPD: "requests/day",
+              };
+              const dimLabel = dimLabels[status.maxDimension] || status.maxDimension;
+              const message = status.maxPct >= 1
+                ? `Cerebras ${dimLabel} limit reached for ${modelId}. Switch to another provider/model or wait.`
+                : status.maxPct >= CEREBRAS_WARNING_THRESHOLD
+                  ? `Cerebras ${modelId} at ${pct}% of ${dimLabel} limit. Consider switching provider or model.`
+                  : "";
+
+              // Always emit usage status so frontend can update the progress bar
+              emit({
+                type: "rate-limit-warning",
+                provider: "cerebras",
+                message,
+                usagePercent: pct,
+                remainingTokens: remainingTPD,
+                dailyLimit: CEREBRAS_LIMITS.TPD,
+              });
+            }
+
+            // Track Groq per-model usage and emit warning if approaching any limit
+            if (provider === "groq") {
+              const apiModel = modelDef?.modelIdForApi || modelId;
+              groqTrack(apiModel, usageTotals.promptTokens, usageTotals.completionTokens);
+              const status = groqStatus(apiModel);
+              const limits = groqGetLimits(apiModel);
+              const pct = Math.round(status.maxPct * 100);
+              const remainingTPD = Math.max(0, limits.TPD - status.tpdUsed);
+              log.info(`[AI] Groq usage for ${apiModel}: TPM ${Math.round(status.tpmPct * 100)}%, TPD ${Math.round(status.tpdPct * 100)}%, RPM ${Math.round(status.rpmPct * 100)}% (highest: ${status.maxDimension} at ${pct}%)`);
+
+              // Always emit per-model usage for all tracked Groq models
+              const modelsUsage: Array<{ model: string; tpdUsed: number; tpdLimit: number; tpmPct: number }> = [];
+              for (const [m, _usage] of groqUsage) {
+                const mStatus = groqStatus(m);
+                const mLimits = groqGetLimits(m);
+                modelsUsage.push({
+                  model: m,
+                  tpdUsed: mStatus.tpdUsed,
+                  tpdLimit: mLimits.TPD,
+                  tpmPct: Math.round(mStatus.tpmPct * 100),
+                });
+              }
+              emit({ type: "groq-model-usage", models: modelsUsage });
+
+              // Keep existing rate-limit-warning + toast for >= 90%
+              if (status.maxPct >= GROQ_WARNING_THRESHOLD) {
+                const dimLabels: Record<string, string> = {
+                  TPM: "tokens/min", TPD: "tokens/day",
+                  RPM: "requests/min", RPD: "requests/day",
+                };
+                const dimLabel = dimLabels[status.maxDimension] || status.maxDimension;
                 emit({
                   type: "rate-limit-warning",
-                  provider: "cerebras",
-                  message: remaining === 0
-                    ? `Cerebras free tier daily limit reached (1M tokens). Switch to another provider or wait until tomorrow.`
-                    : `Cerebras free tier at ${pct}% daily usage. ${remaining.toLocaleString()} tokens remaining. Consider switching to another provider.`,
+                  provider: "groq",
+                  message: status.maxPct >= 1
+                    ? `Groq ${dimLabel} limit reached for ${apiModel}. Switch to another provider/model or wait.`
+                    : `Groq ${apiModel} at ${pct}% of ${dimLabel} limit. Consider switching provider or model.`,
                   usagePercent: pct,
-                  remainingTokens: remaining,
-                  dailyLimit: CEREBRAS_DAILY_LIMIT,
+                  remainingTokens: remainingTPD,
+                  dailyLimit: limits.TPD,
                 });
               }
             }
@@ -2509,8 +2828,8 @@ CITATION REQUIREMENTS (MANDATORY):
             });
           };
 
-          if (provider === "zai" || provider === "cerebras") {
-            // Z.AI and Cerebras use Chat Completions API (OpenAI-compatible)
+          if (provider === "zai" || provider === "cerebras" || provider === "groq") {
+            // Z.AI, Cerebras, and Groq use Chat Completions API (OpenAI-compatible)
             // They don't support OpenAI's Responses API
             await runChatCompletionsAgentLoop();
             return;
@@ -3196,7 +3515,10 @@ CITATION REQUIREMENTS (MANDATORY):
               input.apiKey || getSecureApiKeyStore().getOpenAIKey();
             if (suggestionApiKey) {
               const suggestionBaseURL =
-                input.provider === "zai" ? ZAI_GENERAL_BASE_URL : undefined;
+                input.provider === "zai" ? ZAI_GENERAL_BASE_URL
+                : input.provider === "cerebras" ? "https://api.cerebras.ai/v1"
+                : input.provider === "groq" ? "https://api.groq.com/openai/v1"
+                : undefined;
               try {
                 const suggestions = await generateSuggestions(
                   fullText,
@@ -3429,7 +3751,7 @@ CITATION REQUIREMENTS (MANDATORY):
     .input(
       z.object({
         prompt: z.string(),
-        provider: z.enum(["openai", "anthropic", "zai", "chatgpt-plus", "claude", "cerebras"]).optional(),
+        provider: z.enum(["openai", "anthropic", "zai", "chatgpt-plus", "claude", "cerebras", "groq"]).optional(),
         apiKey: z.string().optional(),
         model: z.string().optional(),
       }),
@@ -3440,8 +3762,8 @@ CITATION REQUIREMENTS (MANDATORY):
         let apiKey = input.apiKey || "";
         const credentialManager = getCredentialManager();
 
-        // For Cerebras/Z.AI providers, use Chat Completions for title gen
-        if (!apiKey && (input.provider === "cerebras" || input.provider === "zai")) {
+        // For Cerebras/Z.AI/Groq providers, use Chat Completions for title gen
+        if (!apiKey && (input.provider === "cerebras" || input.provider === "zai" || input.provider === "groq")) {
           const titlePrompt = `Generate a short, concise title (max 5 words) for this message. Do not use quotes. Just respond with the title, nothing else.\n\nMessage: ${input.prompt}`;
           try {
             let titleClient: OpenAI | undefined;
@@ -3452,6 +3774,12 @@ CITATION REQUIREMENTS (MANDATORY):
               if (cerebrasKey) {
                 titleClient = new OpenAI({ apiKey: cerebrasKey, baseURL: "https://api.cerebras.ai/v1" });
                 titleModel = "llama-3.3-70b";
+              }
+            } else if (input.provider === "groq") {
+              const groqKey = await credentialManager.getGroqKey();
+              if (groqKey) {
+                titleClient = new OpenAI({ apiKey: groqKey, baseURL: "https://api.groq.com/openai/v1" });
+                titleModel = "llama-3.3-70b-versatile";
               }
             } else {
               const zaiKey = await credentialManager.getZaiKey();

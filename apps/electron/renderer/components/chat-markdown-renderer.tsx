@@ -678,18 +678,22 @@ function preprocessLatex(content: string): string {
   const emphasisPlaceholders: Map<string, string> = new Map();
   let placeholderIndex = 0;
 
-  // Protect inline code (`backtick content`) - must come FIRST
+  // Protect ALL markdown table rows FIRST (header, separator, and data rows)
+  // Table rows start and end with | and have at least 2 columns (3+ pipe characters)
+  // Must be protected before any other processing to preserve table structure intact
+  result = result.replace(/^\s*\|.+\|\s*$/gm, (match) => {
+    if ((match.match(/\|/g) || []).length >= 3) {
+      const placeholder = `⟦ETR${placeholderIndex++}⟧`;
+      emphasisPlaceholders.set(placeholder, match);
+      return placeholder;
+    }
+    return match;
+  });
+
+  // Protect inline code (`backtick content`)
   // Prevents _underscores_ inside code like `web_search` from being treated as italic
   result = result.replace(/`([^`\n]+)`/g, (match) => {
     const placeholder = `⟦EIC${placeholderIndex++}⟧`;
-    emphasisPlaceholders.set(placeholder, match);
-    return placeholder;
-  });
-
-  // Protect markdown table separator lines (| --- | --- |)
-  // These contain dashes that could be misinterpreted
-  result = result.replace(/^\|[\s\-:|]+\|$/gm, (match) => {
-    const placeholder = `⟦ETB${placeholderIndex++}⟧`;
     emphasisPlaceholders.set(placeholder, match);
     return placeholder;
   });
@@ -1352,6 +1356,100 @@ function preprocessLatex(content: string): string {
   return result;
 }
 
+/**
+ * Fix collapsed markdown tables that some models (Cerebras/Llama/Groq) produce on a single line.
+ * Example input:  "| H1 | H2 | |---|---| | D1 | D2 | | D3 | D4 |"
+ * Example output: "| H1 | H2 |\n|---|---|\n| D1 | D2 |\n| D3 | D4 |"
+ */
+function fixCollapsedTables(content: string): string {
+  const lines = content.split("\n");
+  const result: string[] = [];
+
+  for (const line of lines) {
+    // Detect an inline table separator: at least 2 columns of |---|---|
+    const sepRegex =
+      /\|[\s]*[-:]+[\s]*\|[\s]*[-:]+[\s]*(?:\|[\s]*[-:]+[\s]*)*\|/;
+    const sepMatch = sepRegex.exec(line);
+
+    if (!sepMatch || sepMatch[0].trim() === line.trim()) {
+      // No inline separator, or separator already on its own line
+      result.push(line);
+      continue;
+    }
+
+    const separator = sepMatch[0].trim();
+    const colCount = (separator.match(/\|/g) || []).length - 1;
+    if (colCount < 2) {
+      result.push(line);
+      continue;
+    }
+
+    const pipesPerRow = colCount + 1;
+
+    // Split the line around the separator for more robust handling
+    const firstPipeIdx = line.indexOf("|");
+    const leadingText =
+      firstPipeIdx > 0 ? line.slice(0, firstPipeIdx).trim() : "";
+    const beforeSep = line.slice(firstPipeIdx, sepMatch.index).trim();
+    const afterSep = line.slice(sepMatch.index + sepMatch[0].length).trim();
+
+    // Extract header and data rows
+    const headerRows = beforeSep
+      ? extractTableRows(beforeSep, pipesPerRow)
+      : [];
+    const dataRows = afterSep
+      ? extractTableRows(afterSep, pipesPerRow)
+      : [];
+
+    // Need at least 1 header row and 1 data row for a valid table
+    if (headerRows.length >= 1 && dataRows.length >= 1) {
+      const rows: string[] = [];
+      if (leadingText) rows.push(leadingText);
+      rows.push(...headerRows, separator, ...dataRows);
+      result.push(rows.join("\n"));
+    } else {
+      result.push(line);
+    }
+  }
+
+  return result.join("\n");
+}
+
+/** Extract individual table rows from collapsed text based on expected pipes per row */
+function extractTableRows(text: string, pipesPerRow: number): string[] {
+  const pipePositions: number[] = [];
+  for (let i = 0; i < text.length; i++) {
+    if (text[i] === "|") pipePositions.push(i);
+  }
+
+  if (pipePositions.length < pipesPerRow) {
+    // Not enough pipes for a complete row — return as-is if non-empty
+    return text.trim() ? [text.trim()] : [];
+  }
+
+  const rows: string[] = [];
+  let i = 0;
+
+  // Extract complete rows (groups of pipesPerRow pipes)
+  while (i + pipesPerRow - 1 < pipePositions.length) {
+    const start = pipePositions[i];
+    const end = pipePositions[i + pipesPerRow - 1];
+    rows.push(text.slice(start, end + 1).trim());
+    i += pipesPerRow;
+  }
+
+  // Handle remaining incomplete row (e.g., during streaming)
+  if (i < pipePositions.length) {
+    const start = pipePositions[i];
+    const remaining = text.slice(start).trim();
+    if (remaining) {
+      rows.push(remaining);
+    }
+  }
+
+  return rows;
+}
+
 function sanitizeMarkdown(content: string): string {
   const generatedFileHint = (label: string) => {
     const text = label.trim();
@@ -1360,8 +1458,11 @@ function sanitizeMarkdown(content: string): string {
     return `${text} (use chat download button)`;
   };
 
-  // First preprocess LaTeX
-  const withLatex = preprocessLatex(content);
+  // Fix collapsed tables BEFORE LaTeX processing (prevents pipe corruption)
+  const withTables = fixCollapsedTables(content);
+
+  // Then preprocess LaTeX
+  const withLatex = preprocessLatex(withTables);
 
   return withLatex
     .replace(/^[\t ]*[-*+][\t ]*$/gm, "")

@@ -11,7 +11,7 @@ import { z } from 'zod'
  * - 'zai': Z.AI Coding Plan (GLM models via OpenAI-compatible endpoint)
  * - 'claude': Claude Pro/Max via OAuth (uses subscription)
  */
-export type AIProvider = 'openai' | 'chatgpt-plus' | 'zai' | 'claude' | 'cerebras'
+export type AIProvider = 'openai' | 'chatgpt-plus' | 'zai' | 'claude' | 'cerebras' | 'groq'
 
 /**
  * - 'none': No reasoning (GPT-5.2, lowest latency)
@@ -244,6 +244,82 @@ export const AI_MODELS: Record<string, ModelDefinition> = {
     },
 
     // ========================================================================
+    // Groq Models (OpenAI-compatible, ultra-fast inference)
+    // @see https://console.groq.com/docs
+    // Free tier: per-model RPM/RPD/TPM/TPD limits
+    // Reasoning: gpt-oss-120b supports reasoning_effort (low/medium/high)
+    //            qwen3-32b supports reasoning_effort (none/default)
+    // ========================================================================
+    'groq-gpt-oss-120b': {
+        id: 'groq-gpt-oss-120b',
+        provider: 'groq',
+        name: 'GPT-OSS 120B (Groq)',
+        description: 'Reasoning model via Groq (30 RPM, 8K TPM, 200K TPD)',
+        contextWindow: 128000,
+        supportsImages: false,
+        supportsTools: true,
+        supportsReasoning: true,
+        defaultReasoningEffort: 'medium',
+        modelIdForApi: 'openai/gpt-oss-120b'
+    },
+    'groq-kimi-k2': {
+        id: 'groq-kimi-k2',
+        provider: 'groq',
+        name: 'Kimi K2 Instruct (Groq)',
+        description: 'Moonshot Kimi K2 via Groq (60 RPM, 10K TPM, 300K TPD)',
+        contextWindow: 128000,
+        supportsImages: false,
+        supportsTools: true,
+        supportsReasoning: false,
+        modelIdForApi: 'moonshotai/kimi-k2-instruct-0905'
+    },
+    'groq-qwen3-32b': {
+        id: 'groq-qwen3-32b',
+        provider: 'groq',
+        name: 'Qwen 3 32B (Groq)',
+        description: 'Qwen 3 with reasoning via Groq (60 RPM, 6K TPM, 500K TPD)',
+        contextWindow: 32768,
+        supportsImages: false,
+        supportsTools: true,
+        supportsReasoning: true,
+        defaultReasoningEffort: 'medium',
+        modelIdForApi: 'qwen/qwen3-32b'
+    },
+    'groq-llama-3.3-70b': {
+        id: 'groq-llama-3.3-70b',
+        provider: 'groq',
+        name: 'Llama 3.3 70B (Groq)',
+        description: 'Meta Llama 3.3 via Groq (30 RPM, 12K TPM, 100K TPD)',
+        contextWindow: 128000,
+        supportsImages: false,
+        supportsTools: true,
+        supportsReasoning: false,
+        modelIdForApi: 'llama-3.3-70b-versatile'
+    },
+    'groq-llama-4-scout': {
+        id: 'groq-llama-4-scout',
+        provider: 'groq',
+        name: 'Llama 4 Scout (Groq)',
+        description: 'Multimodal vision model via Groq — images, OCR, tool use (30 RPM, 30K TPM, 500K TPD)',
+        contextWindow: 128000,
+        supportsImages: true,
+        supportsTools: true,
+        supportsReasoning: false,
+        modelIdForApi: 'meta-llama/llama-4-scout-17b-16e-instruct'
+    },
+    'groq-llama-4-maverick': {
+        id: 'groq-llama-4-maverick',
+        provider: 'groq',
+        name: 'Llama 4 Maverick (Groq)',
+        description: 'Multimodal vision model via Groq — images, OCR, tool use (30 RPM, 30K TPM, 500K TPD)',
+        contextWindow: 128000,
+        supportsImages: true,
+        supportsTools: true,
+        supportsReasoning: false,
+        modelIdForApi: 'meta-llama/llama-4-maverick-17b-128e-instruct'
+    },
+
+    // ========================================================================
     // Claude Models (via OAuth - included in Pro/Max subscription)
     // These models use the Claude Pro/Max subscription
     // ========================================================================
@@ -292,7 +368,8 @@ export const DEFAULT_MODELS: Record<AIProvider, string> = {
     'chatgpt-plus': 'gpt-5.1-codex-max',
     zai: 'GLM-4.7-Flash',
     claude: 'claude-sonnet-4-5-20250929',
-    cerebras: 'gpt-oss-120b'
+    cerebras: 'gpt-oss-120b',
+    groq: 'groq-gpt-oss-120b'
 }
 
 /**
@@ -448,6 +525,9 @@ export type AIStreamEvent =
     
     // Rate limit warnings (provider quota approaching limits)
     | { type: 'rate-limit-warning'; provider: string; message: string; usagePercent: number; remainingTokens: number; dailyLimit: number }
+
+    // Groq per-model usage (emitted after every Groq request)
+    | { type: 'groq-model-usage'; models: Array<{ model: string; tpdUsed: number; tpdLimit: number; tpmPct: number }> }
 
     // Step and completion events
     | { type: 'step-complete'; stepNumber: number; hasMoreSteps: boolean }
@@ -619,7 +699,7 @@ export type ServiceTier = 'auto' | 'flex'
 // Zod Schemas for Validation
 // ============================================================================
 
-export const AIProviderSchema = z.enum(['openai', 'chatgpt-plus', 'zai', 'claude', 'cerebras'])
+export const AIProviderSchema = z.enum(['openai', 'chatgpt-plus', 'zai', 'claude', 'cerebras', 'groq'])
 
 export const ReasoningEffortSchema = z.enum(['low', 'medium', 'high'])
 

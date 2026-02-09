@@ -29,17 +29,20 @@ export async function generateSuggestions(
 
     // Choose a fast/cheap model based on the provider
     // If baseURL is Z.AI, use GLM-4.7-Flash
+    // If baseURL is Cerebras, use llama-3.3-70b (same as title generation)
     // Otherwise use gpt-4o-mini
     const model =
-      baseURL && baseURL.includes("z.ai") ? "GLM-4.7-Flash" : "gpt-4o-mini";
+      baseURL && baseURL.includes("z.ai") ? "GLM-4.7-Flash"
+      : baseURL && baseURL.includes("cerebras") ? "llama-3.3-70b"
+      : baseURL && baseURL.includes("groq.com") ? "llama-3.3-70b-versatile"
+      : "gpt-4o-mini";
 
     log.info(
       `[AI] Generating suggestions with model: ${model}, baseURL: ${baseURL || "default"}`,
     );
 
-    // Z.AI models (GLM) sometimes struggle with response_format: json_object
-    // and require explicit instructions in the system prompt.
-    const isZai = baseURL && baseURL.includes("z.ai");
+    // Non-OpenAI providers may not support response_format: json_object reliably
+    const isZai = baseURL && (baseURL.includes("z.ai") || baseURL.includes("cerebras") || baseURL.includes("groq.com"));
 
     // Truncate lastMessage if too long (keep first 2000 chars)
     const truncatedLastMessage =

@@ -8,7 +8,7 @@ import {
   useLayoutEffect,
 } from "react";
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
-import { ZaiIcon, CerebrasIcon } from "@/components/icons/model-icons";
+import { ZaiIcon, CerebrasIcon, GroqIcon } from "@/components/icons/model-icons";
 // NOTE: Gemini disabled - import { ZaiIcon, GeminiIcon } from '@/components/icons/model-icons'
 import {
   IconSettings,
@@ -742,7 +742,9 @@ export function Sidebar() {
           ? keyStatus?.hasZai
           : provider === "cerebras"
             ? keyStatus?.hasCerebras
-            : provider === "claude"
+            : provider === "groq"
+              ? keyStatus?.hasGroq
+              : provider === "claude"
               ? keyStatus?.hasClaudeCode
               : keyStatus?.hasAnthropic;
 
@@ -1538,6 +1540,8 @@ export function Sidebar() {
             <ZaiIcon className="shrink-0 text-amber-500" size={18} />
           ) : provider === "cerebras" ? (
             <CerebrasIcon className="shrink-0 text-orange-500" size={18} />
+          ) : provider === "groq" ? (
+            <GroqIcon className="shrink-0 text-orange-400" size={18} />
           ) : (
             // NOTE: gemini-advanced disabled
             <IconBrain size={18} className="shrink-0" />
@@ -1553,7 +1557,9 @@ export function Sidebar() {
                       ? "Z.AI"
                       : provider === "cerebras"
                         ? "Cerebras"
-                        : provider === "claude"
+                        : provider === "groq"
+                          ? "Groq"
+                          : provider === "claude"
                           ? "Claude"
                           : "Anthropic"}
               </p>

@@ -36,6 +36,7 @@ import {
   OpenAIIcon,
   ChatGPTPlusIcon,
   CerebrasIcon,
+  GroqIcon,
 } from "@/components/icons/model-icons";
 import { useAtom, useAtomValue } from "jotai";
 import {
@@ -83,6 +84,15 @@ export function ApiKeysTab() {
       toast.success("Cerebras API key updated");
       utils.settings.getApiKeyStatus.invalidate();
       utils.settings.getCerebrasKey.invalidate();
+    },
+    onError: (e) => toast.error(e.message),
+  });
+
+  const setGroqKeyMutation = trpc.settings.setGroqKey.useMutation({
+    onSuccess: () => {
+      toast.success("Groq API key updated");
+      utils.settings.getApiKeyStatus.invalidate();
+      utils.settings.getGroqKey.invalidate();
     },
     onError: (e) => toast.error(e.message),
   });
@@ -177,14 +187,17 @@ export function ApiKeysTab() {
   const [openaiKey, setOpenaiKey] = useState("");
   const [zaiKey, setZaiKey] = useState("");
   const [cerebrasKey, setCerebrasKey] = useState("");
+  const [groqKey, setGroqKey] = useState("");
   const [showOpenaiKey, setShowOpenaiKey] = useState(false);
   const [showZaiKey, setShowZaiKey] = useState(false);
   const [showCerebrasKey, setShowCerebrasKey] = useState(false);
+  const [showGroqKey, setShowGroqKey] = useState(false);
 
   // Fetch keys on mount
   const { data: storedOpenAIKey } = trpc.settings.getOpenAIKey.useQuery();
   const { data: storedZaiKey } = trpc.settings.getZaiKey.useQuery();
   const { data: storedCerebrasKey } = trpc.settings.getCerebrasKey.useQuery();
+  const { data: storedGroqKey } = trpc.settings.getGroqKey.useQuery();
 
   useEffect(() => {
     if (storedOpenAIKey) setOpenaiKey(storedOpenAIKey);
@@ -197,6 +210,10 @@ export function ApiKeysTab() {
   useEffect(() => {
     if (storedCerebrasKey) setCerebrasKey(storedCerebrasKey);
   }, [storedCerebrasKey]);
+
+  useEffect(() => {
+    if (storedGroqKey) setGroqKey(storedGroqKey);
+  }, [storedGroqKey]);
 
   const handleProviderChange = (p: AIProvider) => {
     setCurrentProvider(p);
@@ -268,6 +285,12 @@ export function ApiKeysTab() {
                     <div className="flex items-center gap-2">
                       <CerebrasIcon size={14} />
                       <span>Cerebras</span>
+                    </div>
+                  </SelectItem>
+                  <SelectItem value="groq">
+                    <div className="flex items-center gap-2">
+                      <GroqIcon size={14} />
+                      <span>Groq</span>
                     </div>
                   </SelectItem>
                 </SelectGroup>
@@ -556,6 +579,65 @@ export function ApiKeysTab() {
                     disabled={setCerebrasKeyMutation.isPending}
                   >
                     {setCerebrasKeyMutation.isPending ? (
+                      <IconLoader2 className="animate-spin" size={16} />
+                    ) : (
+                      "Save"
+                    )}
+                  </Button>
+                </div>
+              </div>
+            </div>
+            {/* Groq API */}
+            <div className="h-full rounded-lg border border-border bg-muted/20 p-4">
+              <div className="flex h-full flex-col gap-4">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <GroqIcon size={18} />
+                    <div>
+                      <h4 className="font-medium">Groq API</h4>
+                      <p className="text-[11px] text-muted-foreground">
+                        Ultra-fast inference for GPT-OSS, Kimi K2, Qwen 3 &
+                        Llama models.
+                      </p>
+                    </div>
+                  </div>
+                  {keyStatus?.hasGroq && (
+                    <Badge variant="secondary">Configured</Badge>
+                  )}
+                </div>
+                <div className="grid grid-cols-[1fr_auto] gap-2">
+                  <div className="relative">
+                    <Input
+                      type={showGroqKey ? "text" : "password"}
+                      placeholder="gsk_..."
+                      value={groqKey}
+                      onChange={(e) => setGroqKey(e.target.value)}
+                      className="pr-10"
+                    />
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="absolute right-0 top-0 h-full hover:bg-transparent"
+                      onClick={() => setShowGroqKey(!showGroqKey)}
+                    >
+                      {showGroqKey ? (
+                        <IconEyeOff size={16} />
+                      ) : (
+                        <IconEye size={16} />
+                      )}
+                    </Button>
+                  </div>
+                  <Button
+                    variant="default"
+                    className="px-6 font-semibold"
+                    onClick={() =>
+                      setGroqKeyMutation.mutate({
+                        key: groqKey.trim() || null,
+                      })
+                    }
+                    disabled={setGroqKeyMutation.isPending}
+                  >
+                    {setGroqKeyMutation.isPending ? (
                       <IconLoader2 className="animate-spin" size={16} />
                     ) : (
                       "Save"

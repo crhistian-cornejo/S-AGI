@@ -55,6 +55,7 @@ const attachmentSchema = z.object({
 /**
  * Regenerate signed URLs for attachments that have storagePath
  * This ensures URLs are always fresh and valid for the current session
+ * In local mode, regenerate file:// URLs via the local storage adapter
  */
 async function regenerateAttachmentUrls(attachments: any[]): Promise<any[]> {
     if (!attachments || !Array.isArray(attachments) || attachments.length === 0) {
@@ -69,6 +70,13 @@ async function regenerateAttachmentUrls(attachments: any[]): Promise<any[]> {
             }
 
             try {
+                // In local mode, use local storage adapter for file:// URLs
+                if (isLocalStorageMode()) {
+                    const adapter = await getStorageAdapter()
+                    const url = await adapter.fileStorage.getUrl('attachments', attachment.storagePath)
+                    return { ...attachment, url }
+                }
+
                 const { data: signedUrlData, error } = await supabase.storage
                     .from('attachments')
                     .createSignedUrl(attachment.storagePath, ATTACHMENT_SIGNED_URL_TTL)
@@ -115,8 +123,16 @@ export const messagesRouter = router({
                 // In local mode, just list messages by chatId (like OpenCode does)
                 // No ownership verification - it's single-user
                 const messages = await adapter.messages.listByChatId!(input.chatId, safeLimit)
-                // Map to snake_case for frontend compatibility
-                return messages.map(mapLocalMessageToSnakeCase)
+                // Map to snake_case and regenerate local file:// URLs for attachments
+                const mapped = messages.map(mapLocalMessageToSnakeCase)
+                const withFreshUrls = await Promise.all(
+                    mapped.map(async (msg: any) => {
+                        if (!msg.attachments || msg.attachments.length === 0) return msg
+                        const freshAttachments = await regenerateAttachmentUrls(msg.attachments)
+                        return { ...msg, attachments: freshAttachments }
+                    })
+                )
+                return withFreshUrls
             }
 
             // First verify the chat belongs to the user
