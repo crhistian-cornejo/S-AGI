@@ -226,6 +226,33 @@ export function GroqMonoIcon({
 }
 
 /**
+ * Ollama official llama logo SVG
+ * @see https://ollama.com
+ */
+export function OllamaIcon({
+  className,
+  size = 16,
+}: {
+  className?: string;
+  size?: number;
+}) {
+  return (
+    <svg
+      viewBox="0 0 646 854"
+      fill="currentColor"
+      width={size}
+      height={size}
+      className={className}
+      role="img"
+      aria-labelledby="ollama-title"
+    >
+      <title id="ollama-title">Ollama</title>
+      <path d="M281.336 0C247.264 0 219.586 27.678 219.586 61.75C219.586 68.098 220.509 74.223 222.209 80.01C183.238 100.404 156.336 141.482 156.336 188.75C156.336 228.508 174.477 263.922 202.633 287.16L186.336 427H119.008C87.574 427 60.074 448.518 52.602 479.168L0.4375 693.285C-3.0625 707.637 0.0234375 722.672 8.0234375 734.871L66.1094 823.363C75.5234 837.703 91.6094 846.363 108.887 846.363H537.785C555.059 846.363 571.148 837.703 580.559 823.363L638.648 734.871C646.648 722.672 649.734 707.637 646.234 693.285L594.07 479.168C586.598 448.518 559.098 427 527.664 427H460.336L444.039 287.16C472.195 263.922 490.336 228.508 490.336 188.75C490.336 141.482 463.434 100.404 424.465 80.01C426.16 74.223 427.086 68.098 427.086 61.75C427.086 27.678 399.407 0 365.336 0H281.336ZM281.336 42H365.336C376.723 42 385.086 50.363 385.086 61.75C385.086 73.137 376.723 81.5 365.336 81.5H281.336C269.948 81.5 261.586 73.137 261.586 61.75C261.586 50.363 269.948 42 281.336 42ZM323.336 123.5C381.313 123.5 448.336 152.422 448.336 188.75C448.336 239.441 390.555 280.5 323.336 280.5C256.117 280.5 198.336 239.441 198.336 188.75C198.336 152.422 265.359 123.5 323.336 123.5ZM244.289 316.328C267.605 327.438 294.496 333.82 323.336 333.82C352.176 333.82 379.066 327.438 402.383 316.328L418.164 453H228.508L244.289 316.328ZM260.836 519.5C280.168 519.5 295.836 535.168 295.836 554.5C295.836 573.832 280.168 589.5 260.836 589.5C241.504 589.5 225.836 573.832 225.836 554.5C225.836 535.168 241.504 519.5 260.836 519.5ZM385.836 519.5C405.168 519.5 420.836 535.168 420.836 554.5C420.836 573.832 405.168 589.5 385.836 589.5C366.504 589.5 350.836 573.832 350.836 554.5C350.836 535.168 366.504 519.5 385.836 519.5Z" />
+    </svg>
+  );
+}
+
+/**
  * Generic AI model icon that renders based on provider
  */
 export function ModelIcon({ provider, className, size = 16, mono = false }: ModelIconProps & { mono?: boolean }) {
@@ -242,6 +269,8 @@ export function ModelIcon({ provider, className, size = 16, mono = false }: Mode
       return <CerebrasIcon className={className} size={size} />;
     case "groq":
       return mono ? <GroqMonoIcon className={className} size={size} /> : <GroqIcon className={className} size={size} />;
+    case "ollama":
+      return <OllamaIcon className={className} size={size} />;
     default:
       return <OpenAIIcon className={className} size={size} />;
   }

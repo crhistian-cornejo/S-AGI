@@ -5,6 +5,7 @@ import log from 'electron-log'
 import type { SpawnOptions, SpawnedProcess } from '@anthropic-ai/claude-agent-sdk'
 import { sendToRenderer } from '../window-manager'
 import type { AIStreamEvent } from '@s-agi/core/types/ai'
+import { getUsageTracker } from '../storage/usage-tracker'
 
 /**
  * Craft-style SDK options: pathToClaudeCodeExecutable, executableArgs (--env-file=/dev/null),
@@ -605,6 +606,24 @@ RESPONSE STYLE FOR CLAUDE
                             totalSteps: stepCount,
                             responseId: sessionId
                         })
+
+                        // Log usage to local database
+                        try {
+                            const tracker = getUsageTracker()
+                            tracker.logRequest({
+                                chatId: options.chatId,
+                                provider: 'claude-agent-sdk',
+                                modelId: modelId,
+                                modelName: modelId,
+                                promptTokens: inputTokens,
+                                completionTokens: outputTokens,
+                                totalTokens: inputTokens + outputTokens,
+                                costEstimate: totalCostUSD > 0 ? totalCostUSD : undefined,
+                                requestDurationMs: typeof message.duration_ms === 'number' ? message.duration_ms : undefined
+                            })
+                        } catch (logError) {
+                            log.warn('[Claude SDK] Failed to log usage:', logError)
+                        }
                     } else if (message.subtype === 'error') {
                         const errorText = typeof message.result === 'string' 
                             ? message.result 
@@ -1196,6 +1215,24 @@ export async function streamClaudeForAgentPanel(options: AgentPanelClaudeOptions
                                 completionTokens: modelUsageEntry?.outputTokens || 0
                             }
                         })
+
+                        // Log usage to local database
+                        try {
+                            const promptTokens = modelUsageEntry?.inputTokens || 0
+                            const completionTokens = modelUsageEntry?.outputTokens || 0
+                            const tracker = getUsageTracker()
+                            tracker.logRequest({
+                                chatId: sessionId,
+                                provider: 'claude-agent-sdk',
+                                modelId: modelId,
+                                modelName: modelId,
+                                promptTokens,
+                                completionTokens,
+                                totalTokens: promptTokens + completionTokens
+                            })
+                        } catch (logError) {
+                            log.warn('[Claude SDK AgentPanel] Failed to log usage:', logError)
+                        }
                     } else if (message.subtype === 'error') {
                         const errorText = typeof message.result === 'string' ? message.result : 'Unknown error'
                         emitEvent({ type: 'error', error: errorText })

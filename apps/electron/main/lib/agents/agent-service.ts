@@ -9,6 +9,8 @@
 
 import type { LanguageModel } from "ai";
 import { createOpenAI } from "@ai-sdk/openai";
+import { getLanguageModel } from "../ai/providers";
+import type { AIProvider } from "@s-agi/core/types/ai";
 import { OrchestratorAgent, routeMessage } from "./orchestrator";
 import { PDFAgent, createPDFAgent } from "./pdf-agent";
 import { ExcelAgent, createExcelAgent } from "./excel-agent";
@@ -148,12 +150,19 @@ export function selectAgent(
 }
 
 /**
- * Create a language model instance from API key
+ * Create a language model instance from API key and optional provider
  */
 export function createModel(
   apiKey: string,
   modelId: string = "gpt-4o",
+  providerName?: AIProvider,
 ): LanguageModel {
+  // For Ollama (local), use the provider registry (no API key needed)
+  if (providerName === "ollama") {
+    return getLanguageModel("ollama", modelId);
+  }
+
+  // For standard providers, use OpenAI-compatible API with the provided key
   const provider = createOpenAI({ apiKey });
   return provider(modelId);
 }

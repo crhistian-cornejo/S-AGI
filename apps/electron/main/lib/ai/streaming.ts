@@ -1,6 +1,7 @@
 import { streamText, type StopCondition, type ToolSet } from 'ai'
 import log from 'electron-log'
 import { sendToRenderer } from '../window-manager'
+import { getUsageTracker } from '../storage/usage-tracker'
 import { getLanguageModel, isProviderAvailable } from './providers'
 import { getSystemPrompt, UI_TOOL_SCHEMAS, executeUITool } from './agent'
 import type { AIProvider, AIStreamEvent } from '@s-agi/core/types/ai'
@@ -104,6 +105,8 @@ export async function streamWithAISDK(options: StreamingOptions): Promise<{
         tools,
         stopWhen
     } = options
+
+    const startTime = Date.now()
 
     // Validate provider availability
     if (!isProviderAvailable(provider)) {
@@ -219,6 +222,23 @@ export async function streamWithAISDK(options: StreamingOptions): Promise<{
 
         log.info(`[AI SDK] Stream completed: ${stepCount} steps, ${totalPromptTokens + totalCompletionTokens} tokens`)
 
+        // Log usage to local database
+        try {
+            const tracker = getUsageTracker()
+            tracker.logRequest({
+                chatId: options.chatId,
+                provider: provider,
+                modelId: modelId,
+                modelName: modelId,
+                promptTokens: totalPromptTokens,
+                completionTokens: totalCompletionTokens,
+                totalTokens: totalPromptTokens + totalCompletionTokens,
+                requestDurationMs: Date.now() - startTime
+            })
+        } catch (logError) {
+            log.warn('[AI SDK] Failed to log usage:', logError)
+        }
+
         return {
             text: fullText,
             usage: {
@@ -232,6 +252,26 @@ export async function streamWithAISDK(options: StreamingOptions): Promise<{
         if (error.name === 'AbortError' || signal?.aborted) {
             log.info('[AI SDK] Stream aborted')
             emit({ type: 'finish', totalSteps: stepCount })
+
+            // Log partial usage even for aborted requests
+            try {
+                const tracker = getUsageTracker()
+                if (totalPromptTokens > 0 || totalCompletionTokens > 0) {
+                    tracker.logRequest({
+                        chatId: options.chatId,
+                        provider: provider,
+                        modelId: modelId,
+                        modelName: modelId,
+                        promptTokens: totalPromptTokens,
+                        completionTokens: totalCompletionTokens,
+                        totalTokens: totalPromptTokens + totalCompletionTokens,
+                        requestDurationMs: Date.now() - startTime
+                    })
+                }
+            } catch (logError) {
+                log.warn('[AI SDK] Failed to log aborted usage:', logError)
+            }
+
             return { text: fullText }
         }
 

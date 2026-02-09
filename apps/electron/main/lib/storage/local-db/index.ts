@@ -296,6 +296,25 @@ function runMigrations(db: SQLiteDatabase): void {
       updated_at INTEGER DEFAULT (unixepoch()) NOT NULL
     )`,
 
+    // Usage logs table
+    `CREATE TABLE IF NOT EXISTS usage_logs (
+      id TEXT PRIMARY KEY,
+      chat_id TEXT,
+      message_id TEXT,
+      provider TEXT NOT NULL,
+      model_id TEXT,
+      model_name TEXT,
+      prompt_tokens INTEGER NOT NULL DEFAULT 0,
+      completion_tokens INTEGER NOT NULL DEFAULT 0,
+      reasoning_tokens INTEGER,
+      total_tokens INTEGER NOT NULL DEFAULT 0,
+      cost_estimate REAL,
+      request_duration_ms INTEGER,
+      created_at INTEGER DEFAULT (unixepoch()) NOT NULL,
+      FOREIGN KEY(chat_id) REFERENCES chats(id) ON DELETE SET NULL,
+      FOREIGN KEY(message_id) REFERENCES chat_messages(id) ON DELETE SET NULL
+    )`,
+
     // Projects table (folders for organizing threads)
     `CREATE TABLE IF NOT EXISTS projects (
       id TEXT PRIMARY KEY,
@@ -326,9 +345,48 @@ function runMigrations(db: SQLiteDatabase): void {
     `CREATE INDEX IF NOT EXISTS chat_files_chat_id_idx ON chat_files(chat_id)`,
     `CREATE INDEX IF NOT EXISTS chat_files_hash_idx ON chat_files(chat_id, file_hash)`,
 
+    // Usage logs indexes
+    `CREATE INDEX IF NOT EXISTS usage_logs_created_at_idx ON usage_logs(created_at)`,
+    `CREATE INDEX IF NOT EXISTS usage_logs_model_day_idx ON usage_logs(model_id, created_at)`,
+    `CREATE INDEX IF NOT EXISTS usage_logs_chat_id_idx ON usage_logs(chat_id)`,
+    `CREATE INDEX IF NOT EXISTS usage_logs_provider_idx ON usage_logs(provider)`,
+
     // Projects indexes
     `CREATE INDEX IF NOT EXISTS projects_user_id_idx ON projects(user_id)`,
     `CREATE INDEX IF NOT EXISTS projects_sort_order_idx ON projects(sort_order)`,
+
+    // Note spaces table (workspaces / folders for notes)
+    `CREATE TABLE IF NOT EXISTS note_spaces (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      icon TEXT,
+      color TEXT,
+      archived INTEGER DEFAULT 0,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    )`,
+
+    // Note pages table
+    `CREATE TABLE IF NOT EXISTS note_pages (
+      id TEXT PRIMARY KEY,
+      title TEXT NOT NULL DEFAULT 'Untitled',
+      content TEXT,
+      space_id TEXT REFERENCES note_spaces(id) ON DELETE SET NULL,
+      parent_id TEXT REFERENCES note_pages(id) ON DELETE SET NULL,
+      icon TEXT,
+      cover_image TEXT,
+      description_visible INTEGER DEFAULT 1,
+      pinned INTEGER DEFAULT 0,
+      archived INTEGER DEFAULT 0,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    )`,
+
+    // Note indexes
+    `CREATE INDEX IF NOT EXISTS note_pages_space_id_idx ON note_pages(space_id)`,
+    `CREATE INDEX IF NOT EXISTS note_pages_parent_id_idx ON note_pages(parent_id)`,
+    `CREATE INDEX IF NOT EXISTS note_pages_updated_at_idx ON note_pages(updated_at)`,
+    `CREATE INDEX IF NOT EXISTS note_pages_pinned_idx ON note_pages(pinned)`,
 
     // Add project_id and sort_order to chats table (migration for existing databases)
     `ALTER TABLE chats ADD COLUMN project_id TEXT REFERENCES projects(id) ON DELETE SET NULL`,

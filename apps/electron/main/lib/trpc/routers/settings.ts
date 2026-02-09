@@ -38,6 +38,7 @@ export const settingsRouter = router({
       hasZai: status.hasZaiKey,
       hasCerebras: status.hasCerebrasKey,
       hasGroq: status.hasGroqKey,
+      hasOllama: true, // Ollama is local, always available (no API key needed)
       hasClaudeOAuth: status.hasClaudeOAuth,
       isClaudeTokenExpired: status.isClaudeTokenExpired,
       hasChatGPTOAuth: status.hasChatGPTOAuth,
@@ -221,5 +222,50 @@ export const settingsRouter = router({
       throw new Error(result);
     }
     return { success: true };
+  }),
+
+  /**
+   * List locally installed Ollama models by querying the Ollama API.
+   * Returns an empty array if Ollama is not running.
+   */
+  listOllamaModels: publicProcedure.query(async () => {
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 3000);
+
+      const res = await fetch("http://127.0.0.1:11434/api/tags", {
+        signal: controller.signal,
+      });
+      clearTimeout(timeout);
+
+      if (!res.ok) return { models: [], running: false };
+
+      const data = (await res.json()) as {
+        models?: Array<{
+          name: string;
+          size: number;
+          digest: string;
+          modified_at: string;
+          details?: {
+            parameter_size?: string;
+            quantization_level?: string;
+            family?: string;
+          };
+        }>;
+      };
+
+      const models = (data.models || []).map((m) => ({
+        name: m.name,
+        size: m.size,
+        parameterSize: m.details?.parameter_size || null,
+        quantization: m.details?.quantization_level || null,
+        family: m.details?.family || null,
+        modifiedAt: m.modified_at,
+      }));
+
+      return { models, running: true };
+    } catch {
+      return { models: [], running: false };
+    }
   }),
 });

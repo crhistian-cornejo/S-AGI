@@ -52,7 +52,10 @@ export function ShareSessionDialog({
   })
 
   const isSharing = status?.isSharing ?? false
-  const shareUrl = status?.ngrokUrl || status?.localUrl || ''
+  const baseUrl = status?.ngrokUrl || status?.localUrl || ''
+  const shareUrl = baseUrl && status?.shareToken
+    ? `${baseUrl}?token=${status.shareToken}`
+    : baseUrl
   const clientCount = status?.clientCount ?? 0
 
   // Start sharing

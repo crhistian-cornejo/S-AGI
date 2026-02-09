@@ -43,7 +43,9 @@
   // WebSocket Connection
   function connect() {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${protocol}//${window.location.host}/ws`;
+    const params = new URLSearchParams(window.location.search);
+    const token = params.get('token') || '';
+    const wsUrl = `${protocol}//${window.location.host}/ws?token=${encodeURIComponent(token)}`;
     
     console.log('[Session] Connecting to', wsUrl);
     ws = new WebSocket(wsUrl);

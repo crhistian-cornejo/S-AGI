@@ -56,6 +56,7 @@ export const allModelsGroupedAtom = atom(() => {
     claude: getModelsByProvider('claude'),
     cerebras: getModelsByProvider('cerebras'),
     groq: getModelsByProvider('groq'),
+    ollama: getModelsByProvider('ollama'),
   }
 })
 

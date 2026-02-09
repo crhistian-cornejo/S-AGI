@@ -20,6 +20,7 @@ import { aiProvidersRouter } from "./routers/ai-providers";
 import { checkpointsRouter } from "./routers/checkpoints";
 import { projectsRouter } from "./routers/projects";
 import { sessionRouter } from "./routers/session";
+import { notesRouter } from "./routers/notes";
 
 // Previously lazy-loaded routers — imported eagerly because trpc-electron's
 // bundled callProcedure resolves procedures from the flat _def.procedures map
@@ -53,6 +54,7 @@ export const appRouter = router({
   checkpoints: checkpointsRouter,
   projects: projectsRouter,
   session: sessionRouter,
+  notes: notesRouter,
 });
 
 // Export type for client

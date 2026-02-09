@@ -593,6 +593,12 @@ const ModelSelector = memo(function ModelSelector({
   const { data: keyStatus } = trpc.settings.getApiKeyStatus.useQuery();
   const currentModel = AI_MODELS[modelId];
 
+  // Dynamically discover Ollama models
+  const { data: ollamaData } = trpc.settings.listOllamaModels.useQuery(
+    undefined,
+    { enabled: !!keyStatus?.hasOllama, refetchInterval: 30_000, staleTime: 15_000 },
+  );
+
   // Group models by provider
   const modelGroups = useMemo(
     () => ({
@@ -601,12 +607,43 @@ const ModelSelector = memo(function ModelSelector({
       zai: getModelsByProvider("zai"),
       cerebras: getModelsByProvider("cerebras"),
       claude: getModelsByProvider("claude"),
+      ollama: getModelsByProvider("ollama"),
     }),
     [],
   );
 
+  /** Merged Ollama models: static + dynamically discovered */
+  const ollamaModels = useMemo(() => {
+    const staticModels = modelGroups.ollama || [];
+    if (!ollamaData?.running || !ollamaData.models.length) return staticModels;
+
+    const staticIds = new Set(staticModels.map((m) => m.id));
+    const dynamicModels = ollamaData.models
+      .filter((m) => !staticIds.has(`ollama:${m.name}`))
+      .map((m) => ({
+        id: `ollama:${m.name}`,
+        provider: "ollama" as const,
+        name: m.name,
+        description: [m.parameterSize, m.quantization].filter(Boolean).join(" · ") || "Local model",
+        contextWindow: 128000,
+        supportsImages: false,
+        supportsTools: true,
+        supportsReasoning: false,
+        modelIdForApi: m.name,
+        includedInSubscription: true,
+        _parameterSize: m.parameterSize,
+        _quantization: m.quantization,
+        _family: m.family,
+      }));
+
+    return [...staticModels, ...dynamicModels];
+  }, [modelGroups.ollama, ollamaData]);
+
+  const ollamaRunning = ollamaData?.running ?? false;
+
   const handleModelChange = (newModelId: string) => {
-    const model = AI_MODELS[newModelId];
+    // Check static models first, then dynamic Ollama models
+    const model = AI_MODELS[newModelId] || ollamaModels.find((m) => m.id === newModelId);
     if (model) {
       onProviderChange(model.provider);
       onModelChange(newModelId);
@@ -729,12 +766,51 @@ const ModelSelector = memo(function ModelSelector({
           </>
         )}
 
+        {/* Ollama models (Local) — dynamic + static */}
+        {keyStatus?.hasOllama && (
+          <>
+            <div className="h-px bg-border/40 my-1 mx-2" />
+            <div className="text-[9px] font-bold uppercase text-muted-foreground/50 px-2.5 py-1.5 flex items-center gap-1.5">
+              <ModelIcon provider="ollama" size={10} />
+              Ollama
+              {ollamaRunning ? (
+                <span className="ml-auto text-[8px] font-medium text-emerald-500">Local</span>
+              ) : (
+                <span className="ml-auto text-[8px] font-medium text-orange-500">Offline</span>
+              )}
+            </div>
+            {ollamaModels.length > 0 ? (
+              ollamaModels.map((model) => (
+                <SelectItem
+                  key={model.id}
+                  value={model.id}
+                  className="rounded-lg text-xs"
+                >
+                  <div className="flex items-center gap-2">
+                    <span>{model.name}</span>
+                    {(model as any)._parameterSize && (
+                      <span className="text-[8px] text-muted-foreground/60 ml-auto">
+                        {(model as any)._parameterSize}
+                      </span>
+                    )}
+                  </div>
+                </SelectItem>
+              ))
+            ) : (
+              <div className="text-[9px] text-muted-foreground/50 px-2.5 py-1.5 text-center">
+                {ollamaRunning ? "No models installed" : "Ollama is not running"}
+              </div>
+            )}
+          </>
+        )}
+
         {/* No providers configured */}
         {!keyStatus?.hasOpenAI &&
           !keyStatus?.hasZai &&
           !keyStatus?.hasCerebras &&
           !keyStatus?.hasChatGPTPlus &&
-          !keyStatus?.hasClaudeCode && (
+          !keyStatus?.hasClaudeCode &&
+          !keyStatus?.hasOllama && (
             <div className="text-xs text-muted-foreground px-3 py-3 text-center">
               No API keys configured
             </div>

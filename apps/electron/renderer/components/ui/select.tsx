@@ -86,8 +86,8 @@ SelectScrollDownButton.displayName =
 
 const SelectContent = React.forwardRef<
     React.ElementRef<typeof SelectPrimitive.Content>,
-    React.ComponentPropsWithoutRef<typeof SelectPrimitive.Content>
->(({ className, children, position = "popper", ...props }, ref) => (
+    React.ComponentPropsWithoutRef<typeof SelectPrimitive.Content> & { fadeScroll?: boolean }
+>(({ className, children, position = "popper", fadeScroll, ...props }, ref) => (
     <SelectPrimitive.Portal>
         <SelectPrimitive.Content
             ref={ref}
@@ -98,6 +98,7 @@ const SelectContent = React.forwardRef<
                 overlaySlideIn,
                 position === "popper" &&
                 "min-w-[var(--radix-select-trigger-width)] data-[side=bottom]:translate-y-1 data-[side=left]:-translate-x-1 data-[side=right]:translate-x-1 data-[side=top]:-translate-y-1",
+                fadeScroll && "relative",
                 className,
             )}
             position={position}
@@ -113,6 +114,12 @@ const SelectContent = React.forwardRef<
                 {children}
             </SelectPrimitive.Viewport>
             <SelectScrollDownButton />
+            {fadeScroll && (
+                <>
+                    <div className="pointer-events-none absolute top-0 inset-x-0 h-5 bg-gradient-to-b from-popover to-transparent z-10 rounded-t-[10px]" />
+                    <div className="pointer-events-none absolute bottom-0 inset-x-0 h-5 bg-gradient-to-t from-popover to-transparent z-10 rounded-b-[10px]" />
+                </>
+            )}
         </SelectPrimitive.Content>
     </SelectPrimitive.Portal>
 ))

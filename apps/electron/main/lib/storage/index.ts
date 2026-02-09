@@ -51,6 +51,11 @@ export type {
   UpdateQuickPromptInput,
   ChangeType,
   SyncStatus,
+  UsageLog,
+  CreateUsageLogInput,
+  UsageLogFilter,
+  DailyModelUsage,
+  UsageSummary,
 } from "./adapters/types";
 
 // Export local-db functions
@@ -67,6 +72,9 @@ export {
 
 // Export local-files functions
 export { getLocalFileStorage, type LocalFileStorage } from "./local-files";
+
+// Export usage tracker
+export { getUsageTracker, UsageTracker } from "./usage-tracker";
 
 // ============ STORAGE FACTORY ============
 

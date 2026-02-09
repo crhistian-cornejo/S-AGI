@@ -37,6 +37,7 @@ import {
   ChatGPTPlusIcon,
   CerebrasIcon,
   GroqIcon,
+  OllamaIcon,
 } from "@/components/icons/model-icons";
 import { useAtom, useAtomValue } from "jotai";
 import {
@@ -319,6 +320,16 @@ export function ApiKeysTab() {
                     <div className="flex items-center gap-2">
                       <ClaudeIcon size={14} />
                       <span>Claude Pro/Max</span>
+                    </div>
+                  </SelectItem>
+                </SelectGroup>
+
+                <SelectGroup>
+                  <SelectLabel>Local</SelectLabel>
+                  <SelectItem value="ollama">
+                    <div className="flex items-center gap-2">
+                      <OllamaIcon size={14} />
+                      <span>Ollama</span>
                     </div>
                   </SelectItem>
                 </SelectGroup>

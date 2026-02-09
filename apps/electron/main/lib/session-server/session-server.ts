@@ -9,6 +9,7 @@ import { WebSocketServer, type WebSocket } from 'ws'
 import path from 'path'
 import log from 'electron-log'
 import ngrok from 'ngrok'
+import { randomUUID } from 'crypto'
 
 // Types
 export interface SessionMessage {
@@ -38,6 +39,18 @@ let wss: WebSocketServer | null = null
 let ngrokUrl: string | null = null
 let isSharing = false
 let currentSessionState: SessionState | null = null
+let shareToken: string | null = null
+
+export interface SharedFile {
+  id: string
+  name: string
+  type: 'spreadsheet' | 'document' | 'pdf' | 'image' | 'other'
+  sizeBytes?: number
+  updatedAt: string
+}
+
+let sharedFiles: SharedFile[] = []
+const fileDataCache = new Map<string, unknown>()
 const connectedClients = new Set<WebSocket>()
 
 // Port management
@@ -66,14 +79,26 @@ function getLocalIP(): string {
  */
 export async function startSessionServer(port: number = DEFAULT_PORT): Promise<{ 
   localUrl: string
-  port: number 
+  port: number
+  shareToken: string
 }> {
   if (isSharing) {
     throw new Error('Session server is already running')
   }
 
   currentPort = port
+  shareToken = randomUUID()
   app = express()
+
+  // Token-based auth for all API endpoints
+  app.use('/api', (req, res, next) => {
+    const token = req.query.token || req.headers['x-share-token']
+    if (token !== shareToken) {
+      res.status(401).json({ error: 'Invalid share token' })
+      return
+    }
+    next()
+  })
 
   // Serve static files from public directory
   // electron-vite copies public folder to out/main/lib/session-server/public
@@ -129,14 +154,43 @@ export async function startSessionServer(port: number = DEFAULT_PORT): Promise<{
     res.json({ status: 'ok', clients: connectedClients.size })
   })
 
+  // List shared files
+  app.get('/api/files', (_req, res) => {
+    res.json({ files: sharedFiles })
+  })
+
+  // Download a shared file data (JSON)
+  app.get('/api/files/:id', (req, res) => {
+    const file = sharedFiles.find(f => f.id === req.params.id)
+    if (!file) {
+      res.status(404).json({ error: 'File not found' })
+      return
+    }
+    if (fileDataCache.has(file.id)) {
+      const data = fileDataCache.get(file.id)!
+      res.json({ file, data })
+    } else {
+      res.status(404).json({ error: 'File data not available' })
+    }
+  })
+
   // Create HTTP server
   server = createServer(app)
 
   // Create WebSocket server
   wss = new WebSocketServer({ server, path: '/ws' })
 
-  wss.on('connection', (ws: WebSocket) => {
-    log.info('[SessionServer] Client connected')
+  wss.on('connection', (ws: WebSocket, req) => {
+    // Validate share token on WebSocket upgrade
+    const url = new URL(req.url || '', `http://${req.headers.host || 'localhost'}`)
+    const token = url.searchParams.get('token')
+    if (token !== shareToken) {
+      log.warn('[SessionServer] WebSocket connection rejected: invalid token')
+      ws.close(4001, 'Invalid share token')
+      return
+    }
+
+    log.info('[SessionServer] Client connected (authenticated)')
     connectedClients.add(ws)
 
     // Send initial state to new client
@@ -184,7 +238,8 @@ export async function startSessionServer(port: number = DEFAULT_PORT): Promise<{
   
   return {
     localUrl: `http://${localIP}:${port}`,
-    port
+    port,
+    shareToken: shareToken!
   }
 }
 
@@ -230,6 +285,9 @@ export async function stopSessionServer(): Promise<void> {
   app = null
   isSharing = false
   currentSessionState = null
+  sharedFiles = []
+  fileDataCache.clear()
+  shareToken = null
   
   log.info('[SessionServer] Server stopped')
 }
@@ -332,14 +390,49 @@ export function getServerStatus(): {
   localUrl: string | null
   ngrokUrl: string | null
   clientCount: number
+  shareToken: string | null
 } {
   const localIP = getLocalIP()
   return {
     isSharing,
     localUrl: isSharing ? `http://${localIP}:${currentPort}` : null,
     ngrokUrl,
-    clientCount: connectedClients.size
+    clientCount: connectedClients.size,
+    shareToken
   }
+}
+
+/**
+ * Set the list of files available for sharing
+ */
+export function setSharedFiles(files: SharedFile[]): void {
+  sharedFiles = files
+  broadcastToAll({
+    type: 'system',
+    payload: { sharedFiles: files }
+  })
+}
+
+/**
+ * Add file data to the sharing cache
+ */
+export function setFileData(fileId: string, data: unknown): void {
+  fileDataCache.set(fileId, data)
+}
+
+/**
+ * Clear shared file data
+ */
+export function clearSharedFiles(): void {
+  sharedFiles = []
+  fileDataCache.clear()
+}
+
+/**
+ * Get the current share token
+ */
+export function getShareToken(): string | null {
+  return shareToken
 }
 
 // ============ Private Helpers ============

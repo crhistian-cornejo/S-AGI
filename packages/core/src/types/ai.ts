@@ -11,7 +11,7 @@ import { z } from 'zod'
  * - 'zai': Z.AI Coding Plan (GLM models via OpenAI-compatible endpoint)
  * - 'claude': Claude Pro/Max via OAuth (uses subscription)
  */
-export type AIProvider = 'openai' | 'chatgpt-plus' | 'zai' | 'claude' | 'cerebras' | 'groq'
+export type AIProvider = 'openai' | 'chatgpt-plus' | 'zai' | 'claude' | 'cerebras' | 'groq' | 'ollama'
 
 /**
  * - 'none': No reasoning (GPT-5.2, lowest latency)
@@ -51,6 +51,9 @@ export interface ModelDefinition {
     modelIdForApi?: string
     /** When true, supports ResponseMode: Instant / Thinking / Auto (solo GPT-5.2) */
     supportsResponseMode?: boolean
+    /** When true, the model performs web search server-side automatically (e.g. Groq compound).
+     *  No tool params needed — results come in message.executed_tools */
+    supportsServerWebSearch?: boolean
 }
 
 /**
@@ -319,6 +322,35 @@ export const AI_MODELS: Record<string, ModelDefinition> = {
         modelIdForApi: 'meta-llama/llama-4-maverick-17b-128e-instruct'
     },
 
+    // Groq Compound Models — server-side web search (automatic)
+    // These models perform web search automatically without needing any tools
+    // Results come in message.executed_tools[0].search_results
+    // @see https://console.groq.com/docs/web-search
+    'groq-compound': {
+        id: 'groq-compound',
+        provider: 'groq',
+        name: 'Compound (Groq) 🔍',
+        description: 'Groq compound with built-in web search, auto-citations. Best for real-time info.',
+        contextWindow: 128000,
+        supportsImages: false,
+        supportsTools: false, // No function tools — web search is server-side
+        supportsReasoning: false,
+        supportsServerWebSearch: true,
+        modelIdForApi: 'groq/compound'
+    },
+    'groq-compound-mini': {
+        id: 'groq-compound-mini',
+        provider: 'groq',
+        name: 'Compound Mini (Groq) 🔍',
+        description: 'Groq compound-mini with built-in web search. Faster, lighter.',
+        contextWindow: 128000,
+        supportsImages: false,
+        supportsTools: false, // No function tools — web search is server-side
+        supportsReasoning: false,
+        supportsServerWebSearch: true,
+        modelIdForApi: 'groq/compound-mini'
+    },
+
     // ========================================================================
     // Claude Models (via OAuth - included in Pro/Max subscription)
     // These models use the Claude Pro/Max subscription
@@ -357,7 +389,12 @@ export const AI_MODELS: Record<string, ModelDefinition> = {
         supportsTools: true,
         supportsReasoning: false,
         includedInSubscription: true
-    }
+    },
+
+    // ========================================================================
+    // Ollama Models — 100% dynamic, discovered at runtime via `ollama serve`
+    // No hardcoded models here. See `listOllamaModels` tRPC endpoint.
+    // ========================================================================
 } as const
 
 /**
@@ -369,7 +406,8 @@ export const DEFAULT_MODELS: Record<AIProvider, string> = {
     zai: 'GLM-4.7-Flash',
     claude: 'claude-sonnet-4-5-20250929',
     cerebras: 'gpt-oss-120b',
-    groq: 'groq-gpt-oss-120b'
+    groq: 'groq-gpt-oss-120b',
+    ollama: ''
 }
 
 /**
@@ -402,6 +440,21 @@ export function getModelById(modelId: string): ModelDefinition | undefined {
         return AI_MODELS['GLM-4.7-Flash']
     }
 
+    // Dynamic Ollama models (not in static AI_MODELS)
+    if (modelId.startsWith('ollama:')) {
+        const apiId = modelId.slice('ollama:'.length)
+        return {
+            id: modelId,
+            provider: 'ollama',
+            name: apiId,
+            contextWindow: 128000,
+            supportsTools: true,
+            supportsReasoning: false,
+            modelIdForApi: apiId,
+            includedInSubscription: true,
+        }
+    }
+
     return undefined
 }
 
@@ -415,6 +468,24 @@ export function resolveModelForProvider(
     const candidate = modelId ? getModelById(modelId) : undefined
     if (candidate && candidate.provider === provider) {
         return candidate
+    }
+
+    // Ollama models are 100% dynamic — create a ModelDefinition on the fly
+    if (provider === 'ollama') {
+        const ollamaModelId = modelId || ''
+        const apiId = ollamaModelId.startsWith('ollama:')
+            ? ollamaModelId.slice('ollama:'.length)
+            : ollamaModelId
+        return {
+            id: ollamaModelId,
+            provider: 'ollama',
+            name: apiId || 'Ollama',
+            contextWindow: 128000,
+            supportsTools: true,
+            supportsReasoning: false,
+            modelIdForApi: apiId,
+            includedInSubscription: true,
+        }
     }
 
     const fallbackId = DEFAULT_MODELS[provider]
@@ -431,7 +502,14 @@ export function resolveModelForProvider(
  */
 export function resolveModelIdForApi(modelId: string): string {
     const model = getModelById(modelId)
-    return model?.modelIdForApi ?? modelId
+    if (model?.modelIdForApi) return model.modelIdForApi
+
+    // For dynamic Ollama models not in AI_MODELS, strip the 'ollama:' prefix
+    if (!model && modelId.startsWith('ollama:')) {
+        return modelId.slice('ollama:'.length)
+    }
+
+    return modelId
 }
 
 /**
@@ -699,14 +777,14 @@ export type ServiceTier = 'auto' | 'flex'
 // Zod Schemas for Validation
 // ============================================================================
 
-export const AIProviderSchema = z.enum(['openai', 'chatgpt-plus', 'zai', 'claude', 'cerebras', 'groq'])
+export const AIProviderSchema = z.enum(['openai', 'chatgpt-plus', 'zai', 'claude', 'cerebras', 'groq', 'ollama'])
 
 export const ReasoningEffortSchema = z.enum(['low', 'medium', 'high'])
 
 export const ReasoningSummarySchema = z.enum(['auto', 'concise', 'detailed'])
 
 export const ModelIdSchema = z.string().refine(
-    (id) => id in AI_MODELS,
+    (id) => id in AI_MODELS || id.startsWith('ollama:'),
     { message: 'Invalid model ID' }
 )
 

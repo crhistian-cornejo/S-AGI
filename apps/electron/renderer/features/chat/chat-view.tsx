@@ -637,6 +637,9 @@ export function ChatView() {
           return;
         }
         apiKey = undefined;
+      } else if (provider === "ollama") {
+        // Ollama runs locally - no API key needed
+        apiKey = undefined;
       } else {
         // Anthropic or other providers
         // SECURITY: Credentials are managed in main process only

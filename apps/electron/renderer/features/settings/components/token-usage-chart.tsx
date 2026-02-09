@@ -13,10 +13,21 @@ import {
   IconCalendarStats,
   IconChevronLeft,
   IconChevronRight,
+  IconCpu,
+  IconList,
+  IconExternalLink,
+  IconClock,
+  IconCoin,
 } from "@tabler/icons-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { useSetAtom } from "jotai";
+import {
+  selectedChatIdAtom,
+  activeTabAtom,
+  settingsModalOpenAtom,
+} from "@/lib/atoms";
 
 const formatTokenCount = (num: number): string => {
   if (num >= 1_000_000) {
@@ -27,6 +38,43 @@ const formatTokenCount = (num: number): string => {
   }
   return num.toString();
 };
+
+const formatCost = (cost: number | null | undefined): string => {
+  if (cost == null || cost === 0) return "-";
+  if (cost < 0.01) return `$${cost.toFixed(6)}`;
+  return `$${cost.toFixed(4)}`;
+};
+
+const formatDuration = (ms: number | null | undefined): string => {
+  if (ms == null) return "-";
+  if (ms < 1000) return `${ms}ms`;
+  return `${(ms / 1000).toFixed(1)}s`;
+};
+
+const formatRelativeTime = (unixTimestamp: number): string => {
+  const now = Date.now() / 1000;
+  const diff = now - unixTimestamp;
+  if (diff < 60) return "just now";
+  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+  if (diff < 604800) return `${Math.floor(diff / 86400)}d ago`;
+  return new Date(unixTimestamp * 1000).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+  });
+};
+
+// Color palette for models
+const MODEL_COLORS = [
+  "hsl(var(--primary))",
+  "hsl(220, 70%, 55%)",
+  "hsl(150, 60%, 45%)",
+  "hsl(280, 60%, 55%)",
+  "hsl(30, 80%, 55%)",
+  "hsl(350, 65%, 50%)",
+  "hsl(180, 55%, 45%)",
+  "hsl(60, 70%, 45%)",
+];
 
 export function TokenUsageChart() {
   const [currentDate, setCurrentDate] = useState(new Date());
@@ -144,6 +192,11 @@ export function TokenUsageChart() {
   // Find max value to highlight the highest bar
   const maxTokens = Math.max(...(formattedData.map((d) => d.tokens) || [0]));
 
+  // Date range for model breakdown (selected month)
+  const startDate = `${year}-${String(month + 1).padStart(2, "0")}-01`;
+  const endDay = new Date(year, month + 1, 0).getDate();
+  const endDate = `${year}-${String(month + 1).padStart(2, "0")}-${String(endDay).padStart(2, "0")}`;
+
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
       {/* Totals Cards */}
@@ -154,7 +207,7 @@ export function TokenUsageChart() {
         <TotalCard label={`${year} Total`} value={totals.year} />
       </div>
 
-      {/* Chart */}
+      {/* Daily Chart */}
       <div className="rounded-xl border border-border bg-card/50 p-6 shadow-sm">
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-4">
@@ -252,9 +305,318 @@ export function TokenUsageChart() {
           </ResponsiveContainer>
         </div>
       </div>
+
+      {/* Model Breakdown */}
+      <ModelBreakdown startDate={startDate} endDate={endDate} />
+
+      {/* Recent Logs */}
+      <RecentLogsTable />
     </div>
   );
 }
+
+// ─── Model Breakdown Section ────────────────────────────────────────────────
+
+function ModelBreakdown({
+  startDate,
+  endDate,
+}: {
+  startDate: string;
+  endDate: string;
+}) {
+  const { data: modelData, isLoading } = trpc.usage.getByModelDaily.useQuery({
+    startDate,
+    endDate,
+  });
+
+  // Aggregate per-model totals
+  const modelTotals = useMemo(() => {
+    if (!modelData || modelData.length === 0) return [];
+
+    const map = new Map<
+      string,
+      {
+        model_id: string;
+        provider: string;
+        prompt_tokens: number;
+        completion_tokens: number;
+        total_tokens: number;
+        request_count: number;
+      }
+    >();
+
+    for (const row of modelData) {
+      const key = row.model_id || "unknown";
+      const existing = map.get(key);
+      if (existing) {
+        existing.prompt_tokens += row.prompt_tokens;
+        existing.completion_tokens += row.completion_tokens;
+        existing.total_tokens += row.total_tokens;
+        existing.request_count += row.request_count;
+      } else {
+        map.set(key, {
+          model_id: row.model_id || "unknown",
+          provider: row.provider,
+          prompt_tokens: row.prompt_tokens,
+          completion_tokens: row.completion_tokens,
+          total_tokens: row.total_tokens,
+          request_count: row.request_count,
+        });
+      }
+    }
+
+    return Array.from(map.values()).sort(
+      (a, b) => b.total_tokens - a.total_tokens
+    );
+  }, [modelData]);
+
+  const maxModelTokens = modelTotals[0]?.total_tokens || 1;
+
+  if (isLoading) {
+    return (
+      <div className="rounded-xl border border-border bg-card/50 p-6 shadow-sm space-y-3">
+        <Skeleton className="h-5 w-48" />
+        <Skeleton className="h-8 w-full" />
+        <Skeleton className="h-8 w-3/4" />
+        <Skeleton className="h-8 w-1/2" />
+      </div>
+    );
+  }
+
+  if (modelTotals.length === 0) {
+    return null; // Don't show section if no data
+  }
+
+  return (
+    <div className="rounded-xl border border-border bg-card/50 p-6 shadow-sm">
+      <div className="flex items-center gap-2 mb-5">
+        <IconCpu className="text-foreground/70" size={18} />
+        <h3 className="text-sm font-medium tracking-wide text-foreground/70 uppercase">
+          Model Breakdown
+        </h3>
+        <Badge className="bg-foreground/5 text-foreground/60 border-foreground/10 px-1.5 py-0 h-5 text-[10px]">
+          {modelTotals.length} {modelTotals.length === 1 ? "MODEL" : "MODELS"}
+        </Badge>
+      </div>
+
+      <div className="space-y-3">
+        {modelTotals.map((model, i) => {
+          const pct = (model.total_tokens / maxModelTokens) * 100;
+          const color = MODEL_COLORS[i % MODEL_COLORS.length];
+          // Short display name: remove date suffixes from model IDs
+          const displayName = model.model_id
+            .replace(/-\d{8}$/, "")
+            .replace(/^(claude-|gpt-)/, "$1");
+
+          return (
+            <div key={model.model_id} className="group">
+              <div className="flex items-center justify-between mb-1.5">
+                <div className="flex items-center gap-2 min-w-0">
+                  <div
+                    className="w-2 h-2 rounded-full shrink-0"
+                    style={{ backgroundColor: color }}
+                  />
+                  <span className="text-xs font-medium truncate">
+                    {displayName}
+                  </span>
+                  <span className="text-[10px] text-foreground/50 shrink-0">
+                    {model.provider}
+                  </span>
+                </div>
+                <div className="flex items-center gap-3 shrink-0 text-xs">
+                  <span className="text-foreground/50">
+                    {model.request_count}{" "}
+                    {model.request_count === 1 ? "req" : "reqs"}
+                  </span>
+                  <span className="font-mono font-semibold">
+                    {formatTokenCount(model.total_tokens)}
+                  </span>
+                </div>
+              </div>
+              <div className="h-2 bg-foreground/5 rounded-full overflow-hidden">
+                <div
+                  className="h-full rounded-full transition-all duration-500"
+                  style={{
+                    width: `${Math.max(pct, 2)}%`,
+                    backgroundColor: color,
+                    opacity: 0.8,
+                  }}
+                />
+              </div>
+              <div className="flex items-center gap-3 mt-1 text-[10px] text-foreground/40">
+                <span>
+                  In: {formatTokenCount(model.prompt_tokens)}
+                </span>
+                <span>
+                  Out: {formatTokenCount(model.completion_tokens)}
+                </span>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ─── Recent Logs Table ──────────────────────────────────────────────────────
+
+function RecentLogsTable() {
+  const [limit] = useState(20);
+  const [offset, setOffset] = useState(0);
+
+  const { data: logs, isLoading } = trpc.usage.getRecentLogs.useQuery({
+    limit,
+    offset,
+  });
+
+  const setSelectedChatId = useSetAtom(selectedChatIdAtom);
+  const setActiveTab = useSetAtom(activeTabAtom);
+  const setSettingsOpen = useSetAtom(settingsModalOpenAtom);
+
+  const navigateToChat = (chatId: string) => {
+    setSelectedChatId(chatId);
+    setActiveTab("chat");
+    setSettingsOpen(false);
+  };
+
+  if (isLoading) {
+    return (
+      <div className="rounded-xl border border-border bg-card/50 p-6 shadow-sm space-y-3">
+        <Skeleton className="h-5 w-48" />
+        <Skeleton className="h-10 w-full" />
+        <Skeleton className="h-10 w-full" />
+        <Skeleton className="h-10 w-full" />
+      </div>
+    );
+  }
+
+  if (!logs || logs.length === 0) {
+    return null; // Don't show section if no logs
+  }
+
+  return (
+    <div className="rounded-xl border border-border bg-card/50 p-6 shadow-sm">
+      <div className="flex items-center justify-between mb-5">
+        <div className="flex items-center gap-2">
+          <IconList className="text-foreground/70" size={18} />
+          <h3 className="text-sm font-medium tracking-wide text-foreground/70 uppercase">
+            Recent Requests
+          </h3>
+        </div>
+        <div className="flex items-center gap-1">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-6 px-2 text-[10px]"
+            onClick={() => setOffset(Math.max(0, offset - limit))}
+            disabled={offset === 0}
+          >
+            Prev
+          </Button>
+          <span className="text-[10px] text-foreground/50 px-2">
+            {offset + 1}-{offset + logs.length}
+          </span>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-6 px-2 text-[10px]"
+            onClick={() => setOffset(offset + limit)}
+            disabled={logs.length < limit}
+          >
+            Next
+          </Button>
+        </div>
+      </div>
+
+      <div className="overflow-x-auto">
+        <table className="w-full text-xs">
+          <thead>
+            <tr className="border-b border-border/50">
+              <th className="text-left py-2 px-2 text-[10px] text-foreground/50 uppercase tracking-wider font-medium">
+                Time
+              </th>
+              <th className="text-left py-2 px-2 text-[10px] text-foreground/50 uppercase tracking-wider font-medium">
+                Provider
+              </th>
+              <th className="text-left py-2 px-2 text-[10px] text-foreground/50 uppercase tracking-wider font-medium">
+                Model
+              </th>
+              <th className="text-right py-2 px-2 text-[10px] text-foreground/50 uppercase tracking-wider font-medium">
+                Tokens
+              </th>
+              <th className="text-right py-2 px-2 text-[10px] text-foreground/50 uppercase tracking-wider font-medium">
+                <IconCoin size={12} className="inline mr-0.5" />
+                Cost
+              </th>
+              <th className="text-right py-2 px-2 text-[10px] text-foreground/50 uppercase tracking-wider font-medium">
+                <IconClock size={12} className="inline mr-0.5" />
+                Time
+              </th>
+              <th className="text-center py-2 px-2 text-[10px] text-foreground/50 uppercase tracking-wider font-medium">
+                Chat
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {logs.map((log: any) => (
+              <tr
+                key={log.id}
+                className="border-b border-border/20 hover:bg-foreground/[0.02] transition-colors"
+              >
+                <td className="py-2 px-2 text-foreground/60">
+                  {formatRelativeTime(log.created_at)}
+                </td>
+                <td className="py-2 px-2">
+                  <Badge
+                    variant="outline"
+                    className="px-1.5 py-0 h-4 text-[9px] font-normal"
+                  >
+                    {log.provider}
+                  </Badge>
+                </td>
+                <td className="py-2 px-2 font-medium truncate max-w-[160px]">
+                  {(log.model_id || "unknown")
+                    .replace(/-\d{8}$/, "")}
+                </td>
+                <td className="py-2 px-2 text-right font-mono">
+                  <span className="text-foreground/50">
+                    {formatTokenCount(log.prompt_tokens)}
+                  </span>
+                  <span className="text-foreground/30 mx-0.5">/</span>
+                  <span className="text-foreground/70">
+                    {formatTokenCount(log.completion_tokens)}
+                  </span>
+                </td>
+                <td className="py-2 px-2 text-right font-mono text-foreground/60">
+                  {formatCost(log.cost_estimate)}
+                </td>
+                <td className="py-2 px-2 text-right font-mono text-foreground/60">
+                  {formatDuration(log.request_duration_ms)}
+                </td>
+                <td className="py-2 px-2 text-center">
+                  {log.chat_id ? (
+                    <button
+                      onClick={() => navigateToChat(log.chat_id)}
+                      className="inline-flex items-center gap-0.5 text-primary/70 hover:text-primary transition-colors"
+                      title="Go to chat"
+                    >
+                      <IconExternalLink size={12} />
+                    </button>
+                  ) : (
+                    <span className="text-foreground/20">-</span>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+// ─── Helpers ────────────────────────────────────────────────────────────────
 
 function TotalCard({ label, value }: { label: string; value: number }) {
   return (

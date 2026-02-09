@@ -376,3 +376,72 @@ export interface UpdateQuickPromptInput {
   content?: string;
   order?: number;
 }
+
+// ============ USAGE LOG TYPES ============
+export interface UsageLog {
+  id: string;
+  chatId: string | null;
+  messageId: string | null;
+  provider: string;
+  modelId: string | null;
+  modelName: string | null;
+  promptTokens: number;
+  completionTokens: number;
+  reasoningTokens: number | null;
+  totalTokens: number;
+  costEstimate: number | null;
+  requestDurationMs: number | null;
+  createdAt: Date;
+}
+
+export interface CreateUsageLogInput {
+  chatId?: string;
+  messageId?: string;
+  provider: string;
+  modelId?: string;
+  modelName?: string;
+  promptTokens: number;
+  completionTokens: number;
+  reasoningTokens?: number;
+  totalTokens: number;
+  costEstimate?: number;
+  requestDurationMs?: number;
+}
+
+export interface UsageLogFilter {
+  startDate?: Date;
+  endDate?: Date;
+  provider?: string;
+  modelId?: string;
+  chatId?: string;
+}
+
+export interface DailyModelUsage {
+  date: string;
+  modelId: string;
+  modelName: string;
+  provider: string;
+  totalTokens: number;
+  promptTokens: number;
+  completionTokens: number;
+  reasoningTokens: number;
+  requestCount: number;
+  costEstimate: number;
+}
+
+export interface UsageSummary {
+  totalTokens: number;
+  totalPromptTokens: number;
+  totalCompletionTokens: number;
+  totalReasoningTokens: number;
+  totalRequests: number;
+  totalCost: number;
+  byModel: Array<{
+    modelId: string;
+    modelName: string;
+    provider: string;
+    totalTokens: number;
+    requestCount: number;
+    costEstimate: number;
+  }>;
+}

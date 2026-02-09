@@ -17,6 +17,10 @@ import {
   IconRectangleVertical,
   IconSquare,
   IconAt,
+  IconEye,
+  IconWorld,
+  IconCode,
+  IconFileSearch,
 } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
 import { ImageAttachmentItem } from "@/components/image-attachment-item";
@@ -69,7 +73,39 @@ import {
 } from "@/components/ui/tooltip";
 import { ModelIcon } from "@/components/icons/model-icons";
 import { getModelById, resolveModelForProvider } from "@s-agi/core/types/ai";
+import type { ModelDefinition } from "@s-agi/core/types/ai";
 import { trpc } from "@/lib/trpc";
+
+/** Capability pill-badge definitions for the model selector */
+const CAP_DEFS = [
+  { key: "supportsReasoning", icon: IconBrain, label: "Reasoning", fg: "text-purple-300", bg: "bg-purple-500/15" },
+  { key: "supportsImages", icon: IconEye, label: "Vision", fg: "text-blue-300", bg: "bg-blue-500/15" },
+  { key: "supportsNativeWebSearch", icon: IconWorld, label: "Web", fg: "text-emerald-300", bg: "bg-emerald-500/15" },
+  { key: "supportsServerWebSearch", icon: IconWorld, label: "Web", fg: "text-emerald-300", bg: "bg-emerald-500/15" },
+  { key: "supportsCodeInterpreter", icon: IconCode, label: "Code", fg: "text-amber-300", bg: "bg-amber-500/15" },
+  { key: "supportsFileSearch", icon: IconFileSearch, label: "Files", fg: "text-cyan-300", bg: "bg-cyan-500/15" },
+] as const;
+
+function ModelCaps({ model }: { model: Partial<ModelDefinition> }) {
+  const active = CAP_DEFS.filter((c) => (model as Record<string, unknown>)[c.key]);
+  if (active.length === 0) return null;
+  return (
+    <span className="flex flex-wrap items-center gap-1 mt-0.5">
+      {active.map(({ key, icon: Icon, label, fg, bg }) => (
+        <span
+          key={key}
+          className={cn(
+            "inline-flex items-center gap-[3px] rounded-full px-[6px] py-[1px] text-[9px] font-medium leading-tight",
+            fg, bg,
+          )}
+        >
+          <Icon size={10} strokeWidth={2.5} />
+          {label}
+        </span>
+      ))}
+    </span>
+  );
+}
 
 interface ChatInputProps {
   value: string;
@@ -117,6 +153,34 @@ export const ChatInput = memo(function ChatInput({
 
   // Get API key status to filter providers
   const { data: keyStatus } = trpc.settings.getApiKeyStatus.useQuery();
+
+  // Dynamically discover Ollama models (merged with static list)
+  const { data: ollamaData } = trpc.settings.listOllamaModels.useQuery(
+    undefined,
+    { enabled: !!keyStatus?.hasOllama, refetchInterval: 30_000, staleTime: 15_000 },
+  );
+
+  /** Ollama models: 100% dynamic, discovered from locally running ollama serve */
+  const ollamaModels = useMemo(() => {
+    if (!ollamaData?.running || !ollamaData.models.length) return [];
+    return ollamaData.models.map((m) => ({
+      id: `ollama:${m.name}`,
+      provider: "ollama" as const,
+      name: m.name,
+      description: [m.parameterSize, m.quantization].filter(Boolean).join(" · ") || "Local model",
+      contextWindow: 128000,
+      supportsImages: false,
+      supportsTools: true,
+      supportsReasoning: false,
+      modelIdForApi: m.name,
+      includedInSubscription: true,
+      _parameterSize: m.parameterSize,
+      _quantization: m.quantization,
+      _family: m.family,
+    }));
+  }, [ollamaData]);
+
+  const ollamaRunning = ollamaData?.running ?? false;
 
   // Get current model info for display
   const currentModelInfo = getModelById(selectedModel);
@@ -353,10 +417,12 @@ export const ChatInput = memo(function ChatInput({
 
   const handleModelChange = (modelId: string) => {
     setSelectedModel(modelId);
-    // Get the provider from the model definition
+    // Get the provider from the model definition (static or dynamic Ollama)
     const modelDef = getModelById(modelId);
     if (modelDef) {
       setProvider(modelDef.provider);
+    } else if (modelId.startsWith("ollama:")) {
+      setProvider("ollama");
     }
   };
 
@@ -873,7 +939,7 @@ export const ChatInput = memo(function ChatInput({
                   </SelectValue>
                 </span>
               </SelectTrigger>
-              <SelectContent className="rounded-xl shadow-xl border-border/50 min-w-[200px]">
+              <SelectContent className="rounded-xl shadow-xl border-border/50 min-w-[280px] max-h-[360px]" fadeScroll>
                 {/* ============ SUBSCRIPTIONS FIRST ============ */}
 
                 {/* ChatGPT Plus models (Subscription) */}
@@ -888,13 +954,10 @@ export const ChatInput = memo(function ChatInput({
                         </span>
                       </div>
                       {allModelsGrouped["chatgpt-plus"].map((model) => (
-                        <SelectItem
-                          key={model.id}
-                          value={model.id}
-                          className="rounded-lg"
-                        >
-                          <div className="flex items-center gap-2">
-                            <span>{model.name}</span>
+                        <SelectItem key={model.id} value={model.id} className="rounded-lg">
+                          <div className="flex flex-col w-full">
+                            <span className="truncate text-sm">{model.name}</span>
+                            <ModelCaps model={model} />
                           </div>
                         </SelectItem>
                       ))}
@@ -913,13 +976,10 @@ export const ChatInput = memo(function ChatInput({
                       </span>
                     </div>
                     {allModelsGrouped.zai.map((model) => (
-                      <SelectItem
-                        key={model.id}
-                        value={model.id}
-                        className="rounded-lg"
-                      >
-                        <div className="flex items-center gap-2">
-                          <span>{model.name}</span>
+                      <SelectItem key={model.id} value={model.id} className="rounded-lg">
+                        <div className="flex flex-col w-full">
+                          <span className="truncate text-sm">{model.name}</span>
+                          <ModelCaps model={model} />
                         </div>
                       </SelectItem>
                     ))}
@@ -938,13 +998,10 @@ export const ChatInput = memo(function ChatInput({
                       </span>
                     </div>
                     {allModelsGrouped.claude.map((model) => (
-                      <SelectItem
-                        key={model.id}
-                        value={model.id}
-                        className="rounded-lg"
-                      >
-                        <div className="flex items-center gap-2">
-                          <span>{model.name}</span>
+                      <SelectItem key={model.id} value={model.id} className="rounded-lg">
+                        <div className="flex flex-col w-full">
+                          <span className="truncate text-sm">{model.name}</span>
+                          <ModelCaps model={model} />
                         </div>
                       </SelectItem>
                     ))}
@@ -966,13 +1023,10 @@ export const ChatInput = memo(function ChatInput({
                         </span>
                       </div>
                       {allModelsGrouped.openai.map((model) => (
-                        <SelectItem
-                          key={model.id}
-                          value={model.id}
-                          className="rounded-lg"
-                        >
-                          <div className="flex items-center gap-2">
-                            <span>{model.name}</span>
+                        <SelectItem key={model.id} value={model.id} className="rounded-lg">
+                          <div className="flex flex-col w-full">
+                            <span className="truncate text-sm">{model.name}</span>
+                            <ModelCaps model={model} />
                           </div>
                         </SelectItem>
                       ))}
@@ -991,13 +1045,10 @@ export const ChatInput = memo(function ChatInput({
                       </span>
                     </div>
                     {allModelsGrouped.cerebras.map((model) => (
-                      <SelectItem
-                        key={model.id}
-                        value={model.id}
-                        className="rounded-lg"
-                      >
-                        <div className="flex items-center gap-2">
-                          <span>{model.name}</span>
+                      <SelectItem key={model.id} value={model.id} className="rounded-lg">
+                        <div className="flex flex-col w-full">
+                          <span className="truncate text-sm">{model.name}</span>
+                          <ModelCaps model={model} />
                         </div>
                       </SelectItem>
                     ))}
@@ -1016,16 +1067,53 @@ export const ChatInput = memo(function ChatInput({
                       </span>
                     </div>
                     {allModelsGrouped.groq.map((model) => (
-                      <SelectItem
-                        key={model.id}
-                        value={model.id}
-                        className="rounded-lg"
-                      >
-                        <div className="flex items-center gap-2">
-                          <span>{model.name}</span>
+                      <SelectItem key={model.id} value={model.id} className="rounded-lg">
+                        <div className="flex flex-col w-full">
+                          <span className="truncate text-sm">{model.name}</span>
+                          <ModelCaps model={model} />
                         </div>
                       </SelectItem>
                     ))}
+                  </>
+                )}
+
+                {/* Ollama models (Local) — dynamic */}
+                {keyStatus?.hasOllama && (
+                  <>
+                    <div className="text-[10px] font-bold uppercase text-muted-foreground/50 px-3 py-2 flex items-center gap-1.5">
+                      <ModelIcon provider="ollama" size={12} />
+                      Ollama
+                      {ollamaRunning ? (
+                        <span className="ml-auto text-[9px] font-medium text-emerald-500 bg-emerald-500/10 px-1.5 py-0.5 rounded">
+                          Local
+                        </span>
+                      ) : (
+                        <span className="ml-auto text-[9px] font-medium text-orange-500 bg-orange-500/10 px-1.5 py-0.5 rounded">
+                          Offline
+                        </span>
+                      )}
+                    </div>
+                    {ollamaModels.length > 0 ? (
+                      ollamaModels.map((model) => (
+                        <SelectItem key={model.id} value={model.id} className="rounded-lg">
+                          <div className="flex flex-col w-full">
+                            <div className="flex items-center gap-2">
+                              <span className="truncate text-sm">{model.name}</span>
+                              {(model as any)._parameterSize && (
+                                <span className="text-[9px] text-muted-foreground/50 ml-auto shrink-0">
+                                  {(model as any)._parameterSize}
+                                </span>
+                              )}
+                            </div>
+                            <ModelCaps model={model} />
+                          </div>
+                        </SelectItem>
+                      ))
+                    ) : (
+                      <div className="text-[10px] text-muted-foreground/50 px-3 py-2 text-center">
+                        {ollamaRunning ? "No models installed" : "Ollama is not running"}
+                      </div>
+                    )}
                   </>
                 )}
 
@@ -1034,7 +1122,8 @@ export const ChatInput = memo(function ChatInput({
                   !keyStatus?.hasZai &&
                   !keyStatus?.hasCerebras &&
                   !keyStatus?.hasChatGPTPlus &&
-                  !keyStatus?.hasClaudeCode && (
+                  !keyStatus?.hasClaudeCode &&
+                  !keyStatus?.hasOllama && (
                     <div className="text-xs text-muted-foreground px-3 py-4 text-center">
                       No API keys configured.
                       <br />

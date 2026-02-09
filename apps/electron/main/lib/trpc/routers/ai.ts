@@ -5,6 +5,7 @@ import log from "electron-log";
 import { sendToRenderer } from "../../window-manager";
 import { supabase } from "../../supabase/client";
 import { getStorageAdapter, isLocalStorageMode } from "../../storage";
+import { getUsageTracker } from "../../storage/usage-tracker";
 import { getSecureApiKeyStore } from "../../auth/api-key-store";
 import { getChatGPTAuthManager, getClaudeCodeAuthManager } from "../../auth";
 import { getCredentialManager } from "../../shared/credentials";
@@ -35,6 +36,7 @@ import type {
   ReasoningConfig,
   NativeToolsConfig,
   AIProvider,
+  Annotation,
 } from "@s-agi/core/types/ai";
 import {
   AI_MODELS,
@@ -219,6 +221,8 @@ const GROQ_MODEL_LIMITS: Record<string, { RPM: number; RPD: number; TPM: number;
   "meta-llama/llama-4-scout-17b-16e-instruct":    { RPM: 30, RPD: 1_000, TPM: 30_000, TPD: 500_000 },
   "meta-llama/llama-4-maverick-17b-128e-instruct": { RPM: 30, RPD: 1_000, TPM: 30_000, TPD: 500_000 },
   "llama-3.1-8b-instant":                 { RPM: 30,  RPD: 14_400, TPM: 6_000, TPD: 500_000 },
+  "groq/compound":                        { RPM: 30,  RPD: 1_000, TPM: 6_000, TPD: 200_000 },
+  "groq/compound-mini":                   { RPM: 30,  RPD: 1_000, TPM: 6_000, TPD: 200_000 },
 };
 const GROQ_DEFAULT_LIMITS = { RPM: 30, RPD: 1_000, TPM: 6_000, TPD: 200_000 };
 const GROQ_WARNING_THRESHOLD = 0.90;
@@ -425,6 +429,7 @@ function createContextualTools(
   userId: string,
   activeTab: string | undefined,
   context?: ToolContext,
+  provider?: string,
 ): {
   tools: FunctionToolParam[];
   executors: Map<string, (args: unknown) => Promise<unknown>>;
@@ -475,9 +480,13 @@ function createContextualTools(
     }
   }
 
-  // Image tools - always available (lightweight, only 2 tools)
-  for (const [name, tool] of Object.entries(IMAGE_TOOLS)) {
-    addTool(name, tool, context);
+  // Image tools - only for providers with OpenAI Images API access
+  // Cerebras, Groq, Ollama, and Z.AI models hallucinate calls to generate_image
+  const canUseImageTools = !provider || !["cerebras", "groq", "ollama", "zai"].includes(provider);
+  if (canUseImageTools) {
+    for (const [name, tool] of Object.entries(IMAGE_TOOLS)) {
+      addTool(name, tool, context);
+    }
   }
 
   // Chart tools - available on excel tab or as creation tool
@@ -647,6 +656,51 @@ function buildZaiWebSearchAnnotations(results: ZaiWebSearchResult[]) {
       endIndex: 0,
     }))
     .filter((annotation) => annotation.url);
+}
+
+/**
+ * Extract web search results from Groq compound model responses.
+ * Groq compound models perform web search server-side and return results in:
+ * - finalCompletion.choices[0].message.executed_tools[].search_results
+ * - lastChunk.choices[0].message.executed_tools[].search_results (streaming fallback)
+ * @see https://console.groq.com/docs/web-search
+ */
+type GroqSearchResult = { title: string; url: string; content?: string; score?: number };
+
+function getGroqCompoundSearchResults(
+  finalCompletion: any,
+  lastChunk: any,
+): GroqSearchResult[] {
+  // Try finalCompletion first, then lastChunk as fallback
+  const message =
+    finalCompletion?.choices?.[0]?.message ||
+    lastChunk?.choices?.[0]?.message ||
+    lastChunk?.choices?.[0]?.delta;
+
+  if (!message) return [];
+
+  // Groq compound puts search results in executed_tools array
+  const executedTools = message.executed_tools;
+  if (!Array.isArray(executedTools)) return [];
+
+  const allResults: GroqSearchResult[] = [];
+  for (const tool of executedTools) {
+    const searchResults = tool.search_results?.results || tool.search_results;
+    if (Array.isArray(searchResults)) {
+      for (const result of searchResults) {
+        if (result.url) {
+          allResults.push({
+            title: result.title || "",
+            url: result.url,
+            content: result.content,
+            score: result.score,
+          });
+        }
+      }
+    }
+  }
+
+  return allResults;
 }
 
 /**
@@ -953,7 +1007,7 @@ export const aiRouter = router({
     .query(({ input }) => {
       const chatGPTAuth = getChatGPTAuthManager();
       return {
-        availableProviders: ["openai", "chatgpt-plus", "zai", "claude", "cerebras", "groq"] as const,
+        availableProviders: ["openai", "chatgpt-plus", "zai", "claude", "cerebras", "groq", "ollama"] as const,
         availableModels: AI_MODELS,
         availableTools: getAllToolNames({
           modelId: input?.modelId,
@@ -980,7 +1034,7 @@ export const aiRouter = router({
         prompt: z.string(),
         mode: z.enum(["plan", "agent"]).default("agent"),
         provider: z
-          .enum(["openai", "chatgpt-plus", "zai", "claude", "cerebras", "groq"])
+          .enum(["openai", "chatgpt-plus", "zai", "claude", "cerebras", "groq", "ollama"])
           .default("openai"),
         apiKey: z.string().optional(), // Optional for chatgpt-plus provider
         model: z.string().optional(),
@@ -1194,12 +1248,12 @@ export const aiRouter = router({
             pdfPages: pdfContext?.pages,
           };
 
-          if (input.apiKey && shouldUseSpecializedAgent(input.prompt, agentContext)) {
+          if ((input.apiKey || provider === "ollama") && shouldUseSpecializedAgent(input.prompt, agentContext)) {
             const selection = selectAgent(input.prompt, agentContext);
             log.info(`[AI] Routing to specialized agent: ${selection.agent} - ${selection.reason}`);
 
             try {
-              const model = createModel(input.apiKey, modelId);
+              const model = createModel(input.apiKey || "", modelId, provider as AIProvider);
               const result = await executeSpecializedAgent(
                 input.prompt,
                 agentContext,
@@ -1251,7 +1305,7 @@ export const aiRouter = router({
             );
 
           log.info(
-            `[AI] Starting ${provider === "zai" || provider === "cerebras" || provider === "groq" ? "Chat Completions" : "Responses API"} agent loop with ${modelId} (provider: ${provider})`,
+            `[AI] Starting ${provider === "zai" || provider === "cerebras" || provider === "groq" || provider === "ollama" ? "Chat Completions" : "Responses API"} agent loop with ${modelId} (provider: ${provider})`,
           );
           log.info(`[AI] Reasoning config:`, input.reasoning);
           if (hasImages) {
@@ -1501,6 +1555,17 @@ export const aiRouter = router({
             input.apiKey = groqApiKey;
 
             log.info(`[AI] Using Groq provider (key: ${groqApiKey.substring(0, 8)}...${groqApiKey.substring(groqApiKey.length - 4)}, length: ${groqApiKey.length})`);
+          } else if (provider === "ollama") {
+            // Ollama - Local AI via OpenAI-compatible endpoint
+            client = getOrCreateClient({
+              apiKey: "ollama",
+              baseURL: "http://127.0.0.1:11434/v1",
+              maxRetries: 0,
+            });
+
+            input.apiKey = "ollama";
+
+            log.info(`[AI] Using Ollama local provider`);
           } else if (provider === "claude") {
             // Claude uses AI SDK streaming path below (no OpenAI client needed)
             client = null;
@@ -1528,7 +1593,8 @@ export const aiRouter = router({
               provider === "chatgpt-plus" ||
               provider === "zai" ||
               provider === "cerebras" ||
-              provider === "groq") &&
+              provider === "groq" ||
+              provider === "ollama") &&
             !openaiClient
           ) {
             throw new Error("OpenAI client not initialized");
@@ -1564,6 +1630,7 @@ export const aiRouter = router({
                     ctx.userId,
                     input.activeTab,
                     toolContext,
+                    provider,
                   );
 
           if (hasImages) {
@@ -2040,6 +2107,16 @@ CITATION REQUIREMENTS (MANDATORY):
           };
 
           log.info(`[AI] Web search decision:`, { ...webSearchDecision, shouldForceWebSearch });
+
+          // For models without web search, add a system prompt note so they know
+          // they can't search the web and respond helpfully instead of hallucinating
+          const modelCanDoWebSearch =
+            modelDef?.supportsNativeWebSearch || modelDef?.supportsServerWebSearch;
+          if (webSearchDecision.enabled && !modelCanDoWebSearch) {
+            systemPrompt += `\n\nIMPORTANT: You do NOT have web search capability. If the user asks you to search the web, inform them that this model (${modelDef?.name || modelId}) does not support web search. Suggest they switch to a model with web search (e.g., Groq Compound, OpenAI, or Z.AI models). DO NOT hallucinate tool calls to generate_image, edit_image, or any other tool as a substitute for web search. Simply respond with your existing knowledge and clearly note that you cannot access real-time information.`;
+            log.info(`[AI] Added no-web-search system prompt for ${modelId}`);
+          }
+
           log.info(
             `[AI] Building native tools with config:`,
             JSON.stringify(nativeToolsConfig, null, 2),
@@ -2154,10 +2231,10 @@ CITATION REQUIREMENTS (MANDATORY):
             input.images,
           );
 
-          // For Chat Completions providers (Z.AI, Cerebras, Groq), check if model supports images
+          // For Chat Completions providers (Z.AI, Cerebras, Groq, Ollama), check if model supports images
           const chatCompletionsSupportsImages = modelDef?.supportsImages ?? true;
           const chatMessages =
-            provider === "zai" || provider === "cerebras" || provider === "groq"
+            provider === "zai" || provider === "cerebras" || provider === "groq" || provider === "ollama"
               ? toChatMessages(
                   systemPrompt,
                   input.messages || [],
@@ -2224,9 +2301,28 @@ CITATION REQUIREMENTS (MANDATORY):
             // This forces the model to use web_search instead of spreadsheet/doc tools
             const isWebSearchMode =
               provider === "zai" && webSearchDecision.enabled;
-            const chatFunctionTools = isWebSearchMode
+            // Groq compound models handle web search server-side — NO tools should be sent
+            const isGroqCompound = modelDef?.supportsServerWebSearch === true;
+            
+            // Prevent hallucination: when user wants web search but model can't do it,
+            // remove IMAGE_TOOLS (generate_image, edit_image) to prevent the model from
+            // hallucinating calls to them (it picks the "closest" tool when web_search is missing)
+            const modelCanSearch = modelDef?.supportsNativeWebSearch || modelDef?.supportsServerWebSearch;
+            const searchIntentNoSearch = webSearchDecision.enabled && !modelCanSearch;
+            
+            let filteredFunctionTools = functionTools;
+            if (searchIntentNoSearch) {
+              filteredFunctionTools = functionTools.filter(
+                (t) => t.name !== "generate_image" && t.name !== "edit_image"
+              );
+              log.info(
+                `[AI] Search intent detected but model ${modelId} has no web search — stripped IMAGE_TOOLS to prevent hallucination (${functionTools.length} → ${filteredFunctionTools.length} tools)`,
+              );
+            }
+            
+            const chatFunctionTools = isWebSearchMode || isGroqCompound
               ? []
-              : toChatCompletionTools(functionTools);
+              : toChatCompletionTools(filteredFunctionTools);
 
             // For Z.AI, we need to pass native tools (like web_search) as-is
             // The Chat Completions API accepts both function tools AND native tools
@@ -2237,7 +2333,7 @@ CITATION REQUIREMENTS (MANDATORY):
             ] as OpenAI.ChatCompletionTool[];
 
             log.info(
-              `[AI] Chat tools mode: isWebSearchMode=${isWebSearchMode}, functionTools=${chatFunctionTools.length}, nativeTools=${zaiNativeTools.length}, total=${chatTools.length}`,
+              `[AI] Chat tools mode: isWebSearchMode=${isWebSearchMode}, isGroqCompound=${isGroqCompound}, functionTools=${chatFunctionTools.length}, nativeTools=${zaiNativeTools.length}, total=${chatTools.length}`,
             );
 
             while (currentStepNumber < MAX_AGENT_STEPS) {
@@ -2484,7 +2580,10 @@ CITATION REQUIREMENTS (MANDATORY):
                   });
                 }
 
-                if (delta.tool_calls) {
+                // Groq compound models handle tools server-side (web_search, code_execution, etc.)
+                // Their streaming responses may leak internal tool_calls in deltas — ignore them
+                // to prevent our agent loop from trying to execute/return them to the API
+                if (delta.tool_calls && !isGroqCompound) {
                   for (const toolCall of delta.tool_calls) {
                     const callId =
                       toolCall.id ||
@@ -2555,6 +2654,30 @@ CITATION REQUIREMENTS (MANDATORY):
                     )
                   : [];
 
+              // Extract Groq compound web search results from executed_tools
+              // @see https://console.groq.com/docs/web-search
+              const groqSearchResults = getGroqCompoundSearchResults(
+                finalCompletion,
+                lastChunk,
+              );
+
+              // Groq compound models return reasoning in message.reasoning (not deltas)
+              // If we didn't capture reasoning from deltas, extract it from the final message
+              if (isGroqCompound && fullReasoningSummary.length === 0) {
+                const compoundMsg =
+                  finalCompletion?.choices?.[0]?.message ||
+                  lastChunk?.choices?.[0]?.message;
+                const compoundReasoning = compoundMsg?.reasoning;
+                if (typeof compoundReasoning === "string" && compoundReasoning.length > 0) {
+                  fullReasoningSummary = compoundReasoning;
+                  emit({
+                    type: "reasoning-summary-delta",
+                    delta: compoundReasoning,
+                    summaryIndex: 0,
+                  });
+                }
+              }
+
               if (fullReasoningSummary.length > 0) {
                 emit({
                   type: "reasoning-summary-done",
@@ -2564,6 +2687,7 @@ CITATION REQUIREMENTS (MANDATORY):
               }
 
               if (toolCallMap.size === 0) {
+                // Z.AI web search annotations
                 if (provider === "zai" && zaiWebSearchResults.length > 0) {
                   const searchId = `zai-web-${currentStepNumber}-${Date.now()}`;
                   const urls = zaiWebSearchResults
@@ -2585,6 +2709,43 @@ CITATION REQUIREMENTS (MANDATORY):
                     buildZaiWebSearchAnnotations(zaiWebSearchResults);
                   if (annotations.length > 0) {
                     emit({ type: "annotations", annotations });
+                  }
+                }
+
+                // Groq compound web search annotations
+                if (isGroqCompound && groqSearchResults.length > 0) {
+                  const searchId = `groq-web-${currentStepNumber}-${Date.now()}`;
+                  const urls = groqSearchResults
+                    .map((r) => r.url)
+                    .filter(Boolean);
+                  emit({
+                    type: "web-search-start",
+                    searchId,
+                    query: input.prompt,
+                  });
+                  emit({
+                    type: "web-search-done",
+                    searchId,
+                    query: input.prompt,
+                    domains: getDomainsFromUrls(urls),
+                    sources: groqSearchResults.map((r) => ({
+                      url: r.url,
+                      title: r.title,
+                    })),
+                  });
+
+                  // Build URL citation annotations from search results
+                  const groqAnnotations: Annotation[] = groqSearchResults.map(
+                    (r, i) => ({
+                      type: "url_citation" as const,
+                      url: r.url,
+                      title: r.title,
+                      startIndex: i,
+                      endIndex: i + 1,
+                    }),
+                  );
+                  if (groqAnnotations.length > 0) {
+                    emit({ type: "annotations", annotations: groqAnnotations });
                   }
                 }
 
@@ -2658,6 +2819,23 @@ CITATION REQUIREMENTS (MANDATORY):
                         role: "tool",
                         tool_call_id: toolCall.id,
                         content: JSON.stringify(result),
+                      } as OpenAI.ChatCompletionMessageParam);
+                    } else {
+                      // No executor found — model hallucinated a tool call
+                      // Push an error result to prevent malformed conversation
+                      log.warn(`[AI] No executor for tool "${toolCall.name}" — model hallucinated this tool call`);
+                      const notAvailableResult = { error: `Tool "${toolCall.name}" is not available. Do NOT call this tool again.` };
+                      emit({
+                        type: "tool-result",
+                        toolCallId: toolCall.id,
+                        toolName: toolCall.name,
+                        result: notAvailableResult,
+                        success: false,
+                      });
+                      chatMessages?.push({
+                        role: "tool",
+                        tool_call_id: toolCall.id,
+                        content: JSON.stringify(notAvailableResult),
                       } as OpenAI.ChatCompletionMessageParam);
                     }
                   } catch (err) {
@@ -2826,10 +3004,27 @@ CITATION REQUIREMENTS (MANDATORY):
               },
               totalSteps: currentStepNumber,
             });
+
+            try {
+              const tracker = getUsageTracker();
+              tracker.logRequest({
+                chatId: input.chatId,
+                provider: provider,
+                modelId: modelId,
+                modelName: modelId,
+                promptTokens: usageTotals.promptTokens,
+                completionTokens: usageTotals.completionTokens,
+                reasoningTokens: usageTotals.reasoningTokens || undefined,
+                totalTokens: usageTotals.promptTokens + usageTotals.completionTokens,
+                requestDurationMs: Date.now() - startTime,
+              });
+            } catch (logErr) {
+              log.warn("[AI] Failed to log chat completions usage:", logErr);
+            }
           };
 
-          if (provider === "zai" || provider === "cerebras" || provider === "groq") {
-            // Z.AI, Cerebras, and Groq use Chat Completions API (OpenAI-compatible)
+          if (provider === "zai" || provider === "cerebras" || provider === "groq" || provider === "ollama") {
+            // Z.AI, Cerebras, Groq, and Ollama use Chat Completions API (OpenAI-compatible)
             // They don't support OpenAI's Responses API
             await runChatCompletionsAgentLoop();
             return;
@@ -3570,6 +3765,23 @@ CITATION REQUIREMENTS (MANDATORY):
             responseId: currentResponseId ?? undefined,
           });
 
+          try {
+            const tracker = getUsageTracker();
+            tracker.logRequest({
+              chatId: input.chatId,
+              provider: provider,
+              modelId: modelId,
+              modelName: modelId,
+              promptTokens: usageTotals.promptTokens,
+              completionTokens: usageTotals.completionTokens,
+              reasoningTokens: usageTotals.reasoningTokens || undefined,
+              totalTokens: usageTotals.promptTokens + usageTotals.completionTokens,
+              requestDurationMs: Date.now() - startTime,
+            });
+          } catch (logErr) {
+            log.warn("[AI] Failed to log responses API usage:", logErr);
+          }
+
           log.info(
             `[AI] Agent loop finished in ${Date.now() - startTime}ms, totalSteps=${currentStepNumber}, responseId=${currentResponseId ?? "none"}`,
           );
@@ -3751,7 +3963,7 @@ CITATION REQUIREMENTS (MANDATORY):
     .input(
       z.object({
         prompt: z.string(),
-        provider: z.enum(["openai", "anthropic", "zai", "chatgpt-plus", "claude", "cerebras", "groq"]).optional(),
+        provider: z.enum(["openai", "anthropic", "zai", "chatgpt-plus", "claude", "cerebras", "groq", "ollama"]).optional(),
         apiKey: z.string().optional(),
         model: z.string().optional(),
       }),

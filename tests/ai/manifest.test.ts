@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   DEFAULT_MODELS,
   DEFAULT_TOOL_APPROVAL_CONFIG,
+  getModelById,
   getToolsRequiringApproval,
   resolveModelForProvider,
   resolveModelIdForApi,
@@ -31,5 +32,36 @@ describe("AI manifest helpers", () => {
     expect(tools.has("delete_row")).toBe(true);
     expect(tools.has("delete_column")).toBe(true);
     expect(tools.has("clear_range")).toBe(true);
+  });
+
+  // Dynamic Ollama model resolution
+  test("resolveModelForProvider creates dynamic Ollama model", () => {
+    const model = resolveModelForProvider("ollama", "ollama:llama3.1");
+    expect(model.id).toBe("ollama:llama3.1");
+    expect(model.provider).toBe("ollama");
+    expect(model.name).toBe("llama3.1");
+    expect(model.modelIdForApi).toBe("llama3.1");
+    expect(model.includedInSubscription).toBe(true);
+  });
+
+  test("resolveModelForProvider handles ollama with no modelId", () => {
+    const model = resolveModelForProvider("ollama");
+    expect(model.provider).toBe("ollama");
+    expect(model.name).toBe("Ollama");
+    expect(model.id).toBe("");
+  });
+
+  test("getModelById returns dynamic Ollama model definition", () => {
+    const model = getModelById("ollama:my-custom-model");
+    expect(model).toBeDefined();
+    expect(model!.id).toBe("ollama:my-custom-model");
+    expect(model!.provider).toBe("ollama");
+    expect(model!.name).toBe("my-custom-model");
+    expect(model!.modelIdForApi).toBe("my-custom-model");
+  });
+
+  test("resolveModelIdForApi strips ollama: prefix for dynamic models", () => {
+    expect(resolveModelIdForApi("ollama:phi3")).toBe("phi3");
+    expect(resolveModelIdForApi("ollama:deepseek-r1:7b")).toBe("deepseek-r1:7b");
   });
 });

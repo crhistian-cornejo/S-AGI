@@ -45,6 +45,14 @@ const CHATGPT_CONFIG = {
 }
 
 /**
+ * Ollama local AI configuration (OpenAI-compatible)
+ * @see https://ollama.com/blog/openai-compatibility
+ */
+const OLLAMA_CONFIG = {
+    baseURL: 'http://127.0.0.1:11434/v1'
+}
+
+/**
  * Create an OpenAI provider instance with standard API key
  */
 function createStandardOpenAI() {
@@ -307,6 +315,32 @@ function createGroqProvider() {
 }
 
 /**
+ * Create Ollama provider using OpenAI-compatible endpoint
+ * Ollama runs locally, no API key required
+ * @see https://ollama.com/blog/openai-compatibility
+ *
+ * Users must have Ollama installed and running (`ollama serve`)
+ * Available models depend on what the user has pulled locally
+ */
+function createOllamaProvider() {
+    return createOpenAI({
+        baseURL: OLLAMA_CONFIG.baseURL,
+        apiKey: 'ollama',
+        fetch: async (url: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+            const headers = new Headers(init?.headers)
+            headers.delete('authorization')
+
+            log.debug(`[AI] Ollama request to ${url}`)
+
+            return fetch(url, {
+                ...init,
+                headers
+            })
+        }
+    })
+}
+
+/**
  * S-AGI Provider Registry
  *
  * Provides access to all supported AI providers:
@@ -326,7 +360,8 @@ export function getSagiProviderRegistry() {
             zai: createZaiProvider(),
             claude: createClaudeProvider(),
             cerebras: createCerebrasProvider(),
-            groq: createGroqProvider()
+            groq: createGroqProvider(),
+            ollama: createOllamaProvider()
         })
     }
     return registryInstance
@@ -363,6 +398,12 @@ export function getLanguageModel(provider: AIProvider, modelId: string) {
         return groq(apiModelId)
     }
 
+    // For Ollama, use the provider directly
+    if (provider === 'ollama') {
+        const ollama = createOllamaProvider()
+        return ollama(apiModelId)
+    }
+
     // For other providers, use the registry
     return registry.languageModel(`${provider}:${apiModelId}`)
 }
@@ -387,6 +428,8 @@ export function isProviderAvailable(provider: AIProvider): boolean {
             return !!getCerebrasAuthManager().getApiKey()
         case 'groq':
             return !!getGroqAuthManager().getApiKey()
+        case 'ollama':
+            return true // Always available locally, runtime errors if not running
         default:
             return false
     }
@@ -443,6 +486,12 @@ export function getProviderStatus(provider: AIProvider): {
             return {
                 available,
                 message: available ? undefined : 'Add your Groq API key in Settings'
+            }
+        }
+        case 'ollama': {
+            return {
+                available: true,
+                message: 'Local AI via Ollama (ensure ollama serve is running)'
             }
         }
         default:
