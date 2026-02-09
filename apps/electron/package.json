@@ -1,6 +1,6 @@
 {
   "name": "@s-agi/electron",
-  "version": "0.2.5",
+  "version": "0.2.6",
   "description": "S-AGI Electron desktop application",
   "private": true,
   "type": "module",
