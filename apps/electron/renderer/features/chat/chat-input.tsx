@@ -950,6 +950,31 @@ export const ChatInput = memo(function ChatInput({
                   </>
                 )}
 
+                {/* Cerebras models - only show if API key is configured */}
+                {keyStatus?.hasCerebras && allModelsGrouped.cerebras?.length > 0 && (
+                  <>
+                    <div className="h-px bg-border/40 my-1.5 mx-2" />
+                    <div className="text-[10px] font-bold uppercase text-muted-foreground/50 px-3 py-2 flex items-center gap-1.5">
+                      <ModelIcon provider="cerebras" size={12} />
+                      Cerebras
+                      <span className="ml-auto text-[9px] font-medium text-green-500 bg-green-500/10 px-1.5 py-0.5 rounded">
+                        Pay per use
+                      </span>
+                    </div>
+                    {allModelsGrouped.cerebras.map((model) => (
+                      <SelectItem
+                        key={model.id}
+                        value={model.id}
+                        className="rounded-lg"
+                      >
+                        <div className="flex items-center gap-2">
+                          <span>{model.name}</span>
+                        </div>
+                      </SelectItem>
+                    ))}
+                  </>
+                )}
+
                 {/* Claude Pro/Max models (via Claude Code OAuth) */}
                 {keyStatus?.hasClaudeCode && allModelsGrouped.claude?.length > 0 && (
                   <>
@@ -978,6 +1003,7 @@ export const ChatInput = memo(function ChatInput({
                 {/* Show message if no providers configured */}
                 {!keyStatus?.hasOpenAI &&
                   !keyStatus?.hasZai &&
+                  !keyStatus?.hasCerebras &&
                   !keyStatus?.hasChatGPTPlus &&
                   !keyStatus?.hasClaudeCode && (
                     <div className="text-xs text-muted-foreground px-3 py-4 text-center">

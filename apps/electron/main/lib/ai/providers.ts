@@ -7,8 +7,17 @@ import { getChatGPTAuthManager } from '../auth/chatgpt-manager'
 import { getClaudeCodeAuthManager } from '../auth/claude-code-manager'
 import { getZaiAuthManager } from '../auth/zai-manager'
 import { getSecureApiKeyStore } from '../auth/api-key-store'
+import { getCerebrasAuthManager } from '../auth/cerebras-manager'
 import { resolveModelIdForApi } from '@s-agi/core/types/ai'
 import type { AIProvider } from '@s-agi/core/types/ai'
+
+/**
+ * Cerebras API configuration (OpenAI-compatible)
+ * @see https://inference-docs.cerebras.ai
+ */
+const CEREBRAS_CONFIG = {
+    baseURL: 'https://api.cerebras.ai/v1'
+}
 
 /**
  * Z.AI API configuration (OpenAI-compatible)
@@ -211,12 +220,51 @@ function createZaiFetch(manager: ReturnType<typeof getZaiAuthManager>) {
 }
 
 /**
+ * Create Cerebras provider with OpenAI-compatible endpoint
+ * @see https://inference-docs.cerebras.ai
+ *
+ * Available models:
+ * - gpt-oss-120b: Reasoning model with configurable effort
+ * - qwen-3-235b-a22b-instruct-2507: Multilingual instruction model (non-thinking)
+ *
+ * Reasoning params (passed in Chat Completions):
+ * - reasoning_format: 'parsed' | 'raw' | 'hidden' | 'none'
+ * - reasoning_effort: 'low' | 'medium' | 'high' (gpt-oss-120b only)
+ */
+function createCerebrasProvider() {
+    const cerebrasManager = getCerebrasAuthManager()
+
+    return createOpenAI({
+        baseURL: CEREBRAS_CONFIG.baseURL,
+        apiKey: 'dummy', // Will be overridden by fetch
+        fetch: async (url: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+            const apiKey = cerebrasManager.getApiKey()
+
+            if (!apiKey) {
+                throw new Error('Cerebras API key not configured. Please add your API key in Settings.')
+            }
+
+            const headers = new Headers(init?.headers)
+            headers.set('Authorization', `Bearer ${apiKey}`)
+
+            log.debug(`[AI] Cerebras request to ${url}, key: ${sanitizeToken(apiKey)}`)
+
+            return fetch(url, {
+                ...init,
+                headers
+            })
+        }
+    })
+}
+
+/**
  * S-AGI Provider Registry
  *
  * Provides access to all supported AI providers:
  * - openai: Standard OpenAI API (requires API key)
  * - chatgpt-plus: ChatGPT Plus/Pro via Codex OAuth (subscription)
  * - zai: Z.AI GLM models (OpenAI-compatible)
+ * - cerebras: Cerebras inference (OpenAI-compatible, fastest inference)
  */
 let registryInstance: ReturnType<typeof createProviderRegistry> | null = null
 
@@ -226,7 +274,8 @@ export function getSagiProviderRegistry() {
             openai: createStandardOpenAI(),
             'chatgpt-plus': createChatGPTPlusProvider(),
             zai: createZaiProvider(),
-            claude: createClaudeProvider()
+            claude: createClaudeProvider(),
+            cerebras: createCerebrasProvider()
         })
     }
     return registryInstance
@@ -251,6 +300,12 @@ export function getLanguageModel(provider: AIProvider, modelId: string) {
         return claude(apiModelId)
     }
 
+    // For Cerebras, use the provider directly
+    if (provider === 'cerebras') {
+        const cerebras = createCerebrasProvider()
+        return cerebras(apiModelId)
+    }
+
     // For other providers, use the registry
     return registry.languageModel(`${provider}:${apiModelId}`)
 }
@@ -271,6 +326,8 @@ export function isProviderAvailable(provider: AIProvider): boolean {
         case 'claude':
             // Claude supports OAuth (via Claude Agent SDK) or API key
             return getClaudeCodeAuthManager().isConnected() || getSecureApiKeyStore().hasAnthropicKey()
+        case 'cerebras':
+            return !!getCerebrasAuthManager().getApiKey()
         default:
             return false
     }
@@ -313,6 +370,13 @@ export function getProviderStatus(provider: AIProvider): {
             return {
                 available,
                 message: available ? undefined : 'Connect Claude Code or add Anthropic API key in Settings'
+            }
+        }
+        case 'cerebras': {
+            const available = isProviderAvailable('cerebras')
+            return {
+                available,
+                message: available ? undefined : 'Add your Cerebras API key in Settings'
             }
         }
         default:

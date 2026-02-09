@@ -28,7 +28,7 @@ import { getFileManager } from "./lib/file-manager/file-manager";
 import { lockSensitiveNow } from "./lib/security/sensitive-lock";
 import { getPreferencesStore } from "./lib/preferences-store";
 import { startAIServer, stopAIServer, waitForAIServerReady } from "./lib/ai/blocknote-server";
-import { initAutoUpdater } from "./lib/auto-updater";
+import { initAutoUpdater, checkForUpdates } from "./lib/auto-updater";
 import log from "electron-log";
 
 const appDisplayName = "S-AGI";
@@ -513,6 +513,11 @@ function updateApplicationMenu() {
         {
           label: "About S-AGI",
           click: () => sendMenuAction("show-about"),
+        },
+        { type: "separator" } as const,
+        {
+          label: "Check for Updates...",
+          click: () => void checkForUpdates(),
         },
         { type: "separator" } as const,
         {

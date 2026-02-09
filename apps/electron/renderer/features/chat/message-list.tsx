@@ -20,6 +20,8 @@ import {
   selectedModelAtom,
   selectedArtifactAtom,
   artifactPanelOpenAtom,
+  cerebrasUsageAtom,
+  CEREBRAS_DAILY_LIMIT,
 } from "@/lib/atoms";
 import { getModelById } from "@s-agi/core/types/ai";
 import { ModelIcon } from "@/components/icons/model-icons";
@@ -110,6 +112,9 @@ const MODEL_PRICING: Record<string, { input: number; output: number }> = {
   "GLM-4.7": { input: 0.6, output: 2.2 },
   "GLM-4.7-FlashX": { input: 0.07, output: 0.4 },
   "GLM-4.7-Flash": { input: 0, output: 0 },
+  // Cerebras (free tier - 1M tokens/day)
+  "gpt-oss-120b": { input: 0, output: 0 },
+  "qwen-3-235b-a22b-instruct-2507": { input: 0, output: 0 },
 };
 
 /** Calculate cost based on tokens and model. Reasoning tokens are billed as output. */
@@ -133,9 +138,15 @@ function calculateCost(
   return inputCost + outputCost;
 }
 
+/** Providers that use a free tier (no per-token billing) */
+const FREE_TIER_PROVIDERS = new Set(["cerebras"]);
+
 /** Format cost as currency string */
-function formatCost(cost: number): string {
-  if (cost === 0) return "Free";
+function formatCost(cost: number, provider?: string): string {
+  if (cost === 0) {
+    if (provider && FREE_TIER_PROVIDERS.has(provider)) return "Free Tier";
+    return "Free";
+  }
   if (cost < 0.001) return "<$0.001";
   if (cost < 0.01) return `$${cost.toFixed(4)}`;
   return `$${cost.toFixed(3)}`;
@@ -879,6 +890,7 @@ const MessageItem = memo(function MessageItem({
   /** Prefer stored model so cost does not change when user switches model. */
   const modelIdForCost =
     message.model_id ?? message.metadata?.model_id ?? selectedModel;
+  const cerebrasUsage = useAtomValue(cerebrasUsageAtom);
   const cost = calculateCost(
     modelIdForCost,
     inputTokens,
@@ -1213,9 +1225,35 @@ const MessageItem = memo(function MessageItem({
                     <div className="flex justify-between gap-4 pt-1 border-t border-border/50">
                       <span className="text-muted-foreground">Cost:</span>
                       <span className="font-mono text-foreground">
-                        {formatCost(cost)}
+                        {formatCost(cost, modelProvider)}
                       </span>
                     </div>
+                    {FREE_TIER_PROVIDERS.has(modelProvider) && (() => {
+                      const today = new Date().toISOString().split("T")[0];
+                      const used = cerebrasUsage.date === today ? cerebrasUsage.tokensUsed : 0;
+                      const pct = Math.min(Math.round((used / CEREBRAS_DAILY_LIMIT) * 100), 100);
+                      const remaining = Math.max(0, CEREBRAS_DAILY_LIMIT - used);
+                      const barColor = pct >= 90 ? "bg-red-500" : pct >= 70 ? "bg-yellow-500" : "bg-emerald-500";
+                      return (
+                        <div className="space-y-1 pt-1 border-t border-border/50">
+                          <div className="flex justify-between gap-4">
+                            <span className="text-muted-foreground text-[10px]">Daily:</span>
+                            <span className="font-mono text-[10px] text-muted-foreground">
+                              {pct}% · {(remaining / 1000).toFixed(0)}K left
+                            </span>
+                          </div>
+                          <div className="h-1 w-full bg-muted rounded-full overflow-hidden">
+                            <div
+                              className={`h-full ${barColor} rounded-full transition-all`}
+                              style={{ width: `${pct}%` }}
+                            />
+                          </div>
+                          <div className="text-[9px] text-muted-foreground/70 text-center">
+                            {used.toLocaleString()} / 1M tokens today
+                          </div>
+                        </div>
+                      );
+                    })()}
                     <div className="flex justify-between items-center gap-4 pt-1 border-t border-border/50">
                       <span className="text-muted-foreground">Usage:</span>
                       <UsageBadge />

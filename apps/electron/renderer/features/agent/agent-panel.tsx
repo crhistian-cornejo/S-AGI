@@ -599,6 +599,7 @@ const ModelSelector = memo(function ModelSelector({
       openai: getModelsByProvider("openai"),
       "chatgpt-plus": getModelsByProvider("chatgpt-plus"),
       zai: getModelsByProvider("zai"),
+      cerebras: getModelsByProvider("cerebras"),
       claude: getModelsByProvider("claude"),
     }),
     [],
@@ -688,6 +689,26 @@ const ModelSelector = memo(function ModelSelector({
           </>
         )}
 
+        {/* Cerebras models */}
+        {keyStatus?.hasCerebras && modelGroups.cerebras?.length > 0 && (
+          <>
+            <div className="h-px bg-border/40 my-1 mx-2" />
+            <div className="text-[9px] font-bold uppercase text-muted-foreground/50 px-2.5 py-1.5 flex items-center gap-1.5">
+              <ModelIcon provider="cerebras" size={10} />
+              Cerebras
+            </div>
+            {modelGroups.cerebras.map((model) => (
+              <SelectItem
+                key={model.id}
+                value={model.id}
+                className="rounded-lg text-xs"
+              >
+                {model.name}
+              </SelectItem>
+            ))}
+          </>
+        )}
+
         {/* Claude models */}
         {keyStatus?.hasClaudeCode && modelGroups.claude?.length > 0 && (
           <>
@@ -711,6 +732,7 @@ const ModelSelector = memo(function ModelSelector({
         {/* No providers configured */}
         {!keyStatus?.hasOpenAI &&
           !keyStatus?.hasZai &&
+          !keyStatus?.hasCerebras &&
           !keyStatus?.hasChatGPTPlus &&
           !keyStatus?.hasClaudeCode && (
             <div className="text-xs text-muted-foreground px-3 py-3 text-center">

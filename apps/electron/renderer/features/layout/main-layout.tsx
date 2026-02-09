@@ -75,6 +75,7 @@ import {
 } from "@/features/univer/excel-exchange";
 import { toast } from "sonner";
 import { useCacheMaintenance } from "@/hooks/use-cache-maintenance";
+import { useUpdateListener } from "@/hooks/use-update-listener";
 import { VersionPreviewBanner } from "@/components/version-preview-banner";
 
 // Lazy load heavy Univer components to improve initial load time
@@ -272,6 +273,9 @@ export function MainLayout() {
 
   // Run cache maintenance on app start and periodically
   useCacheMaintenance();
+
+  // Global auto-update event listener
+  useUpdateListener();
 
   // Save Excel state when switching tabs
   useEffect(() => {

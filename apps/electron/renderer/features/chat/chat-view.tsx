@@ -38,6 +38,7 @@ import {
   streamingCodeInterpreterExecsAtom,
   imageEditDialogAtom,
   pendingQuickPromptMessageAtom,
+  cerebrasUsageAtom,
   chatSoundsEnabledAtom,
   zenModeAtom,
   type WebSearchInfo,
@@ -141,7 +142,8 @@ export function ChatView() {
   // Settings state
   const setSelectedArtifact = useSetAtom(selectedArtifactAtom);
   const setArtifactPanelOpen = useSetAtom(artifactPanelOpenAtom);
-  const setActiveTab = useSetAtom(activeTabAtom);
+  const [activeTab, setActiveTab] = useAtom(activeTabAtom);
+  const setCerebrasUsage = useSetAtom(cerebrasUsageAtom);
 
   // Image edit dialog state
   const imageEditDialog = useAtomValue(imageEditDialogAtom);
@@ -246,6 +248,8 @@ export function ChatView() {
       ? keyStatus?.hasChatGPTPlus
       : provider === "zai"
       ? keyStatus?.hasZai
+      : provider === "cerebras"
+      ? keyStatus?.hasCerebras
       : provider === "claude"
       ? keyStatus?.hasClaudeCode
       : keyStatus?.hasAnthropic;
@@ -584,6 +588,18 @@ export function ChatView() {
         const status = await trpcClient.settings.getApiKeyStatus.query();
         if (!status.hasOpenAI) {
           setStreamingError("OpenAI API key not configured");
+          setIsStreaming(false);
+          setStreamingStatus(chatId, "error");
+          chatSounds.playError();
+          return;
+        }
+        // API key is fetched by main process
+        apiKey = undefined;
+      } else if (provider === "cerebras") {
+        // SECURITY: Credentials are managed in main process only
+        const status = await trpcClient.settings.getApiKeyStatus.query();
+        if (!status.hasCerebras) {
+          setStreamingError("Cerebras API key not configured");
           setIsStreaming(false);
           setStreamingStatus(chatId, "error");
           chatSounds.playError();
@@ -1187,6 +1203,17 @@ export function ChatView() {
                 break;
               }
 
+              case "rate-limit-warning": {
+                // Show toast for approaching rate limits
+                const pct = event.usagePercent;
+                if (pct >= 100) {
+                  toast.error(event.message, { duration: 10000 });
+                } else {
+                  toast.warning(event.message, { duration: 8000 });
+                }
+                break;
+              }
+
               case "error": {
                 setStreamingError(event.error);
                 // Play error sound for streaming/API errors
@@ -1227,6 +1254,15 @@ export function ChatView() {
                     (rawUsage?.reasoningTokens || 0),
                 };
                 const contextWindow = AI_MODELS[selectedModel]?.contextWindow;
+
+                // Track Cerebras free tier daily usage
+                if (provider === "cerebras" && usage.totalTokens > 0) {
+                  setCerebrasUsage((prev) => {
+                    const today = new Date().toISOString().split("T")[0];
+                    const base = prev.date === today ? prev.tokensUsed : 0;
+                    return { tokensUsed: base + usage.totalTokens, date: today };
+                  });
+                }
 
                 // Save assistant message to database
                 if (fullText || toolCalls.size > 0) {
@@ -1458,6 +1494,8 @@ export function ChatView() {
           targetDocument: targetDocumentForSearch || undefined,
           // User's timezone for accurate date/time in AI responses
           timezone: userTimezone,
+          // Active tab for context-aware tool selection (only send relevant tools)
+          activeTab: activeTab === "settings" ? "chat" : activeTab,
         });
       } catch (error) {
         cleanupListener?.();

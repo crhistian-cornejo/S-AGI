@@ -46,6 +46,8 @@ import {
   IconUser,
   IconUsers,
   IconLeaf,
+  IconDownload,
+  IconRefresh,
 } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
 import { Logo } from "@/components/ui/logo";
@@ -63,6 +65,11 @@ import { cn, isMacOS, isElectron, isWindows } from "@/lib/utils";
 import { HamburgerMenu } from "./hamburger-menu";
 import { ShareSessionButton } from "@/features/chat/share-session-dialog";
 import { toast } from "sonner";
+import {
+  updateStatusAtom,
+  updateVersionAtom,
+  updateDownloadPercentAtom,
+} from "@/lib/atoms";
 
 export interface TitleBarProps {
   className?: string;
@@ -150,6 +157,9 @@ export function TitleBar({ className, noTrafficLightSpace }: TitleBarProps) {
   const setZenMode = useSetAtom(zenModeAtom);
   const setAuthDialogOpen = useSetAtom(authDialogOpenAtom);
   const setSettingsTab = useSetAtom(settingsActiveTabAtom);
+  const updateStatus = useAtomValue(updateStatusAtom);
+  const updateVersion = useAtomValue(updateVersionAtom);
+  const updateDownloadPercent = useAtomValue(updateDownloadPercentAtom);
   const { data: keyStatus } = trpc.settings.getApiKeyStatus.useQuery();
 
   const isWindowsApp = isWindows();
@@ -750,6 +760,47 @@ export function TitleBar({ className, noTrafficLightSpace }: TitleBarProps) {
               </Button>
             </TooltipTrigger>
             <TooltipContent side="bottom">Toggle Artifacts</TooltipContent>
+          </Tooltip>
+        )}
+
+        {/* Update badge - visible when update is available, downloading, or downloaded */}
+        {(updateStatus === "available" || updateStatus === "downloading" || updateStatus === "downloaded") && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                onClick={() => {
+                  if (updateStatus === "downloaded") {
+                    window.desktopApi?.update?.installUpdate();
+                  }
+                }}
+                className={cn(
+                  "flex items-center gap-1.5 h-7 px-2.5 rounded-md text-xs font-medium transition-all duration-200 no-drag pointer-events-auto mr-1",
+                  updateStatus === "downloaded"
+                    ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/25 cursor-pointer animate-pulse"
+                    : "bg-blue-500/15 text-blue-600 dark:text-blue-400 cursor-default"
+                )}
+                style={{ WebkitAppRegion: "no-drag" } as React.CSSProperties}
+              >
+                {updateStatus === "downloading" ? (
+                  <IconRefresh size={13} className="animate-spin" />
+                ) : (
+                  <IconDownload size={13} />
+                )}
+                {updateStatus === "downloaded"
+                  ? `Restart${updateVersion ? ` v${updateVersion}` : ""}`
+                  : updateStatus === "downloading"
+                    ? `${Math.round(updateDownloadPercent)}%`
+                    : `Update${updateVersion ? ` v${updateVersion}` : ""}`}
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">
+              {updateStatus === "downloaded"
+                ? "Click to restart and install update"
+                : updateStatus === "downloading"
+                  ? `Downloading update... ${Math.round(updateDownloadPercent)}%`
+                  : "Update is being downloaded automatically"}
+            </TooltipContent>
           </Tooltip>
         )}
 

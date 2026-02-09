@@ -218,6 +218,15 @@ export const secondaryFontSizeAtom = atomWithStorage<FontSize>(
   'sm'
 )
 
+// === AUTO-UPDATE STATE ===
+
+export type UpdateStatus = 'idle' | 'checking' | 'available' | 'downloading' | 'downloaded' | 'up-to-date' | 'error'
+
+export const updateStatusAtom = atom<UpdateStatus>('idle')
+export const updateVersionAtom = atom<string | null>(null)
+export const updateDownloadPercentAtom = atom<number>(0)
+export const updateErrorAtom = atom<string | null>(null)
+
 // === GLM-OCR SETTINGS ===
 
 /** Enable GLM-OCR for advanced PDF extraction */

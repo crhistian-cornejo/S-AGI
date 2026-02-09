@@ -8,7 +8,7 @@ import {
   useLayoutEffect,
 } from "react";
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
-import { ZaiIcon } from "@/components/icons/model-icons";
+import { ZaiIcon, CerebrasIcon } from "@/components/icons/model-icons";
 // NOTE: Gemini disabled - import { ZaiIcon, GeminiIcon } from '@/components/icons/model-icons'
 import {
   IconSettings,
@@ -740,9 +740,11 @@ export function Sidebar() {
         ? keyStatus?.hasOpenAI
         : provider === "zai"
           ? keyStatus?.hasZai
-          : provider === "claude"
-            ? keyStatus?.hasClaudeCode
-            : keyStatus?.hasAnthropic;
+          : provider === "cerebras"
+            ? keyStatus?.hasCerebras
+            : provider === "claude"
+              ? keyStatus?.hasClaudeCode
+              : keyStatus?.hasAnthropic;
 
   // Fetch session
   const { data: session } = trpc.auth.getSession.useQuery(undefined, {
@@ -1534,6 +1536,8 @@ export function Sidebar() {
             <IconBrandOpenai size={18} className="shrink-0" />
           ) : provider === "zai" ? (
             <ZaiIcon className="shrink-0 text-amber-500" size={18} />
+          ) : provider === "cerebras" ? (
+            <CerebrasIcon className="shrink-0 text-orange-500" size={18} />
           ) : (
             // NOTE: gemini-advanced disabled
             <IconBrain size={18} className="shrink-0" />
@@ -1547,8 +1551,11 @@ export function Sidebar() {
                     ? "OpenAI"
                     : provider === "zai"
                       ? "Z.AI"
-                      : // NOTE: gemini-advanced disabled
-                        "Anthropic"}
+                      : provider === "cerebras"
+                        ? "Cerebras"
+                        : provider === "claude"
+                          ? "Claude"
+                          : "Anthropic"}
               </p>
             </div>
             <p className="text-[10px] text-muted-foreground leading-none">

@@ -239,7 +239,7 @@ const IdeasEditor = ({
   }, [editor, pageId, setNotePage]);
 
   // Show message if no API key
-  if (!keyStatus?.hasOpenAI && !keyStatus?.hasZai) {
+  if (!keyStatus?.hasOpenAI && !keyStatus?.hasZai && !keyStatus?.hasCerebras) {
     return (
       <div className="h-full w-full flex flex-col items-center justify-center text-muted-foreground gap-4">
         <div className="text-center">

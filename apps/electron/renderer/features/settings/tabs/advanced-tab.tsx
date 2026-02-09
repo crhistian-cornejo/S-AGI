@@ -1,9 +1,13 @@
-import { useAtom } from "jotai";
+import { useAtom, useAtomValue } from "jotai";
 import { useEffect, useMemo, useState } from "react";
 import {
   reasoningEffortAtom,
   chatModeAtom,
   onboardingCompletedAtom,
+  updateStatusAtom,
+  updateVersionAtom,
+  updateDownloadPercentAtom,
+  updateErrorAtom,
 } from "@/lib/atoms";
 import {
   Select,
@@ -27,15 +31,6 @@ import {
   IconSettings,
 } from "@tabler/icons-react";
 
-type UpdateState =
-  | "idle"
-  | "checking"
-  | "available"
-  | "downloading"
-  | "downloaded"
-  | "up-to-date"
-  | "error";
-
 export function AdvancedTab() {
   const [reasoningEffort, setReasoningEffort] = useAtom(reasoningEffortAtom);
   const [chatMode, setChatMode] = useAtom(chatModeAtom);
@@ -44,10 +39,10 @@ export function AdvancedTab() {
   const [quickPromptEnabled, setQuickPromptEnabled] = useState(true);
   const [autoSaveDelay, setAutoSaveDelay] = useState(300000);
   const [appVersion, setAppVersion] = useState("0.0.0");
-  const [updateState, setUpdateState] = useState<UpdateState>("idle");
-  const [latestVersion, setLatestVersion] = useState<string | null>(null);
-  const [downloadPercent, setDownloadPercent] = useState(0);
-  const [updateError, setUpdateError] = useState<string | null>(null);
+  const updateState = useAtomValue(updateStatusAtom);
+  const latestVersion = useAtomValue(updateVersionAtom);
+  const downloadPercent = useAtomValue(updateDownloadPercentAtom);
+  const updateError = useAtomValue(updateErrorAtom);
   const preferencesAvailable =
     typeof window !== "undefined" && !!window.desktopApi?.preferences;
   const updateApi = typeof window !== "undefined" ? window.desktopApi?.update : undefined;
@@ -72,53 +67,6 @@ export function AdvancedTab() {
       })
       .catch(() => {});
   }, []);
-
-  useEffect(() => {
-    if (!updateApi) return;
-
-    const onChecking = updateApi.onChecking(() => {
-      setUpdateState("checking");
-      setUpdateError(null);
-    });
-    const onAvailable = updateApi.onAvailable((data) => {
-      setUpdateState("available");
-      setLatestVersion(data.version);
-      setUpdateError(null);
-    });
-    const onNotAvailable = updateApi.onNotAvailable(() => {
-      setUpdateState("up-to-date");
-      setLatestVersion(null);
-      setDownloadPercent(0);
-    });
-    const onDownloadProgress = updateApi.onDownloadProgress(
-      (data) => {
-        setUpdateState("downloading");
-        setDownloadPercent(data.percent);
-      },
-    );
-    const onDownloaded = updateApi.onDownloaded((data) => {
-      setUpdateState("downloaded");
-      setLatestVersion(data.version);
-      setDownloadPercent(100);
-      toast.success(
-        `Update ${data.version} downloaded. Restart the app to apply it.`,
-      );
-    });
-    const onError = updateApi.onError((data) => {
-      setUpdateState("error");
-      setUpdateError(data.message);
-      toast.error(`Update error: ${data.message}`);
-    });
-
-    return () => {
-      onChecking?.();
-      onAvailable?.();
-      onNotAvailable?.();
-      onDownloadProgress?.();
-      onDownloaded?.();
-      onError?.();
-    };
-  }, [updateApi]);
 
   useEffect(() => {
     if (!preferencesAvailable) return;
@@ -192,14 +140,10 @@ export function AdvancedTab() {
   const handleCheckForUpdates = async () => {
     if (!updateApi) return;
 
-    setUpdateState("checking");
-    setUpdateError(null);
     const result = await updateApi.checkForUpdates();
 
     if (!result?.success) {
       const message = result.error || "Unable to check for updates.";
-      setUpdateState("error");
-      setUpdateError(message);
       toast.error(message);
     }
   };

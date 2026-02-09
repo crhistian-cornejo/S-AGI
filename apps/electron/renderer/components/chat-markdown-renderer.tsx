@@ -678,6 +678,22 @@ function preprocessLatex(content: string): string {
   const emphasisPlaceholders: Map<string, string> = new Map();
   let placeholderIndex = 0;
 
+  // Protect inline code (`backtick content`) - must come FIRST
+  // Prevents _underscores_ inside code like `web_search` from being treated as italic
+  result = result.replace(/`([^`\n]+)`/g, (match) => {
+    const placeholder = `⟦EIC${placeholderIndex++}⟧`;
+    emphasisPlaceholders.set(placeholder, match);
+    return placeholder;
+  });
+
+  // Protect markdown table separator lines (| --- | --- |)
+  // These contain dashes that could be misinterpreted
+  result = result.replace(/^\|[\s\-:|]+\|$/gm, (match) => {
+    const placeholder = `⟦ETB${placeholderIndex++}⟧`;
+    emphasisPlaceholders.set(placeholder, match);
+    return placeholder;
+  });
+
   // Protect **bold** patterns (including multi-word)
   result = result.replace(/\*\*([^*\n]+)\*\*/g, (match) => {
     const placeholder = `⟦EMB${placeholderIndex++}⟧`;

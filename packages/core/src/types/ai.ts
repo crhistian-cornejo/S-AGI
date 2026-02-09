@@ -11,7 +11,7 @@ import { z } from 'zod'
  * - 'zai': Z.AI Coding Plan (GLM models via OpenAI-compatible endpoint)
  * - 'claude': Claude Pro/Max via OAuth (uses subscription)
  */
-export type AIProvider = 'openai' | 'chatgpt-plus' | 'zai' | 'claude'
+export type AIProvider = 'openai' | 'chatgpt-plus' | 'zai' | 'claude' | 'cerebras'
 
 /**
  * - 'none': No reasoning (GPT-5.2, lowest latency)
@@ -216,6 +216,34 @@ export const AI_MODELS: Record<string, ModelDefinition> = {
     },
 
     // ========================================================================
+    // Cerebras Models (OpenAI-compatible, fastest inference)
+    // @see https://inference-docs.cerebras.ai
+    // Free tier: 1M tokens/day, all models available
+    // Reasoning: only gpt-oss-120b supports reasoning_effort (low/medium/high)
+    // ========================================================================
+    'gpt-oss-120b': {
+        id: 'gpt-oss-120b',
+        provider: 'cerebras',
+        name: 'GPT-OSS 120B',
+        description: 'Reasoning model with configurable effort via Cerebras',
+        contextWindow: 128000,
+        supportsImages: false,
+        supportsTools: true,
+        supportsReasoning: true,
+        defaultReasoningEffort: 'medium'
+    },
+    'qwen-3-235b-a22b-instruct-2507': {
+        id: 'qwen-3-235b-a22b-instruct-2507',
+        provider: 'cerebras',
+        name: 'Qwen 3 235B',
+        description: 'Multilingual instruction model via Cerebras (non-thinking)',
+        contextWindow: 65000, // 65K on free tier, 131K on paid
+        supportsImages: false,
+        supportsTools: true,
+        supportsReasoning: false,
+    },
+
+    // ========================================================================
     // Claude Models (via OAuth - included in Pro/Max subscription)
     // These models use the Claude Pro/Max subscription
     // ========================================================================
@@ -263,7 +291,8 @@ export const DEFAULT_MODELS: Record<AIProvider, string> = {
     openai: 'gpt-5.2-openai',
     'chatgpt-plus': 'gpt-5.1-codex-max',
     zai: 'GLM-4.7-Flash',
-    claude: 'claude-sonnet-4-5-20250929'
+    claude: 'claude-sonnet-4-5-20250929',
+    cerebras: 'gpt-oss-120b'
 }
 
 /**
@@ -417,6 +446,9 @@ export type AIStreamEvent =
     | { type: 'tool-approval-request'; toolCallId: string; toolName: string; args: unknown }
     | { type: 'tool-approval-response'; toolCallId: string; approved: boolean; message?: string }
     
+    // Rate limit warnings (provider quota approaching limits)
+    | { type: 'rate-limit-warning'; provider: string; message: string; usagePercent: number; remainingTokens: number; dailyLimit: number }
+
     // Step and completion events
     | { type: 'step-complete'; stepNumber: number; hasMoreSteps: boolean }
     | { type: 'finish'; usage?: { promptTokens: number; completionTokens: number; reasoningTokens?: number }; totalSteps: number; responseId?: string }
@@ -587,7 +619,7 @@ export type ServiceTier = 'auto' | 'flex'
 // Zod Schemas for Validation
 // ============================================================================
 
-export const AIProviderSchema = z.enum(['openai', 'chatgpt-plus', 'zai', 'claude'])
+export const AIProviderSchema = z.enum(['openai', 'chatgpt-plus', 'zai', 'claude', 'cerebras'])
 
 export const ReasoningEffortSchema = z.enum(['low', 'medium', 'high'])
 

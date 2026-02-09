@@ -35,6 +35,7 @@ import {
   ClaudeIcon,
   OpenAIIcon,
   ChatGPTPlusIcon,
+  CerebrasIcon,
 } from "@/components/icons/model-icons";
 import { useAtom, useAtomValue } from "jotai";
 import {
@@ -73,6 +74,15 @@ export function ApiKeysTab() {
       toast.success("Z.AI API key updated");
       utils.settings.getApiKeyStatus.invalidate();
       utils.settings.getZaiKey.invalidate();
+    },
+    onError: (e) => toast.error(e.message),
+  });
+
+  const setCerebrasKeyMutation = trpc.settings.setCerebrasKey.useMutation({
+    onSuccess: () => {
+      toast.success("Cerebras API key updated");
+      utils.settings.getApiKeyStatus.invalidate();
+      utils.settings.getCerebrasKey.invalidate();
     },
     onError: (e) => toast.error(e.message),
   });
@@ -166,12 +176,15 @@ export function ApiKeysTab() {
   // UI state
   const [openaiKey, setOpenaiKey] = useState("");
   const [zaiKey, setZaiKey] = useState("");
+  const [cerebrasKey, setCerebrasKey] = useState("");
   const [showOpenaiKey, setShowOpenaiKey] = useState(false);
   const [showZaiKey, setShowZaiKey] = useState(false);
+  const [showCerebrasKey, setShowCerebrasKey] = useState(false);
 
   // Fetch keys on mount
   const { data: storedOpenAIKey } = trpc.settings.getOpenAIKey.useQuery();
   const { data: storedZaiKey } = trpc.settings.getZaiKey.useQuery();
+  const { data: storedCerebrasKey } = trpc.settings.getCerebrasKey.useQuery();
 
   useEffect(() => {
     if (storedOpenAIKey) setOpenaiKey(storedOpenAIKey);
@@ -180,6 +193,10 @@ export function ApiKeysTab() {
   useEffect(() => {
     if (storedZaiKey) setZaiKey(storedZaiKey);
   }, [storedZaiKey]);
+
+  useEffect(() => {
+    if (storedCerebrasKey) setCerebrasKey(storedCerebrasKey);
+  }, [storedCerebrasKey]);
 
   const handleProviderChange = (p: AIProvider) => {
     setCurrentProvider(p);
@@ -245,6 +262,12 @@ export function ApiKeysTab() {
                     <div className="flex items-center gap-2">
                       <OpenAIIcon size={14} />
                       <span>OpenAI API</span>
+                    </div>
+                  </SelectItem>
+                  <SelectItem value="cerebras">
+                    <div className="flex items-center gap-2">
+                      <CerebrasIcon size={14} />
+                      <span>Cerebras</span>
                     </div>
                   </SelectItem>
                 </SelectGroup>
@@ -473,6 +496,66 @@ export function ApiKeysTab() {
                     disabled={setOpenAIKeyMutation.isPending}
                   >
                     {setOpenAIKeyMutation.isPending ? (
+                      <IconLoader2 className="animate-spin" size={16} />
+                    ) : (
+                      "Save"
+                    )}
+                  </Button>
+                </div>
+              </div>
+            </div>
+
+            {/* Cerebras API */}
+            <div className="h-full rounded-lg border border-border bg-muted/20 p-4">
+              <div className="flex h-full flex-col gap-4">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <CerebrasIcon size={18} />
+                    <div>
+                      <h4 className="font-medium">Cerebras API</h4>
+                      <p className="text-[11px] text-muted-foreground">
+                        Fastest inference for GPT-OSS & Qwen 3 reasoning
+                        models.
+                      </p>
+                    </div>
+                  </div>
+                  {keyStatus?.hasCerebras && (
+                    <Badge variant="secondary">Configured</Badge>
+                  )}
+                </div>
+                <div className="grid grid-cols-[1fr_auto] gap-2">
+                  <div className="relative">
+                    <Input
+                      type={showCerebrasKey ? "text" : "password"}
+                      placeholder="csk-..."
+                      value={cerebrasKey}
+                      onChange={(e) => setCerebrasKey(e.target.value)}
+                      className="pr-10"
+                    />
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="absolute right-0 top-0 h-full hover:bg-transparent"
+                      onClick={() => setShowCerebrasKey(!showCerebrasKey)}
+                    >
+                      {showCerebrasKey ? (
+                        <IconEyeOff size={16} />
+                      ) : (
+                        <IconEye size={16} />
+                      )}
+                    </Button>
+                  </div>
+                  <Button
+                    variant="default"
+                    className="px-6 font-semibold"
+                    onClick={() =>
+                      setCerebrasKeyMutation.mutate({
+                        key: cerebrasKey.trim() || null,
+                      })
+                    }
+                    disabled={setCerebrasKeyMutation.isPending}
+                  >
+                    {setCerebrasKeyMutation.isPending ? (
                       <IconLoader2 className="animate-spin" size={16} />
                     ) : (
                       "Save"

@@ -85,6 +85,43 @@ export type { AIStreamEvent } from "@s-agi/core/types/ai";
 // Store active streams for cancellation
 const activeStreams = new Map<string, AbortController>();
 
+// ============================================================================
+// Cerebras Free Tier Usage Tracker
+// Tracks daily token usage to warn users before hitting the 1M tokens/day limit
+// Resets at midnight UTC (Cerebras uses UTC-based daily limits)
+// ============================================================================
+const CEREBRAS_DAILY_LIMIT = 1_000_000; // 1M tokens/day on free tier
+const CEREBRAS_WARNING_THRESHOLD = 0.90; // Warn at 90%
+
+const cerebrasUsage = {
+  tokensUsed: 0,
+  date: new Date().toISOString().split("T")[0], // YYYY-MM-DD in UTC
+
+  track(promptTokens: number, completionTokens: number) {
+    const today = new Date().toISOString().split("T")[0];
+    if (today !== this.date) {
+      // New day - reset counter
+      this.tokensUsed = 0;
+      this.date = today;
+    }
+    this.tokensUsed += promptTokens + completionTokens;
+  },
+
+  getUsagePercent(): number {
+    const today = new Date().toISOString().split("T")[0];
+    if (today !== this.date) return 0;
+    return this.tokensUsed / CEREBRAS_DAILY_LIMIT;
+  },
+
+  shouldWarn(): boolean {
+    return this.getUsagePercent() >= CEREBRAS_WARNING_THRESHOLD;
+  },
+
+  remaining(): number {
+    return Math.max(0, CEREBRAS_DAILY_LIMIT - this.tokensUsed);
+  },
+};
+
 // Shared constants/helpers/schemas now live in ./ai/*
 
 // Type for function tools
@@ -191,6 +228,89 @@ function createPlanModeTools(
       strict: true,
     });
     executors.set(name, (args) => executeTool(name, args, chatId, userId));
+  }
+
+  return { tools, executors };
+}
+
+/**
+ * CONTEXT-AWARE TOOLS: Only send tools relevant to what the user is working on.
+ * - chat tab (no artifact): only creation tools (create_spreadsheet, create_document, generate_chart, images)
+ * - excel tab: all spreadsheet tools + chart tools
+ * - doc tab: all document tools
+ * - gallery/pdf/ideas: only creation tools
+ * This reduces token usage from ~15-20k to ~1-5k per request.
+ */
+function createContextualTools(
+  chatId: string,
+  userId: string,
+  activeTab: string | undefined,
+  context?: ToolContext,
+): {
+  tools: FunctionToolParam[];
+  executors: Map<string, (args: unknown) => Promise<unknown>>;
+} {
+  const executors = new Map<string, (args: unknown) => Promise<unknown>>();
+  const tools: FunctionToolParam[] = [];
+
+  const addTool = (name: string, tool: { description: string; inputSchema: any }, ctx?: ToolContext) => {
+    tools.push({
+      type: "function",
+      name,
+      description: tool.description,
+      parameters: zodToJsonSchema(tool.inputSchema) as FunctionToolParam["parameters"],
+      strict: true,
+    });
+    executors.set(name, (args) => executeTool(name, args, chatId, userId, ctx));
+  };
+
+  // Determine which tool categories to include based on active tab
+  const includeAllSpreadsheet = activeTab === "excel";
+  const includeAllDocument = activeTab === "doc";
+
+  // Spreadsheet tools
+  if (includeAllSpreadsheet) {
+    // On excel tab: include ALL spreadsheet tools for full editing
+    for (const [name, tool] of Object.entries(SPREADSHEET_TOOLS)) {
+      addTool(name, tool);
+    }
+  } else {
+    // On other tabs: only creation tool (user can still ask to create a spreadsheet)
+    for (const name of MINIMAL_SPREADSHEET_TOOLS) {
+      const tool = SPREADSHEET_TOOLS[name];
+      if (tool) addTool(name, tool);
+    }
+  }
+
+  // Document tools
+  if (includeAllDocument) {
+    // On doc tab: include ALL document tools for full editing
+    for (const [name, tool] of Object.entries(DOCUMENT_TOOLS)) {
+      addTool(name, tool);
+    }
+  } else {
+    // On other tabs: only creation tool
+    for (const name of MINIMAL_DOCUMENT_TOOLS) {
+      const tool = DOCUMENT_TOOLS[name];
+      if (tool) addTool(name, tool);
+    }
+  }
+
+  // Image tools - always available (lightweight, only 2 tools)
+  for (const [name, tool] of Object.entries(IMAGE_TOOLS)) {
+    addTool(name, tool, context);
+  }
+
+  // Chart tools - available on excel tab or as creation tool
+  if (includeAllSpreadsheet) {
+    for (const [name, tool] of Object.entries(CHART_TOOLS)) {
+      addTool(name, tool);
+    }
+  } else {
+    for (const name of MINIMAL_CHART_TOOLS) {
+      const tool = CHART_TOOLS[name];
+      if (tool) addTool(name, tool);
+    }
   }
 
   return { tools, executors };
@@ -654,7 +774,7 @@ export const aiRouter = router({
     .query(({ input }) => {
       const chatGPTAuth = getChatGPTAuthManager();
       return {
-        availableProviders: ["openai", "chatgpt-plus", "zai", "claude"] as const,
+        availableProviders: ["openai", "chatgpt-plus", "zai", "claude", "cerebras"] as const,
         availableModels: AI_MODELS,
         availableTools: getAllToolNames({
           modelId: input?.modelId,
@@ -681,7 +801,7 @@ export const aiRouter = router({
         prompt: z.string(),
         mode: z.enum(["plan", "agent"]).default("agent"),
         provider: z
-          .enum(["openai", "chatgpt-plus", "zai", "claude"])
+          .enum(["openai", "chatgpt-plus", "zai", "claude", "cerebras"])
           .default("openai"),
         apiKey: z.string().optional(), // Optional for chatgpt-plus provider
         model: z.string().optional(),
@@ -789,6 +909,8 @@ export const aiRouter = router({
           .optional(),
         /** User's timezone (e.g., 'America/Lima', 'America/New_York') for accurate date/time in responses */
         timezone: z.string().optional(),
+        /** Active UI tab - used for context-aware tool selection (only send relevant tools) */
+        activeTab: z.enum(["chat", "excel", "doc", "gallery", "pdf", "ideas"]).optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -950,7 +1072,7 @@ export const aiRouter = router({
             );
 
           log.info(
-            `[AI] Starting ${provider === "zai" ? "Chat Completions" : "Responses API"} agent loop with ${modelId} (provider: ${provider})`,
+            `[AI] Starting ${provider === "zai" || provider === "cerebras" ? "Chat Completions" : "Responses API"} agent loop with ${modelId} (provider: ${provider})`,
           );
           log.info(`[AI] Reasoning config:`, input.reasoning);
           if (hasImages) {
@@ -1162,6 +1284,25 @@ export const aiRouter = router({
             log.info(
               `[AI] Using Z.AI provider endpoint: ${wantsCodingEndpoint ? "coding" : "general"}`,
             );
+          } else if (provider === "cerebras") {
+            // Cerebras - OpenAI-compatible Chat Completions API
+            const credentialManager = getCredentialManager();
+            const cerebrasApiKey = input.apiKey || await credentialManager.getCerebrasKey();
+
+            if (!cerebrasApiKey) {
+              throw new Error("Cerebras API key is required. Please configure it in Settings.");
+            }
+
+            client = getOrCreateClient({
+              apiKey: cerebrasApiKey,
+              baseURL: "https://api.cerebras.ai/v1",
+              maxRetries: 0,
+            });
+
+            // Update apiKey for tool context
+            input.apiKey = cerebrasApiKey;
+
+            log.info(`[AI] Using Cerebras provider (key: ${cerebrasApiKey.substring(0, 8)}...${cerebrasApiKey.substring(cerebrasApiKey.length - 4)}, length: ${cerebrasApiKey.length})`);
           } else if (provider === "claude") {
             // Claude uses AI SDK streaming path below (no OpenAI client needed)
             client = null;
@@ -1187,7 +1328,8 @@ export const aiRouter = router({
           if (
             (provider === "openai" ||
               provider === "chatgpt-plus" ||
-              provider === "zai") &&
+              provider === "zai" ||
+              provider === "cerebras") &&
             !openaiClient
           ) {
             throw new Error("OpenAI client not initialized");
@@ -1204,9 +1346,11 @@ export const aiRouter = router({
             toolContext.headers = { "X-Source": ZAI_SOURCE_HEADER };
           }
 
-          // Build tools based on mode
-          // OPTIMIZATION: When images are present, use minimal tools to avoid 19+ tool call chains
-          // This forces the model to use create_spreadsheet with ALL data in one call
+          // Build tools based on mode and context
+          // CONTEXT-AWARE TOOL SELECTION: Only send tools relevant to the active tab
+          // - Reduces token usage from ~15-20k to ~1-5k per request
+          // - Prevents unnecessary tool call chains (e.g., 19+ calls for spreadsheet formatting)
+          // - When images are present, use minimal tools to force single create_spreadsheet calls
           const { tools: functionTools, executors } =
             input.mode === "plan"
               ? createPlanModeTools(input.chatId, ctx.userId)
@@ -1216,11 +1360,20 @@ export const aiRouter = router({
                     ctx.userId,
                     toolContext,
                   )
-                : createFunctionTools(input.chatId, ctx.userId, toolContext);
+                : createContextualTools(
+                    input.chatId,
+                    ctx.userId,
+                    input.activeTab,
+                    toolContext,
+                  );
 
           if (hasImages) {
             log.info(
               `[AI] Using MINIMAL tools mode for image input - only create_spreadsheet/create_document available`,
+            );
+          } else if (input.mode !== "plan") {
+            log.info(
+              `[AI] Context-aware tools for tab="${input.activeTab || "chat"}": ${functionTools.length} tools (instead of 55)`,
             );
           }
 
@@ -1802,17 +1955,17 @@ CITATION REQUIREMENTS (MANDATORY):
             input.images,
           );
 
-          // For Z.AI, check if model supports images
-          const zaiSupportsImages = modelDef?.supportsImages ?? true;
+          // For Chat Completions providers (Z.AI, Cerebras), check if model supports images
+          const chatCompletionsSupportsImages = modelDef?.supportsImages ?? true;
           const chatMessages =
-            provider === "zai"
+            provider === "zai" || provider === "cerebras"
               ? toChatMessages(
                   systemPrompt,
                   input.messages || [],
                   input.prompt,
                   input.images,
                   {
-                    supportsImages: zaiSupportsImages,
+                    supportsImages: chatCompletionsSupportsImages,
                     maxHistoricalImages: 10,
                   },
                 )
@@ -1929,6 +2082,18 @@ CITATION REQUIREMENTS (MANDATORY):
                   : { type: "disabled" };
               }
 
+              // Cerebras reasoning params
+              // @see https://inference-docs.cerebras.ai - Reasoning section
+              if (provider === "cerebras" && modelDef?.supportsReasoning) {
+                // Use 'parsed' so reasoning comes in separate delta.reasoning field
+                params.reasoning_format = "parsed";
+
+                // gpt-oss-120b supports reasoning_effort (low/medium/high)
+                if (modelId === "gpt-oss-120b" && reasoningConfig?.effort && reasoningConfig.effort !== "none") {
+                  params.reasoning_effort = reasoningConfig.effort;
+                }
+              }
+
               let stream: any;
               try {
                 stream = await withRetry(
@@ -1942,6 +2107,20 @@ CITATION REQUIREMENTS (MANDATORY):
                     }) as any,
                 );
               } catch (err) {
+                // Handle Cerebras 402 Payment Required errors with clear messaging
+                if (provider === "cerebras" && err instanceof Error && (err as any).status === 402) {
+                  log.error("[AI] Cerebras 402 Payment Required - likely using Team org key instead of Personal");
+                  throw new Error(
+                    "Cerebras API returned 402 (Payment Required). This usually means you're using an API key from a Team organization that requires credits. Go to cloud.cerebras.ai, switch to your Personal account, and copy that API key instead. The free tier (1M tokens/day) is only available on Personal accounts."
+                  );
+                }
+                // Handle Cerebras 429 Rate Limit errors
+                if (provider === "cerebras" && err instanceof Error && (err as any).status === 429) {
+                  log.warn("[AI] Cerebras rate limit hit - try a lighter model");
+                  throw new Error(
+                    "Cerebras rate limit exceeded (60K tokens/min on free tier). Wait a moment and try again, or switch to a lighter model like llama3.1-8b."
+                  );
+                }
                 // Handle Z.AI billing/quota errors with graceful fallbacks
                 if (provider === "zai" && isZaiBillingError(err)) {
                   // 1) If using coding endpoint, fall back to general endpoint
@@ -2298,6 +2477,27 @@ CITATION REQUIREMENTS (MANDATORY):
               }
             }
 
+            // Track Cerebras daily usage and emit warning if approaching limit
+            if (provider === "cerebras") {
+              cerebrasUsage.track(usageTotals.promptTokens, usageTotals.completionTokens);
+              log.info(`[AI] Cerebras daily usage: ${cerebrasUsage.tokensUsed.toLocaleString()}/${CEREBRAS_DAILY_LIMIT.toLocaleString()} tokens (${Math.round(cerebrasUsage.getUsagePercent() * 100)}%)`);
+
+              if (cerebrasUsage.shouldWarn()) {
+                const pct = Math.round(cerebrasUsage.getUsagePercent() * 100);
+                const remaining = cerebrasUsage.remaining();
+                emit({
+                  type: "rate-limit-warning",
+                  provider: "cerebras",
+                  message: remaining === 0
+                    ? `Cerebras free tier daily limit reached (1M tokens). Switch to another provider or wait until tomorrow.`
+                    : `Cerebras free tier at ${pct}% daily usage. ${remaining.toLocaleString()} tokens remaining. Consider switching to another provider.`,
+                  usagePercent: pct,
+                  remainingTokens: remaining,
+                  dailyLimit: CEREBRAS_DAILY_LIMIT,
+                });
+              }
+            }
+
             emit({
               type: "finish",
               usage: {
@@ -2309,9 +2509,9 @@ CITATION REQUIREMENTS (MANDATORY):
             });
           };
 
-          if (provider === "zai") {
-            // Z.AI uses Chat Completions API (OpenAI-compatible)
-            // It doesn't support OpenAI's Responses API
+          if (provider === "zai" || provider === "cerebras") {
+            // Z.AI and Cerebras use Chat Completions API (OpenAI-compatible)
+            // They don't support OpenAI's Responses API
             await runChatCompletionsAgentLoop();
             return;
           }
@@ -3229,7 +3429,7 @@ CITATION REQUIREMENTS (MANDATORY):
     .input(
       z.object({
         prompt: z.string(),
-        provider: z.enum(["openai", "anthropic", "zai", "chatgpt-plus"]).optional(),
+        provider: z.enum(["openai", "anthropic", "zai", "chatgpt-plus", "claude", "cerebras"]).optional(),
         apiKey: z.string().optional(),
         model: z.string().optional(),
       }),
@@ -3238,10 +3438,46 @@ CITATION REQUIREMENTS (MANDATORY):
       try {
         // Try to get API key from credential manager if not provided
         let apiKey = input.apiKey || "";
+        const credentialManager = getCredentialManager();
+
+        // For Cerebras/Z.AI providers, use Chat Completions for title gen
+        if (!apiKey && (input.provider === "cerebras" || input.provider === "zai")) {
+          const titlePrompt = `Generate a short, concise title (max 5 words) for this message. Do not use quotes. Just respond with the title, nothing else.\n\nMessage: ${input.prompt}`;
+          try {
+            let titleClient: OpenAI | undefined;
+            let titleModel: string;
+
+            if (input.provider === "cerebras") {
+              const cerebrasKey = await credentialManager.getCerebrasKey();
+              if (cerebrasKey) {
+                titleClient = new OpenAI({ apiKey: cerebrasKey, baseURL: "https://api.cerebras.ai/v1" });
+                titleModel = "llama-3.3-70b";
+              }
+            } else {
+              const zaiKey = await credentialManager.getZaiKey();
+              if (zaiKey) {
+                titleClient = new OpenAI({ apiKey: zaiKey, baseURL: "https://open.bigmodel.cn/api/paas/v4/" });
+                titleModel = "GLM-4.7-Flash";
+              }
+            }
+
+            if (titleClient!) {
+              const response = await titleClient!.chat.completions.create({
+                model: titleModel!,
+                messages: [{ role: "user", content: titlePrompt }],
+                max_completion_tokens: 50,
+              });
+              const candidate = response.choices[0]?.message?.content?.trim() || "";
+              const title = candidate && candidate !== "New Chat" ? candidate : getFallbackTitle(input.prompt);
+              return { title };
+            }
+          } catch (err) {
+            log.warn(`[AI] ${input.provider} title generation failed:`, err);
+          }
+        }
 
         if (!apiKey) {
           // Try OpenAI first
-          const credentialManager = getCredentialManager();
           const openAiKey = await credentialManager.getOpenAIKey();
           if (openAiKey) apiKey = openAiKey;
 

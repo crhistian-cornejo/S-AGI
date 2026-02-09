@@ -54,6 +54,7 @@ export const allModelsGroupedAtom = atom(() => {
     'chatgpt-plus': getModelsByProvider('chatgpt-plus'),
     zai: getModelsByProvider('zai'),
     claude: getModelsByProvider('claude'),
+    cerebras: getModelsByProvider('cerebras'),
   }
 })
 
@@ -93,6 +94,19 @@ export const geminiAdvancedStatusAtom = atom<GeminiAdvancedStatus>({
 })
 /** Derived: Whether Gemini Advanced is connected */
 export const hasGeminiAdvancedAtom = atom((get) => get(geminiAdvancedStatusAtom).isConnected)
+
+// === CEREBRAS FREE TIER USAGE TRACKING ===
+
+/** Cerebras daily usage tracker (resets each day, client-side) */
+export interface CerebrasUsageState {
+  tokensUsed: number
+  date: string // YYYY-MM-DD
+}
+export const cerebrasUsageAtom = atom<CerebrasUsageState>({
+  tokensUsed: 0,
+  date: new Date().toISOString().split('T')[0],
+})
+export const CEREBRAS_DAILY_LIMIT = 1_000_000
 
 // === STREAMING STATE ===
 

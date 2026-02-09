@@ -91,6 +91,7 @@ dmg:
 # Windows Configuration
 win:
   icon: apps/electron/build/icon.ico
+  publisherName: "S-AGI"
   target:
     - target: nsis
       arch:
@@ -98,7 +99,6 @@ win:
     - target: portable
       arch:
         - x64
-  artifactName: "S-AGI-${version}-Windows-${arch}.${ext}"
 
 nsis:
   oneClick: false
@@ -118,6 +118,10 @@ nsis:
   shortcutName: S-AGI
   runAfterFinish: true
   menuCategory: true
+  artifactName: "S-AGI-${version}-Windows-${arch}.${ext}"
+
+portable:
+  artifactName: "S-AGI-${version}-Windows-${arch}-portable.${ext}"
 
 # Auto-update configuration - Uses GitHub Releases
 publish:

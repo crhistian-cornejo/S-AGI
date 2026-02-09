@@ -8,6 +8,7 @@ import {
 } from "../../shared/auth";
 import { getChatGPTAuthManager, getClaudeCodeAuthManager } from "../../auth";
 import { getZaiAuthManager } from "../../auth/zai-manager";
+import { getCerebrasAuthManager } from "../../auth/cerebras-manager";
 import { getSecureApiKeyStore } from "../../auth/api-key-store";
 import { invalidateProviderRegistry } from "../../ai/providers";
 import { supabase } from "../../supabase/client";
@@ -34,6 +35,7 @@ export const settingsRouter = router({
       hasOpenAI: status.hasOpenAIKey,
       hasAnthropic: status.hasAnthropicKey,
       hasZai: status.hasZaiKey,
+      hasCerebras: status.hasCerebrasKey,
       hasClaudeOAuth: status.hasClaudeOAuth,
       isClaudeTokenExpired: status.isClaudeTokenExpired,
       hasChatGPTOAuth: status.hasChatGPTOAuth,
@@ -147,12 +149,25 @@ export const settingsRouter = router({
       return { success: true };
     }),
 
+  // Set Cerebras API key (secure - key stored in encrypted storage)
+  setCerebrasKey: publicProcedure
+    .input(z.object({ key: z.string().nullable() }))
+    .mutation(async ({ input }) => {
+      const manager = getCredentialManager();
+      await manager.setCerebrasKey(input.key);
+      // Sync to legacy CerebrasAuthManager (used by isProviderAvailable)
+      getCerebrasAuthManager().setApiKey(input.key);
+      invalidateProviderRegistry();
+      return { success: true };
+    }),
+
   // Clear all API keys (secure - clears encrypted storage)
   clearAllKeys: publicProcedure.mutation(async () => {
     const manager = getCredentialManager();
     await manager.clearAll();
     // Sync to legacy stores
     getZaiAuthManager().clear();
+    getCerebrasAuthManager().clear();
     getSecureApiKeyStore().setOpenAIKey(null);
     getSecureApiKeyStore().setAnthropicKey(null);
     invalidateProviderRegistry();
@@ -171,6 +186,11 @@ export const settingsRouter = router({
   getZaiKey: publicProcedure.query(async () => {
     const manager = getCredentialManager();
     return await manager.getZaiKey();
+  }),
+
+  getCerebrasKey: publicProcedure.query(async () => {
+    const manager = getCredentialManager();
+    return await manager.getCerebrasKey();
   }),
 
   openLocalFolder: publicProcedure.mutation(async () => {

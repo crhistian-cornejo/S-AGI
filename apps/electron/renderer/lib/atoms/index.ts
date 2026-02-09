@@ -88,6 +88,10 @@ export {
   isAnyAuthRefreshingAtom,
   setAuthRefreshingAtom,
   setAuthErrorAtom,
+  // Cerebras Free Tier
+  type CerebrasUsageState,
+  cerebrasUsageAtom,
+  CEREBRAS_DAILY_LIMIT,
 } from './ai'
 
 // === UI STATE ===
@@ -148,6 +152,12 @@ export {
   glmOcrEnabledAtom,
   glmOcrAutoDetectAtom,
   glmOcrAutoProcessAtom,
+  // Auto-Update
+  type UpdateStatus,
+  updateStatusAtom,
+  updateVersionAtom,
+  updateDownloadPercentAtom,
+  updateErrorAtom,
 } from './ui'
 
 // === ARTIFACT STATE ===

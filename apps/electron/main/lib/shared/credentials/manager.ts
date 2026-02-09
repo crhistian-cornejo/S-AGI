@@ -264,6 +264,37 @@ export class CredentialManager {
   }
 
   // ============================================================
+  // Cerebras API Key
+  // ============================================================
+
+  async getCerebrasKey(): Promise<string | null> {
+    const cached = this.getCached("cerebras_api_key");
+    if (cached !== undefined) return cached;
+    const cred = await this.storage.get({ type: "cerebras_api_key" });
+    const value = cred?.value || null;
+    this.setCache("cerebras_api_key", value);
+    return value;
+  }
+
+  async setCerebrasKey(key: string | null): Promise<void> {
+    this.invalidateCache("cerebras_api_key");
+    if (key) {
+      await this.storage.set(
+        { type: "cerebras_api_key" },
+        { value: key, metadata: { source: "manual" } },
+      );
+      log.info("[CredentialManager] Cerebras API key saved");
+    } else {
+      await this.storage.delete({ type: "cerebras_api_key" });
+      log.info("[CredentialManager] Cerebras API key removed");
+    }
+  }
+
+  async hasCerebrasKey(): Promise<boolean> {
+    return this.storage.has({ type: "cerebras_api_key" });
+  }
+
+  // ============================================================
   // Utility Methods
   // ============================================================
 
@@ -278,6 +309,7 @@ export class CredentialManager {
     hasChatGPTOAuth: boolean;
     isChatGPTTokenExpired: boolean;
     hasZaiKey: boolean;
+    hasCerebrasKey: boolean;
   }> {
     const [
       hasAnthropicKey,
@@ -287,6 +319,7 @@ export class CredentialManager {
       hasChatGPTOAuth,
       isChatGPTTokenExpired,
       hasZaiKey,
+      hasCerebrasKey,
     ] = await Promise.all([
       this.hasAnthropicKey(),
       this.hasClaudeOAuth(),
@@ -295,6 +328,7 @@ export class CredentialManager {
       this.hasChatGPTOAuth(),
       this.isChatGPTTokenExpired(),
       this.hasZaiKey(),
+      this.hasCerebrasKey(),
     ]);
 
     return {
@@ -305,6 +339,7 @@ export class CredentialManager {
       hasChatGPTOAuth,
       isChatGPTTokenExpired,
       hasZaiKey,
+      hasCerebrasKey,
     };
   }
 
@@ -319,6 +354,7 @@ export class CredentialManager {
       "openai_api_key",
       "chatgpt_oauth",
       "zai_api_key",
+      "cerebras_api_key",
       "gemini_oauth",
     ];
 
