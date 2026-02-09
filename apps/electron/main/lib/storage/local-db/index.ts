@@ -83,6 +83,10 @@ export async function initDatabase(): Promise<SQLiteDatabase | null> {
       db.pragma("journal_mode = WAL");
       db.pragma("foreign_keys = ON");
       db.pragma("synchronous = NORMAL");
+      // Performance pragmas: larger cache, memory temp store, mmap for faster reads
+      db.pragma("cache_size = -64000"); // 64MB page cache (negative = KB)
+      db.pragma("temp_store = MEMORY"); // Keep temp tables in memory
+      db.pragma("mmap_size = 268435456"); // 256MB memory-mapped I/O
       log.info("[LocalDB] Pragmas set");
 
       // Run migrations (create tables if they don't exist)

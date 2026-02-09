@@ -18,7 +18,8 @@ import { normalizeLanguageId } from './code-language'
 
 let highlighterPromise: Promise<Highlighter> | null = null
 
-const SUPPORTED_LANGUAGES: BundledLanguage[] = [
+// Core languages loaded at startup (most commonly used)
+const CORE_LANGUAGES: BundledLanguage[] = [
     'typescript',
     'javascript',
     'tsx',
@@ -27,13 +28,17 @@ const SUPPORTED_LANGUAGES: BundledLanguage[] = [
     'css',
     'json',
     'python',
-    'go',
-    'rust',
     'shellscript',
     'markdown',
-    'yaml',
     'sql',
     'diff',
+]
+
+// Additional languages loaded on demand
+const LAZY_LANGUAGES: BundledLanguage[] = [
+    'go',
+    'rust',
+    'yaml',
     'latex',
     'dockerfile',
     'toml',
@@ -49,9 +54,15 @@ const SUPPORTED_LANGUAGES: BundledLanguage[] = [
     'ruby',
 ]
 
-const THEMES: BundledTheme[] = [
+const SUPPORTED_LANGUAGES: BundledLanguage[] = [...CORE_LANGUAGES, ...LAZY_LANGUAGES]
+
+// Only load the 2 primary themes at startup; others loaded on demand
+const CORE_THEMES: BundledTheme[] = [
     'github-dark',
     'github-light',
+]
+
+const LAZY_THEMES: BundledTheme[] = [
     'one-dark-pro',
     'vitesse-dark',
     'vitesse-light',
@@ -59,14 +70,52 @@ const THEMES: BundledTheme[] = [
     'nord',
 ]
 
+const THEMES: BundledTheme[] = [...CORE_THEMES, ...LAZY_THEMES]
+
+// Track which lazy languages/themes have been loaded
+const loadedLazyLangs = new Set<string>()
+const loadedLazyThemes = new Set<string>()
+
 export async function getHighlighter(): Promise<Highlighter> {
     if (!highlighterPromise) {
         highlighterPromise = createHighlighter({
-            themes: THEMES,
-            langs: SUPPORTED_LANGUAGES,
+            themes: CORE_THEMES,
+            langs: CORE_LANGUAGES,
         })
     }
     return highlighterPromise
+}
+
+/**
+ * Ensure a language grammar is loaded, loading it on demand if needed
+ */
+async function ensureLanguageLoaded(highlighter: Highlighter, lang: BundledLanguage): Promise<void> {
+    if (loadedLazyLangs.has(lang)) return
+    const loaded = highlighter.getLoadedLanguages()
+    if (loaded.includes(lang)) {
+        loadedLazyLangs.add(lang)
+        return
+    }
+    if (LAZY_LANGUAGES.includes(lang)) {
+        await highlighter.loadLanguage(lang)
+        loadedLazyLangs.add(lang)
+    }
+}
+
+/**
+ * Ensure a theme is loaded, loading it on demand if needed
+ */
+async function ensureThemeLoaded(highlighter: Highlighter, theme: BundledTheme): Promise<void> {
+    if (loadedLazyThemes.has(theme)) return
+    const loaded = highlighter.getLoadedThemes()
+    if (loaded.includes(theme)) {
+        loadedLazyThemes.add(theme)
+        return
+    }
+    if (LAZY_THEMES.includes(theme)) {
+        await highlighter.loadTheme(theme)
+        loadedLazyThemes.add(theme)
+    }
 }
 
 export interface HighlightOptions {
@@ -129,12 +178,16 @@ export async function highlightCode(
         const highlighter = await getHighlighter()
         const shikiTheme: BundledTheme = theme === 'light' ? 'github-light' : 'github-dark'
 
-        // Normalize language
+        // Normalize language and lazy-load if needed
         const normalized = normalizeLanguageId(language)
-        const loadedLangs = highlighter.getLoadedLanguages()
-        const lang = normalized && loadedLangs.includes(normalized as BundledLanguage)
-            ? (normalized as BundledLanguage)
-            : 'text'
+        let lang: BundledLanguage | 'text' = 'text'
+        if (normalized && SUPPORTED_LANGUAGES.includes(normalized as BundledLanguage)) {
+            await ensureLanguageLoaded(highlighter, normalized as BundledLanguage)
+            lang = normalized as BundledLanguage
+        }
+
+        // Ensure theme is loaded
+        await ensureThemeLoaded(highlighter, shikiTheme)
 
         // Parse highlight lines
         const highlightLines = parseHighlightLines(options.highlightLines)
@@ -253,11 +306,16 @@ export async function highlightCodeFull(
         const highlighter = await getHighlighter()
         const shikiTheme: BundledTheme = theme === 'light' ? 'github-light' : 'github-dark'
 
+        // Normalize language and lazy-load if needed
         const normalized = normalizeLanguageId(language)
-        const loadedLangs = highlighter.getLoadedLanguages()
-        const lang = normalized && loadedLangs.includes(normalized as BundledLanguage)
-            ? (normalized as BundledLanguage)
-            : 'text'
+        let lang: BundledLanguage | 'text' = 'text'
+        if (normalized && SUPPORTED_LANGUAGES.includes(normalized as BundledLanguage)) {
+            await ensureLanguageLoaded(highlighter, normalized as BundledLanguage)
+            lang = normalized as BundledLanguage
+        }
+
+        // Ensure theme is loaded
+        await ensureThemeLoaded(highlighter, shikiTheme)
 
         const transformers = [
             transformerNotationDiff(),

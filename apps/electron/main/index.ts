@@ -558,6 +558,11 @@ function updateApplicationMenu() {
 // Suppress Chromium autofill console errors (cosmetic, not actual errors)
 app.commandLine.appendSwitch("disable-features", "AutofillServerCommunication");
 
+// GPU performance optimizations
+app.commandLine.appendSwitch("enable-gpu-rasterization");
+app.commandLine.appendSwitch("enable-zero-copy");
+app.commandLine.appendSwitch("enable-features", "CanvasOopRasterization");
+
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
 let trayPopover: BrowserWindow | null = null;
@@ -1163,7 +1168,7 @@ function registerContentSecurityPolicy(): void {
   // In production, avoid eval/inline sources where possible
   const scriptSrc = is.dev
     ? `'self' 'unsafe-inline' 'unsafe-eval' blob: ${devOrigins}`
-    : `'self' 'wasm-unsafe-eval' blob:`;
+    : `'self' 'unsafe-inline' 'wasm-unsafe-eval' blob:`;
 
   const csp = [
     `default-src 'self' blob: ${devOrigins}`,

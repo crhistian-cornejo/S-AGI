@@ -6,7 +6,7 @@ import log from "electron-log";
 export interface AppPreferences {
   trayEnabled: boolean;
   quickPromptEnabled: boolean;
-  autoSaveDelay: number; // Delay in milliseconds (default: 300000 = 5 minutes)
+  autoSaveDelay: number; // Delay in milliseconds (default: 30000 = 30 seconds)
 }
 
 const STORE_FILE = "preferences.json";
@@ -31,7 +31,7 @@ export class PreferencesStore {
     return {
       trayEnabled: true,
       quickPromptEnabled: true,
-      autoSaveDelay: 300000, // 5 minutes default
+      autoSaveDelay: 30000, // 30 seconds default
     };
   }
 

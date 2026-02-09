@@ -16,7 +16,7 @@ import {
   currentDocFileAtom,
 } from "@/lib/atoms/user-files";
 import { CommandType } from "@univerjs/core";
-import { hasRealChanges } from "@/utils/univer-diff-stats";
+import { hasRealChangesAsync } from "@/workers/data-processing";
 
 interface UniverDocumentProps {
   // Legacy: artifact-based props (for backward compatibility)
@@ -69,23 +69,23 @@ export const UniverDocument = React.forwardRef<
   >(() => {});
   const isInitializingRef = React.useRef(false); // Flag to ignore events during initialization
 
-  // Auto-save delay from preferences (default 5 minutes = 300000ms)
-  const [autoSaveDelay, setAutoSaveDelay] = React.useState(300000);
+  // Auto-save delay from preferences (default 30 seconds = 30000ms)
+  const [autoSaveDelay, setAutoSaveDelay] = React.useState(30000);
 
   React.useEffect(() => {
-    // Load auto-save delay from preferences (default 5 minutes = 300000ms)
+    // Load auto-save delay from preferences (default 30 seconds = 30000ms)
     if (window.desktopApi?.preferences?.get) {
       window.desktopApi.preferences
         .get()
         .then((prefs) => {
-          setAutoSaveDelay(prefs.autoSaveDelay || 300000);
+          setAutoSaveDelay(prefs.autoSaveDelay || 30000);
         })
         .catch(() => {});
 
       // Listen for preference changes
       const cleanup = window.desktopApi.preferences.onPreferencesUpdated?.(
         (prefs) => {
-          setAutoSaveDelay(prefs.autoSaveDelay || 300000);
+          setAutoSaveDelay(prefs.autoSaveDelay || 30000);
         },
       );
       return cleanup;
@@ -842,8 +842,9 @@ export const UniverDocument = React.forwardRef<
         if (!snapshot || !targetId || !isDirtyRef.current) return;
 
         // CRITICAL: Only save if there are REAL changes (compare with last saved snapshot)
+        // Uses Web Worker to avoid blocking UI during large snapshot comparison
         const lastSaved = lastSavedSnapshotRef.current;
-        if (lastSaved && !hasRealChanges(lastSaved, snapshot)) {
+        if (lastSaved && !(await hasRealChangesAsync(lastSaved, snapshot))) {
           console.log(
             "[UniverDocument] No real changes detected, skipping auto-save",
           );
@@ -906,7 +907,7 @@ export const UniverDocument = React.forwardRef<
       clearInterval(periodicAutoSaveIntervalRef.current);
     }
 
-    // Set up periodic check (every 5 minutes = 300000ms)
+    // Set up periodic check (every 2 minutes = 120000ms)
     periodicAutoSaveIntervalRef.current = setInterval(async () => {
       const targetId = currentIdRef.current || effectiveId;
       if (!targetId || !documentRef.current || isSaving) return;
@@ -924,7 +925,7 @@ export const UniverDocument = React.forwardRef<
           return;
         }
 
-        if (!hasRealChanges(lastSaved, snapshot)) {
+        if (!(await hasRealChangesAsync(lastSaved, snapshot))) {
           console.log(
             "[UniverDocument] Periodic check: No real changes detected, skipping save",
           );
@@ -964,7 +965,7 @@ export const UniverDocument = React.forwardRef<
       } catch (err) {
         console.error("[UniverDocument] Periodic auto-save failed:", err);
       }
-    }, 300000); // 5 minutes = 300000ms
+    }, 120000); // 2 minutes
 
     return () => {
       if (periodicAutoSaveIntervalRef.current) {

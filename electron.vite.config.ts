@@ -1,10 +1,12 @@
 import { resolve } from 'path'
 import { defineConfig, externalizeDepsPlugin } from 'electron-vite'
 import react from '@vitejs/plugin-react'
+import { visualizer } from 'rollup-plugin-visualizer'
 import { copyFileSync, cpSync, existsSync, mkdirSync } from 'fs'
 
 const __dirname = import.meta.dirname
 const isDev = process.env.NODE_ENV !== 'production'
+const isAnalyze = process.env.ANALYZE === 'true'
 
 // Plugin to copy icons to output directory
 function copyTrayIcons() {
@@ -183,6 +185,14 @@ export default defineConfig({
                 // See apps/electron/renderer/DEBUG-WDYR.md for usage
                 jsxImportSource: isDev ? '@welldone-software/why-did-you-render' : undefined,
             }),
+            // Bundle analysis: run with ANALYZE=true bun run build
+            ...(isAnalyze ? [visualizer({
+                filename: './bundle-stats.html',
+                open: true,
+                gzipSize: true,
+                brotliSize: true,
+                template: 'treemap',
+            })] : []),
         ],
         build: {
             rollupOptions: {
@@ -192,54 +202,35 @@ export default defineConfig({
                     'quick-prompt': resolve(__dirname, 'apps/electron/renderer/quick-prompt.html')
                 },
                 output: {
-                    // Dynamic code splitting based on module paths
+                    // Only manually chunk libraries that do NOT use React at init time.
+                    // Everything else (React, recharts, radix, blocknote, markdown, etc.)
+                    // is left to Rollup's automatic splitting which handles circular deps safely.
                     manualChunks(id) {
-                        // Split large vendor libraries into separate chunks
-                        if (id.includes('node_modules')) {
-                            // React core (react, react-dom, scheduler)
-                            if (id.includes('react-dom') || (id.includes('/react/') && !id.includes('recharts')) || id.includes('scheduler')) {
-                                return 'vendor-react'
-                            }
-                            // Radix UI
-                            if (id.includes('@radix-ui')) {
-                                return 'vendor-radix'
-                            }
-                            // Charts (recharts + d3) - separate from React core
-                            if (id.includes('recharts') || id.includes('d3-')) {
-                                return 'vendor-charts'
-                            }
-                            // Syntax highlighting (large, lazy-loadable)
-                            if (id.includes('shiki') || id.includes('@shikijs')) {
-                                return 'vendor-shiki'
-                            }
-                            // Markdown/streaming (streamdown, remark, etc.)
-                            if (id.includes('streamdown') || id.includes('remark') || id.includes('micromark') || id.includes('mdast') || id.includes('unified') || id.includes('unist')) {
-                                return 'vendor-markdown'
-                            }
-                            // Univer (spreadsheets)
-                            if (id.includes('@univerjs')) {
-                                return 'vendor-univer'
-                            }
-                            // Terminal emulator
-                            if (id.includes('@xterm') || id.includes('xterm')) {
-                                return 'vendor-xterm'
-                            }
-                            // PDF engine - PDFium WASM
-                            if (id.includes('@embedpdf') || id.includes('embedpdf')) {
-                                return 'vendor-pdf'
-                            }
-                            // Export utilities
-                            if (id.includes('html2canvas') || id.includes('jspdf')) {
-                                return 'vendor-export'
-                            }
-                            // Icon library
-                            if (id.includes('@tabler/icons')) {
-                                return 'vendor-icons'
-                            }
-                            // BlockNote (document editor)
-                            if (id.includes('@blocknote') || id.includes('prosemirror') || id.includes('@mantine')) {
-                                return 'vendor-blocknote'
-                            }
+                        if (!id.includes('node_modules')) return
+
+                        // Univer (spreadsheets) - single chunk to avoid circular init
+                        if (id.includes('@univerjs')) {
+                            return 'vendor-univer'
+                        }
+                        // Syntax highlighting (no React dependency at init)
+                        if (id.includes('shiki') || id.includes('@shikijs')) {
+                            return 'vendor-shiki'
+                        }
+                        // Terminal emulator
+                        if (id.includes('@xterm') || id.includes('xterm')) {
+                            return 'vendor-xterm'
+                        }
+                        // PDF engine - PDFium WASM
+                        if (id.includes('@embedpdf') || id.includes('embedpdf')) {
+                            return 'vendor-pdf'
+                        }
+                        // Export utilities
+                        if (id.includes('html2canvas') || id.includes('jspdf')) {
+                            return 'vendor-export'
+                        }
+                        // Icon library
+                        if (id.includes('@tabler/icons')) {
+                            return 'vendor-icons'
                         }
                     }
                 }

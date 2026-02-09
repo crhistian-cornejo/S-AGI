@@ -37,7 +37,7 @@ export function AdvancedTab() {
   const [, setOnboardingCompleted] = useAtom(onboardingCompletedAtom);
   const [trayEnabled, setTrayEnabled] = useState(true);
   const [quickPromptEnabled, setQuickPromptEnabled] = useState(true);
-  const [autoSaveDelay, setAutoSaveDelay] = useState(300000);
+  const [autoSaveDelay, setAutoSaveDelay] = useState(30000);
   const [appVersion, setAppVersion] = useState("0.0.0");
   const updateState = useAtomValue(updateStatusAtom);
   const latestVersion = useAtomValue(updateVersionAtom);
@@ -77,7 +77,7 @@ export function AdvancedTab() {
       .then((prefs) => {
         setTrayEnabled(prefs.trayEnabled);
         setQuickPromptEnabled(prefs.quickPromptEnabled);
-        setAutoSaveDelay(prefs.autoSaveDelay || 300000);
+        setAutoSaveDelay(prefs.autoSaveDelay || 30000);
       })
       .catch(() => {});
 
@@ -86,7 +86,7 @@ export function AdvancedTab() {
       (prefs) => {
         setTrayEnabled(prefs.trayEnabled);
         setQuickPromptEnabled(prefs.quickPromptEnabled);
-        setAutoSaveDelay(prefs.autoSaveDelay || 300000);
+        setAutoSaveDelay(prefs.autoSaveDelay || 30000);
       },
     );
 
@@ -132,7 +132,7 @@ export function AdvancedTab() {
       if (next) {
         setTrayEnabled(next.trayEnabled);
         setQuickPromptEnabled(next.quickPromptEnabled);
-        setAutoSaveDelay(next.autoSaveDelay || 300000);
+        setAutoSaveDelay(next.autoSaveDelay || 30000);
       }
     } catch {}
   };
