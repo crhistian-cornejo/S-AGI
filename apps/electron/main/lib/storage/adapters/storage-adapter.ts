@@ -94,6 +94,7 @@ export interface IStorageAdapter {
     // OpenCode-style methods (no userId check, for local single-user mode)
     listByChatId?(chatId: string, limit?: number): Promise<Message[]>;
     getById?(id: string): Promise<Message | null>;
+    setActiveChild?(messageId: string, childId: string | null): Promise<void>;
   };
 
   // ============ ARTIFACTS ============

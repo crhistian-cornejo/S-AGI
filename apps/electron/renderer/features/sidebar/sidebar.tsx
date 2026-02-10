@@ -37,6 +37,7 @@ import {
   IconLayoutSidebarLeftCollapse,
   IconFolder,
   IconFolderPlus,
+  IconGitFork,
 } from "@tabler/icons-react";
 import {
   DndContext,
@@ -119,6 +120,7 @@ interface Chat {
   archived: boolean;
   pinned?: boolean;
   project_id?: string | null;
+  parent_id?: string | null;
   sort_order?: number;
   isLocal?: boolean;
   meta?: {
@@ -155,11 +157,13 @@ interface ChatItemProps {
   onArchive: () => void;
   onDelete: () => void;
   onTogglePin: () => void;
+  onFork: () => void;
   onRestore?: () => void;
   isArchived?: boolean;
   projects?: Project[];
   onMoveToProject?: (projectId: string | null) => void;
   onPrefetch?: () => void;
+  parentTitle?: string | null;
 }
 
 function formatRelativeTimeCompact(date: Date | string | null | undefined) {
@@ -195,16 +199,19 @@ function ChatItem({
   onArchive,
   onDelete,
   onTogglePin,
+  onFork,
   onRestore,
   isArchived,
   projects,
   onMoveToProject,
   onPrefetch,
+  parentTitle,
 }: ChatItemProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const isStreaming = useStreamingStatusStore((state) =>
     state.isStreaming(chat.id),
   );
+  const isForked = !!chat.parent_id;
 
   useEffect(() => {
     if (isEditing) {
@@ -277,9 +284,23 @@ function ChatItem({
       }}
     >
       <div className="min-w-0 flex-1 pr-2 transition-[padding] duration-150 group-hover:pr-20">
-        <p className="truncate font-medium text-[14px] leading-tight">
-          {chat.title || "Untitled"}
-        </p>
+        {isForked ? (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <p className="truncate font-medium text-[14px] leading-tight flex items-center gap-1.5">
+                <IconGitFork size={13} className="shrink-0 text-muted-foreground/70" />
+                <span className="truncate">{chat.title || "Untitled"}</span>
+              </p>
+            </TooltipTrigger>
+            <TooltipContent side="top">
+              Branched from: {parentTitle || "Unknown chat"}
+            </TooltipContent>
+          </Tooltip>
+        ) : (
+          <p className="truncate font-medium text-[14px] leading-tight">
+            {chat.title || "Untitled"}
+          </p>
+        )}
       </div>
       <div className="flex items-center gap-1.5 shrink-0 transition-all duration-150 group-hover:opacity-0 group-hover:w-0 group-hover:overflow-hidden">
         {isStreaming && (
@@ -409,6 +430,10 @@ function ChatItem({
                   </DropdownMenuSubContent>
                 </DropdownMenuSub>
               )}
+              <DropdownMenuItem onClick={onFork}>
+                <IconGitFork size={14} className="mr-2" />
+                Fork Chat
+              </DropdownMenuItem>
               {isArchived ? (
                 <DropdownMenuItem onClick={onRestore}>
                   <IconArchiveOff size={14} className="mr-2" />
@@ -500,11 +525,13 @@ interface ProjectFolderProps {
   onArchiveChat: (chatId: string) => void;
   onDeleteChat: (chatId: string) => void;
   onTogglePin: (chatId: string) => void;
+  onForkChat: (chatId: string) => void;
   onMoveChat: (chatId: string, projectId: string | null) => void;
   onPrefetchChat: (chatId: string) => void;
   onCreateChat: () => void;
   onRenameProject: () => void;
   onDeleteProject: () => void;
+  chatTitleMap: Map<string, string>;
 }
 
 function ProjectFolder({
@@ -523,11 +550,13 @@ function ProjectFolder({
   onArchiveChat,
   onDeleteChat,
   onTogglePin,
+  onForkChat,
   onMoveChat,
   onPrefetchChat,
   onCreateChat,
   onRenameProject,
   onDeleteProject,
+  chatTitleMap,
 }: ProjectFolderProps) {
   const [showAllChats, setShowAllChats] = useState(false);
   const MAX_VISIBLE_CHATS = 10;
@@ -642,9 +671,11 @@ function ProjectFolder({
               onArchive={() => onArchiveChat(chat.id)}
               onDelete={() => onDeleteChat(chat.id)}
               onTogglePin={() => onTogglePin(chat.id)}
+              onFork={() => onForkChat(chat.id)}
               projects={allProjects}
               onMoveToProject={(projectId) => onMoveChat(chat.id, projectId)}
               onPrefetch={() => onPrefetchChat(chat.id)}
+              parentTitle={chat.parent_id ? chatTitleMap.get(chat.parent_id) || null : null}
             />
           ))}
           {hasMoreChats && !showAllChats && (
@@ -1099,6 +1130,17 @@ export function Sidebar() {
   const setAuthDialogOpen = useSetAtom(authDialogOpenAtom);
   const setSettingsTab = useSetAtom(settingsActiveTabAtom);
 
+  // Build a lookup map from chat ID → title (for fork "Branched from" tooltip)
+  const chatTitleMap = useMemo(() => {
+    const map = new Map<string, string>();
+    if (chats) {
+      for (const c of chats) {
+        map.set(c.id, c.title || "Untitled");
+      }
+    }
+    return map;
+  }, [chats]);
+
   const handleNewChat = () => {
     setActiveTab("chat");
     createChat.mutate({ title: "New Chat" });
@@ -1121,6 +1163,21 @@ export function Sidebar() {
 
   const handleArchiveChat = (chatId: string) => {
     archiveChat.mutate({ id: chatId });
+  };
+
+  const forkChat = trpc.chats.fork.useMutation({
+    onSuccess: (forkedChat: Chat) => {
+      refetch();
+      setSelectedChatId(forkedChat.id);
+      toast.success("Chat forked successfully");
+    },
+    onError: (error: any) => {
+      toast.error(`Failed to fork chat: ${error.message}`);
+    },
+  });
+
+  const handleForkChat = (chatId: string) => {
+    forkChat.mutate({ chatId });
   };
 
   const handleTogglePin = (chatId: string) => {
@@ -1391,6 +1448,7 @@ export function Sidebar() {
                     onArchiveChat={handleArchiveChat}
                     onDeleteChat={handleDeleteChat}
                     onTogglePin={handleTogglePin}
+                    onForkChat={handleForkChat}
                     onMoveChat={(chatId, projectId) => moveChat.mutate({ chatId, projectId })}
                     onPrefetchChat={prefetchChatMessages}
                     onCreateChat={() => {
@@ -1399,6 +1457,7 @@ export function Sidebar() {
                     }}
                     onRenameProject={() => openRenameProjectDialog(project)}
                     onDeleteProject={() => deleteProject.mutate({ id: project.id })}
+                    chatTitleMap={chatTitleMap}
                   />
                 ))}
               </SortableContext>
@@ -1440,11 +1499,13 @@ export function Sidebar() {
                           onArchive={() => handleArchiveChat(chat.id)}
                           onDelete={() => handleDeleteChat(chat.id)}
                           onTogglePin={() => handleTogglePin(chat.id)}
+                          onFork={() => handleForkChat(chat.id)}
                           projects={projects || []}
                           onMoveToProject={(projectId) =>
                             moveChat.mutate({ chatId: chat.id, projectId })
                           }
                           onPrefetch={() => prefetchChatMessages(chat.id)}
+                          parentTitle={chat.parent_id ? chatTitleMap.get(chat.parent_id) || null : null}
                         />
                       </div>
                     );

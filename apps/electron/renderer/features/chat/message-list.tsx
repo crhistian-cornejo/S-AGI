@@ -11,7 +11,13 @@ import {
   IconAlertCircle,
   IconChartBar,
   IconDownload,
+  IconGitFork,
+  IconLayersSubtract,
+  IconPencil,
 } from "@tabler/icons-react";
+import { BranchNavigator } from "./components/branch-navigator";
+import { MessageEditInline } from "./components/message-edit-inline";
+import type { MessageTree } from "./lib/message-tree";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAtomValue, useSetAtom } from "jotai";
 import { cn } from "@/lib/utils";
@@ -36,6 +42,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { RotatingWelcomeMessage } from "./components/rotating-welcome-message";
 import {
   AgentBash,
   AgentEdit,
@@ -52,6 +59,7 @@ import {
   AgentExitPlanModeTool,
   AgentImageGeneration,
   getToolStatus,
+  type AgentReasoningAction,
   type PlanStep,
   type ToolPart,
 } from "@/features/agent";
@@ -379,6 +387,22 @@ function toFileSearchPart(search: StreamingFileSearch): ToolPart {
   };
 }
 
+function toReasoningToolActions(toolCalls?: ToolCall[]): AgentReasoningAction[] {
+  if (!toolCalls || toolCalls.length === 0) return [];
+
+  return toolCalls.map((toolCall) => ({
+    type: "tool",
+    label: toolCall.name,
+    toolCall: {
+      id: toolCall.id,
+      name: toolCall.name,
+      args: toolCall.args,
+      result: toolCall.result,
+      status: toolCall.status,
+    },
+  }));
+}
+
 // Special tools that need their own dedicated components (not grouped)
 const SPECIAL_TOOLS = new Set([
   "Bash",
@@ -512,6 +536,12 @@ interface Message {
       output: string;
       images?: Array<{ mimeType: string; data: string }>;
     }>;
+    /** Compaction metadata: 'compaction' for summary messages */
+    type?: string;
+    /** Number of original messages that were compacted */
+    originalMessageCount?: number;
+    /** Timestamp when this message was compacted (marked as summarized) */
+    compactedAt?: number;
   };
   attachments?: Array<{
     id: string;
@@ -521,6 +551,10 @@ interface Message {
     url?: string;
     preview?: string;
   }>;
+  /** Parent message ID for tree branching (edit-and-resend) */
+  parent_message_id?: string | null;
+  /** Active child message ID at branch points */
+  active_child_id?: string | null;
   created_at: string;
 }
 
@@ -565,9 +599,24 @@ interface DocumentCitation {
   marker?: string;
 }
 
+/** Visual divider for compaction summary messages */
+function CompactionDivider({ messageCount }: { messageCount: number }) {
+  return (
+    <div className="flex items-center gap-3 py-2 px-1">
+      <div className="flex-1 h-px bg-border" />
+      <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+        <IconLayersSubtract size={14} />
+        <span>Context compacted &mdash; {messageCount} earlier messages summarized</span>
+      </div>
+      <div className="flex-1 h-px bg-border" />
+    </div>
+  );
+}
+
 interface MessageListProps {
   messages: Message[];
   isLoading: boolean;
+  threadId?: string | null;
   streamingText?: string;
   streamingToolCalls?: ToolCall[];
   streamingReasoning?: string;
@@ -595,6 +644,14 @@ interface MessageListProps {
   streamingCodeInterpreterExecs?: StreamingCodeInterpreterExec[];
   /** Error message from streaming */
   streamingError?: string | null;
+  /** Callback to fork the chat from a specific message */
+  onForkFromMessage?: (messageId: string) => void;
+  /** Message tree for branching support */
+  messageTree?: MessageTree | null;
+  /** Callback to edit a user message and resend (creates sibling branch) */
+  onEditAndResend?: (originalMessageId: string, newContent: string) => void;
+  /** Callback to switch to a different branch at a branch point */
+  onSwitchBranch?: (parentMessageId: string, newChildId: string) => void;
 }
 
 // ============================================================================
@@ -700,6 +757,7 @@ const ErrorNotification = memo(function ErrorNotification({
 export const MessageList = memo(function MessageList({
   messages,
   isLoading,
+  threadId,
   streamingText,
   streamingToolCalls,
   streamingReasoning,
@@ -712,54 +770,110 @@ export const MessageList = memo(function MessageList({
   streamingDocumentCitations,
   streamingCodeInterpreterExecs,
   streamingError,
+  onForkFromMessage,
+  messageTree,
+  onEditAndResend,
+  onSwitchBranch,
 }: MessageListProps) {
+  const streamingReasoningActions = useMemo(
+    () => toReasoningToolActions(streamingToolCalls),
+    [streamingToolCalls]
+  );
+
+  // Build a message lookup and compute visible messages from the active path
+  const messageMap = useMemo(() => {
+    const map = new Map<string, Message>();
+    for (const m of messages) map.set(m.id, m);
+    return map;
+  }, [messages]);
+
+  const visibleMessages = useMemo(() => {
+    if (!messageTree || messageTree.activePath.length === 0) return messages;
+    // Map active path IDs to actual message objects
+    const visible: Message[] = [];
+    for (const id of messageTree.activePath) {
+      const msg = messageMap.get(id);
+      if (msg) visible.push(msg);
+    }
+    return visible.length > 0 ? visible : messages;
+  }, [messages, messageTree, messageMap]);
+
   if (messages.length === 0 && !isLoading && !lastReasoning) {
     return (
-      <div className="flex flex-col items-center justify-center h-full text-muted-foreground py-20 animate-in fade-in duration-700">
-        <div className="mb-6">
-          <Logo size={64} />
-        </div>
-        <h1 className="text-2xl font-semibold text-foreground tracking-tight">
-          How can I help you today?
-        </h1>
-        <p className="text-sm text-muted-foreground mt-2 max-w-[280px] text-center leading-relaxed">
-          Describe a spreadsheet or ask a question to get started.
-        </p>
+      <div className="flex flex-col items-center justify-center h-full py-20">
+        <RotatingWelcomeMessage threadId={threadId} />
       </div>
     );
   }
 
   return (
     <div className="space-y-6 px-4 py-4 max-w-[740px] mx-auto w-full overflow-hidden">
-      {messages.map((message, index) => (
-        <div
-          key={message.id}
-          id={`msg-${message.id}`}
-          className="animate-in fade-in slide-in-from-bottom-2 duration-300 scroll-mt-4"
-        >
-          <MessageItem
-            message={message}
-            onViewArtifact={onViewArtifact}
-            reasoning={(() => {
-              const reasoning = !isLoading &&
-                message.role === "assistant" &&
-                index === messages.length - 1
-                  ? lastReasoning || message.metadata?.reasoning
-                  : message.metadata?.reasoning;
-              return reasoning;
-            })()}
-            reasoningDefaultCollapsed={
-              // Don't collapse reasoning for the most recent message that was just streamed
-              !(
-                !isLoading &&
-                message.role === "assistant" &&
-                index === messages.length - 1 &&
-                !!lastReasoning
-              )
-            }
-          />
-        </div>
-      ))}
+      {visibleMessages.map((message, index) => {
+        // Render compaction summary as a divider instead of a message
+        if (message.metadata?.type === "compaction") {
+          return (
+            <div
+              key={message.id}
+              id={`msg-${message.id}`}
+              className="animate-in fade-in duration-300"
+            >
+              <CompactionDivider
+                messageCount={
+                  (message.metadata?.originalMessageCount as number) || 0
+                }
+              />
+            </div>
+          );
+        }
+
+        // Compacted messages: reduced opacity
+        const isCompacted = !!message.metadata?.compactedAt;
+
+        // Get sibling info from tree for branch navigation
+        const treeNode = messageTree?.nodes.get(message.id);
+        const siblingCount = treeNode?.siblingCount ?? 1;
+        const siblingIndex = treeNode?.siblingIndex ?? 0;
+
+        return (
+          <div
+            key={message.id}
+            id={`msg-${message.id}`}
+            className={cn(
+              "animate-in fade-in slide-in-from-bottom-2 duration-300 scroll-mt-4",
+              isCompacted && "opacity-50"
+            )}
+          >
+            <MessageItem
+              message={message}
+              onViewArtifact={onViewArtifact}
+              reasoning={(() => {
+                const reasoning = !isLoading &&
+                  message.role === "assistant" &&
+                  index === visibleMessages.length - 1
+                    ? lastReasoning || message.metadata?.reasoning
+                    : message.metadata?.reasoning;
+                return reasoning;
+              })()}
+              reasoningDefaultCollapsed={
+                // Don't collapse reasoning for the most recent message that was just streamed
+                !(
+                  !isLoading &&
+                  message.role === "assistant" &&
+                  index === visibleMessages.length - 1 &&
+                  !!lastReasoning
+                )
+              }
+              onFork={onForkFromMessage ? () => onForkFromMessage(message.id) : undefined}
+              onEditAndResend={onEditAndResend}
+              siblingCount={siblingCount}
+              siblingIndex={siblingIndex}
+              onSwitchBranch={onSwitchBranch}
+              treeNode={treeNode}
+              isStreamingActive={isLoading}
+            />
+          </div>
+        );
+      })}
 
       {/* Streaming response */}
       {isLoading &&
@@ -774,6 +888,7 @@ export const MessageList = memo(function MessageList({
                 {/* Reasoning section - shows ABOVE the text */}
                 {(isReasoning ||
                   streamingReasoning ||
+                  (streamingToolCalls && streamingToolCalls.length > 0) ||
                   (streamingAnnotations &&
                     streamingAnnotations.length > 0) ||
                   (streamingWebSearches &&
@@ -783,6 +898,7 @@ export const MessageList = memo(function MessageList({
                   <AgentReasoning
                     content={streamingReasoning || ""}
                     isStreaming={isReasoning}
+                    actions={streamingReasoningActions}
                     annotations={streamingAnnotations}
                     webSearches={streamingWebSearches}
                     codeInterpreterExecs={streamingCodeInterpreterExecs}
@@ -818,14 +934,6 @@ export const MessageList = memo(function MessageList({
                   </div>
                 )}
 
-                {streamingToolCalls && streamingToolCalls.length > 0 && (
-                  <ToolCallsRenderer
-                    toolCalls={streamingToolCalls}
-                    chatStatus="streaming"
-                    onViewArtifact={onViewArtifact}
-                    isStreaming
-                  />
-                )}
               </div>
           </div>
         )}
@@ -860,15 +968,30 @@ const MessageItem = memo(function MessageItem({
   onViewArtifact,
   reasoning,
   reasoningDefaultCollapsed = true,
+  onFork,
+  onEditAndResend,
+  siblingCount = 1,
+  siblingIndex = 0,
+  onSwitchBranch,
+  treeNode,
+  isStreamingActive = false,
 }: {
   message: Message;
   onViewArtifact?: (id: string) => void;
   reasoning?: string;
   reasoningDefaultCollapsed?: boolean;
+  onFork?: () => void;
+  onEditAndResend?: (originalMessageId: string, newContent: string) => void;
+  siblingCount?: number;
+  siblingIndex?: number;
+  onSwitchBranch?: (parentMessageId: string, newChildId: string) => void;
+  treeNode?: { id: string; parentMessageId: string | null; children: string[]; siblingIndex: number; siblingCount: number };
+  isStreamingActive?: boolean;
 }) {
   const isUser = message.role === "user";
   const content = parseContent(message.content);
   const [copied, setCopied] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
   const [ttsState, setTtsState] = useState<"idle" | "loading" | "playing">(
     "idle"
   );
@@ -903,6 +1026,7 @@ const MessageItem = memo(function MessageItem({
     message.model_name ?? message.metadata?.model_name ?? modelId;
   /** Provider detection: OpenAI, ChatGPT Plus, Z.AI, or Claude */
   const modelProvider = getModelById(modelId || "")?.provider || "openai";
+  const isAssistant = message.role === "assistant";
 
   // Extract chart artifact IDs from tool calls (for "Ver Charts" button)
   const chartArtifactIds = useMemo(() => {
@@ -915,6 +1039,40 @@ const MessageItem = memo(function MessageItem({
       })
       .filter((id): id is string => !!id);
   }, [message.tool_calls]);
+
+  const messageToolCallsForReasoning = useMemo<ToolCall[]>(() => {
+    if (!isAssistant || !message.tool_calls || message.tool_calls.length === 0) {
+      return [];
+    }
+
+    return message.tool_calls.map((tc) => ({
+      id: tc.id,
+      name: tc.name,
+      args: JSON.stringify(tc.args ?? {}),
+      result: tc.result,
+      status: "complete" as const,
+    }));
+  }, [isAssistant, message.tool_calls]);
+
+  const persistedReasoningActions = useMemo<AgentReasoningAction[]>(() => {
+    if (!isAssistant) return [];
+
+    const metadataActions = (message.metadata?.actions || []).filter(
+      (action) => action.type !== "tool"
+    );
+    const toolActions = toReasoningToolActions(messageToolCallsForReasoning);
+    return [...metadataActions, ...toolActions];
+  }, [isAssistant, message.metadata?.actions, messageToolCallsForReasoning]);
+
+  const shouldRenderReasoning = Boolean(
+    isAssistant &&
+      (reasoning ||
+        persistedReasoningActions.length > 0 ||
+        (message.metadata?.annotations && message.metadata.annotations.length > 0) ||
+        (message.metadata?.webSearches && message.metadata.webSearches.length > 0) ||
+        (message.metadata?.codeInterpreterExecs &&
+          message.metadata.codeInterpreterExecs.length > 0))
+  );
 
   useEffect(() => {
     return () => {
@@ -1002,28 +1160,84 @@ const MessageItem = memo(function MessageItem({
     return (
       <div className="flex flex-col items-end gap-2 group">
         <div className="flex flex-col items-end gap-1 group/message w-full">
-          <div className="max-w-[100%] bg-primary text-primary-foreground rounded-[24px] rounded-br-[4px] px-5 py-3 transition-all hover:bg-primary/90 shadow-sm">
-            <p className="text-[15px] whitespace-pre-wrap leading-relaxed break-words">
-              {content}
-            </p>
-          </div>
+          {isEditing ? (
+            <div className="w-full max-w-[100%]">
+              <MessageEditInline
+                initialContent={content || ""}
+                onSave={(newContent) => {
+                  setIsEditing(false);
+                  onEditAndResend?.(message.id, newContent);
+                }}
+                onCancel={() => setIsEditing(false)}
+              />
+            </div>
+          ) : (
+            <div className="max-w-[100%] bg-primary text-primary-foreground rounded-[24px] rounded-br-[4px] px-5 py-3 transition-all hover:bg-primary/90 shadow-sm">
+              <p className="text-[15px] whitespace-pre-wrap leading-relaxed break-words">
+                {content}
+              </p>
+            </div>
+          )}
 
-          {/* Copy button for user messages - below the bubble */}
-          <div className="flex items-center gap-1 opacity-0 group-hover/message:opacity-100 transition-opacity">
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  type="button"
-                  onClick={handleCopy}
-                  className="p-1.5 rounded-md transition-[background-color,transform] duration-150 ease-out hover:bg-accent text-muted-foreground active:scale-[0.97]"
-                  aria-label="Copy message"
-                >
-                  {copied ? <IconCheck size={16} /> : <IconCopy size={16} />}
-                </button>
-              </TooltipTrigger>
-              <TooltipContent side="top">Copy</TooltipContent>
-            </Tooltip>
-          </div>
+          {/* Action buttons + branch nav for user messages - below the bubble */}
+          {!isEditing && (
+            <div className="flex items-center gap-1 opacity-0 group-hover/message:opacity-100 transition-opacity">
+              {/* Branch navigator */}
+              {siblingCount > 1 && onSwitchBranch && treeNode?.parentMessageId && (
+                <BranchNavigator
+                  currentIndex={siblingIndex}
+                  totalSiblings={siblingCount}
+                  onPrevious={() => onSwitchBranch(treeNode.parentMessageId!, `prev:${message.id}`)}
+                  onNext={() => onSwitchBranch(treeNode.parentMessageId!, `next:${message.id}`)}
+                  disabled={isStreamingActive}
+                />
+              )}
+              {/* Edit button */}
+              {onEditAndResend && !isStreamingActive && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      onClick={() => setIsEditing(true)}
+                      className="p-1.5 rounded-md transition-[background-color,transform] duration-150 ease-out hover:bg-accent text-muted-foreground active:scale-[0.97]"
+                      aria-label="Edit message"
+                    >
+                      <IconPencil size={16} />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="top">Edit</TooltipContent>
+                </Tooltip>
+              )}
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    onClick={handleCopy}
+                    className="p-1.5 rounded-md transition-[background-color,transform] duration-150 ease-out hover:bg-accent text-muted-foreground active:scale-[0.97]"
+                    aria-label="Copy message"
+                  >
+                    {copied ? <IconCheck size={16} /> : <IconCopy size={16} />}
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="top">Copy</TooltipContent>
+              </Tooltip>
+              {onFork && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      onClick={onFork}
+                      className="p-1.5 rounded-md transition-[background-color,transform] duration-150 ease-out hover:bg-accent text-muted-foreground active:scale-[0.97]"
+                      aria-label="Fork from here"
+                    >
+                      <IconGitFork size={16} />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="top">Fork from here</TooltipContent>
+                </Tooltip>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Show attachments for user messages */}
@@ -1041,13 +1255,13 @@ const MessageItem = memo(function MessageItem({
     <div className="group w-full overflow-hidden">
       <div className="flex-1 min-w-0 space-y-2 pt-0.5 overflow-hidden">
         {/* Reasoning shown above everything */}
-        {reasoning && (
+        {shouldRenderReasoning && (
           <AgentReasoning
-            content={reasoning}
+            content={reasoning || ""}
             isStreaming={false}
             defaultCollapsed={reasoningDefaultCollapsed}
             durationMs={message.metadata?.durationMs}
-            actions={message.metadata?.actions}
+            actions={persistedReasoningActions}
             annotations={message.metadata?.annotations}
             webSearches={message.metadata?.webSearches}
             codeInterpreterExecs={message.metadata?.codeInterpreterExecs}
@@ -1056,8 +1270,8 @@ const MessageItem = memo(function MessageItem({
           />
         )}
 
-        {/* Tool calls shown after reasoning, before content */}
-        {message.tool_calls && message.tool_calls.length > 0 && (
+        {/* Legacy fallback for non-assistant roles */}
+        {!isAssistant && message.tool_calls && message.tool_calls.length > 0 && (
           <ToolCallsRenderer
             toolCalls={message.tool_calls.map((tc) => ({
               ...tc,
@@ -1147,6 +1361,31 @@ const MessageItem = memo(function MessageItem({
                       {ttsState === "playing" ? "Stop" : "Play"}
                     </TooltipContent>
                   </Tooltip>
+                  {onFork && (
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button
+                          type="button"
+                          onClick={onFork}
+                          className="p-1.5 rounded-md transition-[background-color,transform] duration-150 ease-out hover:bg-accent active:scale-[0.97]"
+                          aria-label="Fork from here"
+                        >
+                          <IconGitFork size={16} />
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent side="top">Fork from here</TooltipContent>
+                    </Tooltip>
+                  )}
+                  {/* Branch navigator for assistant messages */}
+                  {siblingCount > 1 && onSwitchBranch && treeNode?.parentMessageId && (
+                    <BranchNavigator
+                      currentIndex={siblingIndex}
+                      totalSiblings={siblingCount}
+                      onPrevious={() => onSwitchBranch(treeNode.parentMessageId!, `prev:${message.id}`)}
+                      onNext={() => onSwitchBranch(treeNode.parentMessageId!, `next:${message.id}`)}
+                      disabled={isStreamingActive}
+                    />
+                  )}
                 </>
               )}
 

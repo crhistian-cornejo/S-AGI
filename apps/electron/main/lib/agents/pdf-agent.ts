@@ -19,6 +19,10 @@ import { tool } from "ai";
 import { z } from "zod";
 import type { LanguageModel } from "ai";
 import type { PDFContext, PDFCitation } from "./types";
+import {
+  createAgentWorkingMemoryTool,
+  UPDATE_WORKING_MEMORY_TOOL_NAME,
+} from "./working-memory";
 import { sendToRenderer } from "../window-manager";
 import {
   searchWithCitations,
@@ -1353,6 +1357,11 @@ export function createPDFTools(context: PDFContext) {
             : "Navegando al tab de PDF.",
         };
       },
+    }),
+
+    [UPDATE_WORKING_MEMORY_TOOL_NAME]: createAgentWorkingMemoryTool({
+      chatId: context.chatId,
+      userId: context.userId,
     }),
   };
 }

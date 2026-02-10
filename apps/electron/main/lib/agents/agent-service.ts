@@ -25,6 +25,7 @@ import {
   extractTextFromPdfWithPages,
   type PageContent,
 } from "../documents/document-processor";
+import { buildWorkingMemoryPromptAddition } from "./working-memory";
 import log from "electron-log";
 import { readFile } from "node:fs/promises";
 
@@ -191,6 +192,18 @@ export async function executeSpecializedAgent(
     `[AgentService] Selected agent: ${selection.agent} - ${selection.reason}`,
   );
 
+  let promptForAgent = message;
+  if (context.userId) {
+    const memoryAddition = await buildWorkingMemoryPromptAddition({
+      chatId: context.chatId,
+      userId: context.userId,
+    });
+
+    if (memoryAddition) {
+      promptForAgent = `Use this persistent memory context if relevant:\n\n${memoryAddition}\n\nUser request:\n${message}`;
+    }
+  }
+
   try {
     switch (selection.agent) {
       case "pdf": {
@@ -210,7 +223,7 @@ export async function executeSpecializedAgent(
         };
 
         const pdfAgent = createPDFAgent(model, pdfContext);
-        const result = await pdfAgent.generate({ prompt: message });
+        const result = await pdfAgent.generate({ prompt: promptForAgent });
 
         // Stream the final result if callback provided
         if (onToken && result.text) {
@@ -230,7 +243,7 @@ export async function executeSpecializedAgent(
         };
 
         const excelAgent = createExcelAgent(model, excelContext);
-        const result = await excelAgent.generate({ prompt: message });
+        const result = await excelAgent.generate({ prompt: promptForAgent });
 
         // Stream the final result if callback provided
         if (onToken && result.text) {
@@ -250,7 +263,7 @@ export async function executeSpecializedAgent(
         };
 
         const docsAgent = createDocsAgent(model, docsContext);
-        const result = await docsAgent.generate({ prompt: message });
+        const result = await docsAgent.generate({ prompt: promptForAgent });
 
         // Stream the final result if callback provided
         if (onToken && result.text) {

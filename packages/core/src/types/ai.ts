@@ -27,6 +27,35 @@ export type ResponseMode = 'instant' | 'thinking' | 'auto'
 /** Reasoning summary levels */
 export type ReasoningSummary = 'auto' | 'concise' | 'detailed'
 
+/**
+ * Provider capability flags that drive routing decisions.
+ * Replaces scattered if/else provider branching throughout ai.ts.
+ */
+export interface ProviderCapabilities {
+    /** Whether this provider supports function/tool calling */
+    supportsTools: boolean
+    /** Whether this provider supports OpenAI Responses API native web search */
+    supportsNativeWebSearch: boolean
+    /** Whether this provider does server-side web search (e.g. Groq compound models) */
+    supportsServerWebSearch: boolean
+    /** Whether this provider supports code interpreter */
+    supportsCodeInterpreter: boolean
+    /** Whether this provider supports file search */
+    supportsFileSearch: boolean
+    /** Whether this provider supports reasoning/thinking */
+    supportsReasoning: boolean
+    /** Whether this provider can process image inputs */
+    supportsImages: boolean
+    /** Whether this provider can call the generate_image tool (requires OpenAI Images API access) */
+    supportsImageGeneration: boolean
+    /** Format for reasoning parameters when making API calls */
+    reasoningParamFormat?: 'ai-sdk' | 'cerebras' | 'cerebras-toggle' | 'groq-gpt-oss' | 'groq-qwen' | 'zai-thinking'
+    /** Which streaming API path to use */
+    streamingApi: 'ai-sdk' | 'responses-api' | 'chat-completions'
+    /** Authentication type */
+    authType: 'api-key' | 'oauth' | 'none'
+}
+
 export interface ModelDefinition {
     id: string
     provider: AIProvider
@@ -54,6 +83,8 @@ export interface ModelDefinition {
     /** When true, the model performs web search server-side automatically (e.g. Groq compound).
      *  No tool params needed — results come in message.executed_tools */
     supportsServerWebSearch?: boolean
+    /** Resolved capability flags for this model. Computed from model + provider defaults. */
+    capabilities?: ProviderCapabilities
 }
 
 /**
@@ -239,11 +270,57 @@ export const AI_MODELS: Record<string, ModelDefinition> = {
         id: 'qwen-3-235b-a22b-instruct-2507',
         provider: 'cerebras',
         name: 'Qwen 3 235B',
-        description: 'Multilingual instruction model via Cerebras (non-thinking)',
+        description: 'Multilingual instruction model via Cerebras (non-thinking, preview)',
         contextWindow: 65000, // 65K on free tier, 131K on paid
         supportsImages: false,
         supportsTools: true,
         supportsReasoning: false,
+    },
+    'cerebras-qwen-3-32b': {
+        id: 'cerebras-qwen-3-32b',
+        provider: 'cerebras',
+        name: 'Qwen 3 32B (Cerebras)',
+        description: 'Hybrid reasoning model with/without thinking via Cerebras',
+        contextWindow: 32768,
+        supportsImages: false,
+        supportsTools: true,
+        supportsReasoning: true,
+        defaultReasoningEffort: 'medium',
+        modelIdForApi: 'qwen-3-32b'
+    },
+    'cerebras-llama-3.3-70b': {
+        id: 'cerebras-llama-3.3-70b',
+        provider: 'cerebras',
+        name: 'Llama 3.3 70B (Cerebras)',
+        description: 'Meta Llama 3.3 via Cerebras — fast chat, coding, reasoning',
+        contextWindow: 128000,
+        supportsImages: false,
+        supportsTools: true,
+        supportsReasoning: false,
+        modelIdForApi: 'llama-3.3-70b'
+    },
+    'cerebras-llama3.1-8b': {
+        id: 'cerebras-llama3.1-8b',
+        provider: 'cerebras',
+        name: 'Llama 3.1 8B (Cerebras)',
+        description: 'Ultra-fast small model via Cerebras — real-time chat, quick tasks',
+        contextWindow: 128000,
+        supportsImages: false,
+        supportsTools: true,
+        supportsReasoning: false,
+        modelIdForApi: 'llama3.1-8b'
+    },
+    'cerebras-zai-glm-4.7': {
+        id: 'cerebras-zai-glm-4.7',
+        provider: 'cerebras',
+        name: 'GLM 4.7 (Cerebras)',
+        description: 'Z.AI GLM model via Cerebras — coding, reasoning (preview)',
+        contextWindow: 128000,
+        supportsImages: false,
+        supportsTools: true,
+        supportsReasoning: true,
+        defaultReasoningEffort: 'medium',
+        modelIdForApi: 'zai-glm-4.7'
     },
 
     // ========================================================================
@@ -264,6 +341,18 @@ export const AI_MODELS: Record<string, ModelDefinition> = {
         supportsReasoning: true,
         defaultReasoningEffort: 'medium',
         modelIdForApi: 'openai/gpt-oss-120b'
+    },
+    'groq-gpt-oss-20b': {
+        id: 'groq-gpt-oss-20b',
+        provider: 'groq',
+        name: 'GPT-OSS 20B (Groq)',
+        description: 'Fast reasoning model via Groq (30 RPM, 15K TPM, 500K TPD)',
+        contextWindow: 128000,
+        supportsImages: false,
+        supportsTools: true,
+        supportsReasoning: true,
+        defaultReasoningEffort: 'medium',
+        modelIdForApi: 'openai/gpt-oss-20b'
     },
     'groq-kimi-k2': {
         id: 'groq-kimi-k2',
@@ -329,7 +418,7 @@ export const AI_MODELS: Record<string, ModelDefinition> = {
     'groq-compound': {
         id: 'groq-compound',
         provider: 'groq',
-        name: 'Compound (Groq) 🔍',
+        name: 'Compound (Groq)',
         description: 'Groq compound with built-in web search, auto-citations. Best for real-time info.',
         contextWindow: 128000,
         supportsImages: false,
@@ -341,7 +430,7 @@ export const AI_MODELS: Record<string, ModelDefinition> = {
     'groq-compound-mini': {
         id: 'groq-compound-mini',
         provider: 'groq',
-        name: 'Compound Mini (Groq) 🔍',
+        name: 'Compound Mini (Groq)',
         description: 'Groq compound-mini with built-in web search. Faster, lighter.',
         contextWindow: 128000,
         supportsImages: false,
@@ -606,6 +695,10 @@ export type AIStreamEvent =
 
     // Groq per-model usage (emitted after every Groq request)
     | { type: 'groq-model-usage'; models: Array<{ model: string; tpdUsed: number; tpdLimit: number; tpmPct: number }> }
+
+    // Context compaction events
+    | { type: 'compaction-start' }
+    | { type: 'compaction-done'; summary: string; compactedMessages: number }
 
     // Step and completion events
     | { type: 'step-complete'; stepNumber: number; hasMoreSteps: boolean }

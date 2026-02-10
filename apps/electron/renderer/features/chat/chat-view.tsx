@@ -53,13 +53,13 @@ import {
 import { trpc, trpcClient } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Kbd } from "@/components/ui/kbd";
-import { Logo } from "@/components/ui/logo";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { RotatingWelcomeMessage } from "./components/rotating-welcome-message";
 import { MessageList } from "./message-list";
 import { MessageTableOfContents } from "./message-table-of-contents";
 import { ChatInput } from "./chat-input";
@@ -73,9 +73,42 @@ import { useMessageQueueStore } from "./stores/message-queue-store";
 import { useStreamingStatusStore } from "./stores/streaming-status-store";
 import { useSendCallbackStore } from "./stores/send-callback-store";
 import { generateQueueId, createQueueItem } from "./lib/queue-utils";
+import { buildMessageTree, resolveActivePath } from "./lib/message-tree";
 import { useOpenSettingsPage } from "@/features/settings/use-open-settings-page";
 import zenBackgroundDarkUrl from "@/assets/zen-background.png";
 import zenBackgroundLightUrl from "@/assets/zen-background-light.svg";
+
+const REASONING_TAG_REGEX = /<\s*\/?\s*(think|output)\s*>/gi;
+const WEB_RESULT_MARKERS = ["title:", "url:", "content:", "score:"] as const;
+
+function sanitizeReasoningText(raw: string): string {
+  if (!raw) return "";
+
+  const strippedTags = raw.replace(REASONING_TAG_REGEX, "");
+  const filteredLines = strippedTags
+    .split("\n")
+    .filter((line) => {
+      const trimmed = line.trim();
+      if (!trimmed) return true;
+
+      const lower = trimmed.toLowerCase();
+      const markerHits = WEB_RESULT_MARKERS.reduce(
+        (hits, marker) => hits + (lower.includes(marker) ? 1 : 0),
+        0
+      );
+
+      if (lower.startsWith("title:") || lower.startsWith("url:")) return false;
+      if (markerHits >= 2) return false;
+      if (/^https?:\/\/\S+$/i.test(trimmed)) return false;
+      return true;
+    })
+    .join("\n");
+
+  return filteredLines
+    .replace(/\n{3,}/g, "\n\n")
+    .replace(/\s+\n/g, "\n")
+    .trim();
+}
 
 export function ChatView() {
   // Sound effects preference
@@ -273,6 +306,14 @@ export function ChatView() {
     }
   );
 
+  // Build message tree for branching support (edit-and-resend)
+  const messageTree = useMemo(() => {
+    if (!messages?.length) return null;
+    const tree = buildMessageTree(messages);
+    tree.activePath = resolveActivePath(tree);
+    return tree;
+  }, [messages]);
+
   // Plan mode state - only use write atom
   const setIsPlanMode = useSetAtom(isPlanModeAtom);
 
@@ -361,7 +402,7 @@ export function ChatView() {
     documents?: File[],
     targetDocument?: { id: string; filename: string } | null,
     messageOverride?: string,
-    options?: { generateImage?: boolean; imageSize?: string }
+    options?: { generateImage?: boolean; imageSize?: string; skipUserMessage?: boolean }
   ) => {
     const messageToSend = messageOverride ?? input.trim();
     if ((!messageToSend && !images?.length) || !selectedChatId) return;
@@ -535,11 +576,24 @@ export function ChatView() {
       const chatIdForStream = chatId;
       const isFirstMessage = !historySource || historySource.length === 0;
 
-      await addMessage.mutateAsync({
-        chatId: chatIdForStream,
-        role: "user",
-        content: { type: "text", text: userMessage },
-      });
+      // Track the user message ID for setting parentMessageId on the assistant response
+      let userMessageId: string | undefined;
+
+      // When skipUserMessage is true, the user message was already created (e.g., by editAndResend)
+      if (!options?.skipUserMessage) {
+        // Determine parent message ID for tree branching
+        const lastActiveMessageId = messageTree?.activePath?.length
+          ? messageTree.activePath[messageTree.activePath.length - 1]
+          : undefined;
+
+        const savedUserMsg = await addMessage.mutateAsync({
+          chatId: chatIdForStream,
+          role: "user",
+          content: { type: "text", text: userMessage },
+          parentMessageId: lastActiveMessageId,
+        });
+        userMessageId = savedUserMsg?.id;
+      }
 
       if (chatIdForStream === selectedChatId) {
         await refetchMessages();
@@ -663,8 +717,15 @@ export function ChatView() {
       // Get conversation history for context (including images from attachments)
       // Note: Historical images are included as base64 in the messages array
       // The backend will handle image context limits (max 10 historical images)
+      // When a message tree exists, use only active path messages for history
+      const activePathIds = messageTree?.activePath ? new Set(messageTree.activePath) : null;
       const messageHistory = (historySource || [])
-        .filter((m) => m.role === "user" || m.role === "assistant")
+        .filter((m) => {
+          if (m.role !== "user" && m.role !== "assistant") return false;
+          // If tree exists, only include messages on the active path
+          if (activePathIds && activePathIds.size > 0 && !activePathIds.has(m.id)) return false;
+          return true;
+        })
         .map((m) => {
           const content =
             typeof m.content === "string" ? m.content : m.content?.text || "";
@@ -697,6 +758,7 @@ export function ChatView() {
       // Variables to track streaming response
       let fullText = "";
       let fullReasoning = "";
+      let fullReasoningRaw = "";
       const toolCalls: Map<
         string,
         { id: string; name: string; args: string; result?: unknown }
@@ -743,8 +805,9 @@ export function ChatView() {
               }
 
               case "reasoning-summary-delta": {
-                fullReasoning += event.delta;
-                setStreamingReasoning((prev) => prev + event.delta);
+                fullReasoningRaw += event.delta || "";
+                fullReasoning = sanitizeReasoningText(fullReasoningRaw);
+                setStreamingReasoning(fullReasoning);
                 setIsReasoning(true);
                 break;
               }
@@ -752,8 +815,9 @@ export function ChatView() {
               case "reasoning-summary-done": {
                 // Add newline separator so next summary starts on a new line
                 // This prevents titles from concatenating into one long string
-                fullReasoning += "\n";
-                setStreamingReasoning((prev) => prev + "\n");
+                fullReasoningRaw += "\n";
+                fullReasoning = sanitizeReasoningText(fullReasoningRaw);
+                setStreamingReasoning(fullReasoning);
                 setIsReasoning(false);
                 break;
               }
@@ -1246,6 +1310,22 @@ export function ChatView() {
                 break;
               }
 
+              case "compaction-start": {
+                toast.info("Compacting conversation context...", {
+                  id: "compaction",
+                  duration: 30000,
+                });
+                break;
+              }
+
+              case "compaction-done": {
+                toast.success(
+                  `Context compacted: ${event.compactedMessages} earlier messages summarized`,
+                  { id: "compaction" },
+                );
+                break;
+              }
+
               case "error": {
                 setStreamingError(event.error);
                 // Play error sound for streaming/API errors
@@ -1370,6 +1450,7 @@ export function ChatView() {
                       toolCallsArray.length > 0 ? toolCallsArray : undefined,
                     modelId: selectedModel,
                     modelName,
+                    parentMessageId: userMessageId,
                     metadata: {
                       usage,
                       contextWindow: contextWindow || undefined,
@@ -1732,6 +1813,84 @@ export function ChatView() {
       ?.scrollIntoView({ behavior: "smooth", block: "start" });
   }, []);
 
+  // Fork from a specific message
+  const handleForkFromMessage = useCallback(
+    async (messageId: string) => {
+      if (!selectedChatId) return;
+      try {
+        const forkedChat = await trpcClient.chats.fork.mutate({
+          chatId: selectedChatId,
+          messageId,
+        });
+        if (forkedChat) {
+          utils.chats.list.invalidate();
+          setSelectedChatId(forkedChat.id);
+          toast.success("Chat forked successfully");
+        }
+      } catch (error) {
+        console.error("[ChatView] Fork failed:", error);
+        toast.error("Failed to fork chat");
+      }
+    },
+    [selectedChatId, setSelectedChatId, utils],
+  );
+
+  // Edit-and-resend: create a sibling branch from an edited user message, then trigger AI
+  const handleEditAndResend = useCallback(
+    async (originalMessageId: string, newContent: string) => {
+      if (!selectedChatId) return;
+      try {
+        const newMessage = await trpcClient.messages.editAndResend.mutate({
+          chatId: selectedChatId,
+          originalMessageId,
+          newContent,
+        });
+        if (newMessage) {
+          // Refetch messages to rebuild tree with the new branch
+          await refetchMessages();
+          // Trigger AI response — skip adding user message since editAndResend already created it
+          handleSend(undefined, undefined, undefined, newContent, { skipUserMessage: true });
+        }
+      } catch (error) {
+        console.error("[ChatView] Edit-and-resend failed:", error);
+        toast.error("Failed to edit message");
+      }
+    },
+    [selectedChatId, refetchMessages, handleSend],
+  );
+
+  // Switch to a different branch at a branch point
+  const handleSwitchBranch = useCallback(
+    async (parentMessageId: string, directive: string) => {
+      if (!messageTree) return;
+      const parentNode = messageTree.nodes.get(parentMessageId);
+      if (!parentNode) return;
+
+      // Parse directive: "prev:currentId" or "next:currentId"
+      const [direction, currentId] = directive.split(":");
+      const currentIndex = parentNode.children.indexOf(currentId);
+      if (currentIndex === -1) return;
+
+      const newIndex = direction === "prev" ? currentIndex - 1 : currentIndex + 1;
+      if (newIndex < 0 || newIndex >= parentNode.children.length) return;
+
+      const newChildId = parentNode.children[newIndex];
+
+      try {
+        await trpcClient.messages.setActiveChild.mutate({
+          messageId: parentMessageId,
+          childId: newChildId,
+        });
+        // Refetch to rebuild the tree with the new active path
+        await refetchMessages();
+      } catch (error) {
+        console.error("[ChatView] Branch switch failed:", error);
+        toast.error("Failed to switch branch");
+      }
+    },
+    [messageTree, refetchMessages],
+  );
+
   // Memoized handler for viewing artifacts
   const handleViewArtifact = useCallback(
     async (artifactId: string) => {
@@ -1956,28 +2115,12 @@ export function ChatView() {
         }
       >
         <div className="w-full max-w-[740px] flex flex-col items-center">
-          {/* Welcome message */}
-          <div className="flex flex-col items-center text-muted-foreground mb-8 animate-in fade-in duration-700">
-            <div className="mb-6">
-              <button
-                type="button"
-                onClick={() => setShowSnakeGame(true)}
-                className="rounded-2xl p-2 transition-colors hover:bg-muted/50"
-                aria-label="Play snake game"
-              >
-                <Logo size={64} />
-              </button>
-            </div>
-            <h1 className="text-2xl font-semibold text-foreground tracking-tight">
-              How can I help you today?
-            </h1>
-            <p className="text-sm text-muted-foreground mt-2 max-w-[280px] text-center leading-relaxed">
-              Describe a spreadsheet or ask a question to get started.
-            </p>
-            <p className="text-xs text-muted-foreground mt-2">
-              Click the icon to play Snake.
-            </p>
-          </div>
+          <RotatingWelcomeMessage
+            className="mb-8"
+            threadId={selectedChatId}
+            onLogoClick={() => setShowSnakeGame(true)}
+            logoAriaLabel="Play snake game"
+          />
 
           {/* Centered input */}
           <div className="w-full">
@@ -2035,6 +2178,11 @@ export function ChatView() {
               streamingDocumentCitations={streamingDocumentCitations}
               streamingCodeInterpreterExecs={streamingCodeInterpreterExecs}
               streamingError={streamingError}
+              threadId={selectedChatId}
+              onForkFromMessage={handleForkFromMessage}
+              messageTree={messageTree}
+              onEditAndResend={handleEditAndResend}
+              onSwitchBranch={handleSwitchBranch}
             />
             <div ref={messagesEndRef} className="h-px" />
           </div>

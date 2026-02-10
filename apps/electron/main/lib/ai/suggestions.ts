@@ -25,6 +25,7 @@ export async function generateSuggestions(
     const client = new OpenAI({
       apiKey,
       baseURL: baseURL || undefined,
+      timeout: 10_000, // 10s timeout — suggestions are non-critical
     });
 
     // Choose a fast/cheap model based on the provider

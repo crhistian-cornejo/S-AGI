@@ -19,6 +19,8 @@ function mapLocalMessageToSnakeCase(msg: {
     metadata: Record<string, unknown> | null;
     modelId: string | null;
     modelName: string | null;
+    parentMessageId: string | null;
+    activeChildId: string | null;
     createdAt: Date;
     updatedAt: Date;
 }) {
@@ -32,6 +34,8 @@ function mapLocalMessageToSnakeCase(msg: {
         metadata: msg.metadata,
         model_id: msg.modelId,
         model_name: msg.modelName,
+        parent_message_id: msg.parentMessageId,
+        active_child_id: msg.activeChildId,
         created_at: msg.createdAt.toISOString(),
         updated_at: msg.updatedAt.toISOString(),
         tool_calls: (msg.metadata as any)?.tool_calls || [],
@@ -185,7 +189,9 @@ export const messagesRouter = router({
             modelId: z.string().optional(),
             /** Display name of the model (e.g. GPT-5.2, GLM-4.7). */
             modelName: z.string().optional(),
-            attachments: z.array(attachmentSchema).optional()
+            attachments: z.array(attachmentSchema).optional(),
+            /** Parent message ID for branching (edit-and-resend creates siblings under the same parent) */
+            parentMessageId: z.string().uuid().optional()
         }))
         .mutation(async ({ ctx, input }) => {
             console.log('[MessagesRouter] add message, userId:', ctx.userId, 'chatId:', input.chatId);
@@ -219,7 +225,8 @@ export const messagesRouter = router({
                     attachments: input.attachments || [],
                     metadata: Object.keys(metadataPayload).length > 0 ? metadataPayload : undefined,
                     modelId: input.modelId,
-                    modelName: input.modelName
+                    modelName: input.modelName,
+                    parentMessageId: input.parentMessageId
                 })
 
                 // Update chat's updated_at timestamp using updateById (OpenCode pattern)
@@ -254,6 +261,7 @@ export const messagesRouter = router({
             }
             if (input.modelId != null) insertPayload.model_id = input.modelId
             if (input.modelName != null) insertPayload.model_name = input.modelName
+            if (input.parentMessageId != null) insertPayload.parent_message_id = input.parentMessageId
 
             const { data, error } = await supabase
                 .from('chat_messages')
@@ -566,6 +574,130 @@ export const messagesRouter = router({
                 url: signedUrlData.signedUrl,
                 expiresIn: ATTACHMENT_SIGNED_URL_TTL
             }
+        }),
+
+    /**
+     * Set the active child for a message (branch navigation)
+     * Used when switching between sibling branches at a branch point
+     */
+    setActiveChild: protectedProcedure
+        .input(z.object({
+            messageId: z.string().uuid(),
+            childId: z.string().uuid().nullable()
+        }))
+        .mutation(async ({ ctx, input }) => {
+            if (isLocalStorageMode()) {
+                log.debug('[Messages] Local mode - setActiveChild:', input.messageId, '->', input.childId)
+                const adapter = await getStorageAdapter()
+                await adapter.messages.setActiveChild!(input.messageId, input.childId)
+                return { success: true }
+            }
+
+            // Cloud mode: direct update
+            const { error } = await supabase
+                .from('chat_messages')
+                .update({ active_child_id: input.childId })
+                .eq('id', input.messageId)
+
+            if (error) throw new Error(error.message)
+            return { success: true }
+        }),
+
+    /**
+     * Edit-and-resend: create a sibling message (new branch) from an edited user message
+     * 1. Find the original message's parent_message_id
+     * 2. Create a new message with the SAME parent (sibling)
+     * 3. Update parent's active_child_id to the new message
+     * 4. Return new message
+     */
+    editAndResend: protectedProcedure
+        .input(z.object({
+            chatId: z.string().uuid(),
+            originalMessageId: z.string().uuid(),
+            newContent: z.string(),
+            attachments: z.array(attachmentSchema).optional()
+        }))
+        .mutation(async ({ ctx, input }) => {
+            log.info('[Messages] editAndResend - chatId:', input.chatId, 'original:', input.originalMessageId)
+
+            if (isLocalStorageMode()) {
+                const adapter = await getStorageAdapter()
+
+                // 1. Get original message to find its parent
+                const original = await adapter.messages.getById!(input.originalMessageId)
+                if (!original) throw new Error('Original message not found')
+
+                // 2. Create new sibling message with same parent
+                const newMessage = await adapter.messages.add({
+                    chatId: input.chatId,
+                    userId: 'local-user',
+                    role: 'user',
+                    content: input.newContent,
+                    attachments: input.attachments || original.attachments || [],
+                    parentMessageId: original.parentMessageId || undefined
+                })
+
+                // 3. Update parent's active_child_id to point to new message
+                if (original.parentMessageId) {
+                    await adapter.messages.setActiveChild!(original.parentMessageId, newMessage.id)
+                }
+
+                // 4. Update chat timestamp
+                await adapter.chats.updateById!(input.chatId, {})
+
+                return mapLocalMessageToSnakeCase(newMessage)
+            }
+
+            // Cloud mode
+            const { data: original, error: fetchError } = await supabase
+                .from('chat_messages')
+                .select('*')
+                .eq('id', input.originalMessageId)
+                .maybeSingle()
+
+            if (fetchError || !original) throw new Error('Original message not found')
+
+            // Verify chat ownership
+            const { data: chat } = await supabase
+                .from('chats')
+                .select('id')
+                .eq('id', input.chatId)
+                .eq('user_id', ctx.userId)
+                .maybeSingle()
+
+            if (!chat) throw new Error('Chat not found or access denied')
+
+            // Create sibling message
+            const { data: newMessage, error: insertError } = await supabase
+                .from('chat_messages')
+                .insert({
+                    chat_id: input.chatId,
+                    user_id: ctx.userId,
+                    role: 'user',
+                    content: input.newContent,
+                    attachments: input.attachments || original.attachments || [],
+                    parent_message_id: original.parent_message_id || null
+                })
+                .select()
+                .maybeSingle()
+
+            if (insertError || !newMessage) throw new Error(insertError?.message || 'Failed to create message')
+
+            // Update parent's active_child_id
+            if (original.parent_message_id) {
+                await supabase
+                    .from('chat_messages')
+                    .update({ active_child_id: newMessage.id })
+                    .eq('id', original.parent_message_id)
+            }
+
+            // Update chat timestamp
+            await supabase
+                .from('chats')
+                .update({ updated_at: new Date().toISOString() })
+                .eq('id', input.chatId)
+
+            return newMessage
         }),
 
     /**

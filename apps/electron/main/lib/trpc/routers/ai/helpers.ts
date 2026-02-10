@@ -281,6 +281,26 @@ export function pickModeAuto(
 /**
  * Check if prompt is likely about coding
  */
+// ============================================================================
+// Token Estimation
+// ============================================================================
+
+/** Rough token estimation: ~4 chars = 1 token (conservative) */
+export function estimateTokens(text: string): number {
+  return Math.ceil(text.length / 4);
+}
+
+/** Estimate total tokens for a message array, including per-message overhead */
+export function estimateMessagesTokens(
+  messages: Array<{ content: string; role: string }>,
+): number {
+  return messages.reduce((sum, m) => sum + estimateTokens(m.content) + 4, 0);
+}
+
+// ============================================================================
+// Coding Prompt Detection
+// ============================================================================
+
 export function isLikelyCodingPrompt(text: string): boolean {
   const t = text.toLowerCase();
   if (t.includes("```")) return true;

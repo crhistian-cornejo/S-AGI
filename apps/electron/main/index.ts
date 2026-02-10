@@ -242,7 +242,7 @@ function updateApplicationMenu() {
         { type: "separator" } as const,
         {
           label: "Toggle Sidebar",
-          accelerator: process.platform === "darwin" ? "Command+\\" : "Ctrl+\\",
+          accelerator: process.platform === "darwin" ? "Command+B" : "Ctrl+B",
           click: () => sendMenuAction("toggle-sidebar"),
         },
         {

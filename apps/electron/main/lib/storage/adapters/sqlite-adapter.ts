@@ -282,9 +282,9 @@ export class SQLiteAdapter implements IStorageAdapter {
       log.info("[SQLiteAdapter] chats.create - id:", id, "userId:", data.userId, "title:", data.title);
 
       db.prepare(`
-        INSERT INTO chats (id, user_id, title, project_id, source_type, source_id, archived, pinned, sort_order, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, 0, 0, 0, ?, ?)
-      `).run(id, data.userId, data.title || "New Chat", data.projectId || null, data.sourceType || null, data.sourceId || null, now, now);
+        INSERT INTO chats (id, user_id, title, project_id, parent_id, source_type, source_id, archived, pinned, sort_order, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 0, 0, 0, ?, ?)
+      `).run(id, data.userId, data.title || "New Chat", data.projectId || null, data.parentId || null, data.sourceType || null, data.sourceId || null, now, now);
 
       // Verify the insert worked - use getById (no userId check)
       const chat = await this.chats.getById(id);
@@ -366,6 +366,7 @@ export class SQLiteAdapter implements IStorageAdapter {
     pinned: Boolean(row.pinned),
     projectId: row.project_id || null,
     sortOrder: row.sort_order || 0,
+    parentId: row.parent_id || null,
     sourceType: row.source_type,
     sourceId: row.source_id,
     openaiVectorStoreId: row.openai_vector_store_id,
@@ -441,8 +442,8 @@ export class SQLiteAdapter implements IStorageAdapter {
       log.info("[SQLiteAdapter] messages.add - id:", id, "chatId:", data.chatId, "userId:", data.userId);
 
       db.prepare(`
-        INSERT INTO chat_messages (id, chat_id, user_id, role, content, attachments, metadata, model_id, model_name, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO chat_messages (id, chat_id, user_id, role, content, attachments, metadata, model_id, model_name, parent_message_id, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         id,
         data.chatId,
@@ -453,6 +454,7 @@ export class SQLiteAdapter implements IStorageAdapter {
         data.metadata ? JSON.stringify(data.metadata) : null,
         data.modelId || null,
         data.modelName || null,
+        data.parentMessageId || null,
         now,
         now
       );
@@ -485,6 +487,10 @@ export class SQLiteAdapter implements IStorageAdapter {
         updates.push("metadata = ?");
         params.push(JSON.stringify(data.metadata));
       }
+      if (data.activeChildId !== undefined) {
+        updates.push("active_child_id = ?");
+        params.push(data.activeChildId);
+      }
 
       updates.push("updated_at = ?");
       params.push(Math.floor(Date.now() / 1000));
@@ -495,6 +501,12 @@ export class SQLiteAdapter implements IStorageAdapter {
       `).run(...params);
 
       return this.messages.get(id, userId) as Promise<Message>;
+    },
+
+    setActiveChild: async (messageId: string, childId: string | null): Promise<void> => {
+      const db = getRawDatabase();
+      if (!db) throw new Error("Database not available");
+      db.prepare(`UPDATE chat_messages SET active_child_id = ? WHERE id = ?`).run(childId, messageId);
     },
 
     delete: async (id: string, userId: string): Promise<void> => {
@@ -515,6 +527,8 @@ export class SQLiteAdapter implements IStorageAdapter {
     metadata: parseJson(row.metadata),
     modelId: row.model_id,
     modelName: row.model_name,
+    parentMessageId: row.parent_message_id || null,
+    activeChildId: row.active_child_id || null,
     createdAt: toDate(row.created_at) || new Date(),
     updatedAt: toDate(row.updated_at) || new Date(),
   });

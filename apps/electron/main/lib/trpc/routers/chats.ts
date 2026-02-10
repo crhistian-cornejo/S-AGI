@@ -15,6 +15,7 @@ function mapLocalChatToSnakeCase(chat: {
   pinned: boolean;
   projectId?: string | null;
   sortOrder?: number;
+  parentId?: string | null;
   sourceType?: string | null;
   sourceId?: string | null;
   openaiVectorStoreId?: string | null;
@@ -30,6 +31,7 @@ function mapLocalChatToSnakeCase(chat: {
     pinned: chat.pinned,
     project_id: chat.projectId || null,
     sort_order: chat.sortOrder || 0,
+    parent_id: chat.parentId || null,
     source_type: chat.sourceType || null,
     source_id: chat.sourceId || null,
     openai_vector_store_id: chat.openaiVectorStoreId || null,
@@ -804,6 +806,160 @@ export const chatsRouter = router({
         sourceId,
       );
       return { chat: newChat, isNew: true };
+    }),
+
+  // Fork a chat (clone conversation into a new chat)
+  fork: protectedProcedure
+    .input(
+      z.object({
+        chatId: z.string().uuid(),
+        messageId: z.string().uuid().optional(), // Fork point (clone up to this message)
+        /** Fork mode:
+         * - direct-path: Only clone messages on the active path up to fork point (default)
+         * - related-branches: Active path + all siblings at branch points along the path
+         * - all-branches: Clone ALL messages up to the fork point timestamp
+         */
+        mode: z.enum(["direct-path", "related-branches", "all-branches"]).optional().default("direct-path"),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      log.info("[Chats] Forking chat:", input.chatId, "messageId:", input.messageId, "mode:", input.mode);
+
+      // Only local storage mode supported for fork
+      if (!isLocalStorageMode()) {
+        throw new Error("Fork is only supported in local storage mode");
+      }
+
+      const adapter = await getStorageAdapter();
+
+      // 1. Get original chat
+      const original = await adapter.chats.getById!(input.chatId);
+      if (!original) throw new Error("Chat not found");
+
+      // 2. Create forked chat with parentId
+      const forkedChat = await adapter.chats.create({
+        userId: ctx.userId || "local-user",
+        title: `${original.title || "New Chat"} (fork)`,
+        parentId: original.id,
+        projectId: original.projectId || undefined,
+      });
+
+      // 3. Get all messages
+      const allMessages = await adapter.messages.listByChatId!(input.chatId, 10000);
+
+      // 4. Determine which messages to clone based on mode
+      let messagesToClone = allMessages;
+
+      if (input.mode === "all-branches") {
+        // Clone ALL messages up to fork point timestamp
+        if (input.messageId) {
+          const forkPoint = allMessages.find((m) => m.id === input.messageId);
+          if (forkPoint) {
+            messagesToClone = allMessages.filter(
+              (m) => new Date(m.createdAt) <= new Date(forkPoint.createdAt),
+            );
+          }
+        }
+      } else {
+        // "direct-path" or "related-branches": need to resolve active path
+        const hasTree = allMessages.some((m) => m.parentMessageId);
+
+        if (hasTree) {
+          // Build a quick parent->children map
+          const childrenMap = new Map<string, string[]>();
+          const rootIds: string[] = [];
+          for (const m of allMessages) {
+            if (!m.parentMessageId) {
+              rootIds.push(m.id);
+            } else {
+              const siblings = childrenMap.get(m.parentMessageId) || [];
+              siblings.push(m.id);
+              childrenMap.set(m.parentMessageId, siblings);
+            }
+          }
+
+          // Resolve active path
+          const activePath = new Set<string>();
+          let currentId: string | null = rootIds[0] || null;
+          while (currentId) {
+            const msg = allMessages.find((m) => m.id === currentId);
+            if (!msg) break;
+            activePath.add(currentId);
+            if (input.messageId && currentId === input.messageId) break;
+            const children = childrenMap.get(currentId) || [];
+            if (children.length === 0) break;
+            // Follow activeChildId or last child
+            currentId = msg.activeChildId && children.includes(msg.activeChildId)
+              ? msg.activeChildId
+              : children[children.length - 1];
+          }
+
+          if (input.mode === "direct-path") {
+            messagesToClone = allMessages.filter((m) => activePath.has(m.id));
+          } else {
+            // "related-branches": active path + siblings at branch points
+            const relatedIds = new Set(activePath);
+            for (const pathId of activePath) {
+              const msg = allMessages.find((m) => m.id === pathId);
+              if (msg?.parentMessageId) {
+                const siblings = childrenMap.get(msg.parentMessageId) || [];
+                for (const sibId of siblings) relatedIds.add(sibId);
+              }
+            }
+            messagesToClone = allMessages.filter((m) => relatedIds.has(m.id));
+          }
+        } else {
+          // No tree structure — linear filter by timestamp
+          if (input.messageId) {
+            const forkPoint = allMessages.find((m) => m.id === input.messageId);
+            if (forkPoint) {
+              messagesToClone = allMessages.filter(
+                (m) => new Date(m.createdAt) <= new Date(forkPoint.createdAt),
+              );
+            }
+          }
+        }
+      }
+
+      // 5. Clone each message into the new chat (preserving tree structure with ID remapping)
+      const idMap = new Map<string, string>(); // old ID -> new ID
+
+      for (const msg of messagesToClone) {
+        const newMsg = await adapter.messages.add({
+          chatId: forkedChat.id,
+          userId: msg.userId,
+          role: msg.role,
+          content: msg.content,
+          attachments: msg.attachments as unknown[] | undefined,
+          metadata: msg.metadata || undefined,
+          modelId: msg.modelId || undefined,
+          modelName: msg.modelName || undefined,
+          // Remap parentMessageId to the new cloned parent
+          parentMessageId: msg.parentMessageId ? idMap.get(msg.parentMessageId) : undefined,
+        });
+        idMap.set(msg.id, newMsg.id);
+      }
+
+      // 6. Update activeChildId references in cloned messages
+      for (const msg of messagesToClone) {
+        if (msg.activeChildId && idMap.has(msg.activeChildId)) {
+          const newMsgId = idMap.get(msg.id);
+          const newChildId = idMap.get(msg.activeChildId);
+          if (newMsgId && newChildId) {
+            await adapter.messages.setActiveChild!(newMsgId, newChildId);
+          }
+        }
+      }
+
+      log.info(
+        "[Chats] Forked chat",
+        input.chatId,
+        "→",
+        forkedChat.id,
+        `(${messagesToClone.length} messages cloned, mode: ${input.mode})`,
+      );
+
+      return mapLocalChatToSnakeCase(forkedChat);
     }),
 
   // List chats by source type (for viewing document-specific chat history)

@@ -39,6 +39,12 @@ export const selectedModelAtom = atomWithStorage<string>(
   DEFAULT_MODELS.openai
 )
 
+/** Favorite model IDs for quick access in model picker */
+export const favoriteModelIdsAtom = atomWithStorage<string[]>(
+  'ai-favorite-model-ids',
+  []
+)
+
 // === COMPUTED MODEL ATOMS ===
 
 /** Available models for current provider */

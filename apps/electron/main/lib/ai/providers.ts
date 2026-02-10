@@ -1,6 +1,9 @@
 import { createProviderRegistry, customProvider } from 'ai'
 import { createOpenAI } from '@ai-sdk/openai'
+import { createOpenAICompatible } from '@ai-sdk/openai-compatible'
 import { createAnthropic } from '@ai-sdk/anthropic'
+import { createCerebras } from '@ai-sdk/cerebras'
+import { createGroq } from '@ai-sdk/groq'
 import log from 'electron-log'
 import { getTokenManager, sanitizeToken } from '../auth/token-manager'
 import { getChatGPTAuthManager } from '../auth/chatgpt-manager'
@@ -11,22 +14,6 @@ import { getCerebrasAuthManager } from '../auth/cerebras-manager'
 import { getGroqAuthManager } from '../auth/groq-manager'
 import { resolveModelIdForApi } from '@s-agi/core/types/ai'
 import type { AIProvider } from '@s-agi/core/types/ai'
-
-/**
- * Cerebras API configuration (OpenAI-compatible)
- * @see https://inference-docs.cerebras.ai
- */
-const CEREBRAS_CONFIG = {
-    baseURL: 'https://api.cerebras.ai/v1'
-}
-
-/**
- * Groq API configuration (OpenAI-compatible)
- * @see https://console.groq.com/docs
- */
-const GROQ_CONFIG = {
-    baseURL: 'https://api.groq.com/openai/v1'
-}
 
 /**
  * Z.AI API configuration (OpenAI-compatible)
@@ -52,69 +39,73 @@ const OLLAMA_CONFIG = {
     baseURL: 'http://127.0.0.1:11434/v1'
 }
 
+// ============================================================================
+// Singleton provider instances (created once, reused across requests)
+// ============================================================================
+let _openai: ReturnType<typeof createOpenAI> | null = null
+let _chatgptPlus: ReturnType<typeof customProvider> | null = null
+let _zai: ReturnType<typeof createOpenAICompatible> | null = null
+let _claude: ReturnType<typeof createAnthropic> | null = null
+let _cerebras: ReturnType<typeof createCerebras> | null = null
+let _groq: ReturnType<typeof createGroq> | null = null
+let _ollama: ReturnType<typeof createOpenAI> | null = null
+
 /**
  * Create an OpenAI provider instance with standard API key
  */
-function createStandardOpenAI() {
-    const apiKeyStore = getSecureApiKeyStore()
-
-    return createOpenAI({
-        apiKey: apiKeyStore.getOpenAIKey() || '',
-        // Allow dynamic API key fetching
-        fetch: async (url, init) => {
-            // Get fresh API key for each request
-            const currentKey = apiKeyStore.getOpenAIKey()
-            if (!currentKey) {
-                throw new Error('OpenAI API key not configured')
+function getStandardOpenAI() {
+    if (!_openai) {
+        const apiKeyStore = getSecureApiKeyStore()
+        _openai = createOpenAI({
+            apiKey: apiKeyStore.getOpenAIKey() || '',
+            fetch: async (url, init) => {
+                const currentKey = apiKeyStore.getOpenAIKey()
+                if (!currentKey) {
+                    throw new Error('OpenAI API key not configured')
+                }
+                const headers = new Headers(init?.headers)
+                headers.set('Authorization', `Bearer ${currentKey}`)
+                log.debug(`[AI] OpenAI request to ${url}, key: ${sanitizeToken(currentKey)}`)
+                return fetch(url, { ...init, headers })
             }
-
-            const headers = new Headers(init?.headers)
-            headers.set('Authorization', `Bearer ${currentKey}`)
-
-            log.debug(`[AI] OpenAI request to ${url}, key: ${sanitizeToken(currentKey)}`)
-
-            return fetch(url, {
-                ...init,
-                headers
-            })
-        }
-    })
+        })
+    }
+    return _openai
 }
 
 /**
  * Create a ChatGPT Plus/Pro provider with OAuth authentication
- * Uses the Codex CLI flow for subscription-based access
  */
-function createChatGPTPlusProvider() {
-    const chatGPTManager = getChatGPTAuthManager()
-
-    return customProvider({
-        languageModels: {
-            'gpt-5.1-codex-max': createOpenAI({
-                baseURL: CHATGPT_CONFIG.inferenceEndpoint,
-                apiKey: 'dummy', // Will be overridden by fetch
-                fetch: createChatGPTFetch(chatGPTManager)
-            })('gpt-5.1-codex-max'),
-
-            'gpt-5.1-codex-mini': createOpenAI({
-                baseURL: CHATGPT_CONFIG.inferenceEndpoint,
-                apiKey: 'dummy',
-                fetch: createChatGPTFetch(chatGPTManager)
-            })('gpt-5.1-codex-mini'),
-
-            'gpt-5.2': createOpenAI({
-                baseURL: CHATGPT_CONFIG.inferenceEndpoint,
-                apiKey: 'dummy',
-                fetch: createChatGPTFetch(chatGPTManager)
-            })('gpt-5.2'),
-
-            'gpt-5.2-codex': createOpenAI({
-                baseURL: CHATGPT_CONFIG.inferenceEndpoint,
-                apiKey: 'dummy',
-                fetch: createChatGPTFetch(chatGPTManager)
-            })('gpt-5.2-codex')
-        }
-    })
+function getChatGPTPlusProvider() {
+    if (!_chatgptPlus) {
+        const chatGPTManager = getChatGPTAuthManager()
+        const chatGPTFetch = createChatGPTFetch(chatGPTManager)
+        _chatgptPlus = customProvider({
+            languageModels: {
+                'gpt-5.1-codex-max': createOpenAI({
+                    baseURL: CHATGPT_CONFIG.inferenceEndpoint,
+                    apiKey: 'dummy',
+                    fetch: chatGPTFetch
+                })('gpt-5.1-codex-max'),
+                'gpt-5.1-codex-mini': createOpenAI({
+                    baseURL: CHATGPT_CONFIG.inferenceEndpoint,
+                    apiKey: 'dummy',
+                    fetch: chatGPTFetch
+                })('gpt-5.1-codex-mini'),
+                'gpt-5.2': createOpenAI({
+                    baseURL: CHATGPT_CONFIG.inferenceEndpoint,
+                    apiKey: 'dummy',
+                    fetch: chatGPTFetch
+                })('gpt-5.2'),
+                'gpt-5.2-codex': createOpenAI({
+                    baseURL: CHATGPT_CONFIG.inferenceEndpoint,
+                    apiKey: 'dummy',
+                    fetch: chatGPTFetch
+                })('gpt-5.2-codex')
+            }
+        })
+    }
+    return _chatgptPlus
 }
 
 /**
@@ -124,92 +115,79 @@ function createChatGPTFetch(manager: ReturnType<typeof getChatGPTAuthManager>) {
     return async (url: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
         const tokenManager = getTokenManager()
         const tokenInfo = await tokenManager.getValidToken('chatgpt-plus')
-
         if (!tokenInfo) {
             throw new Error('ChatGPT Plus not connected. Please connect your account in Settings.')
         }
-
         const headers = new Headers(init?.headers)
         headers.set('Authorization', `Bearer ${tokenInfo.token}`)
-
-        // Add account ID header if available
         const accountId = manager.getAccountId()
         if (accountId) {
             headers.set('X-ChatGPT-Account-ID', accountId)
         }
-
         log.debug(`[AI] ChatGPT Plus request to ${url}, account: ${accountId}`)
-
-        return fetch(url, {
-            ...init,
-            headers
-        })
+        return fetch(url, { ...init, headers })
     }
 }
 
 /**
- * Create Z.AI provider with OpenAI-compatible endpoint
- * @see https://docs.z.ai/api-reference
- *
- * Available models:
- * - GLM-4.7: Main model with thinking mode support
- * - GLM-4.7-Flash: Fast model for quick tasks (free tier fallback)
+ * Create Z.AI provider with OpenAI-compatible endpoint.
+ * Uses createOpenAICompatible (not createOpenAI) so that custom providerOptions
+ * like `thinking` are passed through to the Z.AI API body.
+ * @ai-sdk/openai has strict Zod validation that drops unknown keys.
  */
-function createZaiProvider() {
-    const zaiManager = getZaiAuthManager()
-
-    return customProvider({
-        languageModels: {
-            // Main model with thinking mode support
-            'GLM-4.7': createOpenAI({
-                baseURL: ZAI_CONFIG.baseURL,
-                apiKey: 'dummy',
-                fetch: createZaiFetch(zaiManager)
-            })('GLM-4.7'),
-
-            // Fast model for quick tasks
-            'GLM-4.7-Flash': createOpenAI({
-                baseURL: ZAI_CONFIG.baseURL,
-                apiKey: 'dummy',
-                fetch: createZaiFetch(zaiManager)
-            })('GLM-4.7-Flash')
-        }
-    })
+function getZaiProvider() {
+    if (!_zai) {
+        const zaiManager = getZaiAuthManager()
+        const zaiFetch = createZaiFetch(zaiManager)
+        _zai = createOpenAICompatible({
+            name: 'zai',
+            baseURL: ZAI_CONFIG.baseURL,
+            apiKey: 'dummy',
+            fetch: zaiFetch,
+        })
+    }
+    return _zai
 }
 
 /**
  * Create a Claude provider for the Anthropic API.
- * IMPORTANT: The Anthropic API (api.anthropic.com) only supports API keys, NOT OAuth.
- * OAuth from Claude Code subscription is for claude.ai, not the API.
- * This provider prioritizes API key authentication.
+ * Supports OAuth token (Claude Code subscription) with API key fallback.
  */
-function createClaudeProvider() {
-    const apiKeyStore = getSecureApiKeyStore()
+function getClaudeProvider() {
+    if (!_claude) {
+        const apiKeyStore = getSecureApiKeyStore()
+        const claudeCodeAuth = getClaudeCodeAuthManager()
+        _claude = createAnthropic({
+            apiKey: apiKeyStore.getAnthropicKey() || 'placeholder',
+            fetch: async (url, init) => {
+                const headers = new Headers(init?.headers)
+                headers.delete('authorization')
+                headers.delete('x-api-key')
 
-    return createAnthropic({
-        apiKey: apiKeyStore.getAnthropicKey() || 'placeholder',
-        fetch: async (url, init) => {
-            const headers = new Headers(init?.headers)
+                // Try OAuth token first (Claude Code subscription)
+                try {
+                    const oauthToken = await claudeCodeAuth.getValidToken()
+                    if (oauthToken) {
+                        headers.set('Authorization', `Bearer ${oauthToken}`)
+                        log.debug(`[AI] Claude OAuth request to ${url}`)
+                        return fetch(url, { ...init, headers })
+                    }
+                } catch (e) {
+                    log.debug('[AI] Claude OAuth token not available, trying API key')
+                }
 
-            // Clear any existing auth headers
-            headers.delete('authorization')
-            headers.delete('x-api-key')
-
-            // Anthropic API requires x-api-key, NOT OAuth Bearer token
-            const apiKey = apiKeyStore.getAnthropicKey()
-            if (!apiKey) {
-                throw new Error('Anthropic API key not configured. Add your API key in Settings to use Claude models.')
+                // Fallback to API key
+                const apiKey = apiKeyStore.getAnthropicKey()
+                if (!apiKey) {
+                    throw new Error('Anthropic not configured. Connect Claude Code or add your API key in Settings.')
+                }
+                headers.set('x-api-key', apiKey)
+                log.debug(`[AI] Claude API key request to ${url}, key: ${sanitizeToken(apiKey)}`)
+                return fetch(url, { ...init, headers })
             }
-
-            headers.set('x-api-key', apiKey)
-            log.debug(`[AI] Claude API request to ${url}, key: ${sanitizeToken(apiKey)}`)
-
-            return fetch(url, {
-                ...init,
-                headers
-            })
-        }
-    })
+        })
+    }
+    return _claude
 }
 
 /**
@@ -218,194 +196,132 @@ function createClaudeProvider() {
 function createZaiFetch(manager: ReturnType<typeof getZaiAuthManager>) {
     return async (url: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
         const apiKey = manager.getApiKey()
-
         if (!apiKey) {
             throw new Error('Z.AI API key not configured. Please add your API key in Settings.')
         }
-
         const headers = new Headers(init?.headers)
         headers.set('Authorization', `Bearer ${apiKey}`)
         headers.set('X-Source', ZAI_CONFIG.sourceHeader)
-
         log.debug(`[AI] Z.AI request to ${url}, key: ${sanitizeToken(apiKey)}`)
-
-        return fetch(url, {
-            ...init,
-            headers
-        })
+        return fetch(url, { ...init, headers })
     }
 }
 
 /**
- * Create Cerebras provider with OpenAI-compatible endpoint
+ * Create Cerebras provider using official @ai-sdk/cerebras package
  * @see https://inference-docs.cerebras.ai
- *
- * Available models:
- * - gpt-oss-120b: Reasoning model with configurable effort
- * - qwen-3-235b-a22b-instruct-2507: Multilingual instruction model (non-thinking)
- *
- * Reasoning params (passed in Chat Completions):
- * - reasoning_format: 'parsed' | 'raw' | 'hidden' | 'none'
- * - reasoning_effort: 'low' | 'medium' | 'high' (gpt-oss-120b only)
  */
-function createCerebrasProvider() {
-    const cerebrasManager = getCerebrasAuthManager()
-
-    return createOpenAI({
-        baseURL: CEREBRAS_CONFIG.baseURL,
-        apiKey: 'dummy', // Will be overridden by fetch
-        fetch: async (url: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
-            const apiKey = cerebrasManager.getApiKey()
-
-            if (!apiKey) {
-                throw new Error('Cerebras API key not configured. Please add your API key in Settings.')
+function getCerebrasProvider() {
+    if (!_cerebras) {
+        const cerebrasManager = getCerebrasAuthManager()
+        _cerebras = createCerebras({
+            apiKey: 'dummy',
+            fetch: async (url: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+                const apiKey = cerebrasManager.getApiKey()
+                if (!apiKey) {
+                    throw new Error('Cerebras API key not configured. Please add your API key in Settings.')
+                }
+                const headers = new Headers(init?.headers)
+                headers.set('Authorization', `Bearer ${apiKey}`)
+                log.debug(`[AI] Cerebras request to ${url}, key: ${sanitizeToken(apiKey)}`)
+                return fetch(url, { ...init, headers })
             }
-
-            const headers = new Headers(init?.headers)
-            headers.set('Authorization', `Bearer ${apiKey}`)
-
-            log.debug(`[AI] Cerebras request to ${url}, key: ${sanitizeToken(apiKey)}`)
-
-            return fetch(url, {
-                ...init,
-                headers
-            })
-        }
-    })
+        })
+    }
+    return _cerebras
 }
 
 /**
- * Create Groq provider with OpenAI-compatible endpoint
+ * Create Groq provider using official @ai-sdk/groq package
  * @see https://console.groq.com/docs
- *
- * Available models:
- * - openai/gpt-oss-120b: Reasoning model (low/medium/high effort)
- * - moonshotai/kimi-k2-instruct-0905: Moonshot instruction model
- * - qwen/qwen3-32b: Qwen 3 with reasoning (none/default)
- * - llama-3.3-70b-versatile: Meta Llama 3.3 70B
- *
- * Reasoning params (passed in Chat Completions):
- * - GPT-OSS: include_reasoning, reasoning_effort ('low'|'medium'|'high')
- * - Qwen 3: reasoning_format ('parsed'|'raw'|'hidden'), reasoning_effort ('none'|'default')
  */
-function createGroqProvider() {
-    const groqManager = getGroqAuthManager()
-
-    return createOpenAI({
-        baseURL: GROQ_CONFIG.baseURL,
-        apiKey: 'dummy', // Will be overridden by fetch
-        fetch: async (url: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
-            const apiKey = groqManager.getApiKey()
-
-            if (!apiKey) {
-                throw new Error('Groq API key not configured. Please add your API key in Settings.')
+function getGroqProvider() {
+    if (!_groq) {
+        const groqManager = getGroqAuthManager()
+        _groq = createGroq({
+            apiKey: 'dummy',
+            fetch: async (url: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+                const apiKey = groqManager.getApiKey()
+                if (!apiKey) {
+                    throw new Error('Groq API key not configured. Please add your API key in Settings.')
+                }
+                const headers = new Headers(init?.headers)
+                headers.set('Authorization', `Bearer ${apiKey}`)
+                log.debug(`[AI] Groq request to ${url}, key: ${sanitizeToken(apiKey)}`)
+                return fetch(url, { ...init, headers })
             }
-
-            const headers = new Headers(init?.headers)
-            headers.set('Authorization', `Bearer ${apiKey}`)
-
-            log.debug(`[AI] Groq request to ${url}, key: ${sanitizeToken(apiKey)}`)
-
-            return fetch(url, {
-                ...init,
-                headers
-            })
-        }
-    })
+        })
+    }
+    return _groq
 }
 
 /**
  * Create Ollama provider using OpenAI-compatible endpoint
- * Ollama runs locally, no API key required
  * @see https://ollama.com/blog/openai-compatibility
- *
- * Users must have Ollama installed and running (`ollama serve`)
- * Available models depend on what the user has pulled locally
  */
-function createOllamaProvider() {
-    return createOpenAI({
-        baseURL: OLLAMA_CONFIG.baseURL,
-        apiKey: 'ollama',
-        fetch: async (url: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
-            const headers = new Headers(init?.headers)
-            headers.delete('authorization')
-
-            log.debug(`[AI] Ollama request to ${url}`)
-
-            return fetch(url, {
-                ...init,
-                headers
-            })
-        }
-    })
+function getOllamaProvider() {
+    if (!_ollama) {
+        _ollama = createOpenAI({
+            baseURL: OLLAMA_CONFIG.baseURL,
+            apiKey: 'ollama',
+            fetch: async (url: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+                const headers = new Headers(init?.headers)
+                headers.delete('authorization')
+                log.debug(`[AI] Ollama request to ${url}`)
+                return fetch(url, { ...init, headers })
+            }
+        })
+    }
+    return _ollama
 }
 
 /**
  * S-AGI Provider Registry
- *
- * Provides access to all supported AI providers:
- * - openai: Standard OpenAI API (requires API key)
- * - chatgpt-plus: ChatGPT Plus/Pro via Codex OAuth (subscription)
- * - zai: Z.AI GLM models (OpenAI-compatible)
- * - cerebras: Cerebras inference (OpenAI-compatible, fastest inference)
- * - groq: Groq inference (OpenAI-compatible, ultra-fast inference)
  */
 let registryInstance: ReturnType<typeof createProviderRegistry> | null = null
 
 export function getSagiProviderRegistry() {
     if (!registryInstance) {
         registryInstance = createProviderRegistry({
-            openai: createStandardOpenAI(),
-            'chatgpt-plus': createChatGPTPlusProvider(),
-            zai: createZaiProvider(),
-            claude: createClaudeProvider(),
-            cerebras: createCerebrasProvider(),
-            groq: createGroqProvider(),
-            ollama: createOllamaProvider()
+            openai: getStandardOpenAI(),
+            'chatgpt-plus': getChatGPTPlusProvider(),
+            zai: getZaiProvider(),
+            claude: getClaudeProvider(),
+            cerebras: getCerebrasProvider(),
+            groq: getGroqProvider(),
+            ollama: getOllamaProvider()
         })
     }
     return registryInstance
 }
 
 /**
- * Get a language model by provider and model ID
+ * Get a language model by provider and model ID.
+ * Uses singleton provider instances to avoid recreating providers per request.
  */
 export function getLanguageModel(provider: AIProvider, modelId: string) {
-    const registry = getSagiProviderRegistry()
     const apiModelId = resolveModelIdForApi(modelId)
 
-    // For OpenAI, use the provider directly
-    if (provider === 'openai') {
-        const openai = createStandardOpenAI()
-        return openai(apiModelId)
+    switch (provider) {
+        case 'openai':
+            return getStandardOpenAI()(apiModelId)
+        case 'chatgpt-plus':
+            return getChatGPTPlusProvider().languageModel(apiModelId)
+        case 'zai':
+            return getZaiProvider().chatModel(apiModelId)
+        case 'claude':
+            return getClaudeProvider()(apiModelId)
+        case 'cerebras':
+            return getCerebrasProvider()(apiModelId)
+        case 'groq':
+            return getGroqProvider()(apiModelId)
+        case 'ollama':
+            return getOllamaProvider().chat(apiModelId)
+        default: {
+            const registry = getSagiProviderRegistry()
+            return registry.languageModel(`${provider}:${apiModelId}`)
+        }
     }
-
-    // For Claude, use the provider directly (bypass registry for better compatibility)
-    if (provider === 'claude') {
-        const claude = createClaudeProvider()
-        return claude(apiModelId)
-    }
-
-    // For Cerebras, use the provider directly
-    if (provider === 'cerebras') {
-        const cerebras = createCerebrasProvider()
-        return cerebras(apiModelId)
-    }
-
-    // For Groq, use the provider directly
-    if (provider === 'groq') {
-        const groq = createGroqProvider()
-        return groq(apiModelId)
-    }
-
-    // For Ollama, use the provider directly
-    if (provider === 'ollama') {
-        const ollama = createOllamaProvider()
-        return ollama(apiModelId)
-    }
-
-    // For other providers, use the registry
-    return registry.languageModel(`${provider}:${apiModelId}`)
 }
 
 /**
@@ -422,14 +338,13 @@ export function isProviderAvailable(provider: AIProvider): boolean {
         case 'zai':
             return !!getZaiAuthManager().getApiKey()
         case 'claude':
-            // Claude supports OAuth (via Claude Agent SDK) or API key
             return getClaudeCodeAuthManager().isConnected() || getSecureApiKeyStore().hasAnthropicKey()
         case 'cerebras':
             return !!getCerebrasAuthManager().getApiKey()
         case 'groq':
             return !!getGroqAuthManager().getApiKey()
         case 'ollama':
-            return true // Always available locally, runtime errors if not running
+            return true
         default:
             return false
     }
@@ -500,10 +415,27 @@ export function getProviderStatus(provider: AIProvider): {
 }
 
 /**
- * Invalidate the registry (force recreation on next access)
- * Call this when credentials change
+ * Invalidate the registry and all cached provider instances.
+ * Call this when credentials change.
  */
+/**
+ * Get the raw Anthropic provider instance (for native tools like webSearch).
+ */
+export { getClaudeProvider }
+
+/**
+ * Get the raw Groq provider instance (for native tools like browserSearch).
+ */
+export { getGroqProvider }
+
 export function invalidateProviderRegistry(): void {
     registryInstance = null
-    log.info('[AI] Provider registry invalidated')
+    _openai = null
+    _chatgptPlus = null
+    _zai = null
+    _claude = null
+    _cerebras = null
+    _groq = null
+    _ollama = null
+    log.info('[AI] Provider registry and all provider instances invalidated')
 }

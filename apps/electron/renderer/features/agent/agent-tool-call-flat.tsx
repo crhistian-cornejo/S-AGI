@@ -38,6 +38,7 @@ interface AgentToolCallFlatProps {
   chatStatus?: string;
   onViewArtifact?: (id: string) => void;
   isStreaming?: boolean;
+  hideLeadingIcon?: boolean;
 }
 
 // ============================================================================
@@ -304,10 +305,12 @@ const ToolCallItem = memo(function ToolCallItem({
   tc,
   chatStatus,
   onViewArtifact,
+  hideLeadingIcon = false,
 }: {
   tc: ToolCall;
   chatStatus?: string;
   onViewArtifact?: (id: string) => void;
+  hideLeadingIcon?: boolean;
 }) {
   const part = toToolPart(tc);
   const { isPending, isError, isSuccess } = getToolStatus(part, chatStatus);
@@ -316,6 +319,7 @@ const ToolCallItem = memo(function ToolCallItem({
   const badges = extractBadges(tc);
   const opType = getOperationType(tc.name);
   const colors = OPERATION_COLORS[opType];
+  const contentOffsetClass = hideLeadingIcon ? "ml-0" : "ml-7";
 
   const imageData = isImageTool(tc.name) && isSuccess ? getImageData(tc) : undefined;
   const chartData = isChartTool(tc.name) && isSuccess ? getChartData(tc) : undefined;
@@ -340,22 +344,24 @@ const ToolCallItem = memo(function ToolCallItem({
       {/* Main row */}
       <div className="flex items-center gap-2">
         {/* Icon with operation-specific color */}
-        <div
-          className={cn(
-            "shrink-0 w-5 h-5 rounded flex items-center justify-center",
-            isPending && "text-primary",
-            isSuccess && colors.text,
-            isError && "text-destructive"
-          )}
-        >
-          {isPending ? (
-            <IconLoader2 size={14} className="animate-spin" />
-          ) : Icon ? (
-            <Icon className="w-3.5 h-3.5" />
-          ) : (
-            <IconTable className="w-3.5 h-3.5" />
-          )}
-        </div>
+        {!hideLeadingIcon && (
+          <div
+            className={cn(
+              "shrink-0 w-5 h-5 rounded flex items-center justify-center",
+              isPending && "text-primary",
+              isSuccess && colors.text,
+              isError && "text-destructive"
+            )}
+          >
+            {isPending ? (
+              <IconLoader2 size={14} className="animate-spin" />
+            ) : Icon ? (
+              <Icon className="w-3.5 h-3.5" />
+            ) : (
+              <IconTable className="w-3.5 h-3.5" />
+            )}
+          </div>
+        )}
 
         {/* Title */}
         <span
@@ -383,7 +389,7 @@ const ToolCallItem = memo(function ToolCallItem({
 
       {/* Badges row */}
       {badges.length > 0 && (
-        <div className="flex items-center gap-1.5 mt-1.5 ml-7 flex-wrap">
+        <div className={cn("flex items-center gap-1.5 mt-1.5 flex-wrap", contentOffsetClass)}>
           {badges.map((badge, idx) => (
             <ToolBadgeDisplay key={idx} badge={badge} onCellClick={handleCellClick} toolName={tc.name} />
           ))}
@@ -395,7 +401,7 @@ const ToolCallItem = memo(function ToolCallItem({
 
       {/* Image preview */}
       {imageData && (
-        <div className="mt-2 ml-7">
+        <div className={cn("mt-2", contentOffsetClass)}>
           <AgentGeneratedImage
             imageUrl={imageData.imageUrl}
             prompt={imageData.prompt}
@@ -405,7 +411,7 @@ const ToolCallItem = memo(function ToolCallItem({
 
       {/* Chart preview */}
       {chartData && (
-        <div className="mt-2 ml-7">
+        <div className={cn("mt-2", contentOffsetClass)}>
           <AgentGeneratedChart
             artifactId={chartData.artifactId}
             chartConfig={chartData.chartConfig as any}
@@ -549,11 +555,13 @@ const ToolCallGroup = memo(function ToolCallGroup({
   chatStatus,
   onViewArtifact,
   defaultExpanded = false,
+  hideLeadingIcon = false,
 }: {
   group: GroupedTools;
   chatStatus?: string;
   onViewArtifact?: (id: string) => void;
   defaultExpanded?: boolean;
+  hideLeadingIcon?: boolean;
 }) {
   const [isExpanded, setIsExpanded] = useState(defaultExpanded);
   const Icon = getToolIcon(group.name);
@@ -565,6 +573,7 @@ const ToolCallGroup = memo(function ToolCallGroup({
         tc={group.calls[0]}
         chatStatus={chatStatus}
         onViewArtifact={onViewArtifact}
+        hideLeadingIcon={hideLeadingIcon}
       />
     );
   }
@@ -587,7 +596,7 @@ const ToolCallGroup = memo(function ToolCallGroup({
         </div>
 
         {/* Icon */}
-        {Icon && (
+        {!hideLeadingIcon && Icon && (
           <Icon
             className={cn(
               "w-3.5 h-3.5 shrink-0",
@@ -647,6 +656,7 @@ const ToolCallGroup = memo(function ToolCallGroup({
               tc={tc}
               chatStatus={chatStatus}
               onViewArtifact={onViewArtifact}
+              hideLeadingIcon={hideLeadingIcon}
             />
           ))}
         </div>
@@ -664,6 +674,7 @@ export const AgentToolCallFlat = memo(function AgentToolCallFlat({
   chatStatus,
   onViewArtifact,
   isStreaming = false,
+  hideLeadingIcon = false,
 }: AgentToolCallFlatProps) {
   const groups = useMemo(
     () => groupSimilarTools(toolCalls, chatStatus),
@@ -685,6 +696,7 @@ export const AgentToolCallFlat = memo(function AgentToolCallFlat({
               chatStatus={chatStatus}
               onViewArtifact={onViewArtifact}
               defaultExpanded={isStreaming}
+              hideLeadingIcon={hideLeadingIcon}
             />
           ))
         : toolCalls.map((tc) => (
@@ -693,6 +705,7 @@ export const AgentToolCallFlat = memo(function AgentToolCallFlat({
               tc={tc}
               chatStatus={chatStatus}
               onViewArtifact={onViewArtifact}
+              hideLeadingIcon={hideLeadingIcon}
             />
           ))}
     </div>

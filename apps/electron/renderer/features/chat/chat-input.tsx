@@ -17,10 +17,6 @@ import {
   IconRectangleVertical,
   IconSquare,
   IconAt,
-  IconEye,
-  IconWorld,
-  IconCode,
-  IconFileSearch,
 } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
 import { ImageAttachmentItem } from "@/components/image-attachment-item";
@@ -34,13 +30,6 @@ import {
 } from "@/components/document-mention-popover";
 import { selectedChatIdAtom } from "@/lib/atoms";
 import { useDocumentUpload } from "@/hooks";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import {
   chatModeAtom,
   isPlanModeAtom,
@@ -71,41 +60,9 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { ModelIcon } from "@/components/icons/model-icons";
 import { getModelById, resolveModelForProvider } from "@s-agi/core/types/ai";
-import type { ModelDefinition } from "@s-agi/core/types/ai";
 import { trpc } from "@/lib/trpc";
-
-/** Capability pill-badge definitions for the model selector */
-const CAP_DEFS = [
-  { key: "supportsReasoning", icon: IconBrain, label: "Reasoning", fg: "text-purple-300", bg: "bg-purple-500/15" },
-  { key: "supportsImages", icon: IconEye, label: "Vision", fg: "text-blue-300", bg: "bg-blue-500/15" },
-  { key: "supportsNativeWebSearch", icon: IconWorld, label: "Web", fg: "text-emerald-300", bg: "bg-emerald-500/15" },
-  { key: "supportsServerWebSearch", icon: IconWorld, label: "Web", fg: "text-emerald-300", bg: "bg-emerald-500/15" },
-  { key: "supportsCodeInterpreter", icon: IconCode, label: "Code", fg: "text-amber-300", bg: "bg-amber-500/15" },
-  { key: "supportsFileSearch", icon: IconFileSearch, label: "Files", fg: "text-cyan-300", bg: "bg-cyan-500/15" },
-] as const;
-
-function ModelCaps({ model }: { model: Partial<ModelDefinition> }) {
-  const active = CAP_DEFS.filter((c) => (model as Record<string, unknown>)[c.key]);
-  if (active.length === 0) return null;
-  return (
-    <span className="flex flex-wrap items-center gap-1 mt-0.5">
-      {active.map(({ key, icon: Icon, label, fg, bg }) => (
-        <span
-          key={key}
-          className={cn(
-            "inline-flex items-center gap-[3px] rounded-full px-[6px] py-[1px] text-[9px] font-medium leading-tight",
-            fg, bg,
-          )}
-        >
-          <Icon size={10} strokeWidth={2.5} />
-          {label}
-        </span>
-      ))}
-    </span>
-  );
-}
+import { ModelSelector } from "./components/model-selector";
 
 interface ChatInputProps {
   value: string;
@@ -922,216 +879,16 @@ export const ChatInput = memo(function ChatInput({
               </>
             )}
 
-            {/* Model Selector with Icons */}
-            <Select value={selectedModel} onValueChange={handleModelChange}>
-              <SelectTrigger
-                className="h-8 w-auto max-w-[160px] px-2.5 bg-transparent border-none shadow-none hover:bg-accent/50 gap-1.5 rounded-xl text-[11px] font-semibold tracking-tight"
-                title={currentModelInfo?.description}
-              >
-                <ModelIcon
-                  provider={currentModelInfo?.provider || "openai"}
-                  size={14}
-                  className="shrink-0 text-muted-foreground"
-                />
-                <span className="min-w-0 truncate">
-                  <SelectValue>
-                    {currentModelInfo?.name || selectedModel}
-                  </SelectValue>
-                </span>
-              </SelectTrigger>
-              <SelectContent className="rounded-xl shadow-xl border-border/50 min-w-[280px] max-h-[360px]" fadeScroll>
-                {/* ============ SUBSCRIPTIONS FIRST ============ */}
-
-                {/* ChatGPT Plus models (Subscription) */}
-                {keyStatus?.hasChatGPTPlus &&
-                  allModelsGrouped["chatgpt-plus"]?.length > 0 && (
-                    <>
-                      <div className="text-[10px] font-bold uppercase text-muted-foreground/50 px-3 py-2 flex items-center gap-1.5">
-                        <ModelIcon provider="chatgpt-plus" size={12} />
-                        ChatGPT Plus
-                        <span className="ml-auto text-[9px] font-medium text-emerald-500 bg-emerald-500/10 px-1.5 py-0.5 rounded">
-                          Subscription
-                        </span>
-                      </div>
-                      {allModelsGrouped["chatgpt-plus"].map((model) => (
-                        <SelectItem key={model.id} value={model.id} className="rounded-lg">
-                          <div className="flex flex-col w-full">
-                            <span className="truncate text-sm">{model.name}</span>
-                            <ModelCaps model={model} />
-                          </div>
-                        </SelectItem>
-                      ))}
-                      <div className="h-px bg-border/40 my-1.5 mx-2" />
-                    </>
-                  )}
-
-                {/* Z.AI models (Subscription) */}
-                {keyStatus?.hasZai && allModelsGrouped.zai?.length > 0 && (
-                  <>
-                    <div className="text-[10px] font-bold uppercase text-muted-foreground/50 px-3 py-2 flex items-center gap-1.5">
-                      <ModelIcon provider="zai" size={12} />
-                      Z.AI Subscription
-                      <span className="ml-auto text-[9px] font-medium text-emerald-500 bg-emerald-500/10 px-1.5 py-0.5 rounded">
-                        Subscription
-                      </span>
-                    </div>
-                    {allModelsGrouped.zai.map((model) => (
-                      <SelectItem key={model.id} value={model.id} className="rounded-lg">
-                        <div className="flex flex-col w-full">
-                          <span className="truncate text-sm">{model.name}</span>
-                          <ModelCaps model={model} />
-                        </div>
-                      </SelectItem>
-                    ))}
-                    <div className="h-px bg-border/40 my-1.5 mx-2" />
-                  </>
-                )}
-
-                {/* Claude Pro/Max models (Subscription) */}
-                {keyStatus?.hasClaudeCode && allModelsGrouped.claude?.length > 0 && (
-                  <>
-                    <div className="text-[10px] font-bold uppercase text-muted-foreground/50 px-3 py-2 flex items-center gap-1.5">
-                      <ModelIcon provider="claude" size={12} />
-                      Claude Pro/Max
-                      <span className="ml-auto text-[9px] font-medium text-emerald-500 bg-emerald-500/10 px-1.5 py-0.5 rounded">
-                        Subscription
-                      </span>
-                    </div>
-                    {allModelsGrouped.claude.map((model) => (
-                      <SelectItem key={model.id} value={model.id} className="rounded-lg">
-                        <div className="flex flex-col w-full">
-                          <span className="truncate text-sm">{model.name}</span>
-                          <ModelCaps model={model} />
-                        </div>
-                      </SelectItem>
-                    ))}
-                    <div className="h-px bg-border/40 my-1.5 mx-2" />
-                  </>
-                )}
-
-                {/* ============ PAY PER USE ============ */}
-
-                {/* OpenAI API models (Pay per use) */}
-                {keyStatus?.hasOpenAI &&
-                  allModelsGrouped.openai?.length > 0 && (
-                    <>
-                      <div className="text-[10px] font-bold uppercase text-muted-foreground/50 px-3 py-2 flex items-center gap-1.5">
-                        <ModelIcon provider="openai" size={12} />
-                        OpenAI API
-                        <span className="ml-auto text-[9px] font-medium text-amber-500 bg-amber-500/10 px-1.5 py-0.5 rounded">
-                          Pay per use
-                        </span>
-                      </div>
-                      {allModelsGrouped.openai.map((model) => (
-                        <SelectItem key={model.id} value={model.id} className="rounded-lg">
-                          <div className="flex flex-col w-full">
-                            <span className="truncate text-sm">{model.name}</span>
-                            <ModelCaps model={model} />
-                          </div>
-                        </SelectItem>
-                      ))}
-                      <div className="h-px bg-border/40 my-1.5 mx-2" />
-                    </>
-                  )}
-
-                {/* Cerebras models (Pay per use) */}
-                {keyStatus?.hasCerebras && allModelsGrouped.cerebras?.length > 0 && (
-                  <>
-                    <div className="text-[10px] font-bold uppercase text-muted-foreground/50 px-3 py-2 flex items-center gap-1.5">
-                      <ModelIcon provider="cerebras" size={12} />
-                      Cerebras
-                      <span className="ml-auto text-[9px] font-medium text-amber-500 bg-amber-500/10 px-1.5 py-0.5 rounded">
-                        Pay per use
-                      </span>
-                    </div>
-                    {allModelsGrouped.cerebras.map((model) => (
-                      <SelectItem key={model.id} value={model.id} className="rounded-lg">
-                        <div className="flex flex-col w-full">
-                          <span className="truncate text-sm">{model.name}</span>
-                          <ModelCaps model={model} />
-                        </div>
-                      </SelectItem>
-                    ))}
-                    <div className="h-px bg-border/40 my-1.5 mx-2" />
-                  </>
-                )}
-
-                {/* Groq models (Pay per use) */}
-                {keyStatus?.hasGroq && allModelsGrouped.groq?.length > 0 && (
-                  <>
-                    <div className="text-[10px] font-bold uppercase text-muted-foreground/50 px-3 py-2 flex items-center gap-1.5">
-                      <ModelIcon provider="groq" size={12} mono />
-                      Groq
-                      <span className="ml-auto text-[9px] font-medium text-amber-500 bg-amber-500/10 px-1.5 py-0.5 rounded">
-                        Pay per use
-                      </span>
-                    </div>
-                    {allModelsGrouped.groq.map((model) => (
-                      <SelectItem key={model.id} value={model.id} className="rounded-lg">
-                        <div className="flex flex-col w-full">
-                          <span className="truncate text-sm">{model.name}</span>
-                          <ModelCaps model={model} />
-                        </div>
-                      </SelectItem>
-                    ))}
-                  </>
-                )}
-
-                {/* Ollama models (Local) — dynamic */}
-                {keyStatus?.hasOllama && (
-                  <>
-                    <div className="text-[10px] font-bold uppercase text-muted-foreground/50 px-3 py-2 flex items-center gap-1.5">
-                      <ModelIcon provider="ollama" size={12} />
-                      Ollama
-                      {ollamaRunning ? (
-                        <span className="ml-auto text-[9px] font-medium text-emerald-500 bg-emerald-500/10 px-1.5 py-0.5 rounded">
-                          Local
-                        </span>
-                      ) : (
-                        <span className="ml-auto text-[9px] font-medium text-orange-500 bg-orange-500/10 px-1.5 py-0.5 rounded">
-                          Offline
-                        </span>
-                      )}
-                    </div>
-                    {ollamaModels.length > 0 ? (
-                      ollamaModels.map((model) => (
-                        <SelectItem key={model.id} value={model.id} className="rounded-lg">
-                          <div className="flex flex-col w-full">
-                            <div className="flex items-center gap-2">
-                              <span className="truncate text-sm">{model.name}</span>
-                              {(model as any)._parameterSize && (
-                                <span className="text-[9px] text-muted-foreground/50 ml-auto shrink-0">
-                                  {(model as any)._parameterSize}
-                                </span>
-                              )}
-                            </div>
-                            <ModelCaps model={model} />
-                          </div>
-                        </SelectItem>
-                      ))
-                    ) : (
-                      <div className="text-[10px] text-muted-foreground/50 px-3 py-2 text-center">
-                        {ollamaRunning ? "No models installed" : "Ollama is not running"}
-                      </div>
-                    )}
-                  </>
-                )}
-
-                {/* Show message if no providers configured */}
-                {!keyStatus?.hasOpenAI &&
-                  !keyStatus?.hasZai &&
-                  !keyStatus?.hasCerebras &&
-                  !keyStatus?.hasChatGPTPlus &&
-                  !keyStatus?.hasClaudeCode &&
-                  !keyStatus?.hasOllama && (
-                    <div className="text-xs text-muted-foreground px-3 py-4 text-center">
-                      No API keys configured.
-                      <br />
-                      Go to Settings to add one.
-                    </div>
-                  )}
-              </SelectContent>
-            </Select>
+            {/* Model Selector with providers mini-sidebar and favorites */}
+            <ModelSelector
+              selectedModelId={selectedModel}
+              allModelsGrouped={allModelsGrouped}
+              ollamaModels={ollamaModels}
+              ollamaRunning={ollamaRunning}
+              isZenMode={zenMode}
+              keyStatus={keyStatus}
+              onSelectModel={handleModelChange}
+            />
 
             {/* ResponseMode (Instant/Thinking/Auto) — solo GPT-5.2; mismo estilo UI que Reasoning; reemplaza selector de effort */}
             {supportsResponseMode && (

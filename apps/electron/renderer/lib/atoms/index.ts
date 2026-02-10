@@ -41,6 +41,7 @@ export {
   // Provider & Model
   currentProviderAtom,
   selectedModelAtom,
+  favoriteModelIdsAtom,
   availableModelsAtom,
   allModelsGroupedAtom,
   currentModelAtom,

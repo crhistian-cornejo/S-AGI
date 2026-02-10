@@ -3,20 +3,34 @@ import { z } from "zod";
 import { router, protectedProcedure } from "../trpc";
 import log from "electron-log";
 import { sendToRenderer } from "../../window-manager";
-import { supabase } from "../../supabase/client";
+import { supabase, authStorage } from "../../supabase/client";
 import { getStorageAdapter, isLocalStorageMode } from "../../storage";
 import { getUsageTracker } from "../../storage/usage-tracker";
 import { getSecureApiKeyStore } from "../../auth/api-key-store";
 import { getChatGPTAuthManager, getClaudeCodeAuthManager } from "../../auth";
 import { getCredentialManager } from "../../shared/credentials";
+import { getProfileNameMemory, syncProfileNameMemory } from "../../shared/profile-memory";
+import {
+  getWorkingMemoryProvider,
+  DEFAULT_WORKING_MEMORY_SCOPE,
+  syncProfileWorkingMemory,
+} from "../../shared/working-memory";
 // NOTE: Gemini auth disabled - OAuth token incompatible with generativelanguage.googleapis.com
 // import { getChatGPTAuthManager, getGeminiAuthManager } from '../../auth'
 
 import OpenAI from "openai";
 import { getOrCreateClient } from "./openai-client-cache";
 import type { Responses } from "openai/resources/responses/responses";
+import {
+  DEFAULT_TEMPLATE as DEFAULT_WORKING_MEMORY_TEMPLATE,
+  formatWorkingMemory,
+  getWorkingMemoryInstructions,
+  type MemoryScope,
+} from "@ai-sdk-tools/memory";
 import { OpenAIFileService, shouldUseAISDK, streamWithAISDK } from "../../ai";
-import { streamWithClaudeAgentSDK } from "../../ai/claude-agent-sdk";
+import { canUseImageTools, getReasoningParams, usesChatCompletions, getClaudeThinkingOptions } from "../../ai/capabilities";
+import { buildAISDKToolSet } from "../../ai/tool-adapter";
+// Note: claude-agent-sdk.ts still used by agent-panel.ts for streamClaudeForAgentPanel
 import {
   getDocumentContext,
   shouldUseLocalContext,
@@ -310,6 +324,30 @@ function groqCheck(model: string): string | null {
 // Type for function tools
 type FunctionToolParam = Responses.FunctionTool;
 
+const UPDATE_WORKING_MEMORY_TOOL_NAME = "updateWorkingMemory";
+const UPDATE_WORKING_MEMORY_INPUT = z.object({
+  content: z
+    .string()
+    .min(1)
+    .max(12000)
+    .describe(
+      "Updated working memory in markdown. Include stable user facts and preferences worth remembering.",
+    ),
+});
+
+function createUpdateWorkingMemoryFunctionTool(): FunctionToolParam {
+  return {
+    type: "function",
+    name: UPDATE_WORKING_MEMORY_TOOL_NAME,
+    description:
+      "Save user preferences and durable facts to persistent working memory for future conversations.",
+    parameters: zodToJsonSchema(
+      UPDATE_WORKING_MEMORY_INPUT,
+    ) as FunctionToolParam["parameters"],
+    strict: true,
+  };
+}
+
 /**
  * Create function tools for Responses API
  */
@@ -481,9 +519,9 @@ function createContextualTools(
   }
 
   // Image tools - only for providers with OpenAI Images API access
-  // Cerebras, Groq, Ollama, and Z.AI models hallucinate calls to generate_image
-  const canUseImageTools = !provider || !["cerebras", "groq", "ollama", "zai"].includes(provider);
-  if (canUseImageTools) {
+  // Use capability system instead of hardcoded provider list
+  const providerCanUseImages = !provider || canUseImageTools(provider as AIProvider, "");
+  if (providerCanUseImages) {
     for (const [name, tool] of Object.entries(IMAGE_TOOLS)) {
       addTool(name, tool, context);
     }
@@ -898,87 +936,6 @@ function toResponsesMessages(
   return result;
 }
 
-/**
- * Convert internal messages to Chat Completions format
- * Now supports images in historical messages for Z.AI and other providers
- */
-function toChatMessages(
-  systemPrompt: string,
-  messages: Array<MessageWithImages>,
-  currentPrompt: string,
-  currentImages?: ImageAttachment[],
-  options?: { maxHistoricalImages?: number; supportsImages?: boolean; includeImageDetail?: boolean },
-): Array<OpenAI.ChatCompletionMessageParam> {
-  const result: Array<OpenAI.ChatCompletionMessageParam> = [
-    { role: "system", content: systemPrompt },
-  ];
-  const maxHistoricalImages = options?.maxHistoricalImages ?? 10;
-  const supportsImages = options?.supportsImages ?? true;
-  // Groq does not support the `detail` parameter in image_url
-  const includeDetail = options?.includeImageDetail ?? true;
-  let historicalImageCount = 0;
-
-  const buildImagePart = (img: ImageAttachment) => {
-    const imageUrl: Record<string, string> = {
-      url: `data:${img.mediaType};base64,${img.data}`,
-    };
-    if (includeDetail) {
-      imageUrl.detail = "auto";
-    }
-    return { type: "image_url" as const, image_url: imageUrl };
-  };
-
-  for (const msg of messages) {
-    if (msg.role === "user" || msg.role === "assistant") {
-      const msgImages = msg.images || [];
-      const imagesToInclude = supportsImages
-        ? msgImages.slice(
-            0,
-            Math.max(0, maxHistoricalImages - historicalImageCount),
-          )
-        : [];
-      historicalImageCount += imagesToInclude.length;
-
-      if (msg.role === "user" && imagesToInclude.length > 0) {
-        // User message with images - use multimodal content array
-        const content: Array<any> = [
-          ...imagesToInclude.map(buildImagePart),
-          { type: "text" as const, text: msg.content },
-        ];
-        result.push({ role: "user", content });
-      } else {
-        result.push({ role: msg.role, content: msg.content });
-      }
-    }
-  }
-
-  // Add current message with optional images
-  if (currentImages?.length && supportsImages) {
-    const content: Array<any> = [
-      ...currentImages.map(buildImagePart),
-      { type: "text" as const, text: currentPrompt },
-    ];
-    result.push({ role: "user", content });
-  } else {
-    result.push({ role: "user", content: currentPrompt });
-  }
-
-  return result;
-}
-
-function toChatCompletionTools(
-  tools: FunctionToolParam[],
-): OpenAI.ChatCompletionTool[] {
-  return tools.map((tool) => ({
-    type: "function" as const,
-    function: {
-      name: tool.name,
-      description: tool.description ?? undefined,
-      parameters: tool.parameters ?? undefined,
-    },
-  }));
-}
-
 // Type for pending tool calls we need to track
 interface PendingToolCall {
   callId: string;
@@ -1205,6 +1162,167 @@ export const aiRouter = router({
           const modelId = modelDef.id;
           const apiModelId = resolveModelIdForApi(modelId);
 
+          // ========================================================================
+          // AUTO-COMPACT: Detect context window overflow and summarize old messages
+          // ========================================================================
+          if (input.messages && input.messages.length > 0 && modelDef.contextWindow) {
+            const { estimateMessagesTokens: estimateMsgTokens } = await import("./ai/helpers");
+            const messagesForEstimate = input.messages.map((m) => ({
+              content: m.content,
+              role: m.role,
+            }));
+            const estimatedTokens = estimateMsgTokens(messagesForEstimate);
+            const contextBudget = modelDef.contextWindow;
+            const compactionThreshold = Math.floor(contextBudget * 0.8);
+
+            if (estimatedTokens > compactionThreshold) {
+              log.info(
+                `[AI] Auto-compact triggered: ~${estimatedTokens} tokens > ${compactionThreshold} threshold (${contextBudget} context window)`,
+              );
+              emit({ type: "compaction-start" });
+
+              try {
+                // Keep ~40% of context budget for recent messages
+                const recentBudget = Math.floor(contextBudget * 0.4);
+                let recentTokens = 0;
+                let splitIndex = input.messages.length;
+
+                // Walk backwards to find split point
+                for (let i = input.messages.length - 1; i >= 0; i--) {
+                  const msgTokens = Math.ceil(input.messages[i].content.length / 4) + 4;
+                  if (recentTokens + msgTokens > recentBudget) break;
+                  recentTokens += msgTokens;
+                  splitIndex = i;
+                }
+
+                // Ensure we keep at least the last 2 messages
+                if (splitIndex > input.messages.length - 2) {
+                  splitIndex = Math.max(0, input.messages.length - 2);
+                }
+
+                const oldMessages = input.messages.slice(0, splitIndex);
+                const recentMessages = input.messages.slice(splitIndex);
+
+                if (oldMessages.length > 0) {
+                  // Build summarization prompt from old messages
+                  const summaryPrompt = oldMessages
+                    .map((m) => `${m.role}: ${m.content}`)
+                    .join("\n\n");
+
+                  const COMPACTION_SYSTEM_PROMPT = `You are a conversation summarizer. Create a detailed summary of this conversation that preserves:
+- All key decisions and conclusions made
+- Important context, names, technical details, and requirements discussed
+- The current state of any tasks or projects being worked on
+- Any preferences or constraints the user has expressed
+- Code snippets or technical solutions that were established
+
+Format as a structured summary that another AI can use to seamlessly continue this conversation. The user should not notice any loss of context.`;
+
+                  // Create a temporary client for the summarization call
+                  let summaryClient: OpenAI | null = null;
+                  try {
+                    if (provider === "cerebras") {
+                      summaryClient = getOrCreateClient({
+                        apiKey: input.apiKey || "",
+                        baseURL: "https://api.cerebras.ai/v1",
+                      });
+                    } else if (provider === "groq") {
+                      summaryClient = getOrCreateClient({
+                        apiKey: input.apiKey || "",
+                        baseURL: "https://api.groq.com/openai/v1",
+                      });
+                    } else if (provider === "ollama") {
+                      summaryClient = getOrCreateClient({
+                        apiKey: "ollama",
+                        baseURL: "http://localhost:11434/v1",
+                      });
+                    } else if (provider === "openai" && input.apiKey) {
+                      summaryClient = getOrCreateClient({
+                        apiKey: input.apiKey,
+                      });
+                    } else if (provider === "zai") {
+                      summaryClient = getOrCreateClient({
+                        apiKey: input.apiKey || "",
+                        baseURL: ZAI_GENERAL_BASE_URL,
+                      });
+                    }
+                  } catch (clientError) {
+                    log.warn("[AI] Could not create summary client:", clientError);
+                  }
+
+                  if (summaryClient) {
+                    const summaryResponse = await summaryClient.chat.completions.create({
+                      model: apiModelId,
+                      messages: [
+                        { role: "system", content: COMPACTION_SYSTEM_PROMPT },
+                        { role: "user", content: summaryPrompt },
+                      ],
+                      max_tokens: 2000,
+                    });
+
+                    const summary =
+                      summaryResponse.choices?.[0]?.message?.content ||
+                      "Previous conversation context (summary unavailable).";
+
+                    log.info(
+                      `[AI] Compacted ${oldMessages.length} messages into summary (${summary.length} chars)`,
+                    );
+
+                    // Store the compaction summary as a system message in the database
+                    if (isLocalStorageMode()) {
+                      const adapter = await getStorageAdapter();
+                      await adapter.messages.add({
+                        chatId: input.chatId,
+                        userId: ctx.userId || "local-user",
+                        role: "system",
+                        content: summary,
+                        metadata: {
+                          type: "compaction",
+                          compactedAt: Date.now(),
+                          originalMessageCount: oldMessages.length,
+                        },
+                      });
+
+                      // Mark old messages as compacted in a single pass
+                      const dbMessages = await adapter.messages.listByChatId!(input.chatId, 10000);
+                      const compactedAt = Date.now();
+                      // Mark the first N messages (matching oldMessages count) as compacted
+                      const messagesToMark = dbMessages
+                        .filter((m) => m.role !== "system" || !m.metadata?.type)
+                        .slice(0, oldMessages.length);
+                      for (const dbMsg of messagesToMark) {
+                        await adapter.messages.update(dbMsg.id, ctx.userId || "local-user", {
+                          metadata: {
+                            ...dbMsg.metadata,
+                            compactedAt,
+                          },
+                        });
+                      }
+                    }
+
+                    // Replace input messages with [summary] + [recent]
+                    input.messages = [
+                      { role: "system" as const, content: `[Conversation Summary]\n${summary}` },
+                      ...recentMessages,
+                    ];
+
+                    emit({
+                      type: "compaction-done",
+                      summary,
+                      compactedMessages: oldMessages.length,
+                    });
+                  } else {
+                    log.warn("[AI] No summary client available, skipping compaction");
+                  }
+                }
+              } catch (compactionError) {
+                log.error("[AI] Auto-compact failed, proceeding with full context:", compactionError);
+                // Proceed without compaction if it fails
+              }
+            }
+          }
+          // ========================================================================
+
           const hasHistoricalImages = !!input.messages?.some(
             (message) => message.images && message.images.length > 0,
           );
@@ -1305,7 +1423,7 @@ export const aiRouter = router({
             );
 
           log.info(
-            `[AI] Starting ${provider === "zai" || provider === "cerebras" || provider === "groq" || provider === "ollama" ? "Chat Completions" : "Responses API"} agent loop with ${modelId} (provider: ${provider})`,
+            `[AI] Starting ${usesChatCompletions(provider as AIProvider) ? "Chat Completions" : "Responses API"} agent loop with ${modelId} (provider: ${provider})`,
           );
           log.info(`[AI] Reasoning config:`, input.reasoning);
           if (hasImages) {
@@ -1588,15 +1706,7 @@ export const aiRouter = router({
           }
 
           let openaiClient = client;
-          if (
-            (provider === "openai" ||
-              provider === "chatgpt-plus" ||
-              provider === "zai" ||
-              provider === "cerebras" ||
-              provider === "groq" ||
-              provider === "ollama") &&
-            !openaiClient
-          ) {
+          if (provider !== "claude" && !openaiClient) {
             throw new Error("OpenAI client not initialized");
           }
 
@@ -1605,6 +1715,8 @@ export const aiRouter = router({
             apiKey: input.apiKey,
             provider: provider as ToolContext["provider"],
           };
+          const workingMemoryProvider = getWorkingMemoryProvider();
+
           // For Z.AI, add custom base URL and headers
           if (provider === "zai") {
             toolContext.baseURL = zaiBaseURL || ZAI_GENERAL_BASE_URL;
@@ -1632,6 +1744,43 @@ export const aiRouter = router({
                     toolContext,
                     provider,
                   );
+
+          if (ctx.userId && input.mode !== "plan") {
+            functionTools.push(createUpdateWorkingMemoryFunctionTool());
+            executors.set(UPDATE_WORKING_MEMORY_TOOL_NAME, async (args) => {
+              const parsed = UPDATE_WORKING_MEMORY_INPUT.safeParse(args);
+              if (!parsed.success) {
+                return {
+                  success: false,
+                  error: "Invalid working memory payload",
+                };
+              }
+
+              try {
+                await workingMemoryProvider.updateWorkingMemory({
+                  chatId: input.chatId,
+                  userId: ctx.userId,
+                  scope: DEFAULT_WORKING_MEMORY_SCOPE,
+                  content: parsed.data.content,
+                });
+
+                return {
+                  success: true,
+                  scope: DEFAULT_WORKING_MEMORY_SCOPE,
+                  storedCharacters: parsed.data.content.length,
+                };
+              } catch (error) {
+                const message =
+                  error instanceof Error
+                    ? error.message
+                    : "Failed to update working memory";
+                return {
+                  success: false,
+                  error: message,
+                };
+              }
+            });
+          }
 
           if (hasImages) {
             log.info(
@@ -1670,9 +1819,110 @@ IMPORTANT: When searching for current events, sports, news, or time-sensitive in
 use TODAY'S DATE shown above. The user is in ${timezoneDisplay} timezone.
 ================================================================================\n`;
 
+          // PROFILE MEMORY: Learn and persist the user's name from account/profile.
+          // This keeps addressability stable across chats and app restarts.
+          const activeAccount = authStorage.getActiveAccount();
+          if (ctx.userId && activeAccount && activeAccount.userId === ctx.userId) {
+            syncProfileNameMemory({
+              userId: ctx.userId,
+              userMetadata: {
+                full_name: activeAccount.profile?.fullName ?? activeAccount.displayName ?? null,
+                name: activeAccount.displayName ?? null,
+                username: activeAccount.profile?.username ?? null,
+              },
+              email: activeAccount.email ?? null,
+              fallbackDisplayName: activeAccount.displayName ?? null,
+              source: "account",
+            });
+            await syncProfileWorkingMemory({
+              userId: ctx.userId,
+              userMetadata: {
+                full_name: activeAccount.profile?.fullName ?? activeAccount.displayName ?? null,
+                name: activeAccount.displayName ?? null,
+                username: activeAccount.profile?.username ?? null,
+                pronouns: activeAccount.profile?.pronouns ?? null,
+                bio: activeAccount.profile?.bio ?? null,
+                website: activeAccount.profile?.website ?? null,
+                location: activeAccount.profile?.location ?? null,
+                timezone: activeAccount.profile?.timezone ?? null,
+              },
+              email: activeAccount.email ?? null,
+              fallbackDisplayName: activeAccount.displayName ?? null,
+            });
+          }
+
+          let rememberedUserName = getProfileNameMemory(ctx.userId);
+          if (!rememberedUserName && !ctx.isLocalMode) {
+            try {
+              const {
+                data: { user: currentUser },
+              } = await supabase.auth.getUser();
+              if (currentUser) {
+                rememberedUserName = syncProfileNameMemory({
+                  userId: currentUser.id,
+                  userMetadata: (currentUser.user_metadata as Record<string, unknown>) ?? {},
+                  email: currentUser.email ?? null,
+                  fallbackDisplayName: currentUser.email ?? null,
+                  source: "profile",
+                });
+                await syncProfileWorkingMemory({
+                  userId: currentUser.id,
+                  userMetadata:
+                    (currentUser.user_metadata as Record<string, unknown>) ?? {},
+                  email: currentUser.email ?? null,
+                  fallbackDisplayName: currentUser.email ?? null,
+                });
+              }
+            } catch (memoryError) {
+              log.debug("[AI] Could not sync profile memory from Supabase user:", memoryError);
+            }
+          }
+
+          const userMemoryContext = rememberedUserName
+            ? `\n\n================================================================================
+USER MEMORY
+================================================================================
+Known user name: ${rememberedUserName}
+Use this name naturally when appropriate. If the user asks to be called differently,
+follow the user's latest explicit preference.
+================================================================================\n`
+            : "";
+
+          const workingMemoryScope: MemoryScope = DEFAULT_WORKING_MEMORY_SCOPE;
+          let workingMemoryContext = "";
+          let workingMemoryInstructions = "";
+          if (ctx.userId && input.mode !== "plan") {
+            workingMemoryInstructions =
+              "\n\n" +
+              getWorkingMemoryInstructions(DEFAULT_WORKING_MEMORY_TEMPLATE);
+
+            try {
+              const workingMemory = await workingMemoryProvider.getWorkingMemory(
+                {
+                  chatId: input.chatId,
+                  userId: ctx.userId,
+                  scope: workingMemoryScope,
+                },
+              );
+
+              if (workingMemory) {
+                workingMemoryContext =
+                  "\n\n" + formatWorkingMemory(workingMemory) + "\n";
+              }
+            } catch (memoryError) {
+              log.debug(
+                "[AI] Could not load working memory:",
+                memoryError,
+              );
+            }
+          }
+
           let systemPrompt =
             (input.mode === "plan" ? PLAN_MODE_SYSTEM_PROMPT : SYSTEM_PROMPT) +
-            dateContext;
+            dateContext +
+            userMemoryContext +
+            workingMemoryContext +
+            workingMemoryInstructions;
 
           // Build native tools configuration
           let nativeToolsConfig = input.nativeTools;
@@ -2147,42 +2397,61 @@ CITATION REQUIREMENTS (MANDATORY):
           }
 
           if (provider === "claude") {
-            // Get Claude OAuth token (priority) or fallback to API key
-            const claudeAuth = getClaudeCodeAuthManager();
-            const claudeToken = await claudeAuth.getValidToken();
-            const anthropicKey = getSecureApiKeyStore().getAnthropicKey();
+            // Claude via @ai-sdk/anthropic through streamWithAISDK
+            // Auth handled by providers.ts getClaudeProvider() (OAuth + API key fallback)
+            log.info(`[AI] Using AI SDK streamText for Claude (model: ${apiModelId})`);
 
-            if (!claudeToken && !anthropicKey) {
-              throw new Error(
-                "Claude Code not connected. Please connect your Claude account in Settings > API Keys.",
-              );
-            }
+            const claudeTools = buildAISDKToolSet({
+              chatId: input.chatId,
+              userId: ctx.userId,
+              provider: "claude",
+              modelId: apiModelId,
+              activeTab: input.activeTab,
+              hasImages: !!input.images?.length,
+              webSearchEnabled: nativeToolsConfig?.webSearch !== false,
+            });
 
-            log.info(`[AI] Claude auth: oauthToken=${!!claudeToken}, apiKey=${!!anthropicKey}`);
-            log.info(`[AI] Using Claude Agent SDK (simple chat, native tools only)`);
+            // Build Anthropic thinking providerOptions
+            const claudeProviderOptions = getClaudeThinkingOptions(input.reasoning) || {};
 
-            // Map reasoning config for Claude SDK
-            // Claude SDK uses maxThinkingTokens instead of effort levels
-            const claudeReasoning = input.reasoning
-              ? {
-                  effort: input.reasoning.effort as 'low' | 'medium' | 'high' | 'none',
-                }
-              : undefined;
-
-            await streamWithClaudeAgentSDK({
+            await streamWithAISDK({
               chatId: input.chatId,
               prompt: input.prompt,
+              provider: "claude",
               modelId: apiModelId,
-              systemPrompt,
-              messages: input.messages?.map((message) => ({
-                role: message.role,
-                content: message.content,
+              userId: ctx.userId,
+              messages: input.messages?.map((m) => ({
+                role: m.role,
+                content: m.content,
               })),
               images: input.images,
-              authToken: claudeToken || undefined,
-              apiKey: anthropicKey || undefined,
+              system: systemPrompt,
               signal: abortController.signal,
-              reasoning: claudeReasoning,
+              tools: claudeTools,
+              maxSteps: 15,
+              providerOptions: claudeProviderOptions,
+              onBeforeFinish: async (text, _usage) => {
+                // Generate suggestions
+                try {
+                  const suggestionApiKey =
+                    input.apiKey || getSecureApiKeyStore().getOpenAIKey();
+                  if (suggestionApiKey) {
+                    const suggestions = await generateSuggestions(
+                      text,
+                      input.messages || [],
+                      suggestionApiKey,
+                    );
+                    if (suggestions?.length) {
+                      sendToRenderer("ai:stream", {
+                        type: "suggestions",
+                        suggestions,
+                      });
+                    }
+                  }
+                } catch (e) {
+                  log.warn("[AI] Claude suggestions generation failed:", e);
+                }
+              },
             });
 
             activeStreams.delete(input.chatId);
@@ -2231,24 +2500,6 @@ CITATION REQUIREMENTS (MANDATORY):
             input.images,
           );
 
-          // For Chat Completions providers (Z.AI, Cerebras, Groq, Ollama), check if model supports images
-          const chatCompletionsSupportsImages = modelDef?.supportsImages ?? true;
-          const chatMessages =
-            provider === "zai" || provider === "cerebras" || provider === "groq" || provider === "ollama"
-              ? toChatMessages(
-                  systemPrompt,
-                  input.messages || [],
-                  input.prompt,
-                  input.images,
-                  {
-                    supportsImages: chatCompletionsSupportsImages,
-                    maxHistoricalImages: 10,
-                    // Groq does not support the `detail` parameter in image_url
-                    includeImageDetail: provider !== "groq",
-                  },
-                )
-              : null;
-
           // Determine reasoning config (ResponseMode override para GPT-5.2)
           // For GPT-5.2 in auto mode: always show some reasoning (user feedback)
           // - "instant" now uses "low" effort instead of "none" to always show reasoning
@@ -2279,754 +2530,205 @@ CITATION REQUIREMENTS (MANDATORY):
             reasoningTokens: 0,
           };
 
-          const runChatCompletionsAgentLoop = async () => {
-            // Z.AI now supports images via OpenAI-compatible multimodal format
-            if (input.images?.length) {
-              log.info(
-                `[AI] ${provider} processing ${input.images.length} image(s) in multimodal format`,
-              );
-              // Log image details for debugging
-              for (const img of input.images) {
-                const sizeKB = Math.round((img.data.length * 3) / 4 / 1024);
-                log.info(`[AI] Image: ${img.mediaType}, ~${sizeKB}KB base64, model supportsImages=${modelDef?.supportsImages}`);
-              }
-              // Log whether chatMessages includes multimodal content
-              if (chatMessages) {
-                const multimodalMsgs = chatMessages.filter((m: any) => Array.isArray(m.content));
-                log.info(`[AI] chatMessages total=${chatMessages.length}, multimodal=${multimodalMsgs.length}`);
-              }
-            }
+          // NOTE: runChatCompletionsAgentLoop removed — replaced by streamWithAISDK() path below.
 
-            // When web search is enabled for Z.AI, exclude function tools
-            // This forces the model to use web_search instead of spreadsheet/doc tools
-            const isWebSearchMode =
-              provider === "zai" && webSearchDecision.enabled;
-            // Groq compound models handle web search server-side — NO tools should be sent
-            const isGroqCompound = modelDef?.supportsServerWebSearch === true;
-            
-            // Prevent hallucination: when user wants web search but model can't do it,
-            // remove IMAGE_TOOLS (generate_image, edit_image) to prevent the model from
-            // hallucinating calls to them (it picks the "closest" tool when web_search is missing)
-            const modelCanSearch = modelDef?.supportsNativeWebSearch || modelDef?.supportsServerWebSearch;
-            const searchIntentNoSearch = webSearchDecision.enabled && !modelCanSearch;
-            
-            let filteredFunctionTools = functionTools;
-            if (searchIntentNoSearch) {
-              filteredFunctionTools = functionTools.filter(
-                (t) => t.name !== "generate_image" && t.name !== "edit_image"
-              );
-              log.info(
-                `[AI] Search intent detected but model ${modelId} has no web search — stripped IMAGE_TOOLS to prevent hallucination (${functionTools.length} → ${filteredFunctionTools.length} tools)`,
-              );
-            }
-            
-            const chatFunctionTools = isWebSearchMode || isGroqCompound
-              ? []
-              : toChatCompletionTools(filteredFunctionTools);
+          if (usesChatCompletions(provider as AIProvider)) {
+            // ================================================================
+            // Chat Completions providers (Z.AI, Cerebras, Groq, Ollama)
+            // Routed through AI SDK streamText() with automatic tool loop
+            // ================================================================
 
-            // For Z.AI, we need to pass native tools (like web_search) as-is
-            // The Chat Completions API accepts both function tools AND native tools
-            const zaiNativeTools = provider === "zai" ? nativeTools : [];
-            const chatTools = [
-              ...chatFunctionTools,
-              ...zaiNativeTools,
-            ] as OpenAI.ChatCompletionTool[];
-
-            log.info(
-              `[AI] Chat tools mode: isWebSearchMode=${isWebSearchMode}, isGroqCompound=${isGroqCompound}, functionTools=${chatFunctionTools.length}, nativeTools=${zaiNativeTools.length}, total=${chatTools.length}`,
-            );
-
-            while (currentStepNumber < MAX_AGENT_STEPS) {
-              currentStepNumber++;
-              const stepStartTime = Date.now();
-              log.info(
-                `[AI] ${provider} step ${currentStepNumber} starting...`,
-              );
-              log.info(
-                `[AI] ${provider} request: model=${modelId}, messages=${chatMessages?.length || 0}, tools=${chatTools.length}`,
-              );
-              if (chatMessages && chatMessages.length > 0) {
-                log.info(
-                  `[AI] ${provider} first message role: ${chatMessages[0]?.role}`,
-                );
-              }
-
-              const zaiThinkingEnabled =
-                provider === "zai" &&
-                modelDef?.supportsReasoning &&
-                (input.mode === "plan" ||
-                  input.reasoning?.effort === "medium" ||
-                  input.reasoning?.effort === "high");
-
-              // Determine tool_choice for Chat Completions API
-              // Force web_search when user explicitly commands it (prevents model from asking questions)
-              let chatToolChoice: any = chatTools.length > 0 ? "auto" : undefined;
-              if (shouldForceWebSearch && !shouldForceFileSearch && currentStepNumber === 1 && chatTools.length > 0) {
-                // For Z.AI and other Chat Completions providers, force web_search by name
-                const hasWebSearchTool = chatTools.some((t: any) => t.type === "web_search" || t.function?.name === "web_search");
-                if (hasWebSearchTool) {
-                  chatToolChoice = { type: "function", function: { name: "web_search" } };
-                  log.info(`[AI] Forcing web_search tool_choice for ${provider}`);
-                }
-              }
-
-              const params: any = {
-                model: apiModelId,
-                messages: chatMessages || [],
-                tools: chatTools.length > 0 ? chatTools : undefined,
-                tool_choice: chatToolChoice,
-                stream: true,
-                // CRITICAL: Force immediate streaming without buffering
-                // This ensures tokens arrive as soon as they're generated
-                stream_options: {
-                  include_usage: true, // Include usage in final chunk
-                },
-              };
-
-              if (provider === "zai") {
-                params.thinking = zaiThinkingEnabled
-                  ? { type: "enabled", clear_thinking: false }
-                  : { type: "disabled" };
-              }
-
-              // Cerebras reasoning params
-              // @see https://inference-docs.cerebras.ai - Reasoning section
-              if (provider === "cerebras" && modelDef?.supportsReasoning) {
-                // Use 'parsed' so reasoning comes in separate delta.reasoning field
-                params.reasoning_format = "parsed";
-
-                // gpt-oss-120b supports reasoning_effort (low/medium/high)
-                if (modelId === "gpt-oss-120b" && reasoningConfig?.effort && reasoningConfig.effort !== "none") {
-                  params.reasoning_effort = reasoningConfig.effort;
-                }
-              }
-
-              // Groq reasoning params
-              // @see https://console.groq.com/docs/reasoning
-              if (provider === "groq" && modelDef?.supportsReasoning) {
-                const apiModel = modelDef.modelIdForApi || modelId;
-                // GPT-OSS models: use include_reasoning + reasoning_effort (low/medium/high)
-                if (apiModel.startsWith("openai/gpt-oss")) {
-                  params.include_reasoning = true;
-                  if (reasoningConfig?.effort && reasoningConfig.effort !== "none") {
-                    params.reasoning_effort = reasoningConfig.effort;
-                  }
-                }
-                // Qwen 3: use reasoning_format ('parsed') + reasoning_effort ('none'|'default')
-                else if (apiModel.startsWith("qwen/")) {
-                  params.reasoning_format = "parsed";
-                  // Map our effort levels to Qwen's supported values
-                  if (reasoningConfig?.effort === "none") {
-                    params.reasoning_effort = "none";
-                  } else {
-                    params.reasoning_effort = "default";
-                  }
-                }
-              }
-
-              // Pre-check Cerebras rate limits before making the request
-              if (provider === "cerebras") {
-                const limitMsg = cerebrasCheck(modelId);
-                if (limitMsg) {
-                  log.warn(`[AI] Cerebras pre-check failed for ${modelId}: ${limitMsg}`);
-                  throw new Error(limitMsg);
-                }
-              }
-
-              // Pre-check Groq rate limits before making the request
-              if (provider === "groq") {
-                const apiModel = modelDef?.modelIdForApi || modelId;
-                const limitMsg = groqCheck(apiModel);
-                if (limitMsg) {
-                  log.warn(`[AI] Groq pre-check failed for ${apiModel}: ${limitMsg}`);
-                  throw new Error(limitMsg);
-                }
-              }
-
-              let stream: any;
-              try {
-                stream = await withRetry(
-                  `${provider}.chat.completions.create`,
-                  abortController.signal,
-                  0,
-                  (signal) =>
-                    openaiClient!.chat.completions.create(params, {
-                      signal,
-                      timeout: DEFAULT_REQUEST_TIMEOUT_MS,
-                    }) as any,
-                );
-              } catch (err) {
-                // Handle Cerebras 402 Payment Required errors with clear messaging
-                if (provider === "cerebras" && err instanceof Error && (err as any).status === 402) {
-                  log.error("[AI] Cerebras 402 Payment Required - likely using Team org key instead of Personal");
-                  throw new Error(
-                    "Cerebras API returned 402 (Payment Required). This usually means you're using an API key from a Team organization that requires credits. Go to cloud.cerebras.ai, switch to your Personal account, and copy that API key instead. The free tier (1M tokens/day) is only available on Personal accounts."
-                  );
-                }
-                // Handle Cerebras 429 Rate Limit errors
-                if (provider === "cerebras" && err instanceof Error && (err as any).status === 429) {
-                  log.warn(`[AI] Cerebras 429 rate limit hit for model ${modelId}`);
-                  throw new Error(
-                    "Cerebras rate limit exceeded. Free tier limits per model: 60K tokens/min, 30 requests/min, 1M tokens/day. Wait a moment or switch to another model."
-                  );
-                }
-                // Handle Groq 429 Rate Limit errors
-                if (provider === "groq" && err instanceof Error && (err as any).status === 429) {
-                  const apiModel = modelDef?.modelIdForApi || modelId;
-                  const limits = groqGetLimits(apiModel);
-                  log.warn(`[AI] Groq 429 rate limit hit for model ${apiModel}`);
-                  throw new Error(
-                    `Groq rate limit exceeded for ${apiModel}. Limits: ${limits.TPM.toLocaleString()} tokens/min, ${limits.RPM} requests/min, ${limits.TPD.toLocaleString()} tokens/day. Wait a moment or switch to another model.`
-                  );
-                }
-                // Handle Z.AI billing/quota errors with graceful fallbacks
-                if (provider === "zai" && isZaiBillingError(err)) {
-                  // 1) If using coding endpoint, fall back to general endpoint
-                  if (zaiBaseURL === ZAI_CODING_BASE_URL) {
-                    log.warn(
-                      "[AI] Z.AI coding endpoint billing error - falling back to general endpoint",
-                    );
-                    zaiBaseURL = ZAI_GENERAL_BASE_URL;
-                    openaiClient = getOrCreateClient({
-                      apiKey: input.apiKey!,
-                      baseURL: zaiBaseURL,
-                      defaultHeaders: { "X-Source": ZAI_SOURCE_HEADER },
-                    });
-                    try {
-                      stream = await withRetry(
-                        `${provider}.chat.completions.create`,
-                        abortController.signal,
-                        0,
-                        (signal) =>
-                          openaiClient!.chat.completions.create(params, {
-                            signal,
-                            timeout: DEFAULT_REQUEST_TIMEOUT_MS,
-                          }) as any,
-                      );
-                    } catch (retryErr) {
-                      // If still a billing error, proceed to model fallback
-                      if (!isZaiBillingError(retryErr)) throw retryErr;
-                    }
-                  }
-                  // 2) Fallback to free model GLM-4.7-Flash if not already using it
-                  if (params.model !== "GLM-4.7-Flash") {
-                    log.warn(
-                      "[AI] Z.AI billing/quota error - switching to free model GLM-4.7-Flash",
-                    );
-                    params.model = "GLM-4.7-Flash";
-                    stream = await withRetry(
-                      `${provider}.chat.completions.create`,
-                      abortController.signal,
-                      0,
-                      (signal) =>
-                        openaiClient!.chat.completions.create(params, {
-                          signal,
-                          timeout: DEFAULT_REQUEST_TIMEOUT_MS,
-                        }) as any,
-                    );
-                  } else {
-                    // Already on free model; cannot recover
-                    throw err;
-                  }
-                } else {
-                  throw err;
-                }
-              }
-
-              const toolCallMap = new Map<
-                string,
-                { id: string; name: string; args: string }
-              >();
-              let lastChunk: any = null;
-              let stepReasoning = "";
-
-              // Process stream chunks immediately without buffering
-              // This ensures fastest possible token-by-token delivery
-              for await (const chunk of stream as any) {
-                lastChunk = chunk;
-                const delta = chunk.choices?.[0]?.delta;
-                
-                // Skip empty chunks but process immediately when content arrives
-                if (!delta) {
-                  // Check for finish reason or usage in non-delta chunks
-                  if (chunk.choices?.[0]?.finish_reason) {
-                    log.debug(`[AI] Stream finished: ${chunk.choices[0].finish_reason}`);
-                  }
-                  continue;
-                }
-
-                // CRITICAL: Emit text deltas immediately as they arrive
-                // No buffering - each token is sent to renderer instantly
-                if (delta.content) {
-                  fullText += delta.content;
-                  // Emit immediately without waiting for more chunks
-                  emit({ type: "text-delta", delta: delta.content });
-                }
-
-                const reasoningDelta =
-                  (delta as any).reasoning ||
-                  (delta as any).reasoning_summary ||
-                  (delta as any).reasoning_content;
-                if (
-                  typeof reasoningDelta === "string" &&
-                  reasoningDelta.length > 0
-                ) {
-                  fullReasoningSummary += reasoningDelta;
-                  stepReasoning += reasoningDelta;
-                  emit({
-                    type: "reasoning-summary-delta",
-                    delta: reasoningDelta,
-                    summaryIndex: 0,
-                  });
-                }
-
-                // Groq compound models handle tools server-side (web_search, code_execution, etc.)
-                // Their streaming responses may leak internal tool_calls in deltas — ignore them
-                // to prevent our agent loop from trying to execute/return them to the API
-                if (delta.tool_calls && !isGroqCompound) {
-                  for (const toolCall of delta.tool_calls) {
-                    const callId =
-                      toolCall.id ||
-                      `${chunk.id}-${toolCall.index ?? toolCallMap.size}`;
-                    if (!toolCallMap.has(callId)) {
-                      toolCallMap.set(callId, {
-                        id: callId,
-                        name: toolCall.function?.name || "tool",
-                        args: "",
-                      });
-                      emit({
-                        type: "tool-call-start",
-                        toolCallId: callId,
-                        toolName: toolCall.function?.name || "tool",
-                      });
-                    }
-
-                    const entry = toolCallMap.get(callId);
-                    if (!entry) continue;
-
-                    if (toolCall.function?.name) {
-                      entry.name = toolCall.function.name;
-                    }
-
-                    if (toolCall.function?.arguments) {
-                      entry.args += toolCall.function.arguments;
-                      emit({
-                        type: "tool-call-delta",
-                        toolCallId: callId,
-                        argsDelta: toolCall.function.arguments,
-                      });
-                    }
-                  }
-                }
-              }
-
-              const finalCompletion =
-                typeof (stream as any).finalChatCompletion === "function"
-                  ? await (stream as any).finalChatCompletion()
-                  : null;
-              const completionUsage = finalCompletion?.usage;
-              if (completionUsage) {
-                usageTotals.promptTokens += completionUsage.prompt_tokens || 0;
-                usageTotals.completionTokens +=
-                  completionUsage.completion_tokens || 0;
-                usageTotals.reasoningTokens +=
-                  (completionUsage as any).completion_tokens_details
-                    ?.reasoning_tokens || 0;
-              }
-              // Fallback: usage en el último chunk (común en Chat Completions streaming)
-              if (
-                usageTotals.promptTokens === 0 &&
-                usageTotals.completionTokens === 0 &&
-                lastChunk?.usage
-              ) {
-                usageTotals.promptTokens = lastChunk.usage.prompt_tokens || 0;
-                usageTotals.completionTokens =
-                  lastChunk.usage.completion_tokens || 0;
-                usageTotals.reasoningTokens =
-                  (lastChunk.usage as any).completion_tokens_details
-                    ?.reasoning_tokens || 0;
-              }
-
-              const zaiWebSearchResults =
-                provider === "zai"
-                  ? getZaiWebSearchResults(
-                      finalCompletion as OpenAI.ChatCompletion,
-                    )
-                  : [];
-
-              // Extract Groq compound web search results from executed_tools
-              // @see https://console.groq.com/docs/web-search
-              const groqSearchResults = getGroqCompoundSearchResults(
-                finalCompletion,
-                lastChunk,
-              );
-
-              // Groq compound models return reasoning in message.reasoning (not deltas)
-              // If we didn't capture reasoning from deltas, extract it from the final message
-              if (isGroqCompound && fullReasoningSummary.length === 0) {
-                const compoundMsg =
-                  finalCompletion?.choices?.[0]?.message ||
-                  lastChunk?.choices?.[0]?.message;
-                const compoundReasoning = compoundMsg?.reasoning;
-                if (typeof compoundReasoning === "string" && compoundReasoning.length > 0) {
-                  fullReasoningSummary = compoundReasoning;
-                  emit({
-                    type: "reasoning-summary-delta",
-                    delta: compoundReasoning,
-                    summaryIndex: 0,
-                  });
-                }
-              }
-
-              if (fullReasoningSummary.length > 0) {
-                emit({
-                  type: "reasoning-summary-done",
-                  text: fullReasoningSummary,
-                  summaryIndex: 0,
-                });
-              }
-
-              if (toolCallMap.size === 0) {
-                // Z.AI web search annotations
-                if (provider === "zai" && zaiWebSearchResults.length > 0) {
-                  const searchId = `zai-web-${currentStepNumber}-${Date.now()}`;
-                  const urls = zaiWebSearchResults
-                    .map((result) => result.url || "")
-                    .filter(Boolean);
-                  emit({
-                    type: "web-search-start",
-                    searchId,
-                    query: input.prompt,
-                  });
-                  emit({
-                    type: "web-search-done",
-                    searchId,
-                    query: input.prompt,
-                    domains: getDomainsFromUrls(urls),
-                  });
-
-                  const annotations =
-                    buildZaiWebSearchAnnotations(zaiWebSearchResults);
-                  if (annotations.length > 0) {
-                    emit({ type: "annotations", annotations });
-                  }
-                }
-
-                // Groq compound web search annotations
-                if (isGroqCompound && groqSearchResults.length > 0) {
-                  const searchId = `groq-web-${currentStepNumber}-${Date.now()}`;
-                  const urls = groqSearchResults
-                    .map((r) => r.url)
-                    .filter(Boolean);
-                  emit({
-                    type: "web-search-start",
-                    searchId,
-                    query: input.prompt,
-                  });
-                  emit({
-                    type: "web-search-done",
-                    searchId,
-                    query: input.prompt,
-                    domains: getDomainsFromUrls(urls),
-                    sources: groqSearchResults.map((r) => ({
-                      url: r.url,
-                      title: r.title,
-                    })),
-                  });
-
-                  // Build URL citation annotations from search results
-                  const groqAnnotations: Annotation[] = groqSearchResults.map(
-                    (r, i) => ({
-                      type: "url_citation" as const,
-                      url: r.url,
-                      title: r.title,
-                      startIndex: i,
-                      endIndex: i + 1,
-                    }),
-                  );
-                  if (groqAnnotations.length > 0) {
-                    emit({ type: "annotations", annotations: groqAnnotations });
-                  }
-                }
-
-                emit({
-                  type: "step-complete",
-                  stepNumber: currentStepNumber,
-                  hasMoreSteps: false,
-                });
-                log.info(
-                  `[AI] ${provider} step ${currentStepNumber} complete in ${Date.now() - stepStartTime}ms`,
-                );
-                break;
-              }
-
-              const toolCalls = Array.from(toolCallMap.values());
-              const toolCallPayload = toolCalls.map((toolCall) => ({
-                id: toolCall.id,
-                type: "function" as const,
-                function: {
-                  name: toolCall.name,
-                  arguments: toolCall.args,
-                },
-              }));
-
-              chatMessages?.push({
-                role: "assistant",
-                content: null,
-                tool_calls: toolCallPayload,
-                ...(provider === "zai" && stepReasoning
-                  ? { reasoning_content: stepReasoning }
-                  : {}),
-              } as any);
-
-              await Promise.all(
-                toolCalls.map(async (toolCall) => {
-                  let parsedArgs: unknown = {};
-                  try {
-                    parsedArgs = toolCall.args ? JSON.parse(toolCall.args) : {};
-                  } catch (error) {
-                    log.warn(
-                      `[AI] Failed to parse ${provider} tool args, passing raw string`,
-                    );
-                    parsedArgs = { raw: toolCall.args };
-                  }
-
-                  emit({
-                    type: "tool-call-done",
-                    toolCallId: toolCall.id,
-                    toolName: toolCall.name,
-                    args: parsedArgs,
-                  });
-
-                  try {
-                    const executor = executors.get(toolCall.name);
-                    if (executor) {
-                      const result = await executor(parsedArgs);
-                      const success = !(
-                        result &&
-                        typeof result === "object" &&
-                        "error" in result
-                      );
-                      emit({
-                        type: "tool-result",
-                        toolCallId: toolCall.id,
-                        toolName: toolCall.name,
-                        result,
-                        success,
-                      });
-
-                      chatMessages?.push({
-                        role: "tool",
-                        tool_call_id: toolCall.id,
-                        content: JSON.stringify(result),
-                      } as OpenAI.ChatCompletionMessageParam);
-                    } else {
-                      // No executor found — model hallucinated a tool call
-                      // Push an error result to prevent malformed conversation
-                      log.warn(`[AI] No executor for tool "${toolCall.name}" — model hallucinated this tool call`);
-                      const notAvailableResult = { error: `Tool "${toolCall.name}" is not available. Do NOT call this tool again.` };
-                      emit({
-                        type: "tool-result",
-                        toolCallId: toolCall.id,
-                        toolName: toolCall.name,
-                        result: notAvailableResult,
-                        success: false,
-                      });
-                      chatMessages?.push({
-                        role: "tool",
-                        tool_call_id: toolCall.id,
-                        content: JSON.stringify(notAvailableResult),
-                      } as OpenAI.ChatCompletionMessageParam);
-                    }
-                  } catch (err) {
-                    const errorMsg =
-                      err instanceof Error ? err.message : "Unknown error";
-                    log.error(
-                      `[AI] Tool execution error for ${toolCall.name}:`,
-                      err,
-                    );
-                    emit({
-                      type: "tool-result",
-                      toolCallId: toolCall.id,
-                      toolName: toolCall.name,
-                      result: { error: errorMsg },
-                      success: false,
-                    });
-
-                    chatMessages?.push({
-                      role: "tool",
-                      tool_call_id: toolCall.id,
-                      content: JSON.stringify({ error: errorMsg }),
-                    } as OpenAI.ChatCompletionMessageParam);
-                  }
-                }),
-              );
-
-              emit({
-                type: "step-complete",
-                stepNumber: currentStepNumber,
-                hasMoreSteps: true,
-              });
-            }
-
-            emit({ type: "text-done", text: fullText });
-
-            // Generate suggestions BEFORE emitting finish (so listener is still active)
-            if (fullText && !abortController.signal.aborted) {
-              const suggestionApiKey =
-                input.apiKey || getSecureApiKeyStore().getOpenAIKey();
-              if (suggestionApiKey) {
-                try {
-                  const suggestions = await generateSuggestions(
-                    fullText,
-                    input.messages || [],
-                    suggestionApiKey,
-                    (provider as string) === "zai"
-                      ? zaiBaseURL || undefined
-                      : (provider as string) === "cerebras"
-                        ? "https://api.cerebras.ai/v1"
-                        : (provider as string) === "groq"
-                          ? "https://api.groq.com/openai/v1"
-                          : undefined,
-                  );
-                  if (
-                    suggestions.length > 0 &&
-                    !abortController.signal.aborted
-                  ) {
-                    emit({ type: "suggestions", suggestions });
-                  }
-                } catch (err) {
-                  log.error("[AI] Failed to generate suggestions:", err);
-                  // Emit default suggestions on error
-                  emit({
-                    type: "suggestions",
-                    suggestions: [
-                      "Create spreadsheet",
-                      "Visualize data",
-                      "Generate chart",
-                      "Analyze trends",
-                    ],
-                  });
-                }
-              } else {
-                emit({
-                  type: "suggestions",
-                  suggestions: [
-                    "Create spreadsheet",
-                    "Visualize data",
-                    "Generate chart",
-                    "Analyze trends",
-                  ],
-                });
-              }
-            }
-
-            // Track Cerebras per-model usage and always emit status to frontend
+            // Pre-check rate limits before making the request
             if (provider === "cerebras") {
-              cerebrasTrack(modelId, usageTotals.promptTokens, usageTotals.completionTokens);
-              const status = cerebrasStatus(modelId);
-              const pct = Math.round(status.maxPct * 100);
-              const remainingTPD = Math.max(0, CEREBRAS_LIMITS.TPD - status.tpdUsed);
-              log.info(`[AI] Cerebras usage for ${modelId}: TPM ${Math.round(status.tpmPct * 100)}%, TPD ${Math.round(status.tpdPct * 100)}%, RPM ${Math.round(status.rpmPct * 100)}% (highest: ${status.maxDimension} at ${pct}%)`);
-
-              const dimLabels: Record<string, string> = {
-                TPM: "tokens/min", TPH: "tokens/hour", TPD: "tokens/day",
-                RPM: "requests/min", RPH: "requests/hour", RPD: "requests/day",
-              };
-              const dimLabel = dimLabels[status.maxDimension] || status.maxDimension;
-              const message = status.maxPct >= 1
-                ? `Cerebras ${dimLabel} limit reached for ${modelId}. Switch to another provider/model or wait.`
-                : status.maxPct >= CEREBRAS_WARNING_THRESHOLD
-                  ? `Cerebras ${modelId} at ${pct}% of ${dimLabel} limit. Consider switching provider or model.`
-                  : "";
-
-              // Always emit usage status so frontend can update the progress bar
-              emit({
-                type: "rate-limit-warning",
-                provider: "cerebras",
-                message,
-                usagePercent: pct,
-                remainingTokens: remainingTPD,
-                dailyLimit: CEREBRAS_LIMITS.TPD,
-              });
+              const limitMsg = cerebrasCheck(modelId);
+              if (limitMsg) {
+                log.warn(`[AI] Cerebras pre-check failed for ${modelId}: ${limitMsg}`);
+                throw new Error(limitMsg);
+              }
             }
-
-            // Track Groq per-model usage and emit warning if approaching any limit
             if (provider === "groq") {
               const apiModel = modelDef?.modelIdForApi || modelId;
-              groqTrack(apiModel, usageTotals.promptTokens, usageTotals.completionTokens);
-              const status = groqStatus(apiModel);
-              const limits = groqGetLimits(apiModel);
-              const pct = Math.round(status.maxPct * 100);
-              const remainingTPD = Math.max(0, limits.TPD - status.tpdUsed);
-              log.info(`[AI] Groq usage for ${apiModel}: TPM ${Math.round(status.tpmPct * 100)}%, TPD ${Math.round(status.tpdPct * 100)}%, RPM ${Math.round(status.rpmPct * 100)}% (highest: ${status.maxDimension} at ${pct}%)`);
-
-              // Always emit per-model usage for all tracked Groq models
-              const modelsUsage: Array<{ model: string; tpdUsed: number; tpdLimit: number; tpmPct: number }> = [];
-              for (const [m, _usage] of groqUsage) {
-                const mStatus = groqStatus(m);
-                const mLimits = groqGetLimits(m);
-                modelsUsage.push({
-                  model: m,
-                  tpdUsed: mStatus.tpdUsed,
-                  tpdLimit: mLimits.TPD,
-                  tpmPct: Math.round(mStatus.tpmPct * 100),
-                });
-              }
-              emit({ type: "groq-model-usage", models: modelsUsage });
-
-              // Keep existing rate-limit-warning + toast for >= 90%
-              if (status.maxPct >= GROQ_WARNING_THRESHOLD) {
-                const dimLabels: Record<string, string> = {
-                  TPM: "tokens/min", TPD: "tokens/day",
-                  RPM: "requests/min", RPD: "requests/day",
-                };
-                const dimLabel = dimLabels[status.maxDimension] || status.maxDimension;
-                emit({
-                  type: "rate-limit-warning",
-                  provider: "groq",
-                  message: status.maxPct >= 1
-                    ? `Groq ${dimLabel} limit reached for ${apiModel}. Switch to another provider/model or wait.`
-                    : `Groq ${apiModel} at ${pct}% of ${dimLabel} limit. Consider switching provider or model.`,
-                  usagePercent: pct,
-                  remainingTokens: remainingTPD,
-                  dailyLimit: limits.TPD,
-                });
+              const limitMsg = groqCheck(apiModel);
+              if (limitMsg) {
+                log.warn(`[AI] Groq pre-check failed for ${apiModel}: ${limitMsg}`);
+                throw new Error(limitMsg);
               }
             }
 
-            emit({
-              type: "finish",
-              usage: {
-                promptTokens: usageTotals.promptTokens,
-                completionTokens: usageTotals.completionTokens,
-                reasoningTokens: usageTotals.reasoningTokens,
+            // Groq compound models handle web search server-side — don't send function tools
+            const isGroqCompound = modelDef?.supportsServerWebSearch === true;
+
+            // Build AI SDK tool set with context-aware selection
+            const aiSdkTools = isGroqCompound
+              ? undefined
+              : buildAISDKToolSet({
+                  chatId: input.chatId,
+                  userId: ctx.userId,
+                  provider: provider as AIProvider,
+                  modelId,
+                  activeTab: input.activeTab,
+                  hasImages,
+                  mode: input.mode === "plan" ? "plan" : hasImages ? "minimal" : "normal",
+                  toolContext,
+                  webSearchEnabled: nativeToolsConfig?.webSearch !== false,
+                });
+
+            // Build reasoning params using capability-driven helper
+            const ccReasoningEffort =
+              provider === "zai"
+                ? modelDef?.supportsReasoning &&
+                  (input.mode === "plan" ||
+                    input.reasoning?.effort === "medium" ||
+                    input.reasoning?.effort === "high")
+                  ? input.reasoning?.effort || "medium"
+                  : "none"
+                : reasoningConfig?.effort;
+            const ccReasoningParams = getReasoningParams(
+              provider as AIProvider,
+              modelId,
+              ccReasoningEffort ? { effort: ccReasoningEffort as any } : undefined,
+            );
+
+            log.info(
+              `[AI] Chat Completions via AI SDK: provider=${provider}, model=${modelId}, tools=${aiSdkTools ? Object.keys(aiSdkTools).length : 0}, isGroqCompound=${isGroqCompound}, reasoning=${JSON.stringify(ccReasoningParams)}`,
+            );
+
+            await streamWithAISDK({
+              chatId: input.chatId,
+              prompt: input.prompt,
+              provider: provider as AIProvider,
+              modelId,
+              userId: ctx.userId,
+              messages: input.messages?.map((m) => ({
+                role: m.role as "user" | "assistant" | "system",
+                content: m.content,
+                images: m.images,
+              })),
+              images: input.images,
+              mode: input.mode === "plan" ? "plan" : "agent",
+              signal: abortController.signal,
+              system: systemPrompt,
+              tools: aiSdkTools,
+              maxSteps: MAX_AGENT_STEPS,
+              providerOptions:
+                Object.keys(ccReasoningParams).length > 0
+                  ? ccReasoningParams
+                  : undefined,
+              onBeforeFinish: async (_text, ccUsage) => {
+                // Generate suggestions before finish
+                if (_text && !abortController.signal.aborted) {
+                  const suggestionApiKey =
+                    input.apiKey || getSecureApiKeyStore().getOpenAIKey();
+                  if (suggestionApiKey) {
+                    try {
+                      const suggestions = await generateSuggestions(
+                        _text,
+                        input.messages || [],
+                        suggestionApiKey,
+                        provider === "zai"
+                          ? undefined
+                          : provider === "cerebras"
+                            ? "https://api.cerebras.ai/v1"
+                            : provider === "groq"
+                              ? "https://api.groq.com/openai/v1"
+                              : undefined,
+                      );
+                      if (suggestions.length > 0 && !abortController.signal.aborted) {
+                        emit({ type: "suggestions", suggestions });
+                      }
+                    } catch (err) {
+                      log.error("[AI] Failed to generate suggestions:", err);
+                      emit({
+                        type: "suggestions",
+                        suggestions: ["Create spreadsheet", "Visualize data", "Generate chart", "Analyze trends"],
+                      });
+                    }
+                  } else {
+                    emit({
+                      type: "suggestions",
+                      suggestions: ["Create spreadsheet", "Visualize data", "Generate chart", "Analyze trends"],
+                    });
+                  }
+                }
+
+                // Track Cerebras per-model usage and emit rate limit status
+                if (provider === "cerebras") {
+                  cerebrasTrack(modelId, ccUsage.promptTokens, ccUsage.completionTokens);
+                  const status = cerebrasStatus(modelId);
+                  const pct = Math.round(status.maxPct * 100);
+                  const remainingTPD = Math.max(0, CEREBRAS_LIMITS.TPD - status.tpdUsed);
+                  log.info(
+                    `[AI] Cerebras usage for ${modelId}: TPM ${Math.round(status.tpmPct * 100)}%, TPD ${Math.round(status.tpdPct * 100)}%, RPM ${Math.round(status.rpmPct * 100)}% (highest: ${status.maxDimension} at ${pct}%)`,
+                  );
+                  const dimLabels: Record<string, string> = {
+                    TPM: "tokens/min", TPH: "tokens/hour", TPD: "tokens/day",
+                    RPM: "requests/min", RPH: "requests/hour", RPD: "requests/day",
+                  };
+                  const dimLabel = dimLabels[status.maxDimension] || status.maxDimension;
+                  const message =
+                    status.maxPct >= 1
+                      ? `Cerebras ${dimLabel} limit reached for ${modelId}. Switch to another provider/model or wait.`
+                      : status.maxPct >= CEREBRAS_WARNING_THRESHOLD
+                        ? `Cerebras ${modelId} at ${pct}% of ${dimLabel} limit. Consider switching provider or model.`
+                        : "";
+                  emit({
+                    type: "rate-limit-warning",
+                    provider: "cerebras",
+                    message,
+                    usagePercent: pct,
+                    remainingTokens: remainingTPD,
+                    dailyLimit: CEREBRAS_LIMITS.TPD,
+                  });
+                }
+
+                // Track Groq per-model usage and emit warning if approaching limit
+                if (provider === "groq") {
+                  const apiModel = modelDef?.modelIdForApi || modelId;
+                  groqTrack(apiModel, ccUsage.promptTokens, ccUsage.completionTokens);
+                  const status = groqStatus(apiModel);
+                  const limits = groqGetLimits(apiModel);
+                  const pct = Math.round(status.maxPct * 100);
+                  const remainingTPD = Math.max(0, limits.TPD - status.tpdUsed);
+                  log.info(
+                    `[AI] Groq usage for ${apiModel}: TPM ${Math.round(status.tpmPct * 100)}%, TPD ${Math.round(status.tpdPct * 100)}%, RPM ${Math.round(status.rpmPct * 100)}% (highest: ${status.maxDimension} at ${pct}%)`,
+                  );
+                  // Emit per-model usage for all tracked Groq models
+                  const modelsUsage: Array<{ model: string; tpdUsed: number; tpdLimit: number; tpmPct: number }> = [];
+                  for (const [m] of groqUsage) {
+                    const mStatus = groqStatus(m);
+                    const mLimits = groqGetLimits(m);
+                    modelsUsage.push({
+                      model: m,
+                      tpdUsed: mStatus.tpdUsed,
+                      tpdLimit: mLimits.TPD,
+                      tpmPct: Math.round(mStatus.tpmPct * 100),
+                    });
+                  }
+                  emit({ type: "groq-model-usage", models: modelsUsage });
+
+                  if (status.maxPct >= GROQ_WARNING_THRESHOLD) {
+                    const dimLabels: Record<string, string> = {
+                      TPM: "tokens/min", TPD: "tokens/day",
+                      RPM: "requests/min", RPD: "requests/day",
+                    };
+                    const dimLabel = dimLabels[status.maxDimension] || status.maxDimension;
+                    emit({
+                      type: "rate-limit-warning",
+                      provider: "groq",
+                      message:
+                        status.maxPct >= 1
+                          ? `Groq ${dimLabel} limit reached for ${apiModel}. Switch to another provider/model or wait.`
+                          : `Groq ${apiModel} at ${pct}% of ${dimLabel} limit. Consider switching provider or model.`,
+                      usagePercent: pct,
+                      remainingTokens: remainingTPD,
+                      dailyLimit: limits.TPD,
+                    });
+                  }
+                }
               },
-              totalSteps: currentStepNumber,
             });
 
-            try {
-              const tracker = getUsageTracker();
-              tracker.logRequest({
-                chatId: input.chatId,
-                provider: provider,
-                modelId: modelId,
-                modelName: modelId,
-                promptTokens: usageTotals.promptTokens,
-                completionTokens: usageTotals.completionTokens,
-                reasoningTokens: usageTotals.reasoningTokens || undefined,
-                totalTokens: usageTotals.promptTokens + usageTotals.completionTokens,
-                requestDurationMs: Date.now() - startTime,
-              });
-            } catch (logErr) {
-              log.warn("[AI] Failed to log chat completions usage:", logErr);
-            }
-          };
-
-          if (provider === "zai" || provider === "cerebras" || provider === "groq" || provider === "ollama") {
-            // Z.AI, Cerebras, Groq, and Ollama use Chat Completions API (OpenAI-compatible)
-            // They don't support OpenAI's Responses API
-            await runChatCompletionsAgentLoop();
+            activeStreams.delete(input.chatId);
             return;
           }
 

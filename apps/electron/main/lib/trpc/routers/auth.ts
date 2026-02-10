@@ -17,6 +17,31 @@ import {
 } from '../../auth/rate-limiter'
 import { getStorageMode, getLocalFileStorage, LOCAL_USER_ID } from '../../storage'
 import { readFileSync, existsSync } from 'fs'
+import { syncProfileNameMemory } from '../../shared/profile-memory'
+import { syncProfileWorkingMemory } from '../../shared/working-memory'
+
+async function syncAllProfileMemory(input: {
+    userId: string | null | undefined
+    userMetadata?: Record<string, unknown> | null
+    email?: string | null
+    fallbackDisplayName?: string | null
+    source?: 'profile' | 'account' | 'manual'
+}): Promise<void> {
+    syncProfileNameMemory({
+        userId: input.userId,
+        userMetadata: input.userMetadata,
+        email: input.email,
+        fallbackDisplayName: input.fallbackDisplayName,
+        source: input.source ?? 'profile'
+    })
+
+    await syncProfileWorkingMemory({
+        userId: input.userId,
+        userMetadata: input.userMetadata,
+        email: input.email,
+        fallbackDisplayName: input.fallbackDisplayName
+    })
+}
 
 // ========== Local Mode Helpers ==========
 
@@ -203,7 +228,15 @@ export const authRouter = router({
         // In local mode, return local user
         if (isLocalMode()) {
             log.debug('[Auth] getUser - local mode, returning local user')
-            return createLocalUser()
+            const localUser = createLocalUser()
+            await syncAllProfileMemory({
+                userId: localUser.id,
+                userMetadata: localUser.user_metadata as Record<string, unknown>,
+                email: localUser.email ?? null,
+                fallbackDisplayName: (localUser.user_metadata as Record<string, unknown>)?.full_name as string ?? null,
+                source: 'profile'
+            })
+            return localUser
         }
 
         const { data: { user }, error } = await supabase.auth.getUser()
@@ -211,20 +244,40 @@ export const authRouter = router({
             log.error('[Auth] getUser error:', error)
             // Fallback to local user on error
             log.info('[Auth] Falling back to local user due to error')
-            return createLocalUser()
+            const fallbackUser = createLocalUser()
+            await syncAllProfileMemory({
+                userId: fallbackUser.id,
+                userMetadata: fallbackUser.user_metadata as Record<string, unknown>,
+                email: fallbackUser.email ?? null,
+                fallbackDisplayName: (fallbackUser.user_metadata as Record<string, unknown>)?.full_name as string ?? null,
+                source: 'profile'
+            })
+            return fallbackUser
         }
-        if (!user) return createLocalUser() // Fallback to local user if no session
+        if (!user) {
+            const fallbackUser = createLocalUser()
+            await syncAllProfileMemory({
+                userId: fallbackUser.id,
+                userMetadata: fallbackUser.user_metadata as Record<string, unknown>,
+                email: fallbackUser.email ?? null,
+                fallbackDisplayName: (fallbackUser.user_metadata as Record<string, unknown>)?.full_name as string ?? null,
+                source: 'profile'
+            })
+            return fallbackUser // Fallback to local user if no session
+        }
 
         const userMetadata: Record<string, unknown> = (user.user_metadata as Record<string, unknown>) ?? {}
         const avatarPath = typeof userMetadata.avatar_path === 'string' ? userMetadata.avatar_path : null
         const avatarProviderUrl = typeof userMetadata.avatar_provider_url === 'string' ? userMetadata.avatar_provider_url : null
+
+        let resolvedUser = user
 
         if (avatarPath) {
             const { data: signedData, error: signError } = await supabase.storage
                 .from('attachments')
                 .createSignedUrl(avatarPath, 60 * 60 * 24 * 7)
             if (!signError && signedData?.signedUrl) {
-                return {
+                resolvedUser = {
                     ...user,
                     user_metadata: {
                         ...userMetadata,
@@ -234,8 +287,8 @@ export const authRouter = router({
             }
         }
 
-        if (avatarProviderUrl) {
-            return {
+        if (resolvedUser === user && avatarProviderUrl) {
+            resolvedUser = {
                 ...user,
                 user_metadata: {
                     ...userMetadata,
@@ -246,8 +299,8 @@ export const authRouter = router({
 
         const fallbackPicture = typeof userMetadata.picture === 'string' ? userMetadata.picture : null
         const existingAvatarUrl = typeof userMetadata.avatar_url === 'string' ? userMetadata.avatar_url : null
-        if (!existingAvatarUrl && fallbackPicture) {
-            return {
+        if (resolvedUser === user && !existingAvatarUrl && fallbackPicture) {
+            resolvedUser = {
                 ...user,
                 user_metadata: {
                     ...userMetadata,
@@ -256,7 +309,16 @@ export const authRouter = router({
             }
         }
 
-        return user
+        const resolvedMetadata = (resolvedUser.user_metadata as Record<string, unknown>) ?? userMetadata
+        await syncAllProfileMemory({
+            userId: resolvedUser.id,
+            userMetadata: resolvedMetadata,
+            email: resolvedUser.email ?? null,
+            fallbackDisplayName: (resolvedMetadata.full_name as string) ?? (resolvedMetadata.name as string) ?? resolvedUser.email ?? null,
+            source: 'profile'
+        })
+
+        return resolvedUser
     }),
 
     updateProfile: protectedProcedure
@@ -374,7 +436,15 @@ export const authRouter = router({
                 })
                 authStorage.setActiveAccount(accountId)
 
-                return createLocalUser()
+                const localUser = createLocalUser()
+                await syncAllProfileMemory({
+                    userId: localUser.id,
+                    userMetadata: localUser.user_metadata as Record<string, unknown>,
+                    email: localUser.email ?? null,
+                    fallbackDisplayName: displayName,
+                    source: 'profile'
+                })
+                return localUser
             }
 
             const { data: { user: currentUser }, error: currentUserError } = await supabase.auth.getUser()
@@ -442,6 +512,17 @@ export const authRouter = router({
             if (error) {
                 log.error('[Auth] updateProfile updateUser error:', error)
                 throw new Error(error.message)
+            }
+
+            if (data.user) {
+                const nextUserMetadata = (data.user.user_metadata as Record<string, unknown>) ?? nextMetadata
+                await syncAllProfileMemory({
+                    userId: data.user.id,
+                    userMetadata: nextUserMetadata,
+                    email: data.user.email ?? null,
+                    fallbackDisplayName: (nextUserMetadata.full_name as string) ?? (nextUserMetadata.name as string) ?? data.user.email ?? null,
+                    source: 'profile'
+                })
             }
 
             return data.user

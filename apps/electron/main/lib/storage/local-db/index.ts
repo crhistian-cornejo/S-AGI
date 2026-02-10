@@ -396,6 +396,15 @@ function runMigrations(db: SQLiteDatabase): void {
     `CREATE INDEX IF NOT EXISTS chats_project_id_idx ON chats(project_id)`,
     `CREATE INDEX IF NOT EXISTS chats_sort_order_idx ON chats(project_id, sort_order)`,
 
+    // Add parent_id column to chats table for fork lineage
+    `ALTER TABLE chats ADD COLUMN parent_id TEXT REFERENCES chats(id) ON DELETE SET NULL`,
+    `CREATE INDEX IF NOT EXISTS chats_parent_id_idx ON chats(parent_id)`,
+
+    // Add message branching columns for edit-and-resend (ChatGPT-style tree)
+    `ALTER TABLE chat_messages ADD COLUMN parent_message_id TEXT`,
+    `ALTER TABLE chat_messages ADD COLUMN active_child_id TEXT`,
+    `CREATE INDEX IF NOT EXISTS messages_parent_message_id_idx ON chat_messages(parent_message_id)`,
+
     // Insert default local user if not exists
     `INSERT OR IGNORE INTO local_user (id, display_name) VALUES ('local-user', 'Local User')`,
   ];

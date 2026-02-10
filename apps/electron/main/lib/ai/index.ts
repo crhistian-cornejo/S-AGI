@@ -38,6 +38,9 @@ export type {
   ProcessedImage,
 } from './image-processor'
 
+// Provider Capabilities
+export * from './capabilities'
+
 // Streaming utilities
 export * from './streaming'
 

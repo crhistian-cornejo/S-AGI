@@ -37,6 +37,8 @@
     "@ai-sdk-tools/agents": "^1.2.0",
     "@ai-sdk-tools/memory": "^1.2.0",
     "@ai-sdk/anthropic": "^3.0.23",
+    "@ai-sdk/cerebras": "^2.0.31",
+    "@ai-sdk/groq": "^3.0.22",
     "@ai-sdk/openai": "^3.0.13",
     "@anthropic-ai/claude-agent-sdk": "^0.2.19",
     "@anthropic-ai/sdk": "^0.71.2",
@@ -219,6 +221,7 @@
     "electron-rebuild": "^3.2.9",
     "electron-vite": "^3.0.0",
     "postcss": "^8.5.1",
+    "rollup-plugin-visualizer": "^6.0.5",
     "tailwindcss": "^3.4.17",
     "typescript": "^5.4.5",
     "vite": "^6.3.4"

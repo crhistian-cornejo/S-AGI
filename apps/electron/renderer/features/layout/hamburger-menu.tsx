@@ -268,7 +268,7 @@ export function HamburgerMenu() {
             <DropdownMenuSeparator />
             <DropdownMenuItem onClick={toggleCurrentSidebar}>
               Toggle Sidebar
-              {formatHotkey("Ctrl+\\")}
+              {formatHotkey("Cmd+B")}
             </DropdownMenuItem>
             <DropdownMenuItem onClick={() => setShortcutsOpen(true)}>
               Show Keyboard Shortcuts

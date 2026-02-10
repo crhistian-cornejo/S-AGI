@@ -20,6 +20,10 @@ import { tool } from "ai";
 import { z } from "zod";
 import type { LanguageModel } from "ai";
 import type { ExcelContext } from "./types";
+import {
+  createAgentWorkingMemoryTool,
+  UPDATE_WORKING_MEMORY_TOOL_NAME,
+} from "./working-memory";
 import { sendToRenderer } from "../window-manager";
 import log from "electron-log";
 import {
@@ -551,6 +555,11 @@ export function createExcelTools(context: ExcelContext) {
           message: "Navegando al tab de Excel.",
         };
       },
+    }),
+
+    [UPDATE_WORKING_MEMORY_TOOL_NAME]: createAgentWorkingMemoryTool({
+      chatId: context.chatId,
+      userId: context.userId,
     }),
   };
 }

@@ -25,12 +25,81 @@ import { AgentToolCallFlat, type ToolCall } from "./agent-tool-call-flat";
 import { ConsolidatedWebSearchTimeline } from "./agent-web-search";
 import { CompactMarkdownRenderer } from "@/components/chat-markdown-renderer";
 
-/** Strip markdown bold from title so **text** renders as plain bold text */
-function stripTitleMarkdown(title: string): string {
-  return title
-    .replace(/\*\*(.+?)\*\*/g, "$1")
-    .replace(/__(.+?)__/g, "$1")
+const REASONING_TAG_REGEX = /<\s*\/?\s*(think|output)\s*>/gi;
+const TOOL_BLOCK_REGEX = /<\s*tool\s*>([\s\S]*?)<\s*\/\s*tool\s*>/gi;
+const LOOSE_TOOL_TAG_REGEX = /<\s*\/?\s*tool\s*>/gi;
+const WEB_RESULT_MARKERS = ["title:", "url:", "content:", "score:"] as const;
+
+function extractReasoningArtifacts(content: string): {
+  content: string;
+  inlineActions: AgentReasoningAction[];
+} {
+  if (!content) return { content: "", inlineActions: [] };
+
+  const inlineActions: AgentReasoningAction[] = [];
+  const withoutToolBlocks = content.replace(TOOL_BLOCK_REGEX, (_match, inner) => {
+    const toolText = String(inner || "").trim();
+    if (toolText) {
+      const searchMatch = toolText.match(/search\s*\(([^)]*)\)/i);
+      if (searchMatch) {
+        const query = searchMatch[1]?.trim();
+        inlineActions.push({
+          type: "web-search",
+          label: query ? `Search: ${query}` : "Searched the web",
+        });
+      } else if (/web[_-]?search/i.test(toolText)) {
+        inlineActions.push({ type: "web-search", label: "Searched the web" });
+      } else {
+        inlineActions.push({
+          type: "tool",
+          label: toolText.length > 80 ? `${toolText.slice(0, 80)}...` : toolText,
+        });
+      }
+    }
+    return " ";
+  });
+
+  const strippedTags = withoutToolBlocks
+    .replace(LOOSE_TOOL_TAG_REGEX, " ")
+    .replace(REASONING_TAG_REGEX, "");
+
+  let filtered = strippedTags;
+  const markerRegex = /\b(?:title|url|content|score)\s*:/gi;
+  const markerMatches = filtered.match(markerRegex);
+  if (markerMatches && markerMatches.length >= 2) {
+    const firstMarkerIndex = filtered.search(/\b(?:title|url|content|score)\s*:/i);
+    if (firstMarkerIndex > 0) {
+      filtered = filtered.slice(0, firstMarkerIndex);
+    } else {
+      filtered = "";
+    }
+  }
+
+  const filteredLines = filtered
+    .split("\n")
+    .filter((line) => {
+      const trimmed = line.trim();
+      if (!trimmed) return true;
+
+      const lower = trimmed.toLowerCase();
+      const markerHits = WEB_RESULT_MARKERS.reduce(
+        (hits, marker) => hits + (lower.includes(marker) ? 1 : 0),
+        0
+      );
+
+      if (lower.startsWith("title:") || lower.startsWith("url:")) return false;
+      if (markerHits >= 2) return false;
+      if (/^https?:\/\/\S+$/i.test(trimmed)) return false;
+      return true;
+    })
+    .join("\n");
+
+  const cleaned = filteredLines
+    .replace(/\n{3,}/g, "\n\n")
+    .replace(/\s+\n/g, "\n")
     .trim();
+
+  return { content: cleaned, inlineActions };
 }
 
 /** Parse reasoning content into structured format with title and bullets */
@@ -310,15 +379,32 @@ export function AgentReasoning({
     return () => observer.disconnect();
   }, [isOpen]);
 
+  const reasoningArtifacts = useMemo(
+    () => extractReasoningArtifacts(summary || content),
+    [summary, content]
+  );
+  const normalizedReasoning = reasoningArtifacts.content;
+
   // Parse reasoning content into structured format
   const parsedReasoning = useMemo(() => {
-    return parseReasoningContent(summary || content);
-  }, [summary, content]);
+    return parseReasoningContent(normalizedReasoning);
+  }, [normalizedReasoning]);
 
   // Always show full reasoning content in the expanded area
-  const displayText = (summary || content).trim();
+  const displayText = normalizedReasoning.trim();
   const hasContent = displayText.length > 0;
-  const hasActions = actions.length > 0;
+  const mergedActions = useMemo(() => {
+    const combined = [...actions, ...reasoningArtifacts.inlineActions];
+    const seen = new Set<string>();
+    return combined.filter((action) => {
+      const key = `${action.type}:${action.label || ""}:${action.toolCall?.id || ""}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }, [actions, reasoningArtifacts.inlineActions]);
+
+  const hasActions = mergedActions.length > 0;
   const hasWebSearches = webSearches.length > 0;
   const hasAnnotations = annotations.length > 0;
   const hasCodeInterpreter = codeInterpreterExecs.length > 0;
@@ -345,8 +431,8 @@ export function AgentReasoning({
   })();
 
   const normalizedActions = hasWebSearches
-    ? actions.filter((a) => a.type !== "web-search")
-    : actions;
+    ? mergedActions.filter((a) => a.type !== "web-search")
+    : mergedActions;
   // Do not show "model" as a step in thought/reasoning
   const actionsWithoutModel = normalizedActions.filter(
     (a) => a.type !== "model"
@@ -467,7 +553,7 @@ export function AgentReasoning({
                     >
                       <ItemIcon
                         className={cn(
-                          "absolute -left-5 top-0.5 w-3.5 h-3.5 shrink-0",
+                          "absolute -left-5 top-[3px] w-3.5 h-3.5 shrink-0",
                           item.isActive
                             ? "text-primary"
                             : "text-muted-foreground/70"
@@ -488,6 +574,7 @@ export function AgentReasoning({
                               item.toolCall.status === "executing" ||
                               item.toolCall.status === "streaming"
                             }
+                            hideLeadingIcon
                           />
                         </div>
                       ) : (

@@ -56,6 +56,7 @@ export interface Chat {
   pinned: boolean;
   projectId: string | null;
   sortOrder: number;
+  parentId: string | null;
   sourceType: string | null;
   sourceId: string | null;
   openaiVectorStoreId: string | null;
@@ -68,6 +69,7 @@ export interface CreateChatInput {
   userId: string;
   title?: string;
   projectId?: string;
+  parentId?: string;
   sourceType?: string;
   sourceId?: string;
 }
@@ -97,6 +99,8 @@ export interface Message {
   metadata: Record<string, unknown> | null;
   modelId: string | null;
   modelName: string | null;
+  parentMessageId: string | null;
+  activeChildId: string | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -110,12 +114,14 @@ export interface CreateMessageInput {
   metadata?: Record<string, unknown>;
   modelId?: string;
   modelName?: string;
+  parentMessageId?: string;
 }
 
 export interface UpdateMessageInput {
   content?: string;
   attachments?: unknown[];
   metadata?: Record<string, unknown>;
+  activeChildId?: string | null;
 }
 
 // ============ ARTIFACT TYPES ============
