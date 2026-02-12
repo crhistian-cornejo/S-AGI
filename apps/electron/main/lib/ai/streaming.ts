@@ -330,6 +330,27 @@ export async function streamWithAISDK(options: StreamingOptions): Promise<{
             fullText = finalText
         }
 
+        // Check if stream completed with no text (likely due to rate limit or error)
+        // This can happen when Groq compound hits rate limits but doesn't throw an error
+        // We check if the stream started (stepCount > 0) but produced no text
+        if (!fullText && stepCount > 0) {
+            // Check if this looks like a rate limit scenario:
+            // - Stream completed but no text was generated
+            // - This is especially common with Groq compound models
+            const hasNoTokens = totalPromptTokens + totalCompletionTokens === 0
+            const hasMinimalTokens = totalPromptTokens > 0 && totalCompletionTokens === 0
+            
+            if (hasNoTokens || hasMinimalTokens) {
+                log.warn(`[AI SDK] Stream completed with no text (stepCount: ${stepCount}, tokens: ${totalPromptTokens}/${totalCompletionTokens}) - likely rate limit error`)
+                const rateLimitError = mapProviderError(provider, { 
+                    message: 'Rate limit reached. The stream completed but no response was generated. Please try again in a moment or switch to another model.',
+                    status: 429 
+                })
+                emit({ type: 'error', error: rateLimitError })
+                throw new Error(rateLimitError)
+            }
+        }
+
         // Emit text done
         if (fullText) {
             emit({ type: 'text-done', text: fullText })

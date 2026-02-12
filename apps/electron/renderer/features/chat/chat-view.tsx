@@ -1330,6 +1330,37 @@ export function ChatView() {
                 setStreamingError(event.error);
                 // Play error sound for streaming/API errors
                 chatSounds.playError();
+                
+                // Save error message to database so user can see what went wrong
+                // This handles cases where stream completes with 0 text due to rate limits
+                if (userMessageId) {
+                  const modelName =
+                    AI_MODELS[selectedModel]?.name ?? selectedModel;
+                  addMessage
+                    .mutateAsync({
+                      chatId: chatIdForStream,
+                      role: "assistant",
+                      content: { type: "text", text: `Error: ${event.error}` },
+                      modelId: selectedModel,
+                      modelName,
+                      parentMessageId: userMessageId,
+                      metadata: {
+                        error: true,
+                        errorMessage: event.error,
+                      },
+                    })
+                    .then(() => {
+                      if (chatIdForStream === selectedChatId) {
+                        refetchMessages();
+                      } else {
+                        utils.messages.list.invalidate({ chatId: chatIdForStream });
+                      }
+                    })
+                    .catch((err) => {
+                      console.error("[ChatView] Failed to save error message:", err);
+                    });
+                }
+                
                 // Reset streaming state (same as finish, but without saving message)
                 setIsStreaming(false);
                 setStreamingStatus(chatIdForStream, "error"); // Sync with Zustand
