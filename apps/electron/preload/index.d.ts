@@ -265,6 +265,6 @@ export interface DesktopApi {
 
 declare global {
   interface Window {
-    desktopApi: DesktopApi;
+    desktopApi?: DesktopApi;
   }
 }

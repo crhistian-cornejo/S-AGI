@@ -126,9 +126,10 @@ export const ChatInput = memo(function ChatInput({
       name: m.name,
       description: [m.parameterSize, m.quantization].filter(Boolean).join(" · ") || "Local model",
       contextWindow: 128000,
-      supportsImages: false,
-      supportsTools: true,
-      supportsReasoning: false,
+      // Use capabilities detected from Ollama API metadata
+      supportsImages: m.supportsImages ?? false,
+      supportsTools: m.supportsTools ?? false,
+      supportsReasoning: m.supportsReasoning ?? false,
       modelIdForApi: m.name,
       includedInSubscription: true,
       _parameterSize: m.parameterSize,

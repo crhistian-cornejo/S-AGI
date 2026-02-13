@@ -23,6 +23,25 @@ export default [
         ],
     },
 
+    // TypeScript files (main process)
+    {
+        files: ['main/**/*.ts'],
+        languageOptions: {
+            parser: tsParser,
+            parserOptions: {
+                ecmaVersion: 'latest',
+                sourceType: 'module',
+            },
+        },
+        plugins: {
+            '@typescript-eslint': tsPlugin,
+        },
+        rules: {
+            // Disallow console.log in main process - use electron-log instead
+            'no-console': 'error',
+        },
+    },
+
     // TypeScript/React files (renderer only)
     {
         files: ['renderer/**/*.{ts,tsx}'],

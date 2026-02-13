@@ -530,6 +530,8 @@ export function getModelById(modelId: string): ModelDefinition | undefined {
     }
 
     // Dynamic Ollama models (not in static AI_MODELS)
+    // Capabilities default to false here; the renderer sets accurate values
+    // from Ollama API metadata when constructing ModelDefinitions.
     if (modelId.startsWith('ollama:')) {
         const apiId = modelId.slice('ollama:'.length)
         return {
@@ -537,8 +539,9 @@ export function getModelById(modelId: string): ModelDefinition | undefined {
             provider: 'ollama',
             name: apiId,
             contextWindow: 128000,
-            supportsTools: true,
-            supportsReasoning: false,
+            supportsTools: detectOllamaToolSupport(apiId),
+            supportsImages: detectOllamaVisionSupport(apiId),
+            supportsReasoning: detectOllamaReasoningSupport(apiId),
             modelIdForApi: apiId,
             includedInSubscription: true,
         }
@@ -570,8 +573,9 @@ export function resolveModelForProvider(
             provider: 'ollama',
             name: apiId || 'Ollama',
             contextWindow: 128000,
-            supportsTools: true,
-            supportsReasoning: false,
+            supportsTools: detectOllamaToolSupport(apiId),
+            supportsImages: detectOllamaVisionSupport(apiId),
+            supportsReasoning: detectOllamaReasoningSupport(apiId),
             modelIdForApi: apiId,
             includedInSubscription: true,
         }
@@ -584,6 +588,56 @@ export function resolveModelForProvider(
     }
 
     return fallback
+}
+
+// ============================================================================
+// Ollama Model Capability Detection (name-based heuristics)
+// ============================================================================
+
+/**
+ * Detect if an Ollama model supports function/tool calling based on its name.
+ * Only models known to implement the tools API should return true.
+ */
+export function detectOllamaToolSupport(modelName: string): boolean {
+    const n = modelName.toLowerCase()
+    return (
+        // Llama 3.1+ (tool use added in 3.1)
+        /llama3\.[1-9]|llama-3\.[1-9]|llama-3-/.test(n) ||
+        // Qwen 2.5+ and Qwen 3
+        /qwen2\.5|qwen3|qwen-2\.5/.test(n) ||
+        // Mistral and Mixtral
+        /mistral|mixtral/.test(n) ||
+        // Command R family
+        /command-r/.test(n) ||
+        // Granite (IBM)
+        /granite/.test(n) ||
+        // Hermes function calling
+        /hermes/.test(n) ||
+        // Firefunction
+        /firefunction/.test(n) ||
+        // Nemotron (NVIDIA)
+        /nemotron/.test(n) ||
+        // Phi-4 (Microsoft)
+        /phi-?4|phi4/.test(n) ||
+        // Gemma 2 (Google)
+        /gemma2|gemma-2/.test(n)
+    )
+}
+
+/**
+ * Detect if an Ollama model supports image/vision input.
+ */
+export function detectOllamaVisionSupport(modelName: string): boolean {
+    const n = modelName.toLowerCase()
+    return /llava|vision|moondream|bakllava|minicpm-v|internvl/.test(n)
+}
+
+/**
+ * Detect if an Ollama model supports reasoning/thinking mode.
+ */
+export function detectOllamaReasoningSupport(modelName: string): boolean {
+    const n = modelName.toLowerCase()
+    return /deepseek-r1|deepseek-r2|qwen3|qwq/.test(n)
 }
 
 /**

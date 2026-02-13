@@ -33,10 +33,13 @@ const CHATGPT_CONFIG = {
 
 /**
  * Ollama local AI configuration (OpenAI-compatible)
+ * Dynamic: reads base URL from settings at provider creation time.
  * @see https://ollama.com/blog/openai-compatibility
  */
-const OLLAMA_CONFIG = {
-    baseURL: 'http://127.0.0.1:11434/v1'
+function getOllamaApiBaseUrl(): string {
+    // Lazy import to avoid circular dependency
+    const { getOllamaBaseUrl } = require('../../trpc/routers/settings') as { getOllamaBaseUrl: () => string }
+    return `${getOllamaBaseUrl()}/v1`
 }
 
 // ============================================================================
@@ -71,6 +74,13 @@ function getStandardOpenAI() {
         })
     }
     return _openai
+}
+
+/**
+ * Get the raw OpenAI provider instance (for native tools like webSearch/fileSearch/codeInterpreter).
+ */
+export function getOpenAIProvider() {
+    return getStandardOpenAI()
 }
 
 /**
@@ -256,16 +266,19 @@ function getGroqProvider() {
 }
 
 /**
- * Create Ollama provider using OpenAI-compatible endpoint
+ * Create Ollama provider using OpenAI-compatible endpoint.
+ * Base URL is resolved dynamically so it picks up user configuration changes.
  * @see https://ollama.com/blog/openai-compatibility
  */
 function getOllamaProvider() {
     if (!_ollama) {
+        const baseURL = getOllamaApiBaseUrl()
         _ollama = createOpenAI({
-            baseURL: OLLAMA_CONFIG.baseURL,
+            baseURL,
             apiKey: 'ollama',
             fetch: async (url: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
                 const headers = new Headers(init?.headers)
+                // Ollama doesn't need auth; strip to avoid confusing the server
                 headers.delete('authorization')
                 log.debug(`[AI] Ollama request to ${url}`)
                 return fetch(url, { ...init, headers })
@@ -319,9 +332,35 @@ export function getLanguageModel(provider: AIProvider, modelId: string) {
             return getOllamaProvider().chat(apiModelId)
         default: {
             const registry = getSagiProviderRegistry()
-            return registry.languageModel(`${provider}:${apiModelId}`)
+            return registry.languageModel(`${provider as string}:${apiModelId}`)
         }
     }
+}
+
+// Ollama health check cache (avoid hammering the local server)
+let _ollamaHealthy: boolean = true // Optimistic default
+let _ollamaHealthCheckedAt = 0
+const OLLAMA_HEALTH_TTL = 15_000 // 15 seconds
+
+/**
+ * Check Ollama connectivity (cached for 15s).
+ * Non-blocking: returns cached result immediately.
+ */
+export function isOllamaRunning(): boolean {
+    const now = Date.now()
+    if (now - _ollamaHealthCheckedAt < OLLAMA_HEALTH_TTL) {
+        return _ollamaHealthy
+    }
+    // Trigger async health check, return cached value
+    _ollamaHealthCheckedAt = now
+    const { getOllamaBaseUrl } = require('../../trpc/routers/settings') as { getOllamaBaseUrl: () => string }
+    const baseUrl = getOllamaBaseUrl()
+    fetch(`${baseUrl}/api/tags`, {
+        signal: AbortSignal.timeout(2000),
+    })
+        .then((res) => { _ollamaHealthy = res.ok })
+        .catch(() => { _ollamaHealthy = false })
+    return _ollamaHealthy
 }
 
 /**
@@ -344,7 +383,7 @@ export function isProviderAvailable(provider: AIProvider): boolean {
         case 'groq':
             return !!getGroqAuthManager().getApiKey()
         case 'ollama':
-            return true
+            return isOllamaRunning()
         default:
             return false
     }
@@ -404,9 +443,12 @@ export function getProviderStatus(provider: AIProvider): {
             }
         }
         case 'ollama': {
+            const ollamaAvailable = isOllamaRunning()
             return {
-                available: true,
-                message: 'Local AI via Ollama (ensure ollama serve is running)'
+                available: ollamaAvailable,
+                message: ollamaAvailable
+                    ? 'Local AI via Ollama'
+                    : 'Ollama is not running. Start it with `ollama serve` in your terminal.'
             }
         }
         default:

@@ -1,5 +1,8 @@
 import { setMaxListeners } from "events";
 import { z } from "zod";
+import { generateText } from "ai";
+import { createOpenAI } from "@ai-sdk/openai";
+import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import { router, protectedProcedure } from "../trpc";
 import log from "electron-log";
 import { sendToRenderer } from "../../window-manager";
@@ -7,7 +10,7 @@ import { supabase, authStorage } from "../../supabase/client";
 import { getStorageAdapter, isLocalStorageMode } from "../../storage";
 import { getUsageTracker } from "../../storage/usage-tracker";
 import { getSecureApiKeyStore } from "../../auth/api-key-store";
-import { getChatGPTAuthManager, getClaudeCodeAuthManager } from "../../auth";
+import { getChatGPTAuthManager } from "../../auth";
 import { getCredentialManager } from "../../shared/credentials";
 import { getProfileNameMemory, syncProfileNameMemory } from "../../shared/profile-memory";
 import {
@@ -27,7 +30,7 @@ import {
   getWorkingMemoryInstructions,
   type MemoryScope,
 } from "@ai-sdk-tools/memory";
-import { OpenAIFileService, shouldUseAISDK, streamWithAISDK } from "../../ai";
+import { OpenAIFileService, getLanguageModel, streamWithAISDK } from "../../ai";
 import { canUseImageTools, getReasoningParams, usesChatCompletions, getClaudeThinkingOptions } from "../../ai/capabilities";
 import { buildAISDKToolSet } from "../../ai/tool-adapter";
 // Note: claude-agent-sdk.ts still used by agent-panel.ts for streamClaudeForAgentPanel
@@ -50,7 +53,6 @@ import type {
   ReasoningConfig,
   NativeToolsConfig,
   AIProvider,
-  Annotation,
 } from "@s-agi/core/types/ai";
 import {
   AI_MODELS,
@@ -90,10 +92,10 @@ import {
   getFallbackTitle,
   pickModeAuto,
   isLikelyCodingPrompt,
-  isZaiBillingError,
   sanitizeApiError,
 } from "./ai/helpers";
 import { zodToJsonSchema, extractWebSearchDetails } from "./ai/schema";
+import { getOllamaBaseUrl } from "./settings";
 
 // Re-export type for consumers
 export type { AIStreamEvent } from "@s-agi/core/types/ai";
@@ -741,6 +743,15 @@ function getGroqCompoundSearchResults(
   return allResults;
 }
 
+// Keep legacy helpers referenced while old Responses API fallback code remains in this file.
+void [
+  createFunctionTools,
+  getZaiWebSearchResults,
+  getDomainsFromUrls,
+  buildZaiWebSearchAnnotations,
+  getGroqCompoundSearchResults,
+];
+
 /**
  * Build native tools array based on configuration and model support
  * @param modelId - The model ID to check capabilities
@@ -1218,50 +1229,58 @@ export const aiRouter = router({
 
 Format as a structured summary that another AI can use to seamlessly continue this conversation. The user should not notice any loss of context.`;
 
-                  // Create a temporary client for the summarization call
-                  let summaryClient: OpenAI | null = null;
+                  let summaryModel: any | null = null;
                   try {
-                    if (provider === "cerebras") {
-                      summaryClient = getOrCreateClient({
-                        apiKey: input.apiKey || "",
-                        baseURL: "https://api.cerebras.ai/v1",
-                      });
-                    } else if (provider === "groq") {
-                      summaryClient = getOrCreateClient({
-                        apiKey: input.apiKey || "",
-                        baseURL: "https://api.groq.com/openai/v1",
-                      });
-                    } else if (provider === "ollama") {
-                      summaryClient = getOrCreateClient({
-                        apiKey: "ollama",
-                        baseURL: "http://localhost:11434/v1",
-                      });
-                    } else if (provider === "openai" && input.apiKey) {
-                      summaryClient = getOrCreateClient({
+                    if (provider === "openai" && input.apiKey) {
+                      summaryModel = createOpenAI({ apiKey: input.apiKey })(apiModelId);
+                    } else if (provider === "openai") {
+                      const openaiKey = await getCredentialManager().getOpenAIKey();
+                      if (openaiKey) {
+                        summaryModel = createOpenAI({ apiKey: openaiKey })(apiModelId);
+                      }
+                    } else if (provider === "cerebras" && input.apiKey) {
+                      summaryModel = createOpenAICompatible({
+                        name: "cerebras",
                         apiKey: input.apiKey,
-                      });
-                    } else if (provider === "zai") {
-                      summaryClient = getOrCreateClient({
-                        apiKey: input.apiKey || "",
+                        baseURL: "https://api.cerebras.ai/v1",
+                      }).chatModel(apiModelId);
+                    } else if (provider === "groq" && input.apiKey) {
+                      summaryModel = createOpenAICompatible({
+                        name: "groq",
+                        apiKey: input.apiKey,
+                        baseURL: "https://api.groq.com/openai/v1",
+                      }).chatModel(apiModelId);
+                    } else if (provider === "zai" && input.apiKey) {
+                      summaryModel = createOpenAICompatible({
+                        name: "zai",
+                        apiKey: input.apiKey,
                         baseURL: ZAI_GENERAL_BASE_URL,
-                      });
+                      }).chatModel(apiModelId);
+                    } else if (provider === "ollama") {
+                      summaryModel = createOpenAICompatible({
+                        name: "ollama",
+                        apiKey: "ollama",
+                        baseURL: `${getOllamaBaseUrl()}/v1`,
+                      }).chatModel(apiModelId);
+                    } else {
+                      summaryModel = getLanguageModel(provider as AIProvider, modelId);
                     }
-                  } catch (clientError) {
-                    log.warn("[AI] Could not create summary client:", clientError);
+                  } catch (modelError) {
+                    log.warn("[AI] Could not create summary model:", modelError);
                   }
 
-                  if (summaryClient) {
-                    const summaryResponse = await summaryClient.chat.completions.create({
-                      model: apiModelId,
-                      messages: [
-                        { role: "system", content: COMPACTION_SYSTEM_PROMPT },
-                        { role: "user", content: summaryPrompt },
-                      ],
-                      max_tokens: 2000,
+                  if (summaryModel) {
+                    const summaryResponse = await generateText({
+                      model: summaryModel,
+                      system: COMPACTION_SYSTEM_PROMPT,
+                      prompt: summaryPrompt,
+                      maxOutputTokens: 2000,
+                      abortSignal: abortController.signal,
+                      temperature: 0.2,
                     });
 
                     const summary =
-                      summaryResponse.choices?.[0]?.message?.content ||
+                      summaryResponse.text?.trim() ||
                       "Previous conversation context (summary unavailable).";
 
                     log.info(
@@ -1312,7 +1331,7 @@ Format as a structured summary that another AI can use to seamlessly continue th
                       compactedMessages: oldMessages.length,
                     });
                   } else {
-                    log.warn("[AI] No summary client available, skipping compaction");
+                    log.warn("[AI] No summary model available, skipping compaction");
                   }
                 }
               } catch (compactionError) {
@@ -1322,36 +1341,6 @@ Format as a structured summary that another AI can use to seamlessly continue th
             }
           }
           // ========================================================================
-
-          const hasHistoricalImages = !!input.messages?.some(
-            (message) => message.images && message.images.length > 0,
-          );
-          const canUseAiSdkStreaming =
-            shouldUseAISDK() &&
-            provider !== "claude" &&
-            input.mode === "plan" &&
-            !input.nativeTools &&
-            !input.generateImage &&
-            !input.targetDocument &&
-            !input.images?.length &&
-            !hasHistoricalImages;
-
-          if (canUseAiSdkStreaming) {
-            await streamWithAISDK({
-              chatId: input.chatId,
-              prompt: input.prompt,
-              provider: provider as AIProvider,
-              modelId,
-              userId: ctx.userId,
-              messages: input.messages?.map((message) => ({
-                role: message.role,
-                content: message.content,
-              })),
-              mode: input.mode,
-              signal: abortController.signal,
-            });
-            return;
-          }
 
           // ========================================================================
           // SPECIALIZED AGENT CHECK
@@ -1677,7 +1666,7 @@ Format as a structured summary that another AI can use to seamlessly continue th
             // Ollama - Local AI via OpenAI-compatible endpoint
             client = getOrCreateClient({
               apiKey: "ollama",
-              baseURL: "http://127.0.0.1:11434/v1",
+              baseURL: `${getOllamaBaseUrl()}/v1`,
               maxRetries: 0,
             });
 
@@ -2576,10 +2565,7 @@ CITATION REQUIREMENTS (MANDATORY):
             // Build reasoning params using capability-driven helper
             const ccReasoningEffort =
               provider === "zai"
-                ? modelDef?.supportsReasoning &&
-                  (input.mode === "plan" ||
-                    input.reasoning?.effort === "medium" ||
-                    input.reasoning?.effort === "high")
+                ? modelDef?.supportsReasoning
                   ? input.reasoning?.effort || "medium"
                   : "none"
                 : reasoningConfig?.effort;
@@ -2617,6 +2603,14 @@ CITATION REQUIREMENTS (MANDATORY):
               onBeforeFinish: async (_text, ccUsage) => {
                 // Generate suggestions before finish
                 if (_text && !abortController.signal.aborted) {
+                  // Ollama: skip API-based suggestions to avoid double latency
+                  // with local models. Use static suggestions instead.
+                  if (provider === "ollama") {
+                    emit({
+                      type: "suggestions",
+                      suggestions: ["Create spreadsheet", "Visualize data", "Generate chart", "Analyze trends"],
+                    });
+                  } else {
                   const suggestionApiKey =
                     input.apiKey || getSecureApiKeyStore().getOpenAIKey();
                   if (suggestionApiKey) {
@@ -2649,6 +2643,7 @@ CITATION REQUIREMENTS (MANDATORY):
                       suggestions: ["Create spreadsheet", "Visualize data", "Generate chart", "Analyze trends"],
                     });
                   }
+                  } // close else (non-ollama)
                 }
 
                 // Track Cerebras per-model usage and emit rate limit status
@@ -2723,6 +2718,151 @@ CITATION REQUIREMENTS (MANDATORY):
                       remainingTokens: remainingTPD,
                       dailyLimit: limits.TPD,
                     });
+                  }
+                }
+              },
+            });
+
+            activeStreams.delete(input.chatId);
+            return;
+          }
+
+          if ((provider as string) === "openai" || (provider as string) === "chatgpt-plus") {
+            // ================================================================
+            // OpenAI / ChatGPT Plus via AI SDK streamText()
+            // ================================================================
+            const optimization = input.optimization || {};
+            let maxOutputTokens: number | undefined;
+            if (hasImages) {
+              maxOutputTokens = Math.max(
+                8000,
+                optimization.maxOutputTokens || 8000,
+              );
+            } else if (chosenMode === "instant") {
+              maxOutputTokens = 350;
+            } else if (chosenMode === "thinking") {
+              maxOutputTokens = 1400;
+            } else {
+              maxOutputTokens = optimization.maxOutputTokens;
+            }
+
+            const truncation = optimization.truncation?.type || "auto";
+            const promptCacheKey = optimization.promptCacheKey || input.chatId;
+            const promptCacheRetention = optimization.promptCacheRetention;
+            const forceToolChoice =
+              provider === "openai" && shouldForceFileSearch
+              ? "file_search"
+              : shouldForceWebSearch
+                ? "web_search"
+                : undefined;
+
+            const fileSearchConfig =
+              typeof nativeToolsConfig?.fileSearch === "object"
+                ? nativeToolsConfig.fileSearch
+                : undefined;
+            const fileSearchVectorStoreIds = fileSearchConfig?.vectorStoreIds || [];
+
+            const aiSdkTools = buildAISDKToolSet({
+              chatId: input.chatId,
+              userId: ctx.userId,
+              provider: provider as AIProvider,
+              modelId,
+              activeTab: input.activeTab,
+              hasImages,
+              mode: input.mode === "plan" ? "plan" : hasImages ? "minimal" : "normal",
+              toolContext,
+              webSearchEnabled: nativeToolsConfig?.webSearch !== false,
+              openAINativeTools: {
+                webSearch: {
+                  enabled: nativeToolsConfig?.webSearch !== false,
+                  searchContextSize:
+                    typeof nativeToolsConfig?.webSearch === "object"
+                      ? nativeToolsConfig.webSearch.searchContextSize
+                      : undefined,
+                },
+                codeInterpreter: {
+                  enabled:
+                    provider === "openai" &&
+                    nativeToolsConfig?.codeInterpreter !== false,
+                },
+                fileSearch: {
+                  enabled:
+                    provider === "openai" &&
+                    nativeToolsConfig?.fileSearch !== false,
+                  vectorStoreIds: fileSearchVectorStoreIds,
+                  maxNumResults: fileSearchConfig?.maxResults,
+                },
+                forceToolChoice,
+              },
+            });
+
+            const openaiProviderOptions = {
+              reasoningEffort: reasoningConfig?.effort,
+              reasoningSummary: reasoningConfig?.summary,
+              truncation,
+              promptCacheKey,
+              promptCacheRetention,
+              serviceTier: provider === "openai" && optimization.useFlex ? "flex" : undefined,
+              include:
+                provider === "openai" && fileSearchVectorStoreIds.length > 0
+                  ? ["file_search_call.results"]
+                  : undefined,
+              store: provider === "openai",
+            };
+            const cleanedOpenaiProviderOptions = Object.fromEntries(
+              Object.entries(openaiProviderOptions).filter(([, value]) => value !== undefined),
+            );
+
+            log.info(
+              `[AI] OpenAI via AI SDK: provider=${provider}, model=${modelId}, tools=${Object.keys(aiSdkTools).length}, maxOutputTokens=${maxOutputTokens ?? "default"}, toolChoice=${forceToolChoice ?? "auto"}`,
+            );
+
+            await streamWithAISDK({
+              chatId: input.chatId,
+              prompt: input.prompt,
+              provider: provider as AIProvider,
+              modelId,
+              userId: ctx.userId,
+              messages: input.messages?.map((m) => ({
+                role: m.role as "user" | "assistant" | "system",
+                content: m.content,
+                images: m.images,
+              })),
+              images: input.images,
+              mode: input.mode === "plan" ? "plan" : "agent",
+              signal: abortController.signal,
+              system: effectiveInstructions,
+              tools: aiSdkTools,
+              maxSteps: MAX_AGENT_STEPS,
+              maxOutputTokens,
+              toolChoice: forceToolChoice
+                ? { type: "tool", toolName: forceToolChoice }
+                : undefined,
+              providerOptions:
+                Object.keys(cleanedOpenaiProviderOptions).length > 0
+                  ? { openai: cleanedOpenaiProviderOptions }
+                  : undefined,
+              onBeforeFinish: async (_text, _usage) => {
+                if (_text && !abortController.signal.aborted) {
+                  const suggestionApiKey =
+                    input.apiKey || getSecureApiKeyStore().getOpenAIKey();
+                  if (suggestionApiKey) {
+                    try {
+                      const suggestions = await generateSuggestions(
+                        _text,
+                        input.messages || [],
+                        suggestionApiKey,
+                      );
+                      if (suggestions.length > 0 && !abortController.signal.aborted) {
+                        emit({ type: "suggestions", suggestions });
+                      }
+                    } catch (err) {
+                      log.error("[AI] Failed to generate suggestions:", err);
+                      emit({
+                        type: "suggestions",
+                        suggestions: ["Create spreadsheet", "Visualize data", "Generate chart", "Analyze trends"],
+                      });
+                    }
                   }
                 }
               },
@@ -3672,125 +3812,97 @@ CITATION REQUIREMENTS (MANDATORY):
     )
     .mutation(async ({ input }) => {
       try {
-        // Try to get API key from credential manager if not provided
-        let apiKey = input.apiKey || "";
         const credentialManager = getCredentialManager();
+        const requestedProvider = input.provider || "openai";
+        const normalizedProvider = requestedProvider === "anthropic" ? "claude" : requestedProvider;
+        const titleDefaults: Record<string, string> = {
+          openai: "gpt-4o-mini",
+          "chatgpt-plus": "gpt-5.2",
+          claude: "claude-3-5-haiku-latest",
+          cerebras: "llama-3.3-70b",
+          groq: "llama-3.3-70b-versatile",
+          zai: "GLM-4.7-Flash",
+          ollama: "llama3.1:8b",
+        };
+        const modelId = input.model || titleDefaults[normalizedProvider] || "gpt-4o-mini";
 
-        // For Cerebras/Z.AI/Groq providers, use Chat Completions for title gen
-        if (!apiKey && (input.provider === "cerebras" || input.provider === "zai" || input.provider === "groq")) {
-          const titlePrompt = `Generate a short, concise title (max 5 words) for this message. Do not use quotes. Just respond with the title, nothing else.\n\nMessage: ${input.prompt}`;
-          try {
-            let titleClient: OpenAI | undefined;
-            let titleModel: string;
+        let titleModel: any | null = null;
 
-            if (input.provider === "cerebras") {
-              const cerebrasKey = await credentialManager.getCerebrasKey();
-              if (cerebrasKey) {
-                titleClient = new OpenAI({ apiKey: cerebrasKey, baseURL: "https://api.cerebras.ai/v1" });
-                titleModel = "llama-3.3-70b";
-              }
-            } else if (input.provider === "groq") {
-              const groqKey = await credentialManager.getGroqKey();
-              if (groqKey) {
-                titleClient = new OpenAI({ apiKey: groqKey, baseURL: "https://api.groq.com/openai/v1" });
-                titleModel = "llama-3.3-70b-versatile";
-              }
-            } else {
-              const zaiKey = await credentialManager.getZaiKey();
-              if (zaiKey) {
-                titleClient = new OpenAI({ apiKey: zaiKey, baseURL: "https://open.bigmodel.cn/api/paas/v4/" });
-                titleModel = "GLM-4.7-Flash";
-              }
-            }
-
-            if (titleClient!) {
-              const response = await titleClient!.chat.completions.create({
-                model: titleModel!,
-                messages: [{ role: "user", content: titlePrompt }],
-                max_completion_tokens: 50,
-              });
-              const candidate = response.choices[0]?.message?.content?.trim() || "";
-              const title = candidate && candidate !== "New Chat" ? candidate : getFallbackTitle(input.prompt);
-              return { title };
-            }
-          } catch (err) {
-            log.warn(`[AI] ${input.provider} title generation failed:`, err);
+        if (input.apiKey && normalizedProvider === "openai") {
+          titleModel = createOpenAI({ apiKey: input.apiKey })(modelId);
+        } else if (normalizedProvider === "openai") {
+          const openaiKey = await credentialManager.getOpenAIKey();
+          if (openaiKey) {
+            titleModel = createOpenAI({ apiKey: openaiKey })(modelId);
           }
+        } else if (input.apiKey && normalizedProvider === "cerebras") {
+          titleModel = createOpenAICompatible({
+            name: "cerebras",
+            apiKey: input.apiKey,
+            baseURL: "https://api.cerebras.ai/v1",
+          }).chatModel(modelId);
+        } else if (input.apiKey && normalizedProvider === "groq") {
+          titleModel = createOpenAICompatible({
+            name: "groq",
+            apiKey: input.apiKey,
+            baseURL: "https://api.groq.com/openai/v1",
+          }).chatModel(modelId);
+        } else if (input.apiKey && normalizedProvider === "zai") {
+          titleModel = createOpenAICompatible({
+            name: "zai",
+            apiKey: input.apiKey,
+            baseURL: "https://open.bigmodel.cn/api/paas/v4/",
+          }).chatModel(modelId);
+        } else if (normalizedProvider === "cerebras") {
+          const cerebrasKey = await credentialManager.getCerebrasKey();
+          if (cerebrasKey) {
+            titleModel = createOpenAICompatible({
+              name: "cerebras",
+              apiKey: cerebrasKey,
+              baseURL: "https://api.cerebras.ai/v1",
+            }).chatModel(modelId);
+          }
+        } else if (normalizedProvider === "groq") {
+          const groqKey = await credentialManager.getGroqKey();
+          if (groqKey) {
+            titleModel = createOpenAICompatible({
+              name: "groq",
+              apiKey: groqKey,
+              baseURL: "https://api.groq.com/openai/v1",
+            }).chatModel(modelId);
+          }
+        } else if (normalizedProvider === "zai") {
+          const zaiKey = await credentialManager.getZaiKey();
+          if (zaiKey) {
+            titleModel = createOpenAICompatible({
+              name: "zai",
+              apiKey: zaiKey,
+              baseURL: "https://open.bigmodel.cn/api/paas/v4/",
+            }).chatModel(modelId);
+          }
+        } else {
+          titleModel = getLanguageModel(normalizedProvider as AIProvider, modelId);
         }
 
-        if (!apiKey) {
-          // Try OpenAI first
-          const openAiKey = await credentialManager.getOpenAIKey();
-          if (openAiKey) apiKey = openAiKey;
-
-          // If no OpenAI key, try Anthropic
-          if (!apiKey) {
-            const anthropicKey = getSecureApiKeyStore().getAnthropicKey();
-            if (anthropicKey) {
-              // Use Anthropic for title generation
-              const Anthropic = (await import("@anthropic-ai/sdk")).default;
-              const anthropic = new Anthropic({ apiKey: anthropicKey });
-
-              const response = await anthropic.messages.create({
-                model: "claude-3-5-haiku-latest",
-                max_tokens: 50,
-                messages: [
-                  {
-                    role: "user",
-                    content: `Generate a short, concise title (max 5 words) for this message. Do not use quotes. Just respond with the title, nothing else.\n\nMessage: ${input.prompt}`,
-                  },
-                ],
-              });
-
-              const candidate = response.content[0]?.type === "text"
-                ? response.content[0].text.trim()
-                : "";
-              const title =
-                candidate && candidate !== "New Chat"
-                  ? candidate
-                  : getFallbackTitle(input.prompt);
-
-              return { title };
-            }
-          }
-        }
-
-        // If still no API key, return fallback
-        if (!apiKey) {
-          log.warn("[AI] No API key available for title generation, using fallback");
+        if (!titleModel) {
+          log.warn("[AI] No provider available for title generation, using fallback");
           return { title: getFallbackTitle(input.prompt) };
         }
 
-        // Use OpenAI for title generation
-        const client = new OpenAI({
-          apiKey,
+        const titleResponse = await generateText({
+          model: titleModel,
+          system:
+            "Generate a short, concise title (max 5 words) for the user's message. Do not use quotes. Return only the title.",
+          prompt: `Message: ${input.prompt}`,
+          maxOutputTokens: 50,
+          temperature: 0.2,
+          abortSignal: AbortSignal.timeout(DEFAULT_REQUEST_TIMEOUT_MS),
         });
 
-        const modelId = input.model || "gpt-4o-mini";
-
-        const response = await withRetry(
-          "responses.create",
-          new AbortController().signal,
-          DEFAULT_REQUEST_TIMEOUT_MS,
-          (signal) =>
-            client.responses.create(
-              {
-                model: modelId, // Fast model for title generation
-                input: input.prompt,
-                instructions:
-                  "Generate a short, concise title (max 5 words) for the user's message. Do not use quotes. Just respond with the title, nothing else.",
-                max_output_tokens: 50,
-              },
-              { signal },
-            ),
-        );
-
-        const candidate = response.output_text?.trim() || "";
-        const title =
-          candidate && candidate !== "New Chat"
-            ? candidate
-            : getFallbackTitle(input.prompt);
-
+        const candidate = titleResponse.text?.trim() || "";
+        const title = candidate && candidate !== "New Chat"
+          ? candidate
+          : getFallbackTitle(input.prompt);
         return { title };
       } catch (error) {
         log.error("[AI] Generate title error:", error);

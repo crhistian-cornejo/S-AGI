@@ -26,8 +26,10 @@ import { VersionDiffViewer } from "./version-diff-viewer";
 import { cn } from "@/lib/utils";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
-import { calculateDiffStats } from "@/utils/univer-diff-stats";
+import { calculateDiffStats, type DiffStats } from "@/utils/univer-diff-stats";
 import { formatTimeAgo } from "@/utils/time-format";
+import type { UniverSnapshot } from "@s-agi/core/types";
+import type { FileVersion } from "@/lib/atoms/user-files";
 import {
   Sheet,
   SheetContent,
@@ -62,8 +64,8 @@ export function FileVersionHistoryPanel({
   const [showObsolete, setShowObsolete] = React.useState(false);
   const [diffViewerOpen, setDiffViewerOpen] = React.useState(false);
   const [diffVersions, setDiffVersions] = React.useState<{
-    old: { versionNumber: number; data: any; createdAt: string } | null;
-    new: { versionNumber: number; data: any; createdAt: string } | null;
+    old: { versionNumber: number; data: UniverSnapshot; createdAt: string } | null;
+    new: { versionNumber: number; data: UniverSnapshot; createdAt: string } | null;
   }>({ old: null, new: null });
 
   const {
@@ -178,7 +180,7 @@ export function FileVersionHistoryPanel({
   };
 
   // Open diff viewer comparing current version with previous
-  const handleShowDiff = (version: any, prevVersion: any) => {
+  const handleShowDiff = (version: FileVersion, prevVersion: FileVersion) => {
     if (!prevVersion) return;
     setDiffVersions({
       old: {
@@ -400,9 +402,9 @@ export function FileVersionHistoryPanel({
 
 // Compact Version Card - Similar to FileItem
 interface CompactVersionCardProps {
-  version: any;
-  prevVersion: any;
-  diffStats: any;
+  version: FileVersion;
+  prevVersion: FileVersion | null;
+  diffStats: DiffStats | null;
   isSelected: boolean;
   isRestoring: boolean;
   userAvatar: string | null;

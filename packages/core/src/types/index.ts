@@ -25,3 +25,12 @@ export * from './hotkeys'
 
 // Checkpoint types (version control, restore points)
 export * from './checkpoints'
+
+// Univer snapshot types (workbook, sheet, cell)
+export * from './univer-snapshot'
+
+// File version types (version history, comparison)
+export * from './file-version'
+
+// Worker message types (data-processing worker)
+export * from './worker-messages'

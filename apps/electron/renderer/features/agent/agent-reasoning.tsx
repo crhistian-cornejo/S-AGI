@@ -421,8 +421,14 @@ export function AgentReasoning({
   // Use a generic label as header to avoid duplicating the reasoning content
   // The full content is shown inside the expanded area with the clock icon
   const headerLabel = (() => {
-    if (isStreaming) {
+    if (isStreaming && hasContent) {
       return "Pensando...";
+    }
+    if (isStreaming) {
+      return "Procesando...";
+    }
+    if (!hasContent && (hasActions || hasWebSearches || hasAnnotations || hasCodeInterpreter)) {
+      return "Actions";
     }
     if (durationMs !== undefined && durationMs > 0) {
       return `Thought for ${formatDuration(durationMs)}`;

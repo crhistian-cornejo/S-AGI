@@ -48,19 +48,19 @@ import {
   IconTypography,
 } from "@tabler/icons-react";
 
+import type { UniverSnapshot } from "@s-agi/core/types";
+
+interface VersionData {
+  versionNumber: number;
+  data: UniverSnapshot;
+  createdAt: string;
+}
+
 interface VersionDiffViewerProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  oldVersion: {
-    versionNumber: number;
-    data: any;
-    createdAt: string;
-  } | null;
-  newVersion: {
-    versionNumber: number;
-    data: any;
-    createdAt: string;
-  } | null;
+  oldVersion: VersionData | null;
+  newVersion: VersionData | null;
 }
 
 export function VersionDiffViewer({

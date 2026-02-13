@@ -56,7 +56,9 @@ export const ArtifactSchema = z.object({
 })
 export type Artifact = z.infer<typeof ArtifactSchema>
 
-// Univer workbook data structure
+// Legacy Univer types — use UniverSnapshot, UniverSheetSnapshot, UniverCell
+// from './univer-snapshot' for new code.
+// These are kept for backward compatibility with existing consumers.
 export interface UniverWorkbookData {
     id: string
     name: string

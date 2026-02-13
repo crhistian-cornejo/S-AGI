@@ -16,6 +16,87 @@ import { supabase } from "../../supabase/client";
 import os from "os";
 import { app, shell } from "electron";
 import { ensureDir, getStoragePaths } from "../../storage/paths";
+import log from "electron-log";
+
+// ============================================================================
+// Ollama Configuration
+// ============================================================================
+
+const OLLAMA_DEFAULT_BASE_URL = "http://127.0.0.1:11434";
+let _ollamaBaseUrl: string | null = null;
+
+/** Get the Ollama base URL (without /v1 suffix). */
+export function getOllamaBaseUrl(): string {
+  return _ollamaBaseUrl || OLLAMA_DEFAULT_BASE_URL;
+}
+
+/** Set a custom Ollama base URL (e.g., for remote/Docker setups). */
+export function setOllamaBaseUrl(url: string | null): void {
+  // Strip trailing slash and /v1 suffix if provided
+  if (url) {
+    url = url.replace(/\/+$/, "").replace(/\/v1$/, "");
+  }
+  _ollamaBaseUrl = url;
+  log.info(`[Ollama] Base URL set to: ${url || OLLAMA_DEFAULT_BASE_URL}`);
+}
+
+/**
+ * Detect Ollama model capabilities based on model name and family metadata.
+ *
+ * Tool calling: Only models built on architectures that support function calling
+ * should have tools sent to them. Sending tools to non-capable models causes
+ * errors or hallucinated tool calls.
+ *
+ * Vision: Models with vision/multimodal capabilities (llava, moondream, etc.)
+ *
+ * Reasoning: Models with chain-of-thought reasoning (deepseek-r1, qwen3, etc.)
+ */
+function detectOllamaModelCapabilities(
+  name: string,
+  family: string | null,
+  families: string[] | null,
+): { supportsTools: boolean; supportsImages: boolean; supportsReasoning: boolean } {
+  const n = name.toLowerCase();
+  const allFamilies = (families || []).map((x) => x.toLowerCase());
+  if (family) allFamilies.push(family.toLowerCase());
+
+  // Vision models (support image input)
+  const supportsImages =
+    /llava|vision|moondream|bakllava|minicpm-v|internvl/.test(n) ||
+    allFamilies.some((fam) => /clip|vision/.test(fam));
+
+  // Tool-calling capable model families
+  // Based on Ollama's documentation and model card metadata
+  const supportsTools =
+    // Llama 3.1+ (tool use added in 3.1)
+    /llama3\.[1-9]|llama-3\.[1-9]|llama-3-/.test(n) ||
+    // Qwen 2.5+ and Qwen 3 (excellent tool support)
+    /qwen2\.5|qwen3|qwen-2\.5/.test(n) ||
+    // Mistral and Mixtral (native function calling)
+    /mistral|mixtral/.test(n) ||
+    // Command R family (Cohere)
+    /command-r/.test(n) ||
+    // Granite (IBM)
+    /granite/.test(n) ||
+    // Hermes function calling variants
+    /hermes/.test(n) ||
+    // Firefunction (Fireworks AI function calling model)
+    /firefunction/.test(n) ||
+    // Nemotron (NVIDIA)
+    /nemotron/.test(n) ||
+    // Phi-4 (Microsoft) supports tools
+    /phi-?4|phi4/.test(n) ||
+    // Gemma 2 (Google) has partial tool support
+    /gemma2|gemma-2/.test(n);
+
+  // Reasoning models (chain-of-thought)
+  const supportsReasoning =
+    /deepseek-r1|deepseek-r2/.test(n) ||
+    // Qwen 3 has built-in reasoning mode
+    /qwen3|qwq/.test(n);
+
+  return { supportsTools, supportsImages, supportsReasoning };
+}
 
 /**
  * Settings router for secure API key management and OAuth status
@@ -227,13 +308,15 @@ export const settingsRouter = router({
   /**
    * List locally installed Ollama models by querying the Ollama API.
    * Returns an empty array if Ollama is not running.
+   * Detects per-model capabilities (tools, vision, reasoning) from model metadata.
    */
   listOllamaModels: publicProcedure.query(async () => {
     try {
+      const baseUrl = getOllamaBaseUrl();
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 3000);
 
-      const res = await fetch("http://127.0.0.1:11434/api/tags", {
+      const res = await fetch(`${baseUrl}/api/tags`, {
         signal: controller.signal,
       });
       clearTimeout(timeout);
@@ -250,22 +333,51 @@ export const settingsRouter = router({
             parameter_size?: string;
             quantization_level?: string;
             family?: string;
+            families?: string[];
           };
         }>;
       };
 
-      const models = (data.models || []).map((m) => ({
-        name: m.name,
-        size: m.size,
-        parameterSize: m.details?.parameter_size || null,
-        quantization: m.details?.quantization_level || null,
-        family: m.details?.family || null,
-        modifiedAt: m.modified_at,
-      }));
+      const models = (data.models || []).map((m) => {
+        const caps = detectOllamaModelCapabilities(
+          m.name,
+          m.details?.family || null,
+          m.details?.families || null,
+        );
+        return {
+          name: m.name,
+          size: m.size,
+          parameterSize: m.details?.parameter_size || null,
+          quantization: m.details?.quantization_level || null,
+          family: m.details?.family || null,
+          modifiedAt: m.modified_at,
+          supportsTools: caps.supportsTools,
+          supportsImages: caps.supportsImages,
+          supportsReasoning: caps.supportsReasoning,
+        };
+      });
 
       return { models, running: true };
     } catch {
       return { models: [], running: false };
     }
   }),
+
+  /**
+   * Get the configured Ollama base URL.
+   */
+  getOllamaBaseUrl: publicProcedure.query(() => {
+    return { baseUrl: getOllamaBaseUrl() };
+  }),
+
+  /**
+   * Set a custom Ollama base URL (for remote/Docker setups).
+   */
+  setOllamaBaseUrl: publicProcedure
+    .input(z.object({ baseUrl: z.string().nullable() }))
+    .mutation(({ input }) => {
+      setOllamaBaseUrl(input.baseUrl);
+      invalidateProviderRegistry();
+      return { success: true };
+    }),
 });

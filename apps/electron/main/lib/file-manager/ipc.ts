@@ -7,6 +7,9 @@ import { getFileManager } from './file-manager'
 import { isSensitiveUnlocked } from '../security/sensitive-lock'
 import { validateIPCSender } from '../security/ipc-validation'
 import { getLocalFileStorage } from '../storage'
+import log from 'electron-log'
+
+const logger = log.scope('file-manager')
 
 export function registerFileManagerIpc(getTrayPopover: () => Electron.BrowserWindow | null): void {
     const fm = getFileManager()
@@ -247,7 +250,7 @@ export function registerFileManagerIpc(getTrayPopover: () => Electron.BrowserWin
             const buffer = await fs.promises.readFile(filePath)
             const base64 = buffer.toString('base64')
 
-            console.log(`[PDF IPC] Read ${filePath}: ${(stats.size / 1024 / 1024).toFixed(2)}MB`)
+            logger.info(`Read ${filePath}: ${(stats.size / 1024 / 1024).toFixed(2)}MB`)
 
             return {
                 success: true,
@@ -255,7 +258,7 @@ export function registerFileManagerIpc(getTrayPopover: () => Electron.BrowserWin
                 size: stats.size
             }
         } catch (error) {
-            console.error('[PDF IPC] Error reading file:', error)
+            logger.error('Error reading file:', error)
             return {
                 success: false,
                 error: error instanceof Error ? error.message : 'Failed to read file'

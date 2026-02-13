@@ -5,6 +5,12 @@
  * entre versiones de Excel/Docs
  */
 
+import type {
+  UniverSnapshot,
+  UniverSheetSnapshot,
+  UniverCell,
+} from "@s-agi/core/types";
+
 /**
  * Tipos de cambios detectados en una celda
  */
@@ -31,7 +37,7 @@ export interface CellStyle {
   tb?: number; // Text wrap (1=wrap, 2=overflow, 3=clip)
   tr?: { a?: number }; // Text rotation
   pd?: { t?: number; r?: number; b?: number; l?: number }; // Padding
-  bd?: Record<string, any>; // Borders
+  bd?: Record<string, unknown>; // Borders
 }
 
 /**
@@ -90,8 +96,8 @@ export interface WorkbookDiff {
  * Compara dos snapshots de Univer workbook
  */
 export function diffWorkbooks(
-  oldSnapshot: any,
-  newSnapshot: any,
+  oldSnapshot: UniverSnapshot | null | undefined,
+  newSnapshot: UniverSnapshot | null | undefined,
 ): WorkbookDiff {
   if (!oldSnapshot || !newSnapshot) {
     return {
@@ -161,7 +167,7 @@ export function diffWorkbooks(
 /**
  * Compara dos hojas (sheets) de Univer
  */
-function diffSheet(oldSheet: any, newSheet: any, sheetId: string): SheetChange {
+function diffSheet(oldSheet: UniverSheetSnapshot, newSheet: UniverSheetSnapshot, sheetId: string): SheetChange {
   const cellChanges: CellChange[] = [];
   const oldCellData = oldSheet.cellData || {};
   const newCellData = newSheet.cellData || {};
@@ -372,8 +378,8 @@ function computeStyleChanges(
  * Compara dos celdas individuales
  */
 function diffCell(
-  oldCell: any,
-  newCell: any,
+  oldCell: UniverCell | undefined,
+  newCell: UniverCell | undefined,
   row: number,
   col: number,
   sheetId: string,
@@ -457,7 +463,7 @@ function diffCell(
  * Verifica si una fila tiene datos
  */
 function hasDataInRow(
-  cellData: Record<number, Record<number, any>>,
+  cellData: Record<string, Record<string, UniverCell>>,
   row: number,
 ): boolean {
   const rowData = cellData[row];
@@ -469,7 +475,7 @@ function hasDataInRow(
  * Verifica si una columna tiene datos
  */
 function hasDataInCol(
-  cellData: Record<number, Record<number, any>>,
+  cellData: Record<string, Record<string, UniverCell>>,
   col: number,
 ): boolean {
   for (const rowData of Object.values(cellData)) {
@@ -481,20 +487,22 @@ function hasDataInCol(
 /**
  * Comparación profunda de objetos
  */
-function deepEqual(a: any, b: any): boolean {
+function deepEqual(a: unknown, b: unknown): boolean {
   if (a === b) return true;
   if (a == null || b == null) return false;
   if (typeof a !== typeof b) return false;
 
   if (typeof a === "object") {
-    const keysA = Object.keys(a);
-    const keysB = Object.keys(b);
+    const objA = a as Record<string, unknown>;
+    const objB = b as Record<string, unknown>;
+    const keysA = Object.keys(objA);
+    const keysB = Object.keys(objB);
 
     if (keysA.length !== keysB.length) return false;
 
     for (const key of keysA) {
       if (!keysB.includes(key)) return false;
-      if (!deepEqual(a[key], b[key])) return false;
+      if (!deepEqual(objA[key], objB[key])) return false;
     }
 
     return true;

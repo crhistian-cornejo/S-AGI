@@ -276,8 +276,11 @@ export function ChatView() {
   const { data: keyStatus } = trpc.settings.getApiKeyStatus.useQuery();
 
   // Check if API key is configured based on tRPC query
+  // Ollama is local and never needs an API key.
   const isConfigured =
-    provider === "openai"
+    provider === "ollama"
+      ? true
+      : provider === "openai"
       ? keyStatus?.hasOpenAI
       : provider === "chatgpt-plus"
       ? keyStatus?.hasChatGPTPlus
@@ -801,6 +804,25 @@ export function ChatView() {
               case "text-delta": {
                 fullText += event.delta;
                 smoothStream.appendToBuffer(event.delta);
+                break;
+              }
+
+              case "text-done": {
+                // Some providers/models (e.g. Groq compound) may skip text-delta
+                // and only send the final accumulated text at the end.
+                const finalText = event.text || "";
+                if (!finalText) break;
+
+                // Keep local accumulator in sync for persistence on "finish".
+                fullText = finalText;
+
+                // Avoid duplicating UI text if deltas already streamed.
+                const bufferedText = smoothStream.getFullText();
+                if (finalText.length > bufferedText.length) {
+                  smoothStream.appendToBuffer(
+                    finalText.slice(bufferedText.length)
+                  );
+                }
                 break;
               }
 
@@ -1449,11 +1471,6 @@ export function ChatView() {
                     toolCallsArray.length > 0
                       ? { type: "tool" as const, count: toolCallsArray.length }
                       : null,
-                    {
-                      type: "model" as const,
-                      modelId: selectedModel,
-                      modelName,
-                    },
                   ].filter(Boolean) as Array<
                     | {
                         type:
@@ -1464,7 +1481,6 @@ export function ChatView() {
                           | "tool";
                         count: number;
                       }
-                    | { type: "model"; modelId: string; modelName: string }
                   >;
 
                   console.log(

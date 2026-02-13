@@ -7,23 +7,21 @@
  * - Spreadsheet data diffing
  */
 
-interface WorkerRequest {
-  id: number;
-  type: "hasRealChanges" | "jsonStringify" | "deepEqual";
-  payload: any;
-}
+import type { WorkerRequest, WorkerResponse } from "@s-agi/core/types";
 
-interface WorkerResponse {
-  id: number;
-  result?: any;
-  error?: string;
+interface SnapshotLike {
+  sheets?: Record<string, {
+    cellData?: Record<string, Record<string, unknown>>;
+    name?: string;
+  }>;
+  sheetOrder?: string[];
 }
 
 /**
  * Fast comparison of two spreadsheet snapshots to detect real changes.
  * Mirrors the logic from univer-diff-stats.ts but runs off the main thread.
  */
-function hasRealChanges(oldSnapshot: any, newSnapshot: any): boolean {
+function hasRealChanges(oldSnapshot: SnapshotLike, newSnapshot: SnapshotLike): boolean {
   if (!oldSnapshot || !newSnapshot) return false;
   if (oldSnapshot === newSnapshot) return false;
 
@@ -60,31 +58,37 @@ function hasRealChanges(oldSnapshot: any, newSnapshot: any): boolean {
 /**
  * Deep equality check for arbitrary JSON-serializable objects.
  */
-function deepEqual(a: any, b: any): boolean {
+function deepEqual(a: unknown, b: unknown): boolean {
   return JSON.stringify(a) === JSON.stringify(b);
 }
 
 self.onmessage = (event: MessageEvent<WorkerRequest>) => {
   const { id, type, payload } = event.data;
-  const response: WorkerResponse = { id };
 
   try {
+    let result: unknown;
     switch (type) {
       case "hasRealChanges":
-        response.result = hasRealChanges(payload.oldSnapshot, payload.newSnapshot);
+        result = hasRealChanges(
+          payload.oldSnapshot as SnapshotLike,
+          payload.newSnapshot as SnapshotLike,
+        );
         break;
       case "jsonStringify":
-        response.result = JSON.stringify(payload.data);
+        result = JSON.stringify(payload.data);
         break;
       case "deepEqual":
-        response.result = deepEqual(payload.a, payload.b);
+        result = deepEqual(payload.a, payload.b);
         break;
       default:
-        response.error = `Unknown operation: ${type}`;
+        self.postMessage({ id, error: `Unknown operation: ${type}` } satisfies WorkerResponse);
+        return;
     }
+    self.postMessage({ id, result } satisfies WorkerResponse);
   } catch (err) {
-    response.error = err instanceof Error ? err.message : String(err);
+    self.postMessage({
+      id,
+      error: err instanceof Error ? err.message : String(err),
+    } satisfies WorkerResponse);
   }
-
-  self.postMessage(response);
 };

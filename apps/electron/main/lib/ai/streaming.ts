@@ -1,4 +1,4 @@
-import { streamText, type StopCondition, type ToolSet } from 'ai'
+import { stepCountIs, streamText, type StopCondition, type ToolSet } from 'ai'
 import log from 'electron-log'
 import { sendToRenderer } from '../window-manager'
 import { getUsageTracker } from '../storage/usage-tracker'
@@ -28,6 +28,10 @@ export interface StreamingOptions {
     system?: string
     tools?: ToolSet
     stopWhen?: StopCondition<ToolSet> | Array<StopCondition<ToolSet>>
+    /** Max output tokens (provider-dependent). */
+    maxOutputTokens?: number
+    /** Tool choice hint (provider-dependent). */
+    toolChoice?: unknown
     /** Maximum number of tool execution steps (default: 15) */
     maxSteps?: number
     /** Reasoning effort level for models that support it */
@@ -147,6 +151,18 @@ function mapProviderError(provider: AIProvider, error: any): string {
         }
     }
 
+    if (provider === 'ollama') {
+        if (message.includes('ECONNREFUSED') || message.includes('fetch failed') || message.includes('network')) {
+            return 'Cannot connect to Ollama. Make sure Ollama is running (`ollama serve` in terminal) and accessible at the configured URL.'
+        }
+        if (status === 404 || message.includes('not found') || message.includes('model')) {
+            return `Ollama model not found. Make sure the model is installed locally with \`ollama pull <model-name>\`.`
+        }
+        if (message.includes('context length') || message.includes('too long')) {
+            return 'Message too long for this Ollama model\'s context window. Try a shorter message or switch to a model with larger context.'
+        }
+    }
+
     // If AI SDK wrapped the error, try to surface the original cause message
     if (message.includes('No output generated')) {
         // Try responseBody first (JSON error from API), then cause message
@@ -178,6 +194,8 @@ export async function streamWithAISDK(options: StreamingOptions): Promise<{
         system,
         tools,
         stopWhen,
+        maxOutputTokens,
+        toolChoice,
         maxSteps = 15,
         onUsage,
         providerOptions,
@@ -205,27 +223,33 @@ export async function streamWithAISDK(options: StreamingOptions): Promise<{
     let stepCount = 0
     let totalPromptTokens = 0
     let totalCompletionTokens = 0
+    let sawToolCalls = false
 
     try {
         const seenToolCalls = new Set<string>()
+        const seenSourceIds = new Set<string>()
         const result = streamText({
             model,
             system: systemPrompt,
             messages: convertMessages(messages, prompt, images) as any,
             abortSignal: signal,
             tools,
-            stopWhen,
-            maxSteps,
+            stopWhen: stopWhen ?? stepCountIs(maxSteps),
+            maxOutputTokens,
+            toolChoice: toolChoice as any,
             providerOptions: providerOptions as any,
             onChunk: ({ chunk }) => {
-                if (chunk.type === 'text-delta') {
-                    const text = (chunk as any).text || ''
+                const chunkType = (chunk as any).type
+
+                // AI SDK 6 uses text-delta/reasoning-delta for onChunk.
+                // Keep legacy aliases for compatibility across providers/versions.
+                if (chunkType === 'text-delta' || chunkType === 'text') {
+                    const text = (chunk as any).text || (chunk as any).delta || ''
                     fullText += text
                     emit({ type: 'text-delta', delta: text })
                 }
-                // AI SDK v6: reasoning chunks are type 'reasoning-delta' with .text property
-                if (chunk.type === 'reasoning-delta') {
-                    const reasoningText = (chunk as any).text || ''
+                if (chunkType === 'reasoning-delta' || chunkType === 'reasoning') {
+                    const reasoningText = (chunk as any).text || (chunk as any).delta || ''
                     if (reasoningText) {
                         emit({
                             type: 'reasoning-summary-delta',
@@ -235,7 +259,7 @@ export async function streamWithAISDK(options: StreamingOptions): Promise<{
                     }
                 }
             },
-            onStepFinish: ({ usage, toolCalls, toolResults, reasoning }) => {
+            onStepFinish: ({ usage, toolCalls, toolResults, reasoning, sources, text }) => {
                 stepCount++
 
                 // Handle usage
@@ -244,6 +268,11 @@ export async function streamWithAISDK(options: StreamingOptions): Promise<{
                     const completionTok = (usage as any).completionTokens || (usage as any).outputTokens || 0
                     totalPromptTokens += promptTok
                     totalCompletionTokens += completionTok
+                }
+
+                // Fallback for providers that return step text but skip text-delta chunks.
+                if (!fullText && typeof text === 'string' && text.length > 0) {
+                    fullText = text
                 }
 
                 // Handle reasoning from step finish
@@ -269,6 +298,7 @@ export async function streamWithAISDK(options: StreamingOptions): Promise<{
 
                 // Handle tool calls and results
                 if (toolCalls) {
+                    if (toolCalls.length > 0) sawToolCalls = true
                     for (const toolCall of toolCalls) {
                         if (!seenToolCalls.has(toolCall.toolCallId)) {
                             seenToolCalls.add(toolCall.toolCallId)
@@ -278,6 +308,24 @@ export async function streamWithAISDK(options: StreamingOptions): Promise<{
                                 toolName: toolCall.toolName,
                                 args: (toolCall as { args?: Record<string, unknown> }).args
                             })
+
+                            if (toolCall.toolName === 'web_search') {
+                                emit({
+                                    type: 'web-search-start',
+                                    searchId: toolCall.toolCallId,
+                                    action: 'search',
+                                    query: (toolCall as any).args?.query,
+                                })
+                            }
+                            if (toolCall.toolName === 'file_search') {
+                                emit({ type: 'file-search-start', searchId: toolCall.toolCallId })
+                            }
+                            if (toolCall.toolName === 'code_interpreter') {
+                                emit({
+                                    type: 'code-interpreter-start',
+                                    executionId: toolCall.toolCallId,
+                                })
+                            }
                         }
                         emit({
                             type: 'tool-call-done',
@@ -304,6 +352,72 @@ export async function streamWithAISDK(options: StreamingOptions): Promise<{
                             result: output,
                             success
                         })
+
+                        if (toolResult.toolName === 'web_search') {
+                            const actionType = (output as any)?.action?.type
+                            emit({
+                                type: 'web-search-done',
+                                searchId: toolResult.toolCallId,
+                                action:
+                                    actionType === 'openPage'
+                                        ? 'open_page'
+                                        : actionType === 'findInPage'
+                                            ? 'find_in_page'
+                                            : 'search',
+                                query: (output as any)?.action?.query,
+                                url: (output as any)?.action?.url,
+                                sources: Array.isArray((output as any)?.sources)
+                                    ? (output as any).sources
+                                        .filter((s: any) => s?.type === 'url' && s?.url)
+                                        .map((s: any) => ({ url: s.url }))
+                                    : undefined,
+                            })
+                        }
+
+                        if (toolResult.toolName === 'file_search') {
+                            emit({
+                                type: 'file-search-done',
+                                searchId: toolResult.toolCallId,
+                                results: (output as any)?.results ?? output,
+                            })
+                        }
+
+                        if (toolResult.toolName === 'code_interpreter') {
+                            const outputs = Array.isArray((output as any)?.outputs)
+                                ? (output as any).outputs
+                                : []
+                            const textOutput = outputs
+                                .filter((item: any) => item?.type === 'logs')
+                                .map((item: any) => item.logs || '')
+                                .join('\n')
+                            emit({
+                                type: 'code-interpreter-done',
+                                executionId: toolResult.toolCallId,
+                                output: textOutput,
+                            } as any)
+                        }
+                    }
+                }
+
+                if (sources && sources.length > 0) {
+                    const annotations = sources
+                        .filter((source: any) => source?.sourceType === 'url' && source?.url)
+                        .filter((source: any) => {
+                            const id = source.id || source.url
+                            if (!id || seenSourceIds.has(id)) return false
+                            seenSourceIds.add(id)
+                            return true
+                        })
+                        .map((source: any) => ({
+                            type: 'url_citation' as const,
+                            url: source.url,
+                            title: source.title,
+                            startIndex: 0,
+                            endIndex: 0,
+                        }))
+
+                    if (annotations.length > 0) {
+                        emit({ type: 'annotations', annotations })
                     }
                 }
 
@@ -330,25 +444,19 @@ export async function streamWithAISDK(options: StreamingOptions): Promise<{
             fullText = finalText
         }
 
-        // Check if stream completed with no text (likely due to rate limit or error)
-        // This can happen when Groq compound hits rate limits but doesn't throw an error
-        // We check if the stream started (stepCount > 0) but produced no text
-        if (!fullText && stepCount > 0) {
-            // Check if this looks like a rate limit scenario:
-            // - Stream completed but no text was generated
-            // - This is especially common with Groq compound models
-            const hasNoTokens = totalPromptTokens + totalCompletionTokens === 0
-            const hasMinimalTokens = totalPromptTokens > 0 && totalCompletionTokens === 0
-            
-            if (hasNoTokens || hasMinimalTokens) {
-                log.warn(`[AI SDK] Stream completed with no text (stepCount: ${stepCount}, tokens: ${totalPromptTokens}/${totalCompletionTokens}) - likely rate limit error`)
-                const rateLimitError = mapProviderError(provider, { 
-                    message: 'Rate limit reached. The stream completed but no response was generated. Please try again in a moment or switch to another model.',
-                    status: 429 
-                })
-                emit({ type: 'error', error: rateLimitError })
-                throw new Error(rateLimitError)
-            }
+        // Guardrail: a completed stream with no visible text and no tool calls
+        // should never fail silently. Convert it into a user-facing error.
+        if (!fullText && stepCount > 0 && !sawToolCalls) {
+            const likelyRateLimit = provider === 'groq' && totalPromptTokens > 0
+            const status = likelyRateLimit ? 429 : 500
+            const message = likelyRateLimit
+                ? 'Groq returned an empty completion after consuming prompt tokens. This usually indicates a transient rate limit; retry in a minute or switch models.'
+                : 'The model completed without returning any text. Please retry or switch model/provider.'
+
+            log.warn(
+                `[AI SDK] Empty completion (provider=${provider}, model=${modelId}, steps=${stepCount}, tokens=${totalPromptTokens}/${totalCompletionTokens}, sawToolCalls=${sawToolCalls})`
+            )
+            throw Object.assign(new Error(message), { status })
         }
 
         // Emit text done
@@ -450,20 +558,6 @@ export async function streamWithAISDK(options: StreamingOptions): Promise<{
         emit({ type: 'error', error: errorMessage })
         throw new Error(errorMessage)
     }
-}
-
-/**
- * Check if AI SDK v6 streaming should be used
- * This allows gradual rollout of the new implementation
- */
-export function shouldUseAISDK(
-    env: Record<string, string | undefined> = (import.meta as any).env ?? {}
-): boolean {
-    const raw =
-        env.MAIN_VITE_AI_SDK_STREAMING ??
-        env.AI_SDK_STREAMING ??
-        ''
-    return raw === 'true' || raw === '1'
 }
 
 // Re-export UI tool utilities for use in other modules

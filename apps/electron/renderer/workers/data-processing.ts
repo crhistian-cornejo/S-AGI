@@ -5,20 +5,11 @@
  * Falls back to main-thread execution if workers are unavailable.
  */
 
-interface WorkerRequest {
-  id: number;
-  type: "hasRealChanges" | "jsonStringify" | "deepEqual";
-  payload: any;
-}
-
-interface WorkerResponse {
-  id: number;
-  result?: any;
-  error?: string;
-}
+import type { WorkerRequest, WorkerResponse } from "@s-agi/core/types";
+import type { UniverSnapshot } from "@s-agi/core/types";
 
 type PendingRequest = {
-  resolve: (result: any) => void;
+  resolve: (result: unknown) => void;
   reject: (error: Error) => void;
 };
 
@@ -64,25 +55,30 @@ function getWorker(): Worker | null {
   }
 }
 
-function postToWorker<T>(type: WorkerRequest["type"], payload: any): Promise<T> {
+function postToWorker<T>(type: WorkerRequest["type"], payload: Record<string, unknown>): Promise<T> {
   const w = getWorker();
 
   // Fallback: run on main thread if worker unavailable
   if (!w) {
-    return Promise.resolve(runOnMainThread(type, payload));
+    return Promise.resolve(runOnMainThread(type, payload) as T);
   }
 
   const id = ++requestId;
   return new Promise((resolve, reject) => {
-    pending.set(id, { resolve, reject });
-    w.postMessage({ id, type, payload } satisfies WorkerRequest);
+    pending.set(id, { resolve: resolve as (v: unknown) => void, reject });
+    w.postMessage({ id, type, payload });
   });
 }
 
-function runOnMainThread(type: string, payload: any): any {
+interface SnapshotLike {
+  sheets?: Record<string, { cellData?: unknown; name?: string }>;
+}
+
+function runOnMainThread(type: string, payload: Record<string, unknown>): unknown {
   switch (type) {
     case "hasRealChanges": {
-      const { oldSnapshot, newSnapshot } = payload;
+      const oldSnapshot = payload.oldSnapshot as SnapshotLike | null;
+      const newSnapshot = payload.newSnapshot as SnapshotLike | null;
       if (!oldSnapshot || !newSnapshot) return false;
       if (oldSnapshot === newSnapshot) return false;
       const oldSheets = oldSnapshot.sheets || {};
@@ -109,20 +105,20 @@ function runOnMainThread(type: string, payload: any): any {
  * Check if two spreadsheet snapshots have real content changes.
  * Runs in a Web Worker to avoid blocking the UI during auto-save checks.
  */
-export function hasRealChangesAsync(oldSnapshot: any, newSnapshot: any): Promise<boolean> {
+export function hasRealChangesAsync(oldSnapshot: UniverSnapshot | null, newSnapshot: UniverSnapshot | null): Promise<boolean> {
   return postToWorker("hasRealChanges", { oldSnapshot, newSnapshot });
 }
 
 /**
  * Stringify a large object in a Web Worker.
  */
-export function jsonStringifyAsync(data: any): Promise<string> {
+export function jsonStringifyAsync(data: unknown): Promise<string> {
   return postToWorker("jsonStringify", { data });
 }
 
 /**
  * Deep equality check in a Web Worker.
  */
-export function deepEqualAsync(a: any, b: any): Promise<boolean> {
+export function deepEqualAsync(a: unknown, b: unknown): Promise<boolean> {
   return postToWorker("deepEqual", { a, b });
 }

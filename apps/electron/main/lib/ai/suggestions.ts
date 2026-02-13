@@ -1,4 +1,6 @@
-import OpenAI from "openai";
+import { generateText } from "ai";
+import { createOpenAI } from "@ai-sdk/openai";
+import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import log from "electron-log";
 
 /**
@@ -22,18 +24,15 @@ export async function generateSuggestions(
   baseURL?: string,
 ): Promise<string[]> {
   try {
-    const client = new OpenAI({
-      apiKey,
-      baseURL: baseURL || undefined,
-      timeout: 10_000, // 10s timeout — suggestions are non-critical
-    });
-
     // Choose a fast/cheap model based on the provider
+    // Ollama: use whatever model is available (the caller's model)
     // If baseURL is Z.AI, use GLM-4.7-Flash
     // If baseURL is Cerebras, use llama-3.3-70b (same as title generation)
     // Otherwise use gpt-4o-mini
+    const isOllama = baseURL && (baseURL.includes("11434") || baseURL.includes("ollama"));
     const model =
-      baseURL && baseURL.includes("z.ai") ? "GLM-4.7-Flash"
+      isOllama ? "llama3.1:8b"
+      : baseURL && baseURL.includes("z.ai") ? "GLM-4.7-Flash"
       : baseURL && baseURL.includes("cerebras") ? "llama-3.3-70b"
       : baseURL && baseURL.includes("groq.com") ? "llama-3.3-70b-versatile"
       : "gpt-4o-mini";
@@ -128,25 +127,24 @@ ${recentUserMessages ? `User context: ${recentUserMessages}\n\n` : ""}Generate 5
 
 Return ONLY: {"suggestions": ["...", "...", "...", "...", "..."]}`;
 
-    const response = await client.chat.completions.create({
-      model,
-      messages: [
-        {
-          role: "system",
-          content: systemPrompt,
-        },
-        {
-          role: "user",
-          content: userPrompt,
-        },
-      ],
-      // Only use response_format for OpenAI, for Z.AI rely on prompt
-      ...(isZai ? {} : { response_format: { type: "json_object" } }),
-      max_tokens: 200,
+    const modelProvider = !baseURL
+      ? createOpenAI({ apiKey })(model)
+      : createOpenAICompatible({
+          name: "suggestions",
+          apiKey,
+          baseURL,
+        }).chatModel(model);
+
+    const response = await generateText({
+      model: modelProvider as any,
+      system: systemPrompt,
+      prompt: userPrompt,
+      maxOutputTokens: 200,
       temperature: 0.7,
+      abortSignal: AbortSignal.timeout(10_000),
     });
 
-    const content = response.choices[0]?.message?.content;
+    const content = response.text?.trim();
     if (!content) {
       log.warn("[AI] Suggestions response content is empty");
       return DEFAULT_SUGGESTIONS;

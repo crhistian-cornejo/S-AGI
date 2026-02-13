@@ -95,7 +95,7 @@ import { router, publicProcedure } from "../trpc"; // ✅ Correcto
 | Tipo          | Tecnología         | Uso                           |
 | ------------- | ------------------ | ----------------------------- |
 | UI State      | Jotai              | sidebar, selected chat, theme |
-| Complex State | Zustand            | sub-chats, tabs               |
+| Complex State | Zustand            | queue stores, streaming status, send callbacks |
 | Server State  | React Query + tRPC | chats, messages, artifacts    |
 
 ### Jotai Atoms

@@ -775,6 +775,7 @@ export const MessageList = memo(function MessageList({
   onEditAndResend,
   onSwitchBranch,
 }: MessageListProps) {
+  const hasStreamingReasoning = (streamingReasoning ?? "").trim().length > 0;
   const streamingReasoningActions = useMemo(
     () => toReasoningToolActions(streamingToolCalls),
     [streamingToolCalls]
@@ -887,7 +888,7 @@ export const MessageList = memo(function MessageList({
             <div className="flex-1 min-w-0 space-y-2 pt-0.5 overflow-hidden">
                 {/* Reasoning section - shows ABOVE the text */}
                 {(isReasoning ||
-                  streamingReasoning ||
+                  hasStreamingReasoning ||
                   (streamingToolCalls && streamingToolCalls.length > 0) ||
                   (streamingAnnotations &&
                     streamingAnnotations.length > 0) ||
@@ -896,8 +897,8 @@ export const MessageList = memo(function MessageList({
                   (streamingCodeInterpreterExecs &&
                     streamingCodeInterpreterExecs.length > 0)) && (
                   <AgentReasoning
-                    content={streamingReasoning || ""}
-                    isStreaming={isReasoning}
+                    content={hasStreamingReasoning ? (streamingReasoning ?? "") : ""}
+                    isStreaming={isReasoning || hasStreamingReasoning}
                     actions={streamingReasoningActions}
                     annotations={streamingAnnotations}
                     webSearches={streamingWebSearches}
@@ -1058,15 +1059,16 @@ const MessageItem = memo(function MessageItem({
     if (!isAssistant) return [];
 
     const metadataActions = (message.metadata?.actions || []).filter(
-      (action) => action.type !== "tool"
+      (action) => action.type !== "tool" && action.type !== "model"
     );
     const toolActions = toReasoningToolActions(messageToolCallsForReasoning);
     return [...metadataActions, ...toolActions];
   }, [isAssistant, message.metadata?.actions, messageToolCallsForReasoning]);
 
+  const hasReasoningText = typeof reasoning === "string" && reasoning.trim().length > 0;
   const shouldRenderReasoning = Boolean(
     isAssistant &&
-      (reasoning ||
+      (hasReasoningText ||
         persistedReasoningActions.length > 0 ||
         (message.metadata?.annotations && message.metadata.annotations.length > 0) ||
         (message.metadata?.webSearches && message.metadata.webSearches.length > 0) ||

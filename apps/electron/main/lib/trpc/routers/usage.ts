@@ -3,7 +3,6 @@ import { router, publicProcedure } from "../trpc";
 import { supabase } from "../../supabase/client";
 import { isLocalStorageMode } from "../../storage";
 import { getUsageTracker } from "../../storage/usage-tracker";
-import log from "electron-log";
 
 const formatDate = (date: Date) => {
   const y = date.getFullYear();

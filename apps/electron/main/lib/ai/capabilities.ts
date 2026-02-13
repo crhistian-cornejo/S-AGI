@@ -1,5 +1,5 @@
-import type { AIProvider, ProviderCapabilities, ModelDefinition, ReasoningEffort } from '@s-agi/core/types/ai'
-import { getModelById, resolveModelForProvider } from '@s-agi/core/types/ai'
+import type { AIProvider, ProviderCapabilities, ReasoningEffort } from '@s-agi/core/types/ai'
+import { getModelById } from '@s-agi/core/types/ai'
 
 /**
  * Default capabilities per provider.
@@ -78,7 +78,11 @@ const PROVIDER_DEFAULTS: Record<AIProvider, Partial<ProviderCapabilities>> = {
         authType: 'api-key',
     },
     ollama: {
-        supportsTools: true,
+        // Tools/images/reasoning default to false; overridden per-model
+        // by capabilities detected from Ollama API metadata.
+        // Sending tools to models that don't support function calling
+        // causes errors or hallucinated tool calls.
+        supportsTools: false,
         supportsNativeWebSearch: false,
         supportsServerWebSearch: false,
         supportsCodeInterpreter: false,
@@ -156,11 +160,11 @@ export function getReasoningParams(
     if (!caps.supportsReasoning || !reasoningConfig) return {}
 
     const { effort } = reasoningConfig
-    if (effort === 'none') return {}
 
     switch (caps.reasoningParamFormat) {
         case 'cerebras':
             // @ai-sdk/cerebras: providerOptions.cerebras.reasoningEffort
+            if (effort === 'none') return {}
             return {
                 cerebras: {
                     reasoningEffort: effort,
@@ -169,6 +173,7 @@ export function getReasoningParams(
 
         case 'groq-gpt-oss':
             // @ai-sdk/groq: GPT-OSS models only support reasoningEffort (NOT reasoningFormat)
+            if (effort === 'none') return {}
             return {
                 groq: {
                     reasoningEffort: effort,
@@ -179,23 +184,31 @@ export function getReasoningParams(
             // @ai-sdk/groq: Qwen 3 uses 'none'|'default' for reasoningEffort
             return {
                 groq: {
-                    reasoningFormat: 'parsed',
-                    reasoningEffort: 'default',
+                    reasoningFormat: effort === 'none' ? 'hidden' : 'parsed',
+                    reasoningEffort: effort === 'none' ? 'none' : 'default',
                 },
             }
 
         case 'cerebras-toggle':
             // Cerebras qwen-3-32b and zai-glm-4.7: reasoning enabled by default.
             // These models use `disable_reasoning: boolean` (not reasoningEffort).
-            // When reasoning is requested, no extra param needed (it's on by default).
-            return {}
+            // @ai-sdk/cerebras uses openai-compatible under the hood, so unknown
+            // provider options are forwarded to the request body.
+            return {
+                cerebras: {
+                    disable_reasoning: effort === 'none',
+                },
+            }
 
         case 'zai-thinking':
             // Z.AI: pass thinking config via zai namespace.
             // Uses @ai-sdk/openai-compatible which passes unknown keys through to the API body.
             return {
                 zai: {
-                    thinking: { type: 'enabled', clear_thinking: false },
+                    thinking:
+                        effort === 'none'
+                            ? { type: 'disabled' }
+                            : { type: 'enabled', clear_thinking: false },
                 },
             }
 

@@ -6,6 +6,8 @@ import { processBase64Image, isProcessableImage, getExtensionForFormat } from '.
 import log from 'electron-log'
 import { getStorageAdapter, isLocalStorageMode } from '../../storage'
 
+const logger = log.scope('messages-router')
+
 /**
  * Map local message (camelCase) to Supabase format (snake_case)
  */
@@ -194,7 +196,7 @@ export const messagesRouter = router({
             parentMessageId: z.string().uuid().optional()
         }))
         .mutation(async ({ ctx, input }) => {
-            console.log('[MessagesRouter] add message, userId:', ctx.userId, 'chatId:', input.chatId);
+            logger.info('add message, userId:', ctx.userId, 'chatId:', input.chatId);
 
             // Map content to string if it is an object (renderer sends {type: 'text', text: '...'})
             let contentText = ''
@@ -244,10 +246,10 @@ export const messagesRouter = router({
                 .eq('user_id', ctx.userId)
                 .maybeSingle()
 
-            console.log('[MessagesRouter] Chat lookup result:', { chat, chatError });
+            logger.debug('Chat lookup result:', { chat, chatError });
 
             if (!chat) {
-                console.error('[MessagesRouter] Chat not found or access denied for user:', ctx.userId, 'chatId:', input.chatId);
+                logger.error('Chat not found or access denied for user:', ctx.userId, 'chatId:', input.chatId);
                 throw new Error('Chat not found or access denied')
             }
 
@@ -270,7 +272,7 @@ export const messagesRouter = router({
                 .maybeSingle()
 
             if (error) {
-                console.error('[MessagesRouter] Error inserting message:', error);
+                logger.error('Error inserting message:', error);
                 throw new Error(error.message);
             }
 
@@ -413,7 +415,7 @@ export const messagesRouter = router({
         }))
         .mutation(async ({ ctx, input }) => {
             const startTime = Date.now()
-            console.log('[MessagesRouter] Upload file:', input.fileName, 'for user:', ctx.userId);
+            logger.info('Upload file:', input.fileName, 'for user:', ctx.userId);
 
             let finalBuffer: Buffer
             let finalFileName = input.fileName
@@ -424,7 +426,7 @@ export const messagesRouter = router({
             // Process images for optimization
             if (input.optimize && isProcessableImage(input.fileType)) {
                 try {
-                    console.log('[MessagesRouter] Optimizing image...')
+                    logger.debug('Optimizing image...')
                     const processed = await processBase64Image(input.fileData, {
                         format: 'webp',
                         quality: input.quality,
@@ -447,9 +449,9 @@ export const messagesRouter = router({
                         ratio: processed.stats.compressionRatio
                     }
 
-                    console.log(`[MessagesRouter] Image optimized: ${(compressionInfo.originalSize / 1024).toFixed(0)}KB → ${(compressionInfo.processedSize / 1024).toFixed(0)}KB (${compressionInfo.ratio.toFixed(1)}x smaller)`)
+                    logger.info(`Image optimized: ${(compressionInfo.originalSize / 1024).toFixed(0)}KB → ${(compressionInfo.processedSize / 1024).toFixed(0)}KB (${compressionInfo.ratio.toFixed(1)}x smaller)`)
                 } catch (err) {
-                    console.warn('[MessagesRouter] Image optimization failed, uploading original:', err)
+                    logger.warn('Image optimization failed, uploading original:', err)
                     finalBuffer = Buffer.from(input.fileData, 'base64')
                 }
             } else {
@@ -483,7 +485,7 @@ export const messagesRouter = router({
                 const url = await adapter.fileStorage.getUrl('attachments', storagePath)
 
                 const totalTime = Date.now() - startTime
-                console.log(`[MessagesRouter] Local upload complete in ${totalTime}ms`)
+                logger.info(`Local upload complete in ${totalTime}ms`)
 
                 return {
                     id: randomId,
@@ -499,7 +501,7 @@ export const messagesRouter = router({
             // Verify session is active for storage RLS
             const { data: { session }, error: sessionError } = await supabase.auth.getSession()
             if (sessionError || !session) {
-                console.error('[MessagesRouter] No active session for storage upload:', sessionError);
+                logger.error('No active session for storage upload:', sessionError);
                 throw new Error('Authentication required for file upload. Please sign in again.')
             }
 
@@ -512,7 +514,7 @@ export const messagesRouter = router({
                 })
 
             if (uploadError) {
-                console.error('[MessagesRouter] Upload error:', uploadError);
+                logger.error('Upload error:', uploadError);
                 throw new Error(`Upload failed: ${uploadError.message}`)
             }
 
@@ -522,12 +524,12 @@ export const messagesRouter = router({
                 .createSignedUrl(storagePath, 60 * 60) // 1 hour TTL
 
             if (signedUrlError) {
-                console.error('[MessagesRouter] Signed URL error:', signedUrlError);
+                logger.error('Signed URL error:', signedUrlError);
                 throw new Error(`Failed to generate signed URL: ${signedUrlError.message}`)
             }
 
             const totalTime = Date.now() - startTime
-            console.log(`[MessagesRouter] Upload complete in ${totalTime}ms`)
+            logger.info(`Upload complete in ${totalTime}ms`)
 
             return {
                 id: randomId,
@@ -585,7 +587,7 @@ export const messagesRouter = router({
             messageId: z.string().uuid(),
             childId: z.string().uuid().nullable()
         }))
-        .mutation(async ({ ctx, input }) => {
+        .mutation(async ({ input }) => {
             if (isLocalStorageMode()) {
                 log.debug('[Messages] Local mode - setActiveChild:', input.messageId, '->', input.childId)
                 const adapter = await getStorageAdapter()

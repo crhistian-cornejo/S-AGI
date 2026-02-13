@@ -4,6 +4,7 @@
  * Calcula estadísticas compactas de cambios para mostrar en version cards
  */
 
+import type { UniverSnapshot } from "@s-agi/core/types";
 import { diffWorkbooks } from "./univer-diff";
 
 export interface DiffStats {
@@ -21,8 +22,8 @@ export interface DiffStats {
  * Calcula estadísticas compactas de diferencias entre dos snapshots
  */
 export function calculateDiffStats(
-  oldSnapshot: any,
-  newSnapshot: any,
+  oldSnapshot: UniverSnapshot | null | undefined,
+  newSnapshot: UniverSnapshot | null | undefined,
 ): DiffStats {
   if (!oldSnapshot || !newSnapshot) {
     return {
@@ -106,7 +107,7 @@ export function calculateDiffStats(
  * Compara dos snapshots para determinar si hay cambios reales
  * Ignora metadatos superficiales que no afectan el contenido
  */
-export function hasRealChanges(oldSnapshot: any, newSnapshot: any): boolean {
+export function hasRealChanges(oldSnapshot: UniverSnapshot | null | undefined, newSnapshot: UniverSnapshot | null | undefined): boolean {
   if (!oldSnapshot || !newSnapshot) return false;
 
   // Quick check: if they're the same object reference, no changes
@@ -152,7 +153,7 @@ export function hasRealChanges(oldSnapshot: any, newSnapshot: any): boolean {
 /**
  * Compara dos snapshots usando estadísticas detalladas (más costoso pero más preciso)
  */
-export function hasRealChangesDetailed(oldSnapshot: any, newSnapshot: any): boolean {
+export function hasRealChangesDetailed(oldSnapshot: UniverSnapshot | null | undefined, newSnapshot: UniverSnapshot | null | undefined): boolean {
   if (!oldSnapshot || !newSnapshot) return false;
 
   const stats = calculateDiffStats(oldSnapshot, newSnapshot);
