@@ -12,8 +12,9 @@ import log from 'electron-log'
 
 /**
  * Get allowed renderer origins (dev server URLs)
+ * Shared across main process modules for consistent origin validation.
  */
-function getRendererOrigins(): string[] {
+export function getRendererOrigins(): string[] {
   const isDev = process.env.NODE_ENV === 'development' || process.env.ELECTRON_RENDERER_URL
   if (isDev && process.env.ELECTRON_RENDERER_URL) {
     try {
@@ -23,6 +24,17 @@ function getRendererOrigins(): string[] {
     }
   }
   return []
+}
+
+/**
+ * Check if a URL belongs to a trusted renderer origin
+ */
+export function isTrustedRendererUrl(url: string, allowedOrigins: string[]): boolean {
+  try {
+    return allowedOrigins.includes(new URL(url).origin)
+  } catch {
+    return false
+  }
 }
 
 /**
@@ -40,9 +52,7 @@ export function validateIPCSender(sender: WebContents): boolean {
 
     // Allow messages from trusted dev origins
     const rendererOrigins = getRendererOrigins()
-    const isTrustedOrigin = rendererOrigins.some((origin) =>
-      url.startsWith(origin)
-    )
+    const isTrustedOrigin = isTrustedRendererUrl(url, rendererOrigins)
 
     if (!isTrustedOrigin) {
       log.warn(

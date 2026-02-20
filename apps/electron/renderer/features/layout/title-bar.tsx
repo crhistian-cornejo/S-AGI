@@ -61,7 +61,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { cn, isMacOS, isElectron, isWindows } from "@/lib/utils";
+import { cn, isMacOS, isElectron, isWindows, isLinux } from "@/lib/utils";
 import { HamburgerMenu } from "./hamburger-menu";
 import { ShareSessionButton } from "@/features/chat/share-session-dialog";
 import { toast } from "sonner";
@@ -162,7 +162,8 @@ export function TitleBar({ className, noTrafficLightSpace }: TitleBarProps) {
   const updateDownloadPercent = useAtomValue(updateDownloadPercentAtom);
   const { data: keyStatus } = trpc.settings.getApiKeyStatus.useQuery();
 
-  const isWindowsApp = isWindows();
+  // Windows and Linux both need custom window controls (macOS uses native traffic lights)
+  const isWindowsApp = isWindows() || isLinux();
   const showWindowsLeftLogo =
     isWindowsApp &&
     !sidebarOpen &&

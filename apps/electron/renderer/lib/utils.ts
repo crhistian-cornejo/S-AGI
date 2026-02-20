@@ -39,6 +39,16 @@ export function isWindows(): boolean {
 }
 
 /**
+ * Check if running on Linux
+ */
+export function isLinux(): boolean {
+    if (isElectron()) {
+        return window.desktopApi?.platform === 'linux'
+    }
+    return typeof navigator !== 'undefined' && /Linux/.test(navigator.userAgent)
+}
+
+/**
  * Get keyboard shortcut modifier key
  */
 export function getModifierKey(): string {

@@ -67,7 +67,7 @@ import {
   AgentReasoning,
   type AgentReasoningAction,
 } from "@/features/agent";
-import type { AgentToolCallFlat as _AgentToolCallFlat } from "./agent-tool-call-flat";
+import type { AgentToolCallFlat as _AgentToolCallFlat, ToolCall } from "./agent-tool-call-flat";
 void (0 as unknown as typeof _AgentToolCallFlat); // Type-only import marker
 import { TaskProgressPanel, type TaskItem } from "./task-progress-panel";
 import { MessageCheckpointRestore } from "./message-checkpoint-restore";
@@ -374,9 +374,9 @@ const AgentMessage = memo(function AgentMessage({
           toolCall: {
             id: tc.toolCallId,
             name: tc.toolName,
-            args: tc.args as any,
+            args: typeof tc.args === "string" ? tc.args : JSON.stringify(tc.args ?? {}),
             result: tc.result,
-            status: tc.status === "executing" ? "streaming" : tc.status === "done" ? "complete" : tc.status as any
+            status: tc.status === "executing" ? "streaming" : tc.status === "done" ? "complete" : tc.status as ToolCall["status"]
           }
         });
       });
@@ -788,9 +788,9 @@ const ModelSelector = memo(function ModelSelector({
                 >
                   <div className="flex items-center gap-2">
                     <span>{model.name}</span>
-                    {(model as any)._parameterSize && (
+                    {"_parameterSize" in model && model._parameterSize && (
                       <span className="text-[8px] text-muted-foreground/60 ml-auto">
-                        {(model as any)._parameterSize}
+                        {model._parameterSize}
                       </span>
                     )}
                   </div>

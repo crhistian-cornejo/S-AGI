@@ -61,6 +61,7 @@ import {
   getToolStatus,
   type AgentReasoningAction,
   type PlanStep,
+  type EditResult,
   type ToolPart,
 } from "@/features/agent";
 
@@ -1223,21 +1224,6 @@ const MessageItem = memo(function MessageItem({
                 </TooltipTrigger>
                 <TooltipContent side="top">Copy</TooltipContent>
               </Tooltip>
-              {onFork && (
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <button
-                      type="button"
-                      onClick={onFork}
-                      className="p-1.5 rounded-md transition-[background-color,transform] duration-150 ease-out hover:bg-accent text-muted-foreground active:scale-[0.97]"
-                      aria-label="Fork from here"
-                    >
-                      <IconGitFork size={16} />
-                    </button>
-                  </TooltipTrigger>
-                  <TooltipContent side="top">Fork from here</TooltipContent>
-                </Tooltip>
-              )}
             </div>
           )}
         </div>
@@ -1623,7 +1609,7 @@ const AgentToolRenderer = memo(function AgentToolRenderer({
         toolCallId={toolCall.id}
         args={toEditArgs(input)}
         result={
-          isRecord(toolCall.result) ? (toolCall.result as any) : undefined
+          isRecord(toolCall.result) ? (toolCall.result as unknown as EditResult) : undefined
         }
         status={LEGACY_STATUS_MAP[toolCall.status]}
       />

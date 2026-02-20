@@ -19,7 +19,7 @@ import { Badge } from "@/components/ui/badge";
 import { TextShimmer } from "@/components/ui/text-shimmer";
 import { AgentToolRegistry, getToolStatus, type ToolPart } from "./agent-tool-registry";
 import { AgentGeneratedImage } from "./agent-generated-image";
-import { AgentGeneratedChart } from "./agent-generated-chart";
+import { AgentGeneratedChart, type ChartConfigInput } from "./agent-generated-chart";
 
 // ============================================================================
 // TYPES
@@ -333,7 +333,7 @@ const ToolCallItem = memo(function ToolCallItem({
       : [undefined, range];
 
     // Send IPC to highlight cells in spreadsheet
-    (window as any).desktopApi?.highlightCells?.({
+    window.desktopApi?.highlightCells?.({
       range: cellPart,
       sheetName: sheetPart,
     });
@@ -414,7 +414,7 @@ const ToolCallItem = memo(function ToolCallItem({
         <div className={cn("mt-2", contentOffsetClass)}>
           <AgentGeneratedChart
             artifactId={chartData.artifactId}
-            chartConfig={chartData.chartConfig as any}
+            chartConfig={chartData.chartConfig as ChartConfigInput}
             title={chartData.title}
             onViewInPanel={onViewArtifact}
           />

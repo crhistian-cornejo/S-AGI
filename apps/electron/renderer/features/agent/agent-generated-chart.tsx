@@ -9,7 +9,7 @@ import type { ChartViewerRef } from '@/features/charts/chart-viewer'
 // Lazy load ChartViewer to avoid circular dependencies
 const ChartViewer = lazy(() => import('@/features/charts/chart-viewer').then(m => ({ default: m.ChartViewer })))
 
-interface ChartConfigInput {
+export interface ChartConfigInput {
     type: string
     data: {
         labels: string[]

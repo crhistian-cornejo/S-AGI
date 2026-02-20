@@ -4,6 +4,7 @@ import {
   Tray,
   Menu,
   nativeImage,
+  screen,
   session,
   shell,
   dialog,
@@ -21,6 +22,7 @@ import { initializeStorage, closeStorage } from "./lib/storage";
 import { getHotkeyManager, getHotkeyStore } from "./lib/hotkeys";
 import { registerFileManagerIpc } from "./lib/file-manager/ipc";
 import { registerSecurityIpc } from "./lib/security/ipc";
+import { getRendererOrigins, isTrustedRendererUrl } from "./lib/security/ipc-validation";
 import { getFileManager } from "./lib/file-manager/file-manager";
 import { lockSensitiveNow } from "./lib/security/sensitive-lock";
 import { getPreferencesStore } from "./lib/preferences-store";
@@ -226,11 +228,11 @@ async function getTraySpreadsheets(): Promise<
 
     if (error) throw new Error(error.message);
 
-    return (data || []).map((row: any) => ({
-      id: row.id,
-      name: row.name,
-      updatedAt: row.updated_at,
-      chatId: row.chat_id ?? undefined,
+    return (data || []).map((row) => ({
+      id: row.id as string,
+      name: row.name as string,
+      updatedAt: row.updated_at as string,
+      chatId: (row.chat_id as string | null) ?? undefined,
     }));
   } catch (error) {
     log.error("[Tray] Failed to get spreadsheets:", error);
@@ -240,7 +242,7 @@ async function getTraySpreadsheets(): Promise<
 
 async function getTraySpreadsheetData(
   artifactId: string
-): Promise<{ id: string; name: string; univerData: any } | null> {
+): Promise<{ id: string; name: string; univerData: unknown } | null> {
   if (!getAppPreferences().trayEnabled) {
     return null;
   }
@@ -331,29 +333,31 @@ async function getTrayCitations(): Promise<
     }> = [];
 
     for (const row of data || []) {
-      const annotations = (row as any)?.metadata?.annotations || [];
+      const metadata = row.metadata as Record<string, unknown> | null;
+      const annotations = (metadata?.annotations as unknown[]) || [];
       if (!Array.isArray(annotations)) continue;
-      annotations.forEach((a: any, idx: number) => {
-        if (a?.type === "url_citation" && a.url) {
+      annotations.forEach((a: unknown, idx: number) => {
+        const annotation = a as Record<string, unknown> | null;
+        if (annotation?.type === "url_citation" && annotation.url) {
           items.push({
             id: `${row.id}-url-${idx}`,
             kind: "url",
-            label: a.title || a.url,
-            url: a.url,
+            label: (annotation.title as string) || (annotation.url as string),
+            url: annotation.url as string,
             chatId: row.chat_id,
             messageId: row.id,
             createdAt: row.created_at,
-            startIndex: a.startIndex,
-            endIndex: a.endIndex,
+            startIndex: annotation.startIndex as number | undefined,
+            endIndex: annotation.endIndex as number | undefined,
           });
         }
-        if (a?.type === "file_citation" && a.fileId) {
+        if (annotation?.type === "file_citation" && annotation.fileId) {
           items.push({
             id: `${row.id}-file-${idx}`,
             kind: "file",
-            label: a.filename || "Archivo",
-            filename: a.filename || "Archivo",
-            fileId: a.fileId,
+            label: (annotation.filename as string) || "Archivo",
+            filename: (annotation.filename as string) || "Archivo",
+            fileId: annotation.fileId as string,
             chatId: row.chat_id,
             messageId: row.id,
             createdAt: row.created_at,
@@ -423,7 +427,6 @@ function createTrayPopover(): BrowserWindow {
 
 // ═══ QUICK PROMPT WINDOW (Spotlight-style floating input) ═══
 function createQuickPromptWindow(): BrowserWindow {
-  const { screen } = require("electron");
   const primaryDisplay = screen.getPrimaryDisplay();
   const { width: screenWidth, height: screenHeight } =
     primaryDisplay.workAreaSize;
@@ -495,7 +498,6 @@ function showQuickPromptWindow(): void {
     quickPromptWindow = createQuickPromptWindow();
   }
 
-  const { screen } = require("electron");
   const cursorPoint = screen.getCursorScreenPoint();
   const display = screen.getDisplayNearestPoint(cursorPoint);
 
@@ -541,12 +543,22 @@ function showTrayPopover(): void {
     // macOS: Below the menu bar
     y = Math.round(trayBounds.y + trayBounds.height + 4);
   } else {
-    // Windows/Linux: Above the taskbar (tray is at bottom)
-    y = Math.round(trayBounds.y - 650 - 4); // Use 650 as logical height
+    // Windows/Linux: Detect if taskbar is at top or bottom based on tray Y position
+    const nearestDisplay = screen.getDisplayNearestPoint({
+      x: trayBounds.x,
+      y: trayBounds.y,
+    });
+    const isTaskbarAtTop = trayBounds.y < nearestDisplay.workArea.y + nearestDisplay.workArea.height / 2;
+    if (isTaskbarAtTop) {
+      // Taskbar at top: show popover below tray
+      y = Math.round(trayBounds.y + trayBounds.height + 4);
+    } else {
+      // Taskbar at bottom: show popover above tray
+      y = Math.round(trayBounds.y - 650 - 4); // Use 650 as logical height
+    }
   }
 
   // Ensure popover stays on screen
-  const { screen } = require("electron");
   const display = screen.getDisplayNearestPoint({
     x: trayBounds.x,
     y: trayBounds.y,
@@ -565,16 +577,9 @@ function showTrayPopover(): void {
   trayPopover.focus();
 }
 
-function getRendererOrigins(): string[] {
-  if (is.dev && process.env.ELECTRON_RENDERER_URL) {
-    return [new URL(process.env.ELECTRON_RENDERER_URL).origin];
-  }
-  return [];
-}
-
 function isAllowedNavigation(url: string, allowedOrigins: string[]): boolean {
   if (url.startsWith("file://")) return true;
-  return allowedOrigins.some((origin) => url.startsWith(origin));
+  return isTrustedRendererUrl(url, allowedOrigins);
 }
 
 function attachNavigationGuards(
@@ -608,6 +613,24 @@ function attachNavigationGuards(
 }
 
 /**
+ * Check if an IP address is in a private/reserved range (RFC 1918 + loopback)
+ * Covers: 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 127.0.0.0/8
+ */
+function isPrivateIP(hostname: string): boolean {
+  const parts = hostname.split(".").map(Number);
+  if (parts.length !== 4 || parts.some((p) => isNaN(p) || p < 0 || p > 255)) {
+    return false;
+  }
+  const [a, b] = parts;
+  return (
+    a === 10 ||                          // 10.0.0.0/8
+    (a === 172 && b >= 16 && b <= 31) || // 172.16.0.0/12
+    (a === 192 && b === 168) ||          // 192.168.0.0/16
+    a === 127                            // 127.0.0.0/8
+  );
+}
+
+/**
  * Validate if a URL is safe to open externally
  * Security recommendation #15: Do not use shell.openExternal with untrusted content
  */
@@ -624,35 +647,17 @@ function isSafeForExternalOpen(url: string): boolean {
       return false;
     }
 
-    // Block localhost/private IP ranges (except 127.0.0.1 which is used for dev server)
+    // Block localhost/private IP ranges (RFC 1918 + loopback)
+    // Allow 127.0.0.1 for dev server, but block all other private addresses
     const hostname = parsedUrl.hostname.toLowerCase();
-    if (
-      hostname === "localhost" ||
-      hostname.startsWith("127.") ||
-      hostname.startsWith("192.168.") ||
-      hostname.startsWith("10.") ||
-      hostname.startsWith("172.16.") ||
-      hostname.startsWith("172.17.") ||
-      hostname.startsWith("172.18.") ||
-      hostname.startsWith("172.19.") ||
-      hostname.startsWith("172.20.") ||
-      hostname.startsWith("172.21.") ||
-      hostname.startsWith("172.22.") ||
-      hostname.startsWith("172.23.") ||
-      hostname.startsWith("172.24.") ||
-      hostname.startsWith("172.25.") ||
-      hostname.startsWith("172.26.") ||
-      hostname.startsWith("172.27.") ||
-      hostname.startsWith("172.28.") ||
-      hostname.startsWith("172.29.") ||
-      hostname.startsWith("172.30.") ||
-      hostname.startsWith("172.31.")
-    ) {
-      // Allow 127.0.0.1 for dev server, but log others
-      if (hostname !== "127.0.0.1") {
-        log.warn(`[Security] Blocked private IP range: ${hostname}`);
-        return false;
-      }
+    if (hostname === "localhost") {
+      log.warn(`[Security] Blocked localhost: ${hostname}`);
+      return false;
+    }
+
+    if (isPrivateIP(hostname) && hostname !== "127.0.0.1") {
+      log.warn(`[Security] Blocked private IP range: ${hostname}`);
+      return false;
     }
 
     return true;
@@ -707,9 +712,7 @@ function registerPermissionRequestHandler(): void {
       // Only allow permissions for local content (file://) or trusted dev origins
       const rendererOrigins = getRendererOrigins();
       const isLocal = url.startsWith("file://");
-      const isTrustedOrigin = rendererOrigins.some((origin) =>
-        url.startsWith(origin)
-      );
+      const isTrustedOrigin = isTrustedRendererUrl(url, rendererOrigins);
 
       if (!isLocal && !isTrustedOrigin) {
         log.warn(
@@ -759,9 +762,7 @@ function registerPermissionRequestHandler(): void {
       const url = webContents?.getURL() ?? "";
       const rendererOrigins = getRendererOrigins();
       const isLocal = url.startsWith("file://");
-      const isTrustedOrigin = rendererOrigins.some((origin) =>
-        url.startsWith(origin)
-      );
+      const isTrustedOrigin = isTrustedRendererUrl(url, rendererOrigins);
 
       if (!isLocal && !isTrustedOrigin) {
         log.warn(
@@ -937,6 +938,11 @@ function createWindow(): void {
     ...(process.platform === "win32" && {
       backgroundColor: "#00000000",
       transparent: false,
+      backgroundMaterial: "mica", // Windows 11 Mica effect
+    }),
+    // Linux: Use standard frame with hidden menu bar for better DE integration
+    ...(process.platform === "linux" && {
+      autoHideMenuBar: true,
     }),
     icon:
       process.platform === "darwin"
@@ -1106,7 +1112,6 @@ app.whenReady().then(async () => {
     log.error("[App] Failed to initialize local storage:", error);
     // Show error dialog in production
     if (!is.dev) {
-      const { dialog } = require("electron");
       dialog.showErrorBox(
         "Storage Initialization Error",
         `Failed to initialize local storage: ${

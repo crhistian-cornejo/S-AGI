@@ -232,8 +232,10 @@ const ExploringToolItem = memo(function ExploringToolItem({
       {subtitle && (
         <span
           className="text-muted-foreground/60 truncate"
-          dangerouslySetInnerHTML={{ __html: subtitle }}
-        />
+          title={subtitle}
+        >
+          {subtitle}
+        </span>
       )}
     </div>
   )
